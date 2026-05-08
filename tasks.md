@@ -21,13 +21,13 @@
 - [x] Add package-level and starter integration tests.
 
 ## Phase 3 - Frontend Modular Package
-- [ ] Create packages/web/ops-admin-web.
-- [ ] Extract shared layout, request client, auth flow, menu, and stores.
-- [ ] Add module registration API for identity_access.
-- [ ] Add module registration API for appearance.
-- [ ] Add module registration API for llm_runtime.
-- [ ] Update starter to consume @edisonlil/ops-admin-web.
-- [ ] Verify starter build with LLM enabled and disabled.
+- [x] Create packages/web/ops-admin-web.
+- [x] Extract shared layout, request client, auth flow, menu, and stores.
+- [x] Add module registration API for identity_access.
+- [x] Add module registration API for appearance.
+- [x] Add module registration API for llm_runtime.
+- [x] Update starter to consume @edisonlil/ops-admin-web.
+- [x] Verify starter build with LLM enabled and disabled.
 
 ## Phase 4 - Skill Automation
 - [ ] Create skills/ops-admin-platform.

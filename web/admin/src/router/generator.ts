@@ -2,6 +2,7 @@ import { constantRouterIcon } from './icons';
 import { RouteRecordRaw } from 'vue-router';
 import { Layout, ParentLayout } from '@/router/constant';
 import type { AppRouteRecordRaw } from '@/router/types';
+import { filterOpsAdminMenuTree, isOpsAdminMenuAllowed } from '@edisonlil/ops-admin-web';
 
 const Iframe = () => import('@/views/iframe/index.vue');
 const LayoutMap = new Map<string, () => Promise<typeof import('*.vue')>>();
@@ -101,6 +102,10 @@ function visibleSortedMenus(items: BackendMenu[] = []) {
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
 }
 
+function moduleVisibleMenus(items: BackendMenu[] = []) {
+  return filterOpsAdminMenuTree(visibleSortedMenus(items), isOpsAdminMenuAllowed) as BackendMenu[];
+}
+
 function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
   const key = String(menu.key || '').trim();
   const children = visibleSortedMenus(menu.children);
@@ -169,7 +174,7 @@ export const generateRoutes = (routerMap, parent?): any[] => {
 };
 
 export const generateDynamicRoutes = async (menus: BackendMenu[] = []): Promise<RouteRecordRaw[]> => {
-  const backendRoutes = visibleSortedMenus(menus).map((menu) => menuToBackendRoute(menu));
+  const backendRoutes = moduleVisibleMenus(menus).map((menu) => menuToBackendRoute(menu));
   const router = generateRoutes(backendRoutes);
   asyncImportRoute(router);
   return router;

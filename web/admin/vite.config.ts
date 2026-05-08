@@ -30,6 +30,14 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
     resolve: {
       alias: [
         {
+          find: /^@edisonlil\/ops-admin-web$/,
+          replacement: pathResolve('../../packages/web/ops-admin-web/src/index.ts'),
+        },
+        {
+          find: /^@edisonlil\/ops-admin-web\//,
+          replacement: pathResolve('../../packages/web/ops-admin-web/src') + '/',
+        },
+        {
           find: /\/#\//,
           replacement: pathResolve('types') + '/',
         },

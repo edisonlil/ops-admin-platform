@@ -5,8 +5,11 @@ import { setupNaiveDiscreteApi, setupNaive, setupDirectives } from '@/plugins';
 import App from './App.vue';
 import router, { setupRouter } from './router';
 import { setupStore } from '@/store';
+import { setupStarterModules } from './modules';
 
 async function bootstrap() {
+  setupStarterModules();
+
   const app = createApp(App);
 
   // 挂载状态管理

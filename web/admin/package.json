@@ -1,5 +1,5 @@
 {
-  "name": "@edisonlil/ops-admin-web",
+  "name": "ops-admin-platform-starter",
   "version": "0.1.0",
   "author": {
     "name": "edisonlil"
@@ -29,6 +29,7 @@
     "@vicons/ionicons5": "^0.12.0",
     "@vueup/vue-quill": "^1.2.0",
     "@vueuse/core": "^9.13.0",
+    "@edisonlil/ops-admin-web": "file:../../packages/web/ops-admin-web",
     "alova": "^3.3.4",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.18",

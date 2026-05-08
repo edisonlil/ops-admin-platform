@@ -27,6 +27,12 @@
     "noImplicitAny": false,
     "skipLibCheck": true,
     "paths": {
+      "@edisonlil/ops-admin-web": [
+        "../../packages/web/ops-admin-web/src/index.ts"
+      ],
+      "@edisonlil/ops-admin-web/*": [
+        "../../packages/web/ops-admin-web/src/*"
+      ],
       "@/*": [
         "src/*"
       ],
@@ -40,6 +46,7 @@
     "src/**/*.d.ts",
     "src/**/*.tsx",
     "src/**/*.vue",
+    "../../packages/web/ops-admin-web/src/**/*.ts",
     "types/**/*.d.ts",
     "types/**/*.ts",
     "build/**/*.ts",
