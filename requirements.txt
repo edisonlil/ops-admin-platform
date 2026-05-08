@@ -6,3 +6,7 @@ SQLAlchemy
 fastapi-login
 pwdlib[argon2]
 python-multipart
+-e packages/python/ops-admin-system
+-e packages/python/ops-admin-identity-access
+-e packages/python/ops-admin-appearance
+-e packages/python/ops-admin-llm-runtime

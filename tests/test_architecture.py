@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON_PACKAGES_ROOT = ROOT / "packages" / "python"
 BOUNDED_CONTEXTS = {
-    "appearance",
-    "identity_access",
-    "llm_runtime",
-    "system",
+    "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
+    "identity_access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access" / "src" / "identity_access",
+    "llm_runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime" / "src" / "llm_runtime",
+    "system": PYTHON_PACKAGES_ROOT / "ops-admin-system" / "src" / "system",
+}
+PACKAGE_DIRS = {
+    "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
+    "ops-admin-identity-access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access",
+    "ops-admin-llm-runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime",
+    "ops-admin-system": PYTHON_PACKAGES_ROOT / "ops-admin-system",
 }
 FORBIDDEN_DOMAIN_IMPORTS = {
     "fastapi",
@@ -42,8 +50,8 @@ def imported_modules(path: Path) -> set[str]:
 
 def test_domain_packages_do_not_import_framework_or_database_adapters() -> None:
     violations: list[str] = []
-    for context in BOUNDED_CONTEXTS:
-        domain_path = ROOT / context / "domain"
+    for context, context_path in BOUNDED_CONTEXTS.items():
+        domain_path = context_path / "domain"
         if not domain_path.exists():
             continue
         for path in python_files(domain_path):
@@ -55,15 +63,14 @@ def test_domain_packages_do_not_import_framework_or_database_adapters() -> None:
 
 def test_contexts_do_not_import_other_context_infrastructure_directly() -> None:
     violations: list[str] = []
-    for context in BOUNDED_CONTEXTS:
-        context_path = ROOT / context
+    for context, context_path in BOUNDED_CONTEXTS.items():
         if not context_path.exists():
             continue
         for path in python_files(context_path):
             if "infrastructure" in path.relative_to(context_path).parts:
                 continue
             source = path.read_text(encoding="utf-8")
-            for other in BOUNDED_CONTEXTS - {context}:
+            for other in set(BOUNDED_CONTEXTS) - {context}:
                 forbidden = f"{other}.infrastructure"
                 if forbidden in source:
                     violations.append(f"{path.relative_to(ROOT)} imports {forbidden}")
@@ -77,8 +84,8 @@ def test_legacy_top_level_packages_are_not_reintroduced() -> None:
 
 def test_each_context_owns_persistence_sql_resources() -> None:
     violations: list[str] = []
-    for context in BOUNDED_CONTEXTS:
-        persistence_path = ROOT / context / "infrastructure" / "persistence"
+    for context, context_path in BOUNDED_CONTEXTS.items():
+        persistence_path = context_path / "infrastructure" / "persistence"
         for filename in REQUIRED_PERSISTENCE_FILES:
             if not (persistence_path / filename).exists():
                 violations.append(f"{context} missing infrastructure/persistence/{filename}")
@@ -87,7 +94,7 @@ def test_each_context_owns_persistence_sql_resources() -> None:
 
 def test_identity_access_does_not_depend_on_api_or_business_infrastructure() -> None:
     violations: list[str] = []
-    identity_path = ROOT / "identity_access"
+    identity_path = BOUNDED_CONTEXTS["identity_access"]
     for path in python_files(identity_path):
         source = path.read_text(encoding="utf-8")
         for forbidden in ("from api ", "import api\n", "import api.", "llm_runtime.infrastructure"):
@@ -102,10 +109,13 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         ROOT / "scripts" / "init_identity_access.py",
         ROOT / "scripts" / "init_llm_runtime.py",
         ROOT / "scripts" / "init_appearance.py",
-        ROOT / "appearance" / "infrastructure" / "persistence" / "bootstrap.py",
-        ROOT / "identity_access" / "infrastructure" / "persistence" / "common.py",
-        ROOT / "identity_access" / "infrastructure" / "persistence" / "bootstrap.py",
-        ROOT / "llm_runtime" / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["appearance"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["appearance"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["identity_access"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "common.py",
+        BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["llm_runtime"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["llm_runtime"] / "infrastructure" / "persistence" / "bootstrap.py",
     }
     forbidden = {
         "initialize_auth_storage",
@@ -116,8 +126,9 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         "_ensure_tenant_schema",
         "ensure_appearance_schema",
     }
-    for package in BOUNDED_CONTEXTS | {"api"}:
-        for path in python_files(ROOT / package):
+    package_paths = [*BOUNDED_CONTEXTS.values(), ROOT / "api"]
+    for package_path in package_paths:
+        for path in python_files(package_path):
             if path in allowed_files:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -145,10 +156,44 @@ def test_api_package_stays_entrypoint_only() -> None:
 
 def test_llm_core_stays_business_agnostic() -> None:
     violations: list[str] = []
-    llm_core_path = ROOT / "framework" / "llm_core"
-    forbidden = BOUNDED_CONTEXTS | {"api", "fp_recommender"}
+    llm_core_path = PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime" / "src" / "framework" / "llm_core"
+    forbidden = set(BOUNDED_CONTEXTS) | {"api", "fp_recommender"}
     for path in python_files(llm_core_path):
         imports = imported_modules(path) & forbidden
         if imports:
             violations.append(f"{path.relative_to(ROOT)} imports {', '.join(sorted(imports))}")
+    assert not violations, "\n".join(violations)
+
+
+def test_python_packages_have_required_metadata_and_entrypoints() -> None:
+    expected = {
+        "ops-admin-system": ("system", "system.entrypoints:router", "system.entrypoints:init_tasks"),
+        "ops-admin-identity-access": (
+            "identity_access",
+            "identity_access.entrypoints:router",
+            "identity_access.entrypoints:init_tasks",
+        ),
+        "ops-admin-appearance": ("appearance", "appearance.entrypoints:router", "appearance.entrypoints:init_tasks"),
+        "ops-admin-llm-runtime": ("llm_runtime", "llm_runtime.entrypoints:router", "llm_runtime.entrypoints:init_tasks"),
+    }
+    violations: list[str] = []
+    for package_name, (module_name, router_entrypoint, init_entrypoint) in expected.items():
+        package_dir = PACKAGE_DIRS[package_name]
+        pyproject_path = package_dir / "pyproject.toml"
+        if not pyproject_path.exists():
+            violations.append(f"{package_name} missing pyproject.toml")
+            continue
+        metadata = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+        project = metadata["project"]
+        if project["name"] != package_name:
+            violations.append(f"{package_name} has project.name {project['name']}")
+        if not (package_dir / "src" / module_name / "entrypoints.py").exists():
+            violations.append(f"{package_name} missing {module_name}.entrypoints")
+        entrypoints = project.get("entry-points", {})
+        routers = entrypoints.get("ops_admin.routers", {})
+        init_tasks = entrypoints.get("ops_admin.init_tasks", {})
+        if routers.get(module_name) != router_entrypoint:
+            violations.append(f"{package_name} missing router entrypoint")
+        if init_tasks.get(module_name) != init_entrypoint:
+            violations.append(f"{package_name} missing init task entrypoint")
     assert not violations, "\n".join(violations)

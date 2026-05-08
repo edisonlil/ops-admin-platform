@@ -11,14 +11,14 @@
 - [x] Push clean baseline to GitHub.
 
 ## Phase 2 - Python Package Split
-- [ ] Create monorepo package layout under packages/python.
-- [ ] Extract ops-admin-system.
-- [ ] Extract ops-admin-identity-access.
-- [ ] Extract ops-admin-appearance.
-- [ ] Extract ops-admin-llm-runtime.
-- [ ] Define router/init-task entrypoints for each package.
-- [ ] Update starter to install and compose packages.
-- [ ] Add package-level and starter integration tests.
+- [x] Create monorepo package layout under packages/python.
+- [x] Extract ops-admin-system.
+- [x] Extract ops-admin-identity-access.
+- [x] Extract ops-admin-appearance.
+- [x] Extract ops-admin-llm-runtime.
+- [x] Define router/init-task entrypoints for each package.
+- [x] Update starter to install and compose packages.
+- [x] Add package-level and starter integration tests.
 
 ## Phase 3 - Frontend Modular Package
 - [ ] Create packages/web/ops-admin-web.

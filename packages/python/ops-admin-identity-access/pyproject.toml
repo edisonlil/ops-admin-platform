@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-admin-identity-access"
+version = "0.1.0"
+description = "Identity and access-management bounded context for ops-admin-platform."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "fastapi-login",
+    "ops-admin-system",
+    "pwdlib[argon2]",
+    "python-multipart",
+]
+
+[project.entry-points."ops_admin.routers"]
+identity_access = "identity_access.entrypoints:router"
+
+[project.entry-points."ops_admin.init_tasks"]
+identity_access = "identity_access.entrypoints:init_tasks"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+identity_access = ["infrastructure/persistence/*.sql"]
