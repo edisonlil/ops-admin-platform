@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class RbacUserListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class RbacUserCreateRequest(BaseModel):
+    tenant_id: int | None = Field(default=None, ge=1)
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=200)
+    role_keys: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    is_superuser: bool = False
+
+    @field_validator("username")
+    @classmethod
+    def username_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Username must not be blank")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def password_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Password must not be blank")
+        return value
+
+
+class RbacUserUpdateRequest(BaseModel):
+    tenant_id: int | None = Field(default=None, ge=1)
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(default="", max_length=200)
+    role_keys: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    is_superuser: bool = False
+
+    @field_validator("username")
+    @classmethod
+    def username_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Username must not be blank")
+        return value
+
+
+class RbacRoleListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class RbacRoleCreateRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    menu_keys: list[str] = Field(default_factory=list)
+
+    @field_validator("key")
+    @classmethod
+    def key_must_be_valid(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Role key must not be blank")
+        if not all(char.isascii() and (char.isalnum() or char in "-_") for char in value):
+            raise ValueError("Role key may only contain ASCII letters, numbers, hyphens, and underscores")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Role name must not be blank")
+        return value
+
+
+class RbacRoleUpdateRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    menu_keys: list[str] = Field(default_factory=list)
+
+    @field_validator("key")
+    @classmethod
+    def key_must_be_valid(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Role key must not be blank")
+        if not all(char.isascii() and (char.isalnum() or char in "-_") for char in value):
+            raise ValueError("Role key may only contain ASCII letters, numbers, hyphens, and underscores")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Role name must not be blank")
+        return value
+
+
+class RbacMenuCreateRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120)
+    menu_type: str = Field(min_length=1, max_length=20)
+    path: str = Field(default="", max_length=240)
+    route_name: str = Field(default="", max_length=120)
+    component: str = Field(default="", max_length=240)
+    icon: str = Field(default="", max_length=120)
+    parent_key: str = Field(default="", max_length=120)
+    permission_code: str = Field(default="", max_length=120)
+    sort_order: int = Field(default=0, ge=0, le=9999)
+    is_visible: bool = True
+
+    @field_validator("key", "route_name", "parent_key", "permission_code")
+    @classmethod
+    def normalize_key_fields(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("label", "path", "component", "icon")
+    @classmethod
+    def normalize_text_fields(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("menu_type")
+    @classmethod
+    def validate_menu_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"directory", "page"}:
+            raise ValueError("menu_type must be directory or page")
+        return normalized
+
+
+class RbacMenuUpdateRequest(RbacMenuCreateRequest):
+    pass
+
+
+class RbacPermissionListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class RbacMenuListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class RbacRoleMenusUpdateRequest(BaseModel):
+    menu_keys: list[str] = Field(default_factory=list)
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name must not be blank")
+        return value
+
+
+class TenantCreateRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    remark: str = Field(default="", max_length=500)
+    status: str = Field(default="active", max_length=20)
+    admin_username: str = Field(default="", max_length=120)
+    admin_password: str = Field(default="", max_length=200)
+
+    @field_validator("key")
+    @classmethod
+    def tenant_key_must_be_valid(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Tenant key must not be blank")
+        if not all(char.isascii() and (char.isalnum() or char in "-_") for char in value):
+            raise ValueError("Tenant key may only contain ASCII letters, numbers, hyphens, and underscores")
+        return value
+
+    @field_validator("name", "remark", "status", "admin_username", "admin_password")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class TenantUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    remark: str = Field(default="", max_length=500)
+    status: str = Field(default="active", max_length=20)
+
+    @field_validator("name", "remark", "status")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class TenantSwitchRequest(BaseModel):
+    tenant_id: int = Field(ge=1)
+
+
+class TenantUserCreateRequest(RbacUserCreateRequest):
+    is_tenant_admin: bool = False
+
+
+class TenantUserUpdateRequest(RbacUserUpdateRequest):
+    is_tenant_admin: bool = False

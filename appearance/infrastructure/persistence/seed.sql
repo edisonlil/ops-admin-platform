@@ -1,0 +1,1 @@
+-- Appearance starts without seed data. Tenant themes are created explicitly by administrators.

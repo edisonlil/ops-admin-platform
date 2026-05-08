@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+node_modules/
+.pytest_cache/
+pytest-cache-files-*/
+.venv/
+dist/
+*.egg-info/
+*.jsonl
+config/*.local.json
+.browser-use/
+.idea/*
+ops_admin.db
+
+# Local Netlify folder
+.netlify
+*.log
+*.db-shm
+*.db-wal

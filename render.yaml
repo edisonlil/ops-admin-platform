@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: fg-agent-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FG_AGENT_DATABASE_URL
+        sync: false
+      - key: FG_AGENT_CORS_ORIGINS
+        sync: false
+      - key: FG_AGENT_USE_KEYWORDS_RECALL
+        value: "true"
+      - key: FG_AGENT_AUTH_SECRET
+        sync: false
+      - key: FG_AGENT_ADMIN_USERNAME
+        value: admin
+      - key: FG_AGENT_ADMIN_PASSWORD
+        sync: false

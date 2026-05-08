@@ -1,0 +1,20 @@
+@import './transition/index.less';
+@import './skins/index.less';
+
+.appearance-root {
+  .n-data-table {
+    overflow: hidden;
+    border-radius: var(--app-table-radius);
+  }
+
+  .n-data-table .n-checkbox.n-checkbox--checked .n-checkbox-box,
+  .n-data-table .n-checkbox.n-checkbox--indeterminate .n-checkbox-box {
+    background-color: var(--app-table-selection-color);
+    border-color: var(--app-table-selection-border-color);
+  }
+
+  .n-data-table .n-checkbox .n-checkbox-box:hover,
+  .n-data-table .n-checkbox.n-checkbox--focus .n-checkbox-box {
+    border-color: var(--app-table-selection-border-color);
+  }
+}

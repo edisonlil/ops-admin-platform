@@ -1,0 +1,2 @@
+-- Runtime LLM configuration is environment-specific.
+-- Do not seed provider credentials into source-controlled SQL.

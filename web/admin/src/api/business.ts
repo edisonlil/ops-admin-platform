@@ -1,0 +1,353 @@
+import { Alova } from '@/utils/http/alova/index';
+
+export interface ListQuery {
+  q?: string;
+  status?: string;
+  request_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ApiKeyCreatePayload {
+  name: string;
+}
+
+export interface TenantPayload {
+  key?: string;
+  tenant_key?: string;
+  name: string;
+  remark?: string;
+  status?: string;
+  admin_username?: string;
+  admin_password?: string;
+}
+
+export interface RbacRoleCreatePayload {
+  key: string;
+  name: string;
+  description?: string;
+  menu_keys?: string[];
+}
+
+export interface RbacRoleUpdatePayload {
+  key: string;
+  name: string;
+  description?: string;
+  menu_keys?: string[];
+}
+
+export interface RbacUserCreatePayload {
+  tenant_id?: number;
+  username: string;
+  password: string;
+  role_keys?: string[];
+  is_active?: boolean;
+  is_superuser?: boolean;
+}
+
+export interface RbacUserUpdatePayload {
+  tenant_id?: number;
+  username: string;
+  password?: string;
+  role_keys?: string[];
+  is_active?: boolean;
+  is_superuser?: boolean;
+}
+
+export interface RbacMenuPayload {
+  key: string;
+  label: string;
+  menu_type: 'directory' | 'page';
+  path?: string;
+  route_name?: string;
+  component?: string;
+  icon?: string;
+  parent_key?: string;
+  permission_code?: string;
+  sort_order?: number;
+  is_visible?: boolean;
+}
+
+export interface LlmConfigPayload {
+  provider: string;
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  command?: string;
+  timeout_seconds?: number;
+  temperature?: number;
+  extra_body?: Record<string, unknown>;
+  enable_think_output?: boolean;
+  enabled?: boolean;
+}
+
+export interface LlmProviderPayload {
+  provider_key: string;
+  display_name?: string;
+  base_url?: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  auth_type?: string;
+  extra_headers?: Record<string, unknown>;
+  extra_body?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface LlmModelPayload {
+  model_key: string;
+  provider_key: string;
+  model_name: string;
+  display_name?: string;
+  capabilities?: Record<string, unknown>;
+  context_window?: number | null;
+  enabled?: boolean;
+}
+
+export interface LlmTaskPayload {
+  task_key: string;
+  context_key?: string;
+  scene_key?: string;
+  task_name?: string;
+  display_name?: string;
+  description?: string;
+  owner_context?: string;
+  enabled?: boolean;
+}
+
+export interface LlmRoutingEntryPayload {
+  model_key: string;
+  priority?: number;
+  temperature?: number;
+  timeout_seconds?: number;
+  max_retries?: number;
+  response_format?: string;
+  extra_body?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface LlmRoutingPolicyPayload {
+  route_key: string;
+  display_name?: string;
+  strategy?: string;
+  enabled?: boolean;
+  entries?: LlmRoutingEntryPayload[];
+}
+
+export interface OpenAIChatMessagePayload {
+  role: string;
+  content: string;
+}
+
+export interface OpenAIChatCompletionPayload {
+  model: string;
+  messages: OpenAIChatMessagePayload[];
+  temperature?: number;
+  response_format?: Record<string, unknown>;
+  enable_think_output?: boolean;
+  stream?: boolean;
+}
+
+function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
+  return {
+    ...params,
+    _t: Date.now(),
+  };
+}
+
+export function getLlmConfig() {
+  return Alova.Get('/llm-config', { params: withNoCacheParams() });
+}
+
+export function saveLlmConfig(payload: LlmConfigPayload) {
+  return Alova.Put('/llm-config', payload);
+}
+
+export function getLlmProviders() {
+  return Alova.Get('/llm/providers', { params: withNoCacheParams() });
+}
+
+export function saveLlmProvider(payload: LlmProviderPayload) {
+  return Alova.Post('/llm/providers', payload);
+}
+
+export function getLlmModels() {
+  return Alova.Get('/llm/models', { params: withNoCacheParams() });
+}
+
+export function saveLlmModel(payload: LlmModelPayload) {
+  return Alova.Post('/llm/models', payload);
+}
+
+export function getLlmTasks() {
+  return Alova.Get('/llm/tasks', { params: withNoCacheParams() });
+}
+
+export function registerLlmTask(payload: LlmTaskPayload) {
+  return Alova.Post('/llm/tasks/register', payload);
+}
+
+export function getLlmRoutingPolicies() {
+  return Alova.Get('/llm/routing-policies', { params: withNoCacheParams() });
+}
+
+export function saveLlmRoutingPolicy(payload: LlmRoutingPolicyPayload) {
+  return Alova.Post('/llm/routing-policies', payload);
+}
+
+export function getLlmCallLogs(limit = 50) {
+  return Alova.Get('/llm/call-logs', { params: withNoCacheParams({ limit }) });
+}
+
+export function getLlmOpenAIModels() {
+  return Alova.Get('/llm/openai/v1/models', {
+    params: withNoCacheParams(),
+    meta: { isReturnNativeResponse: true },
+  });
+}
+
+export function createLlmOpenAIChatCompletion(payload: OpenAIChatCompletionPayload) {
+  return Alova.Post('/llm/openai/v1/chat/completions', payload, {
+    meta: { isReturnNativeResponse: true },
+  });
+}
+
+export function getApiKeys() {
+  return Alova.Get('/api-keys', { params: withNoCacheParams() });
+}
+
+export function createApiKey(payload: ApiKeyCreatePayload) {
+  return Alova.Post('/api-keys', payload);
+}
+
+export function revokeApiKey(keyId: number) {
+  return Alova.Delete(`/api-keys/${keyId}`);
+}
+
+export function getTenants(params: { q?: string } = {}) {
+  return Alova.Get('/tenants', { params: withNoCacheParams(params) });
+}
+
+export function createTenant(payload: TenantPayload) {
+  return Alova.Post('/tenants', payload);
+}
+
+export function updateTenant(tenantId: number, payload: TenantPayload) {
+  return Alova.Put(`/tenants/${tenantId}`, payload);
+}
+
+export function activateTenant(tenantId: number) {
+  return Alova.Post(`/tenants/${tenantId}/activate`);
+}
+
+export function suspendTenant(tenantId: number) {
+  return Alova.Post(`/tenants/${tenantId}/suspend`);
+}
+
+export function switchTenant(tenantId: number) {
+  return Alova.Post('/auth/tenant/switch', { tenant_id: tenantId });
+}
+
+export function getTenantUsers(tenantId: number) {
+  return Alova.Get(`/tenants/${tenantId}/users`, { params: withNoCacheParams() });
+}
+
+export function getCurrentTenantUsers() {
+  return Alova.Get('/tenant/users', { params: withNoCacheParams() });
+}
+
+export function getCurrentTenantRoles() {
+  return Alova.Get('/tenant/roles', { params: withNoCacheParams() });
+}
+
+export function createTenantUser(tenantId: number, payload: RbacUserCreatePayload & { is_tenant_admin?: boolean }) {
+  return Alova.Post(`/tenants/${tenantId}/users`, payload);
+}
+
+export function createCurrentTenantUser(payload: RbacUserCreatePayload & { is_tenant_admin?: boolean }) {
+  return Alova.Post('/tenant/users', payload);
+}
+
+export function updateTenantUser(
+  tenantId: number,
+  userId: number,
+  payload: RbacUserUpdatePayload & { is_tenant_admin?: boolean }
+) {
+  return Alova.Put(`/tenants/${tenantId}/users/${userId}`, payload);
+}
+
+export function updateCurrentTenantUser(userId: number, payload: RbacUserUpdatePayload & { is_tenant_admin?: boolean }) {
+  return Alova.Put(`/tenant/users/${userId}`, payload);
+}
+
+export function getTenantApiKeys(tenantId: number) {
+  return Alova.Get(`/tenants/${tenantId}/api-keys`, { params: withNoCacheParams() });
+}
+
+export function getCurrentTenantApiKeys() {
+  return Alova.Get('/tenant/api-keys', { params: withNoCacheParams() });
+}
+
+export function createTenantApiKey(tenantId: number, payload: ApiKeyCreatePayload) {
+  return Alova.Post(`/tenants/${tenantId}/api-keys`, payload);
+}
+
+export function createCurrentTenantApiKey(payload: ApiKeyCreatePayload) {
+  return Alova.Post('/tenant/api-keys', payload);
+}
+
+export function revokeTenantApiKey(tenantId: number, keyId: number) {
+  return Alova.Delete(`/tenants/${tenantId}/api-keys/${keyId}`);
+}
+
+export function revokeCurrentTenantApiKey(keyId: number) {
+  return Alova.Delete(`/tenant/api-keys/${keyId}`);
+}
+
+export function getRbacMenus() {
+  return Alova.Get('/rbac/menus', { params: withNoCacheParams() });
+}
+
+export function createRbacMenu(payload: RbacMenuPayload) {
+  return Alova.Post('/rbac/menus', payload);
+}
+
+export function updateRbacMenu(menuId: number, payload: RbacMenuPayload) {
+  return Alova.Put(`/rbac/menus/${menuId}`, payload);
+}
+
+export function deleteRbacMenu(menuId: number) {
+  return Alova.Delete(`/rbac/menus/${menuId}`);
+}
+
+export function getRbacRoles() {
+  return Alova.Get('/rbac/roles', { params: withNoCacheParams() });
+}
+
+export function createRbacRole(payload: RbacRoleCreatePayload) {
+  return Alova.Post('/rbac/roles', payload);
+}
+
+export function updateRbacRole(roleId: number, payload: RbacRoleUpdatePayload) {
+  return Alova.Put(`/rbac/roles/${roleId}`, payload);
+}
+
+export function updateRbacRoleMenus(roleId: number, menuKeys: string[]) {
+  return Alova.Put(`/rbac/roles/${roleId}/menus`, { menu_keys: menuKeys });
+}
+
+export function deleteRbacRole(roleId: number) {
+  return Alova.Delete(`/rbac/roles/${roleId}`);
+}
+
+export function getRbacUsers() {
+  return Alova.Get('/rbac/users', { params: withNoCacheParams() });
+}
+
+export function createRbacUser(payload: RbacUserCreatePayload) {
+  return Alova.Post('/rbac/users', payload);
+}
+
+export function updateRbacUser(userId: number, payload: RbacUserUpdatePayload) {
+  return Alova.Put(`/rbac/users/${userId}`, payload);
+}

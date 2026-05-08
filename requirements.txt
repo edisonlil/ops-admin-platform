@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+psycopg[binary]
+SQLAlchemy
+fastapi-login
+pwdlib[argon2]
+python-multipart
