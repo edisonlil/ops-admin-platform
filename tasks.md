@@ -30,12 +30,12 @@
 - [x] Verify starter build with LLM enabled and disabled.
 
 ## Phase 4 - Skill Automation
-- [ ] Create skills/ops-admin-platform.
-- [ ] Add create_project workflow.
-- [ ] Add enable/disable module workflow.
-- [ ] Add create bounded context workflow.
-- [ ] Add create admin feature workflow.
-- [ ] Validate skill by generating a sample project.
+- [x] Create skills/ops-admin-platform.
+- [x] Add create_project workflow.
+- [x] Add enable/disable module workflow.
+- [x] Add create bounded context workflow.
+- [x] Add create admin feature workflow.
+- [x] Validate skill by generating a sample project.
 
 ## Rules
 - Do not reintroduce function_point into platform packages.

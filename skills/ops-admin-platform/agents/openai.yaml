@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ops Admin Platform"
+  short_description: "Build and extend ops-admin-platform projects."
+  default_prompt: "Use this skill to create or extend an ops-admin-platform starter while preserving bounded-context backend and modular frontend conventions."
