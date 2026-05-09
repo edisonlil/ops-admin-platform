@@ -53,6 +53,12 @@ export interface CollectionViewSchema<Row = Record<string, unknown>> {
   columns?: DataTableColumns<Row>;
   rowKey?: string | ((row: Row) => string | number);
   scrollX?: number;
+  selectable?: boolean;
+  selectionColumn?: {
+    width?: number;
+    fixed?: 'left' | 'right';
+    disabled?: (row: Row) => boolean;
+  };
   itemKey?: string | ((row: Row) => string | number);
   cardMinWidth?: string;
   groupBy?: string | ((row: Row) => string);

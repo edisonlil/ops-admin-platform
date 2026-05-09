@@ -3,7 +3,7 @@
     <n-data-table
       v-if="schema.type === 'table'"
       class="app-collection-view__table"
-      :columns="schema.columns"
+      :columns="resolvedColumns"
       :data="rows"
       :loading="loading"
       :row-key="resolvedRowKey"
@@ -48,6 +48,7 @@
   import { computed } from 'vue';
   import { getCollectionViewDefinition } from '../collectionRegistry';
   import type { CollectionViewSchema } from '../types';
+  import type { DataTableColumn, DataTableColumns } from 'naive-ui';
 
   const props = withDefaults(
     defineProps<{
@@ -64,6 +65,19 @@
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
   const resolvedRowKey = computed(() => props.schema.rowKey || props.schema.itemKey || 'id');
   const isCardCollection = computed(() => ['card-list', 'product-list', 'gallery'].includes(props.schema.type));
+  const resolvedColumns = computed<DataTableColumns<Row>>(() => {
+    const columns = props.schema.columns || [];
+    if (props.schema.type !== 'table' || !props.schema.selectable) return columns;
+    if (columns.some((column) => 'type' in column && column.type === 'selection')) return columns;
+
+    const selectionColumn: DataTableColumn<Row> = {
+      type: 'selection',
+      width: props.schema.selectionColumn?.width || 48,
+      fixed: props.schema.selectionColumn?.fixed || 'left',
+      disabled: props.schema.selectionColumn?.disabled,
+    };
+    return [selectionColumn, ...columns];
+  });
 
   function resolveItemKey(row: Row, index: number) {
     const key = props.schema.itemKey || props.schema.rowKey || 'id';
@@ -88,6 +102,13 @@
       height: var(--app-page-table-row-height);
       padding-right: var(--app-page-table-cell-padding-inline);
       padding-left: var(--app-page-table-cell-padding-inline);
+    }
+
+    :deep(.n-data-table-th--selection),
+    :deep(.n-data-table-td--selection) {
+      padding-right: 0;
+      padding-left: 0;
+      text-align: center;
     }
   }
 

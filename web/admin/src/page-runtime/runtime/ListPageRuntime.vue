@@ -48,7 +48,7 @@
     <section v-if="$slots.collection" class="app-list-page__collection">
       <slot name="collection"></slot>
     </section>
-    <AppCollectionView v-else :schema="schema.view" :rows="rows" :loading="loading">
+    <AppCollectionView v-else :schema="resolvedViewSchema" :rows="rows" :loading="loading">
       <template #[name]="slotProps" v-for="(_, name) in $slots" :key="name">
         <slot v-if="!reservedSlots.includes(String(name))" :name="name" v-bind="slotProps"></slot>
       </template>
@@ -102,6 +102,15 @@
       hasNonRefreshRightTools.value ||
       hasToolbarRefresh.value
   );
+  const resolvedViewSchema = computed(() => {
+    if (props.schema.view.type !== 'table' || props.schema.view.selectable !== undefined) {
+      return props.schema.view;
+    }
+    return {
+      ...props.schema.view,
+      selectable: true,
+    };
+  });
   const context = computed<PageRuntimeContext>(() => ({
     pageId: props.schema.id,
     density: props.schema.density || 'comfortable',
