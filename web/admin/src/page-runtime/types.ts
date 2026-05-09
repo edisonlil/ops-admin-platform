@@ -48,17 +48,42 @@ export interface FilterField<T = Record<string, unknown>> {
   options?: SelectOption[] | (() => SelectOption[]);
 }
 
+export interface TableColumnRuntimeSchema<Row = Record<string, unknown>> {
+  defaultResizable?: boolean;
+  freeze?: {
+    left?: Array<string | number>;
+    right?: Array<string | number>;
+  };
+  defaultWidth?: number;
+  minWidth?: number;
+  maxWidth?: number;
+  disabledResizableKeys?: Array<string | number>;
+  disabledFreezeKeys?: Array<string | number>;
+}
+
+export interface TableLayoutRuntimeSchema<Row = Record<string, unknown>> {
+  height?: number | string;
+  maxHeight?: number | string;
+  flexHeight?: boolean;
+  headerHeight?: number;
+  minRowHeight?: number;
+  rowHeight?: number | ((row: Row, index: number) => number);
+  tableLayout?: 'auto' | 'fixed';
+}
+
 export interface CollectionViewSchema<Row = Record<string, unknown>> {
   type: CollectionViewType;
   columns?: DataTableColumns<Row>;
   rowKey?: string | ((row: Row) => string | number);
-  scrollX?: number;
+  scrollX?: number | string;
   selectable?: boolean;
   selectionColumn?: {
     width?: number;
     fixed?: 'left' | 'right';
     disabled?: (row: Row) => boolean;
   };
+  columnRuntime?: TableColumnRuntimeSchema<Row>;
+  tableLayout?: TableLayoutRuntimeSchema<Row>;
   itemKey?: string | ((row: Row) => string | number);
   cardMinWidth?: string;
   groupBy?: string | ((row: Row) => string);

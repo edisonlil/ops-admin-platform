@@ -92,6 +92,17 @@
       columns,
       rowKey: (row) => Number(row.id),
       scrollX: 1000,
+      selectionColumn: {
+        fixed: 'left',
+      },
+      columnRuntime: {
+        minWidth: 80,
+      },
+      tableLayout: {
+        headerHeight: 44,
+        minRowHeight: 48,
+        rowHeight: 48,
+      },
       tableProps: {
         size: 'small',
       },

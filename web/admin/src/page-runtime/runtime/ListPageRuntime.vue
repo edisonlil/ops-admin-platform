@@ -103,12 +103,20 @@
       hasToolbarRefresh.value
   );
   const resolvedViewSchema = computed(() => {
-    if (props.schema.view.type !== 'table' || props.schema.view.selectable !== undefined) {
+    if (props.schema.view.type !== 'table') {
       return props.schema.view;
     }
     return {
       ...props.schema.view,
-      selectable: true,
+      selectable: props.schema.view.selectable ?? true,
+      columnRuntime: {
+        defaultResizable: true,
+        ...props.schema.view.columnRuntime,
+      },
+      tableLayout: {
+        tableLayout: 'fixed',
+        ...props.schema.view.tableLayout,
+      },
     };
   });
   const context = computed<PageRuntimeContext>(() => ({
