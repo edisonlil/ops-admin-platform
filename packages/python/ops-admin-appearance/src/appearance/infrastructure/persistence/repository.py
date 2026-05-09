@@ -40,7 +40,7 @@ def get_effective_tenant_theme(tenant_id: int) -> AppearanceTheme | None:
                   AND a.scope_id = ?
                   AND a.is_default = ?
                   AND t.status = ?
-                ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
+                ORDER BY a.create_time DESC, t.update_time DESC, t.id DESC
                 LIMIT 1
                 """,
                 (TENANT_SCOPE, tenant_id, True, THEME_STATUS_PUBLISHED),
@@ -57,7 +57,7 @@ def get_effective_tenant_theme(tenant_id: int) -> AppearanceTheme | None:
                   AND a.scope_id = ?
                   AND a.is_default = ?
                   AND t.status = ?
-                ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
+                ORDER BY a.create_time DESC, t.update_time DESC, t.id DESC
                 LIMIT 1
                 """,
                 (PLATFORM_SCOPE, 0, True, THEME_STATUS_PUBLISHED),
@@ -168,11 +168,12 @@ def save_platform_branding(
             conn.execute(
                 """
                 INSERT INTO appearance_platform_branding (
-                    id, platform_name, logo_url, platform_name_font_size, editor, update_time
+                    id, tenant_id, platform_name, logo_url, platform_name_font_size,
+                    creator, editor, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (1, branding.platform_name, branding.logo_url, branding.platform_name_font_size, actor, timestamp),
+                (1, 0, branding.platform_name, branding.logo_url, branding.platform_name_font_size, actor, actor, timestamp, timestamp),
             )
         row = conn.execute(
             """
@@ -311,11 +312,11 @@ def publish_theme(*, theme_id: int, actor: str) -> AppearanceTheme | None:
         conn.execute(
             """
             INSERT INTO appearance_theme_revisions (
-                theme_id, revision_no, snapshot_json, creator, create_time
+                tenant_id, theme_id, revision_no, snapshot_json, creator, create_time
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (theme_id, revision_number(conn, theme_id), encode_json(snapshot), actor, timestamp),
+            (int(row["tenant_id"] or 0), theme_id, revision_number(conn, theme_id), encode_json(snapshot), actor, timestamp),
         )
     return row_to_theme(dict(row))
 
@@ -370,11 +371,12 @@ def assign_theme_to_tenant(*, tenant_id: int, theme_id: int | None, actor: str) 
         conn.execute(
             """
             INSERT INTO appearance_theme_assignments (
-                scope_type, scope_id, theme_id, is_default, assigned_by, assigned_at
+                tenant_id, scope_type, scope_id, theme_id, is_default,
+                creator, editor, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (TENANT_SCOPE, tenant_id, theme_id, True, actor, timestamp),
+            (tenant_id, TENANT_SCOPE, tenant_id, theme_id, True, actor, actor, timestamp, timestamp),
         )
     return get_theme(theme_id)
 
@@ -399,11 +401,12 @@ def assign_platform_default_theme(*, theme_id: int, actor: str) -> AppearanceThe
         conn.execute(
             """
             INSERT INTO appearance_theme_assignments (
-                scope_type, scope_id, theme_id, is_default, assigned_by, assigned_at
+                tenant_id, scope_type, scope_id, theme_id, is_default,
+                creator, editor, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (PLATFORM_SCOPE, 0, theme_id, True, actor, timestamp),
+            (0, PLATFORM_SCOPE, 0, theme_id, True, actor, actor, timestamp, timestamp),
         )
     return get_theme(theme_id)
 
@@ -419,7 +422,7 @@ def get_tenant_assigned_theme(tenant_id: int) -> AppearanceTheme | None:
             WHERE a.scope_type = ?
               AND a.scope_id = ?
               AND a.is_default = ?
-            ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
+            ORDER BY a.create_time DESC, t.update_time DESC, t.id DESC
             LIMIT 1
             """,
             (TENANT_SCOPE, tenant_id, True),

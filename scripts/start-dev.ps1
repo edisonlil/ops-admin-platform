@@ -169,6 +169,23 @@ function Configure-PortsAndDatabase {
   $env:FG_AGENT_CORS_ORIGINS = "http://localhost:$script:FrontendPort,http://127.0.0.1:$script:FrontendPort"
 }
 
+function Configure-PythonPath {
+  $localPaths = @(
+    $RepoRoot,
+    (Join-Path $RepoRoot "packages\python\ops-admin-system\src"),
+    (Join-Path $RepoRoot "packages\python\ops-admin-identity-access\src"),
+    (Join-Path $RepoRoot "packages\python\ops-admin-appearance\src"),
+    (Join-Path $RepoRoot "packages\python\ops-admin-llm-runtime\src")
+  )
+  $existingPaths = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+    $existingPaths = @($env:PYTHONPATH -split [regex]::Escape([System.IO.Path]::PathSeparator))
+  }
+  $env:PYTHONPATH = (($localPaths + $existingPaths) | Where-Object {
+    -not [string]::IsNullOrWhiteSpace($_)
+  } | Select-Object -Unique) -join [System.IO.Path]::PathSeparator
+}
+
 function Set-EnvValue {
   param(
     [string[]]$Lines,
@@ -510,6 +527,7 @@ function Start-Frontend {
 
 Write-Host "Starting ops-admin-platform dev services..."
 Configure-PortsAndDatabase
+Configure-PythonPath
 Update-FrontendEnv
 Ensure-BackendReady
 Ensure-FrontendReady
