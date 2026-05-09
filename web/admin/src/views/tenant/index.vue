@@ -17,6 +17,7 @@
         :loading="loading"
         :pagination="{ pageSize: 20 }"
         :row-key="(row) => row.id"
+        :scroll-x="1160"
       >
         <template #search>
           <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" @keyup.enter="reload" />

@@ -16,6 +16,7 @@
         :loading="loading"
         :pagination="{ pageSize: 20 }"
         :row-key="(row) => row.id"
+        :scroll-x="1380"
       >
         <template #actions>
           <n-button type="primary" @click="handleCreate">

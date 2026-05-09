@@ -27,6 +27,7 @@
             :data="providers"
             :loading="loading"
             :pagination="{ pageSize: 10 }"
+            :scroll-x="940"
           >
             <template #actions>
               <n-button type="primary" @click="openProvider()">新增供应商</n-button>
@@ -45,6 +46,7 @@
             :data="models"
             :loading="loading"
             :pagination="{ pageSize: 10 }"
+            :scroll-x="1040"
           >
             <template #actions>
               <n-button type="primary" @click="openModel()">新增模型</n-button>
@@ -63,6 +65,7 @@
             :data="tasks"
             :loading="loading"
             :pagination="{ pageSize: 12 }"
+            :scroll-x="1120"
           >
             <template #actions>
               <n-button type="primary" @click="openTask()">注册任务</n-button>
@@ -81,6 +84,7 @@
             :data="policies"
             :loading="loading"
             :pagination="{ pageSize: 8 }"
+            :scroll-x="960"
           >
             <template #actions>
               <n-button type="primary" @click="openPolicy()">新增策略</n-button>
@@ -99,6 +103,7 @@
             :data="logs"
             :loading="logsLoading"
             :pagination="{ pageSize: 12 }"
+            :scroll-x="1680"
           >
             <template #actions>
               <n-button secondary :loading="logsLoading" @click="loadLogs">刷新日志</n-button>

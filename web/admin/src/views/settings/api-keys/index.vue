@@ -9,6 +9,7 @@
         :data="rows"
         :loading="loading"
         :pagination="{ pageSize: 20 }"
+        :scroll-x="1000"
       >
         <template #actions>
           <n-button type="primary" @click="showCreate = true">新建密钥</n-button>
