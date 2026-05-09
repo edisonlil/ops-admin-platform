@@ -1,34 +1,43 @@
 <template>
   <div class="app-table-actions">
-    <n-button
+    <AppConfirmAction
       v-for="action in visibleActions"
       :key="action.key || action.label"
-      class="app-table-actions__button"
-      :type="action.type"
+      :label="action.label"
+      :tone="action.tone"
       :disabled="action.disabled"
-      :secondary="action.secondary ?? action.type !== 'primary'"
-      :ghost="action.ghost"
-      size="small"
+      :confirm="action.confirm"
+      :confirm-title="action.confirmTitle"
+      :confirm-content="action.confirmContent"
+      :positive-text="action.positiveText"
+      :negative-text="action.negativeText"
+      :loading="action.loading"
+      :confirm-handler="action.onConfirm"
       @click="action.onClick"
-    >
-      {{ action.label }}
-    </n-button>
+      @cancel="action.onCancel"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
   import { computed } from 'vue';
-  import type { ButtonProps } from 'naive-ui';
+  import AppConfirmAction from './AppConfirmAction.vue';
 
   export interface AppTableAction {
     key?: string;
     label: string;
-    type?: ButtonProps['type'];
+    tone?: 'default' | 'primary' | 'danger';
     disabled?: boolean;
-    secondary?: boolean;
-    ghost?: boolean;
     show?: boolean;
+    confirm?: boolean;
+    confirmTitle?: string;
+    confirmContent?: string;
+    positiveText?: string;
+    negativeText?: string;
+    loading?: boolean;
     onClick?: () => void;
+    onConfirm?: () => void | Promise<void>;
+    onCancel?: () => void;
   }
 
   const props = defineProps<{
@@ -45,12 +54,5 @@
     justify-content: flex-start;
     gap: var(--app-table-action-gap);
     min-width: 0;
-
-    &__button {
-      height: var(--app-table-action-button-height);
-      padding-right: var(--app-table-action-button-padding-x);
-      padding-left: var(--app-table-action-button-padding-x);
-      border-radius: var(--app-table-action-button-radius);
-    }
   }
 </style>

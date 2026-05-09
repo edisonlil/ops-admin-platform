@@ -64,11 +64,29 @@ export const primevueLikePreset: AppearancePreset = {
         thHeight: '46px',
         tdHeight: '46px',
         radius: '{borderRadiusBase}',
+        fixedColumnShadow: 'inset 10px 0 8px -8px rgb(15 23 42 / 10%)',
+      },
+      TableToolbar: {
+        ...defaultPreset.tokens.component.TableToolbar,
+        minHeight: '46px',
+        bgColor: '{surfaceColor}',
+        paddingX: '12px',
+        paddingY: '10px',
+      },
+      TableSearch: {
+        ...defaultPreset.tokens.component.TableSearch,
+        bgColor: '{surfaceColor}',
+        inputWidth: '240px',
+      },
+      TableBatchAction: {
+        ...defaultPreset.tokens.component.TableBatchAction,
+        bgColor: '{primaryColorSoft}',
       },
       TableAction: {
         ...defaultPreset.tokens.component.TableAction,
         buttonHeight: '32px',
         buttonPaddingX: '12px',
+        confirmShadow: '0 12px 28px rgb(15 23 42 / 12%)',
       },
       Menu: {
         ...defaultPreset.tokens.component.Menu,

@@ -200,6 +200,75 @@
       />
     </section>
 
+    <section v-else-if="activeTarget === 'TableToolbar'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>表格工具栏与筛选区</strong>
+      </header>
+      <TokenColorRow
+        label="工具栏背景"
+        token-path="component.TableToolbar.bgColor"
+        :model-value="component.TableToolbar.bgColor"
+        :resolved-value="resolved.TableToolbar.bgColor"
+        @update:model-value="(value) => update('TableToolbar', 'bgColor', value)"
+      />
+      <TokenColorRow
+        label="工具栏边框"
+        token-path="component.TableToolbar.borderColor"
+        :model-value="component.TableToolbar.borderColor"
+        :resolved-value="resolved.TableToolbar.borderColor"
+        @update:model-value="(value) => update('TableToolbar', 'borderColor', value)"
+      />
+      <TokenSizeRow
+        label="工具栏高度"
+        token-path="component.TableToolbar.minHeight"
+        :model-value="component.TableToolbar.minHeight"
+        :min="32"
+        :max="72"
+        @update:model-value="(value) => update('TableToolbar', 'minHeight', value)"
+      />
+      <TokenSizeRow
+        label="工具栏圆角"
+        token-path="component.TableToolbar.radius"
+        :model-value="component.TableToolbar.radius"
+        :resolved-value="resolved.TableToolbar.radius"
+        :min="0"
+        :max="32"
+        @update:model-value="(value) => update('TableToolbar', 'radius', value)"
+      />
+      <TokenSizeRow
+        label="筛选字段间距"
+        token-path="component.TableSearch.fieldGap"
+        :model-value="component.TableSearch.fieldGap"
+        :min="4"
+        :max="32"
+        @update:model-value="(value) => update('TableSearch', 'fieldGap', value)"
+      />
+      <TokenSizeRow
+        label="筛选输入宽度"
+        token-path="component.TableSearch.inputWidth"
+        :model-value="component.TableSearch.inputWidth"
+        :min="140"
+        :max="360"
+        @update:model-value="(value) => update('TableSearch', 'inputWidth', value)"
+      />
+      <TokenColorRow
+        label="批量栏背景"
+        token-path="component.TableBatchAction.bgColor"
+        :model-value="component.TableBatchAction.bgColor"
+        :resolved-value="resolved.TableBatchAction.bgColor"
+        @update:model-value="(value) => update('TableBatchAction', 'bgColor', value)"
+      />
+      <TokenSizeRow
+        label="批量栏高度"
+        token-path="component.TableBatchAction.minHeight"
+        :model-value="component.TableBatchAction.minHeight"
+        :min="28"
+        :max="64"
+        @update:model-value="(value) => update('TableBatchAction', 'minHeight', value)"
+      />
+    </section>
+
     <section v-else-if="activeTarget === 'StatusAction'" class="component-token-panel__section">
       <header class="component-token-panel__header">
         <span>组件样式</span>
@@ -265,6 +334,35 @@
         :min="22"
         :max="48"
         @update:model-value="(value) => update('TableAction', 'buttonHeight', value)"
+      />
+      <TokenColorRow
+        label="默认操作文字"
+        token-path="component.TableAction.defaultTextColor"
+        :model-value="component.TableAction.defaultTextColor"
+        :resolved-value="resolved.TableAction.defaultTextColor"
+        @update:model-value="(value) => update('TableAction', 'defaultTextColor', value)"
+      />
+      <TokenColorRow
+        label="危险操作文字"
+        token-path="component.TableAction.dangerTextColor"
+        :model-value="component.TableAction.dangerTextColor"
+        :resolved-value="resolved.TableAction.dangerTextColor"
+        @update:model-value="(value) => update('TableAction', 'dangerTextColor', value)"
+      />
+      <TokenColorRow
+        label="危险操作背景"
+        token-path="component.TableAction.dangerBgColor"
+        :model-value="component.TableAction.dangerBgColor"
+        :resolved-value="resolved.TableAction.dangerBgColor"
+        @update:model-value="(value) => update('TableAction', 'dangerBgColor', value)"
+      />
+      <TokenSizeRow
+        label="确认层宽度"
+        token-path="component.TableAction.confirmWidth"
+        :model-value="component.TableAction.confirmWidth"
+        :min="160"
+        :max="360"
+        @update:model-value="(value) => update('TableAction', 'confirmWidth', value)"
       />
     </section>
 

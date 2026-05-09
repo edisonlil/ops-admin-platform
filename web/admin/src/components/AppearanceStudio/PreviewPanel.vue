@@ -194,6 +194,56 @@
             </div>
           </div>
 
+          <div v-if="componentTarget === 'TableToolbar'" class="table-system-preview">
+            <div class="table-search-sample">
+              <label>
+                <span>名称</span>
+                <input value="功能点推荐" readonly />
+              </label>
+              <label>
+                <span>状态</span>
+                <select value="enabled" disabled>
+                  <option value="enabled">已启用</option>
+                </select>
+              </label>
+              <div class="table-search-sample__actions">
+                <button type="button">查询</button>
+                <button type="button">重置</button>
+              </div>
+            </div>
+            <div class="table-toolbar-sample">
+              <div>
+                <strong>成员管理</strong>
+                <span>列表筛选、批量操作和表格设置统一承载</span>
+              </div>
+              <div>
+                <button type="button">新建</button>
+                <button type="button">导出</button>
+              </div>
+            </div>
+            <div class="table-batch-sample">
+              <strong>已选择 3 项</strong>
+              <button type="button">批量启用</button>
+              <button type="button">移除</button>
+            </div>
+            <div class="table-sample table-sample--toolbar">
+              <div class="table-sample__head">
+                <span class="table-sample__check"></span>
+                <span>用户</span>
+                <span>状态</span>
+                <span>操作</span>
+              </div>
+              <div v-for="row in tableRows" :key="row.name" class="table-sample__row">
+                <span class="table-sample__check is-checked"></span>
+                <span>{{ row.name }}</span>
+                <span :class="['status-pill', `status-pill--${row.tone}`]">{{ row.status }}</span>
+                <span class="table-actions">
+                  <button type="button">查看</button>
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div v-if="componentTarget === 'StatusAction'" class="status-action-preview">
             <div>
               <span class="status-pill status-pill--success">已匹配</span>
@@ -203,8 +253,9 @@
             </div>
             <div class="table-actions">
               <button type="button">查看</button>
-              <button type="button">复核</button>
-              <button type="button">分配</button>
+              <button class="is-primary" type="button">复核</button>
+              <button class="is-danger" type="button">禁用</button>
+              <button class="is-disabled" type="button">已撤销</button>
             </div>
           </div>
 
@@ -388,6 +439,7 @@
       Button: { kicker: 'Button', title: '按钮状态样张' },
       Field: { kicker: 'Field', title: '表单控件样张' },
       DataTable: { kicker: 'Data Table', title: '数据表格样张' },
+      TableToolbar: { kicker: 'Table System', title: '表格工具栏与批量操作' },
       StatusAction: { kicker: 'Status / Action', title: '状态与操作样张' },
       Shell: { kicker: 'Shell', title: '外壳与内容面样张' },
     };
@@ -418,9 +470,47 @@
     '--app-button-primary-text': tokens.value.component.Button.primaryText,
     '--app-input-height': tokens.value.component.Input.height,
     '--app-table-header-bg': tokens.value.component.DataTable.headerBg,
+    '--app-table-toolbar-min-height': tokens.value.component.TableToolbar.minHeight,
+    '--app-table-toolbar-bg': tokens.value.component.TableToolbar.bgColor,
+    '--app-table-toolbar-border-color': tokens.value.component.TableToolbar.borderColor,
+    '--app-table-toolbar-radius': tokens.value.component.TableToolbar.radius,
+    '--app-table-toolbar-padding-x': tokens.value.component.TableToolbar.paddingX,
+    '--app-table-toolbar-padding-y': tokens.value.component.TableToolbar.paddingY,
+    '--app-table-toolbar-gap': tokens.value.component.TableToolbar.gap,
+    '--app-table-toolbar-title-color': tokens.value.component.TableToolbar.titleTextColor,
+    '--app-table-search-bg': tokens.value.component.TableSearch.bgColor,
+    '--app-table-search-border-color': tokens.value.component.TableSearch.borderColor,
+    '--app-table-search-radius': tokens.value.component.TableSearch.radius,
+    '--app-table-search-padding-x': tokens.value.component.TableSearch.paddingX,
+    '--app-table-search-padding-y': tokens.value.component.TableSearch.paddingY,
+    '--app-table-search-field-gap': tokens.value.component.TableSearch.fieldGap,
+    '--app-table-search-row-gap': tokens.value.component.TableSearch.rowGap,
+    '--app-table-search-label-width': tokens.value.component.TableSearch.labelWidth,
+    '--app-table-search-input-width': tokens.value.component.TableSearch.inputWidth,
+    '--app-table-search-action-gap': tokens.value.component.TableSearch.actionGap,
+    '--app-table-batch-action-min-height': tokens.value.component.TableBatchAction.minHeight,
+    '--app-table-batch-action-bg': tokens.value.component.TableBatchAction.bgColor,
+    '--app-table-batch-action-border-color': tokens.value.component.TableBatchAction.borderColor,
+    '--app-table-batch-action-radius': tokens.value.component.TableBatchAction.radius,
+    '--app-table-batch-action-padding-x': tokens.value.component.TableBatchAction.paddingX,
+    '--app-table-batch-action-gap': tokens.value.component.TableBatchAction.gap,
+    '--app-table-batch-action-text-color': tokens.value.component.TableBatchAction.textColor,
+    '--app-table-selection-column-width': tokens.value.component.DataTable.selectionColumnWidth,
     '--app-table-action-height': tokens.value.component.TableAction.buttonHeight,
     '--app-table-action-padding-x': tokens.value.component.TableAction.buttonPaddingX,
     '--app-table-action-radius': tokens.value.component.TableAction.buttonRadius,
+    '--app-table-action-default-text': tokens.value.component.TableAction.defaultTextColor,
+    '--app-table-action-default-bg': tokens.value.component.TableAction.defaultBgColor,
+    '--app-table-action-default-border': tokens.value.component.TableAction.defaultBorderColor,
+    '--app-table-action-primary-text': tokens.value.component.TableAction.primaryTextColor,
+    '--app-table-action-primary-bg': tokens.value.component.TableAction.primaryBgColor,
+    '--app-table-action-primary-border': tokens.value.component.TableAction.primaryBorderColor,
+    '--app-table-action-danger-text': tokens.value.component.TableAction.dangerTextColor,
+    '--app-table-action-danger-bg': tokens.value.component.TableAction.dangerBgColor,
+    '--app-table-action-danger-border': tokens.value.component.TableAction.dangerBorderColor,
+    '--app-table-action-disabled-text': tokens.value.component.TableAction.disabledTextColor,
+    '--app-table-action-disabled-bg': tokens.value.component.TableAction.disabledBgColor,
+    '--app-table-action-disabled-border': tokens.value.component.TableAction.disabledBorderColor,
   }));
 
   const fontRows = computed(() => [
@@ -1058,15 +1148,158 @@
     button {
       height: var(--app-table-action-height, 30px);
       padding: 0 var(--app-table-action-padding-x, 12px);
-      color: var(--app-primary-color);
-      background: transparent;
-      border-color: color-mix(in srgb, var(--app-border-color) 76%, transparent);
+      color: var(--app-table-action-default-text, var(--app-primary-color));
+      background: var(--app-table-action-default-bg, transparent);
+      border-color: var(--app-table-action-default-border, color-mix(in srgb, var(--app-border-color) 76%, transparent));
       border-radius: var(--app-table-action-radius, var(--app-card-radius));
+    }
+
+    .is-primary {
+      color: var(--app-table-action-primary-text, #fff);
+      background: var(--app-table-action-primary-bg, var(--app-primary-color));
+      border-color: var(--app-table-action-primary-border, var(--app-primary-color));
+    }
+
+    .is-danger {
+      color: var(--app-table-action-danger-text);
+      background: var(--app-table-action-danger-bg);
+      border-color: var(--app-table-action-danger-border);
+    }
+
+    .is-disabled {
+      color: var(--app-table-action-disabled-text);
+      background: var(--app-table-action-disabled-bg);
+      border-color: var(--app-table-action-disabled-border);
+      opacity: 0.78;
     }
   }
 
   .table-sample--focus {
     min-height: 228px;
+  }
+
+  .table-system-preview {
+    display: grid;
+    gap: var(--app-table-search-row-gap, 10px);
+    min-width: 0;
+  }
+
+  .table-search-sample {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-table-search-row-gap, 10px) var(--app-table-search-field-gap, 12px);
+    align-items: end;
+    min-width: 0;
+    padding: var(--app-table-search-padding-y, 12px) var(--app-table-search-padding-x, 12px);
+    background: var(--app-table-search-bg, var(--app-surface-bg));
+    border: 1px solid var(--app-table-search-border-color, var(--app-border-color));
+    border-radius: var(--app-table-search-radius, var(--app-card-radius));
+
+    label {
+      display: grid;
+      gap: 6px;
+      width: min(100%, var(--app-table-search-input-width, 220px));
+      min-width: 0;
+    }
+
+    span {
+      color: var(--app-icon-color);
+      font-size: var(--app-font-size-xs, 12px);
+      line-height: 18px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      height: var(--app-input-height, 34px);
+      padding: 0 10px;
+      color: var(--app-text-color);
+      background: var(--app-surface-bg);
+      border: 1px solid var(--app-border-color);
+      border-radius: var(--app-card-radius);
+    }
+  }
+
+  .table-search-sample__actions,
+  .table-toolbar-sample > div:last-child,
+  .table-batch-sample {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--app-table-search-action-gap, 8px);
+    align-items: center;
+  }
+
+  .table-search-sample button,
+  .table-toolbar-sample button,
+  .table-batch-sample button {
+    height: var(--app-table-action-height, 30px);
+    padding: 0 var(--app-table-action-padding-x, 12px);
+    color: var(--app-primary-color);
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-table-action-radius, var(--app-card-radius));
+  }
+
+  .table-toolbar-sample {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-table-toolbar-gap, 12px);
+    min-height: var(--app-table-toolbar-min-height, 44px);
+    padding: var(--app-table-toolbar-padding-y, 10px) var(--app-table-toolbar-padding-x, 12px);
+    background: var(--app-table-toolbar-bg, var(--app-surface-bg));
+    border: 1px solid var(--app-table-toolbar-border-color, var(--app-border-color));
+    border-radius: var(--app-table-toolbar-radius, var(--app-card-radius));
+
+    > div:first-child {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    strong {
+      color: var(--app-table-toolbar-title-color, var(--app-text-color));
+    }
+
+    span {
+      overflow: hidden;
+      color: var(--app-icon-color);
+      font-size: var(--app-font-size-sm, 13px);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .table-batch-sample {
+    min-height: var(--app-table-batch-action-min-height, 40px);
+    padding: 0 var(--app-table-batch-action-padding-x, 12px);
+    color: var(--app-table-batch-action-text-color, var(--app-text-color));
+    background: var(--app-table-batch-action-bg, var(--app-primary-soft-bg));
+    border: 1px solid var(--app-table-batch-action-border-color, var(--app-border-color));
+    border-radius: var(--app-table-batch-action-radius, var(--app-card-radius));
+
+    strong {
+      margin-right: auto;
+    }
+  }
+
+  .table-sample--toolbar {
+    .table-sample__head,
+    .table-sample__row {
+      grid-template-columns: var(--app-table-selection-column-width, 48px) minmax(72px, 1fr) auto minmax(72px, auto);
+    }
+  }
+
+  .table-sample__check {
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--app-table-selection-border-color);
+    border-radius: 4px;
+
+    &.is-checked {
+      background: var(--app-table-selection-color);
+      box-shadow: inset 0 0 0 3px var(--app-surface-bg);
+    }
   }
 
   .status-action-preview {

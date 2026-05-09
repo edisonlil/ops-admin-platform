@@ -840,7 +840,7 @@ pnpm run build
 
 ### Task 9.1 表格体系二期
 
-状态：待开始
+状态：进行中
 
 内容：
 
@@ -850,6 +850,14 @@ pnpm run build
 - 沉淀 `AppDataTable` 与 `AppTableToolbar`，让新业务表格默认走统一组件。
 - Appearance Studio 预览区补充查询栏、勾选列、批量操作栏、空状态、加载态和固定操作列示例。
 
+当前进展：
+
+- 已新增 `TableToolbarTokens`、`TableSearchTokens`、`TableBatchActionTokens`，并扩展 `DataTableTokens` 的选择列、固定列阴影、空状态、加载态、展开行字段。
+- 已新增 `AppTableToolbar` 与 `AppDataTable`，作为新业务表格的统一入口。
+- 已让旧 `BasicTable` 工具栏消费表格 token 变量，降低历史页面迁移成本。
+- Appearance Studio 已新增“表格工具栏”配置页与查询栏、批量栏、选择列预览。
+- 已迁移租户管理、成员管理与用户管理页面的主要列表到 `AppDataTable`、`AppStatusTag`、`AppTableActions`。
+
 验收：
 
 - 成员管理、租户管理、角色管理、菜单权限等高频页面可逐步迁移到 `AppDataTable`。
@@ -858,7 +866,7 @@ pnpm run build
 
 ### Task 9.2 状态与操作体系完善
 
-状态：待开始
+状态：进行中
 
 内容：
 
@@ -866,6 +874,13 @@ pnpm run build
 - 新增 `AppConfirmAction`，统一二次确认类操作，如撤销、删除、停用。
 - 新增 `AppStatusGroup`，用于多个状态标签并排展示。
 - 建立业务状态语义字典，例如 enabled、disabled、draft、published、revoked、matched、pendingReview。
+
+当前进展：
+
+- 已扩展 `TableActionTokens` 的默认、主要、危险、禁用和确认层外观字段。
+- 已新增 `AppConfirmAction`，并让 `AppTableActions` 支持确认操作。
+- 已将租户停用 / 启用、用户禁用 / 启用、API Key 撤销接入统一确认入口。
+- Appearance Studio “状态与操作”预览已补充主要、危险和禁用操作按钮状态。
 
 验收：
 

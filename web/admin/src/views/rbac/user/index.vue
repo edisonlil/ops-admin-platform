@@ -7,25 +7,27 @@
     </div>
 
     <n-card :bordered="false" size="small" class="proCard mt-4">
-      <template #header>
-        <n-button type="primary" @click="handleCreate">
-          <template #icon>
-            <n-icon>
-              <PlusOutlined />
-            </n-icon>
-          </template>
-          新增用户
-        </n-button>
-      </template>
-
-      <n-data-table
+      <AppDataTable
+        title="用户列表"
+        description="维护后台登录用户、角色分配、启用状态和超级用户标记。"
         size="small"
         :columns="columns"
         :data="rows"
         :loading="loading"
         :pagination="{ pageSize: 20 }"
         :row-key="(row) => row.id"
-      />
+      >
+        <template #actions>
+          <n-button type="primary" @click="handleCreate">
+            <template #icon>
+              <n-icon>
+                <PlusOutlined />
+              </n-icon>
+            </template>
+            新增用户
+          </n-button>
+        </template>
+      </AppDataTable>
     </n-card>
 
     <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
@@ -87,10 +89,13 @@
 
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
-  import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui';
+  import { NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import { PlusOutlined } from '@vicons/antd';
   import { createRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
+  import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusTag from '@/components/Application/AppStatusTag.vue';
+  import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface UserRole extends Recordable {
@@ -118,7 +123,6 @@
   }
 
   const message = useMessage();
-  const dialog = useDialog();
   const loading = ref(false);
   const savingUser = ref(false);
   const rolesLoading = ref(false);
@@ -173,9 +177,10 @@
       key: 'is_active',
       width: 100,
       render(row) {
-        return h(NTag, { size: 'small', type: row.is_active ? 'success' : 'error' }, () =>
-          row.is_active ? '启用' : '禁用'
-        );
+        return h(AppStatusTag, {
+          tone: row.is_active ? 'success' : 'error',
+          label: row.is_active ? '启用' : '禁用',
+        });
       },
     },
     {
@@ -183,9 +188,10 @@
       key: 'is_superuser',
       width: 120,
       render(row) {
-        return h(NTag, { size: 'small', type: row.is_superuser ? 'warning' : 'default' }, () =>
-          row.is_superuser ? '是' : '否'
-        );
+        return h(AppStatusTag, {
+          tone: row.is_superuser ? 'warning' : 'neutral',
+          label: row.is_superuser ? '是' : '否',
+        });
       },
     },
     {
@@ -206,25 +212,19 @@
       width: 220,
       fixed: 'right',
       render(row) {
-        return h(
-          NSpace,
-          { size: 8 },
-          {
-            default: () => [
-              h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-              h(
-                NButton,
-                {
-                  size: 'small',
-                  type: row.is_active ? 'warning' : 'success',
-                  ghost: true,
-                  onClick: () => handleToggleActive(row),
-                },
-                () => (row.is_active ? '禁用' : '启用')
-              ),
-            ],
-          }
-        );
+        return h(AppTableActions, {
+          actions: [
+            { label: '编辑', onClick: () => handleEdit(row) },
+            {
+              label: row.is_active ? '禁用' : '启用',
+              tone: row.is_active ? 'danger' : 'primary',
+              confirm: true,
+              confirmTitle: row.is_active ? '禁用用户' : '启用用户',
+              confirmContent: `确认${row.is_active ? '禁用' : '启用'}用户「${row.username}」吗？`,
+              onConfirm: () => handleToggleActive(row),
+            },
+          ],
+        });
       },
     },
   ];
@@ -316,28 +316,22 @@
 
   function handleToggleActive(row: UserRow) {
     const nextActive = !row.is_active;
-    dialog.warning({
-      title: `${nextActive ? '启用' : '禁用'}用户`,
-      content: `确认${nextActive ? '启用' : '禁用'}用户「${row.username}」吗？`,
-      positiveText: '确认',
-      negativeText: '取消',
-      async onPositiveClick() {
-        try {
-          await updateRbacUser(row.id, {
-            username: row.username,
-            password: '',
-            role_keys: (row.roles || []).map((role) => String(role.key)),
-            is_active: nextActive,
-            is_superuser: !!row.is_superuser,
-          });
-          await reload();
-          message.success(`用户已${nextActive ? '启用' : '禁用'}`);
-        } catch (error) {
-          message.error(error instanceof Error ? error.message : '用户状态更新失败');
-          throw error;
-        }
-      },
-    });
+    return (async () => {
+      try {
+        await updateRbacUser(row.id, {
+          username: row.username,
+          password: '',
+          role_keys: (row.roles || []).map((role) => String(role.key)),
+          is_active: nextActive,
+          is_superuser: !!row.is_superuser,
+        });
+        await reload();
+        message.success(`用户已${nextActive ? '启用' : '禁用'}`);
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '用户状态更新失败');
+        throw error;
+      }
+    })();
   }
 
   async function reload() {

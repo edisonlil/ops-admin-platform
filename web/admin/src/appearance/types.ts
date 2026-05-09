@@ -107,6 +107,48 @@ export interface DataTableTokens {
   radius: string;
   selectionColor: string;
   selectionBorderColor: string;
+  selectionColumnWidth: string;
+  fixedColumnShadow: string;
+  emptyTextColor: string;
+  loadingColor: string;
+  expandedRowBg: string;
+}
+
+export interface TableToolbarTokens {
+  minHeight: string;
+  bgColor: string;
+  borderColor: string;
+  radius: string;
+  paddingX: string;
+  paddingY: string;
+  gap: string;
+  titleTextColor: string;
+  iconColor: string;
+  iconHoverBg: string;
+  iconHoverColor: string;
+}
+
+export interface TableSearchTokens {
+  bgColor: string;
+  borderColor: string;
+  radius: string;
+  paddingX: string;
+  paddingY: string;
+  fieldGap: string;
+  rowGap: string;
+  labelWidth: string;
+  inputWidth: string;
+  actionGap: string;
+}
+
+export interface TableBatchActionTokens {
+  minHeight: string;
+  bgColor: string;
+  borderColor: string;
+  radius: string;
+  paddingX: string;
+  gap: string;
+  textColor: string;
 }
 
 export interface StatusTagTokens {
@@ -136,6 +178,24 @@ export interface TableActionTokens {
   buttonHeight: string;
   buttonPaddingX: string;
   buttonRadius: string;
+  defaultTextColor: string;
+  defaultBgColor: string;
+  defaultBorderColor: string;
+  primaryTextColor: string;
+  primaryBgColor: string;
+  primaryBorderColor: string;
+  dangerTextColor: string;
+  dangerBgColor: string;
+  dangerBorderColor: string;
+  disabledTextColor: string;
+  disabledBgColor: string;
+  disabledBorderColor: string;
+  moreIconColor: string;
+  confirmWidth: string;
+  confirmRadius: string;
+  confirmBgColor: string;
+  confirmBorderColor: string;
+  confirmShadow: string;
 }
 
 export interface SurfaceTokens {
@@ -175,6 +235,9 @@ export interface ComponentTokens {
     dotColorActive: string;
   };
   DataTable: DataTableTokens;
+  TableToolbar: TableToolbarTokens;
+  TableSearch: TableSearchTokens;
+  TableBatchAction: TableBatchActionTokens;
   StatusTag: StatusTagTokens;
   TableAction: TableActionTokens;
   Pagination: {

@@ -17,4 +17,26 @@
   .n-data-table .n-checkbox.n-checkbox--focus .n-checkbox-box {
     border-color: var(--app-table-selection-border-color);
   }
+
+  .n-data-table .n-data-table-th.n-data-table-th--selection,
+  .n-data-table .n-data-table-td.n-data-table-td--selection {
+    width: var(--app-table-selection-column-width);
+  }
+
+  .n-data-table .n-data-table-td.n-data-table-td--fixed-left::after,
+  .n-data-table .n-data-table-th.n-data-table-th--fixed-left::after {
+    box-shadow: var(--app-table-fixed-column-shadow);
+  }
+
+  .n-data-table .n-data-table-empty {
+    color: var(--app-table-empty-text-color);
+  }
+
+  .n-data-table .n-spin-body {
+    color: var(--app-table-loading-color);
+  }
+
+  .n-data-table .n-data-table-tr.n-data-table-tr--expanded {
+    background: var(--app-table-expanded-row-bg);
+  }
 }

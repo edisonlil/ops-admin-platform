@@ -7,46 +7,44 @@
     </div>
 
     <n-card v-if="isPlatformTenantManagement" :bordered="false" size="small" class="proCard mt-4">
-      <template #header>
-        <n-space>
-          <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" style="width: 260px" @keyup.enter="reload" />
-          <n-button @click="reload">查询</n-button>
-          <n-button type="primary" @click="openCreate">新建租户</n-button>
-        </n-space>
-      </template>
-
-      <n-data-table
+      <AppDataTable
+        title="租户列表"
+        description="查询租户、维护状态，并进入详情管理成员与 API Key。"
+        compact-search
         size="small"
         :columns="tenantColumns"
         :data="tenants"
         :loading="loading"
         :pagination="{ pageSize: 20 }"
         :row-key="(row) => row.id"
-      />
+      >
+        <template #search>
+          <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" @keyup.enter="reload" />
+          <n-button @click="reload">查询</n-button>
+        </template>
+        <template #actions>
+          <n-button type="primary" @click="openCreate">新建租户</n-button>
+        </template>
+      </AppDataTable>
     </n-card>
 
     <n-card v-else :bordered="false" size="small" class="proCard mt-4">
-      <template #header>
-        <n-space justify="space-between" align="center" class="w-full">
-          <n-space align="center">
-            <n-tag v-if="activeTenant" size="small" type="info">{{ activeTenant.tenant_key }}</n-tag>
-            <span>{{ activeTenant?.name || '当前租户' }}</span>
-          </n-space>
-          <n-space>
-            <n-button type="primary" @click="openUserCreate">新增成员</n-button>
-            <n-button :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
-          </n-space>
-        </n-space>
-      </template>
-
-      <n-data-table
+      <AppDataTable
+        :title="activeTenant?.name || '当前租户'"
+        description="维护当前租户的成员账号、角色和启用状态。"
         size="small"
         :columns="userColumns"
         :data="tenantUsers"
         :loading="usersLoading || loading"
         :pagination="{ pageSize: 20 }"
         :row-key="(row) => row.id"
-      />
+      >
+        <template #actions>
+          <n-tag v-if="activeTenant" size="small" type="info">{{ activeTenant.tenant_key }}</n-tag>
+          <n-button type="primary" @click="openUserCreate">新增成员</n-button>
+          <n-button :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
+        </template>
+      </AppDataTable>
     </n-card>
 
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
@@ -109,19 +107,35 @@
           </n-tab-pane>
 
           <n-tab-pane name="users" tab="成员用户">
-            <n-space class="mb-3">
-              <n-button type="primary" @click="openUserCreate">新增成员</n-button>
-              <n-button @click="loadTenantUsers">刷新</n-button>
-            </n-space>
-            <n-data-table size="small" :columns="userColumns" :data="tenantUsers" :loading="usersLoading" />
+            <AppDataTable
+              title="成员用户"
+              size="small"
+              :columns="userColumns"
+              :data="tenantUsers"
+              :loading="usersLoading"
+              :pagination="{ pageSize: 20 }"
+            >
+              <template #actions>
+                <n-button type="primary" @click="openUserCreate">新增成员</n-button>
+                <n-button @click="loadTenantUsers">刷新</n-button>
+              </template>
+            </AppDataTable>
           </n-tab-pane>
 
           <n-tab-pane name="keys" tab="API Key">
-            <n-space class="mb-3">
-              <n-button type="primary" @click="keyCreateVisible = true">新建 Key</n-button>
-              <n-button @click="loadTenantKeys">刷新</n-button>
-            </n-space>
-            <n-data-table size="small" :columns="keyColumns" :data="tenantKeys" :loading="keysLoading" />
+            <AppDataTable
+              title="API Key"
+              size="small"
+              :columns="keyColumns"
+              :data="tenantKeys"
+              :loading="keysLoading"
+              :pagination="{ pageSize: 20 }"
+            >
+              <template #actions>
+                <n-button type="primary" @click="keyCreateVisible = true">新建 Key</n-button>
+                <n-button @click="loadTenantKeys">刷新</n-button>
+              </template>
+            </AppDataTable>
           </n-tab-pane>
 
           <n-tab-pane name="init" tab="初始化状态">
@@ -176,7 +190,7 @@
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
   import { useRoute } from 'vue-router';
-  import { NButton, NTag, useDialog, useMessage } from 'naive-ui';
+  import { NButton, NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import {
     activateTenant,
@@ -201,6 +215,7 @@
   } from '@/api/business';
   import { useUserStore } from '@/store/modules/user';
   import { assignTenantAppearanceTheme, getAppearanceThemes, getTenantAppearanceTheme } from '@/api/appearance';
+  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -217,7 +232,6 @@
   }
 
   const message = useMessage();
-  const dialog = useDialog();
   const userStore = useUserStore();
   const route = useRoute();
   const query = ref('');
@@ -308,9 +322,11 @@
             { label: '编辑', onClick: () => openEdit(row) },
             {
               label: row.status === 'active' ? '停用' : '启用',
-              type: row.status === 'active' ? 'warning' : 'success',
-              ghost: true,
-              onClick: () => toggleTenant(row),
+              tone: row.status === 'active' ? 'danger' : 'primary',
+              confirm: true,
+              confirmTitle: row.status === 'active' ? '停用租户' : '启用租户',
+              confirmContent: `确认${row.status === 'active' ? '停用' : '启用'}租户「${row.name}」吗？`,
+              onConfirm: () => toggleTenant(row),
             },
           ],
         });
@@ -370,9 +386,12 @@
           actions: [
             {
               label: '撤销',
-              type: 'error',
+              tone: 'danger',
               disabled: !row.is_active,
-              onClick: () => revokeKey(row),
+              confirm: true,
+              confirmTitle: '撤销 API Key',
+              confirmContent: `确认撤销 API Key「${row.name || row.prefix}」吗？`,
+              onConfirm: () => revokeKey(row),
             },
           ],
         });
@@ -461,17 +480,11 @@
 
   function toggleTenant(row: TenantRow) {
     const nextActive = row.status !== 'active';
-    dialog.warning({
-      title: nextActive ? '启用租户' : '停用租户',
-      content: `确认${nextActive ? '启用' : '停用'}租户「${row.name}」吗？`,
-      positiveText: '确认',
-      negativeText: '取消',
-      async onPositiveClick() {
-        if (nextActive) await activateTenant(row.id);
-        else await suspendTenant(row.id);
-        await reload();
-      },
-    });
+    return (async () => {
+      if (nextActive) await activateTenant(row.id);
+      else await suspendTenant(row.id);
+      await reload();
+    })();
   }
 
   async function openDetail(row: TenantRow) {

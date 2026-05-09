@@ -122,6 +122,10 @@ export function createNaiveThemeOverrides(tokens: AppearanceTokens): GlobalTheme
       tdHeightMedium: component.DataTable.tdHeight,
       thPaddingMedium: `${component.DataTable.cellPaddingY} ${component.DataTable.cellPaddingX}`,
       tdPaddingMedium: `${component.DataTable.cellPaddingY} ${component.DataTable.cellPaddingX}`,
+      thButtonColorHover: component.DataTable.headerHoverBg,
+      thIconColor: component.DataTable.thTextColor,
+      thIconColorActive: component.DataTable.selectionColor,
+      loadingColor: component.DataTable.loadingColor,
     },
     Pagination: {
       itemBorderRadius: component.Pagination.itemRadius,
