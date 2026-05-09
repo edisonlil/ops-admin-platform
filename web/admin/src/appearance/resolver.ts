@@ -12,7 +12,10 @@ function flattenTokens(value: unknown, path: string[] = [], result: Record<strin
 
   const fullPath = path.join('.');
   result[fullPath] = value;
-  result[path[path.length - 1]] = value;
+  const shortName = path[path.length - 1];
+  if (!(shortName in result)) {
+    result[shortName] = value;
+  }
   return result;
 }
 
