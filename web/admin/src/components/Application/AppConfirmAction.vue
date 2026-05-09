@@ -1,19 +1,14 @@
 <template>
-  <n-popconfirm
+  <n-popover
     v-if="confirm"
-    :show-icon="false"
-    :positive-text="positiveText"
-    :negative-text="negativeText"
+    v-model:show="confirmVisible"
     :disabled="disabled"
     trigger="click"
     to=".appearance-root"
     placement="top-end"
     :width="confirmPopoverWidth"
+    :content-style="{ padding: '0' }"
     content-class="app-confirm-action-popover"
-    :positive-button-props="positiveButtonProps"
-    :negative-button-props="negativeButtonProps"
-    @positive-click="handleConfirm"
-    @negative-click="emit('cancel')"
   >
     <template #trigger>
       <button
@@ -26,11 +21,27 @@
         {{ label }}
       </button>
     </template>
-    <div class="app-confirm-action__content">
-      <strong v-if="confirmTitle">{{ confirmTitle }}</strong>
-      <span>{{ confirmContent || '确认执行该操作吗？' }}</span>
+    <div class="app-confirm-action__panel" @click.stop>
+      <div class="app-confirm-action__content">
+        <strong v-if="confirmTitle">{{ confirmTitle }}</strong>
+        <span>{{ confirmContent || '确认执行该操作吗？' }}</span>
+      </div>
+      <div class="app-confirm-action__footer">
+        <button class="app-confirm-action__cancel" type="button" :disabled="loading" @click="handleCancel">
+          {{ negativeText }}
+        </button>
+        <button
+          class="app-confirm-action__confirm"
+          :class="{ 'is-danger': resolvedTone === 'danger' }"
+          type="button"
+          :disabled="loading"
+          @click="handleConfirm"
+        >
+          {{ positiveText }}
+        </button>
+      </div>
     </div>
-  </n-popconfirm>
+  </n-popover>
   <button
     v-else
     class="app-confirm-action"
@@ -44,7 +55,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
+  import { computed, ref } from 'vue';
 
   type ActionTone = 'default' | 'primary' | 'danger';
 
@@ -79,17 +90,17 @@
     }
     return 'default';
   });
-  const confirmPopoverWidth = 248;
-  const positiveButtonProps = computed(() => ({
-    size: 'small',
-    type: resolvedTone.value === 'danger' ? 'error' : 'primary',
-  }));
-  const negativeButtonProps = {
-    size: 'small',
-  };
+  const confirmVisible = ref(false);
+  const confirmPopoverWidth = 236;
 
-  function handleConfirm() {
-    return props.confirmHandler?.();
+  function handleCancel() {
+    confirmVisible.value = false;
+    emit('cancel');
+  }
+
+  async function handleConfirm() {
+    await props.confirmHandler?.();
+    confirmVisible.value = false;
   }
 </script>
 
@@ -139,21 +150,78 @@
 
   .app-confirm-action__content {
     display: grid;
-    gap: 6px;
-    width: min(100vw - 48px, 224px);
+    gap: 5px;
     min-width: 0;
 
     strong {
       color: var(--app-text-color);
-      font-size: var(--app-font-size-base, 14px);
+      font-size: 13px;
       font-weight: 700;
-      line-height: 20px;
+      line-height: 18px;
     }
 
     span {
       color: var(--app-icon-color);
-      font-size: var(--app-font-size-sm, 13px);
-      line-height: 19px;
+      font-size: 13px;
+      line-height: 18px;
+    }
+  }
+
+  .app-confirm-action__panel {
+    display: grid;
+    gap: 10px;
+    box-sizing: border-box;
+    width: min(calc(100vw - 40px), 236px);
+    padding: 12px;
+    background: var(--app-table-action-confirm-bg);
+    border: 1px solid var(--app-table-action-confirm-border);
+    border-radius: var(--app-table-action-confirm-radius);
+    box-shadow: var(--app-table-action-confirm-shadow);
+  }
+
+  .app-confirm-action__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .app-confirm-action__cancel,
+  .app-confirm-action__confirm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    height: 28px;
+    padding: 0 11px;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid;
+    border-radius: var(--app-table-action-button-radius);
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.68;
+    }
+  }
+
+  .app-confirm-action__cancel {
+    color: var(--app-table-action-default-text);
+    background: var(--app-table-action-default-bg);
+    border-color: var(--app-table-action-default-border);
+  }
+
+  .app-confirm-action__confirm {
+    color: var(--app-table-action-primary-text);
+    background: var(--app-table-action-primary-bg);
+    border-color: var(--app-table-action-primary-border);
+
+    &.is-danger {
+      color: var(--app-table-action-danger-text);
+      background: color-mix(in srgb, var(--app-table-action-danger-text) 10%, var(--app-table-action-danger-bg));
+      border-color: var(--app-table-action-danger-border);
     }
   }
 </style>
@@ -162,36 +230,13 @@
   .n-popover.app-confirm-action-popover,
   .n-popover:has(.app-confirm-action-popover) {
     padding: 0;
-    overflow: hidden;
-    background: var(--app-table-action-confirm-bg);
-    border: 1px solid var(--app-table-action-confirm-border);
-    border-radius: var(--app-table-action-confirm-radius);
-    box-shadow: var(--app-table-action-confirm-shadow);
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
   }
 
   .app-confirm-action-popover {
-    max-width: min(calc(100vw - 48px), 248px);
-
-    .n-popconfirm__panel {
-      padding: 12px 12px 10px;
-    }
-
-    .n-popconfirm__body {
-      margin-bottom: 10px;
-    }
-
-    .n-popconfirm__action {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .n-button {
-      min-width: 54px;
-      height: 30px;
-      padding: 0 12px;
-      font-size: var(--app-font-size-sm, 13px);
-      border-radius: var(--app-table-action-button-radius);
-    }
+    max-width: min(calc(100vw - 40px), 236px);
   }
 </style>
