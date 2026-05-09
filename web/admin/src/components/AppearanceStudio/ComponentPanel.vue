@@ -26,17 +26,21 @@
         :resolved-value="resolved.Button.primaryBgPressed"
         @update:model-value="(value) => update('Button', 'primaryBgPressed', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="圆角"
         token-path="component.Button.radius"
         :model-value="component.Button.radius"
         :resolved-value="resolved.Button.radius"
+        :min="0"
+        :max="32"
         @update:model-value="(value) => update('Button', 'radius', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="高度"
         token-path="component.Button.height"
         :model-value="component.Button.height"
+        :min="24"
+        :max="64"
         @update:model-value="(value) => update('Button', 'height', value)"
       />
     </section>
@@ -60,16 +64,20 @@
         :resolved-value="resolved.Input.focusBorderColor"
         @update:model-value="(value) => update('Input', 'focusBorderColor', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="输入框高度"
         token-path="component.Input.height"
         :model-value="component.Input.height"
+        :min="24"
+        :max="64"
         @update:model-value="(value) => update('Input', 'height', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="选择器高度"
         token-path="component.Select.height"
         :model-value="component.Select.height"
+        :min="24"
+        :max="64"
         @update:model-value="(value) => update('Select', 'height', value)"
       />
     </section>
@@ -142,35 +150,45 @@
         :resolved-value="resolved.DataTable.tdTextColor"
         @update:model-value="(value) => update('DataTable', 'tdTextColor', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="表头高度"
         token-path="component.DataTable.thHeight"
         :model-value="component.DataTable.thHeight"
+        :min="28"
+        :max="72"
         @update:model-value="(value) => update('DataTable', 'thHeight', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="单元格高度"
         token-path="component.DataTable.tdHeight"
         :model-value="component.DataTable.tdHeight"
+        :min="28"
+        :max="72"
         @update:model-value="(value) => update('DataTable', 'tdHeight', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="横向内边距"
         token-path="component.DataTable.cellPaddingX"
         :model-value="component.DataTable.cellPaddingX"
+        :min="4"
+        :max="32"
         @update:model-value="(value) => update('DataTable', 'cellPaddingX', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="纵向内边距"
         token-path="component.DataTable.cellPaddingY"
         :model-value="component.DataTable.cellPaddingY"
+        :min="2"
+        :max="24"
         @update:model-value="(value) => update('DataTable', 'cellPaddingY', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="表格圆角"
         token-path="component.DataTable.radius"
         :model-value="component.DataTable.radius"
         :resolved-value="resolved.DataTable.radius"
+        :min="0"
+        :max="32"
         @update:model-value="(value) => update('DataTable', 'radius', value)"
       />
       <TokenColorRow
@@ -215,29 +233,37 @@
         :resolved-value="resolved.StatusTag.errorBg"
         @update:model-value="(value) => update('StatusTag', 'errorBg', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="状态标签高度"
         token-path="component.StatusTag.height"
         :model-value="component.StatusTag.height"
+        :min="18"
+        :max="40"
         @update:model-value="(value) => update('StatusTag', 'height', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="状态标签圆角"
         token-path="component.StatusTag.radius"
         :model-value="component.StatusTag.radius"
         :resolved-value="resolved.StatusTag.radius"
+        :min="0"
+        :max="24"
         @update:model-value="(value) => update('StatusTag', 'radius', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="操作按钮间距"
         token-path="component.TableAction.gap"
         :model-value="component.TableAction.gap"
+        :min="0"
+        :max="24"
         @update:model-value="(value) => update('TableAction', 'gap', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="操作按钮高度"
         token-path="component.TableAction.buttonHeight"
         :model-value="component.TableAction.buttonHeight"
+        :min="22"
+        :max="48"
         @update:model-value="(value) => update('TableAction', 'buttonHeight', value)"
       />
     </section>
@@ -289,18 +315,22 @@
         :resolved-value="resolved.Menu.itemTextColorActiveInverted"
         @update:model-value="(value) => update('Menu', 'itemTextColorActiveInverted', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="卡片圆角"
         token-path="component.Card.radius"
         :model-value="component.Card.radius"
         :resolved-value="resolved.Card.radius"
+        :min="0"
+        :max="32"
         @update:model-value="(value) => update('Card', 'radius', value)"
       />
-      <TokenTextRow
+      <TokenSizeRow
         label="弹窗圆角"
         token-path="component.Modal.radius"
         :model-value="component.Modal.radius"
         :resolved-value="resolved.Modal.radius"
+        :min="0"
+        :max="32"
         @update:model-value="(value) => update('Modal', 'radius', value)"
       />
     </section>
@@ -311,7 +341,7 @@
   import { computed } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenColorRow from './TokenColorRow.vue';
-  import TokenTextRow from './TokenTextRow.vue';
+  import TokenSizeRow from './TokenSizeRow.vue';
 
   const props = defineProps<{
     target?: string;

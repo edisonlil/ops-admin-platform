@@ -5,12 +5,15 @@
         <span>全局样式</span>
         <strong>圆角</strong>
       </header>
-      <TokenTextRow
+      <TokenSizeRow
         v-for="item in radiusRows"
         :key="item.key"
         :label="item.label"
         :token-path="`primitive.${item.key}`"
         :model-value="primitive[item.key]"
+        :min="0"
+        :max="32"
+        :resolved-value="primitive[item.key]"
         @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
       />
     </section>
@@ -19,12 +22,15 @@
         <span>全局样式</span>
         <strong>字体</strong>
       </header>
-      <TokenTextRow
+      <TokenSizeRow
         v-for="item in fontRows"
         :key="item.key"
         :label="item.label"
         :token-path="`primitive.${item.key}`"
         :model-value="primitive[item.key]"
+        :min="10"
+        :max="32"
+        :resolved-value="primitive[item.key]"
         @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
       />
     </section>
@@ -33,13 +39,19 @@
         <span>全局样式</span>
         <strong>阴影</strong>
       </header>
-      <TokenTextRow
-        v-for="item in shadowRows"
-        :key="item.key"
-        :label="item.label"
-        :token-path="`primitive.${item.key}`"
-        :model-value="primitive[item.key]"
-        @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
+      <TokenSelectRow
+        label="弱阴影"
+        token-path="primitive.shadowSm"
+        :model-value="primitive.shadowSm"
+        :options="shadowOptions"
+        @update:model-value="(value) => appearanceStore.updatePrimitiveToken('shadowSm', value)"
+      />
+      <TokenSelectRow
+        label="中阴影"
+        token-path="primitive.shadowMd"
+        :model-value="primitive.shadowMd"
+        :options="shadowOptions"
+        @update:model-value="(value) => appearanceStore.updatePrimitiveToken('shadowMd', value)"
       />
     </section>
   </div>
@@ -48,7 +60,8 @@
 <script lang="ts" setup>
   import { computed } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
-  import TokenTextRow from './TokenTextRow.vue';
+  import TokenSelectRow from './TokenSelectRow.vue';
+  import TokenSizeRow from './TokenSizeRow.vue';
 
   const props = defineProps<{
     target?: string;
@@ -72,11 +85,12 @@
     { key: 'fontSizeLg', label: '大字号' },
   ] as const;
 
-  const shadowRows = [
-    { key: 'shadowNone', label: '无阴影' },
-    { key: 'shadowSm', label: '弱阴影' },
-    { key: 'shadowMd', label: '中阴影' },
-  ] as const;
+  const shadowOptions = [
+    { label: '无阴影', value: 'none' },
+    { label: '轻微阴影', value: '0 1px 2px rgb(15 23 42 / 6%)' },
+    { label: '标准阴影', value: '0 8px 18px rgb(15 23 42 / 8%)' },
+    { label: '强调阴影', value: '0 14px 32px rgb(15 23 42 / 12%)' },
+  ];
 </script>
 
 <style lang="less" scoped>
