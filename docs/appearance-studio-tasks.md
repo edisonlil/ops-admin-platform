@@ -895,7 +895,7 @@ pnpm run build
 
 ### Task 9.3 表单选择类组件
 
-状态：待开始
+状态：进行中
 
 内容：
 
@@ -909,6 +909,11 @@ pnpm run build
 - 选择类控件的输入态与弹出面板风格一致。
 - 暗色主题下弹层和页面背景边界清晰。
 - 页面不需要通过局部 CSS 修补 DatePicker / TreeSelect 的弹层样式。
+
+当前进展：
+- 已新增 `PopupTokens` 与 `PickerTokens`，覆盖弹层背景、边框、阴影、圆角、选项高度、hover / active / disabled 状态，以及日期 / 时间格子的尺寸和状态色。
+- 已将 Popup / Picker token 输出到 Naive `Select`、`DatePicker`、`TimePicker`、`AutoComplete`、`Cascader`、`TreeSelect` themeOverrides，并补充全局 CSS variables 兜底弹层边框与阴影。
+- Appearance Studio 已新增“选择与弹层”配置入口和日期、时间、级联、树选择组合预览。
 
 ### Task 9.4 Upload 与 Tree
 

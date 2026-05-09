@@ -308,6 +308,7 @@
       items: [
         { key: 'Button', panel: 'components', previewTarget: 'Button', title: '按钮', caption: '默认 / 主按钮 / 状态', description: '单独配置按钮颜色、圆角、高度和不同交互状态。' },
         { key: 'Field', panel: 'components', previewTarget: 'Field', title: '表单控件', caption: '输入框 / 选择器', description: '单独配置输入框、选择器的边框、焦点色和控件高度。' },
+        { key: 'Picker', panel: 'components', previewTarget: 'Picker', title: '选择与弹层', caption: '日期 / 时间 / 树选择', description: '统一配置选择类控件的弹层、选项、日期格子和树选择面板外观。' },
         { key: 'DataTable', panel: 'components', previewTarget: 'DataTable', title: '数据表格', caption: '表头 / 行 / 单元格', description: '单独配置表格背景、行状态、单元格尺寸和表格圆角。' },
         { key: 'TableToolbar', panel: 'components', previewTarget: 'TableToolbar', title: '表格工具栏', caption: '查询 / 批量操作', description: '配置表格查询区、工具栏、批量操作栏和选择列的外观入口。' },
         { key: 'StatusAction', panel: 'components', previewTarget: 'StatusAction', title: '状态与操作', caption: '标签 / 表格操作', description: '单独配置状态标签与表格操作按钮的尺寸和状态色。' },

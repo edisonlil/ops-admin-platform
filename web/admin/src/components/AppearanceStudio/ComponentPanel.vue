@@ -82,6 +82,80 @@
       />
     </section>
 
+    <section v-else-if="activeTarget === 'Picker'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>选择与弹层</strong>
+      </header>
+      <TokenColorRow
+        label="弹层背景"
+        token-path="component.Popup.bgColor"
+        :model-value="component.Popup.bgColor"
+        :resolved-value="resolved.Popup.bgColor"
+        @update:model-value="(value) => update('Popup', 'bgColor', value)"
+      />
+      <TokenColorRow
+        label="弹层边框"
+        token-path="component.Popup.borderColor"
+        :model-value="component.Popup.borderColor"
+        :resolved-value="resolved.Popup.borderColor"
+        @update:model-value="(value) => update('Popup', 'borderColor', value)"
+      />
+      <TokenSizeRow
+        label="弹层圆角"
+        token-path="component.Popup.radius"
+        :model-value="component.Popup.radius"
+        :resolved-value="resolved.Popup.radius"
+        :min="0"
+        :max="32"
+        @update:model-value="(value) => update('Popup', 'radius', value)"
+      />
+      <TokenSizeRow
+        label="选项高度"
+        token-path="component.Popup.optionHeight"
+        :model-value="component.Popup.optionHeight"
+        :min="24"
+        :max="56"
+        @update:model-value="(value) => update('Popup', 'optionHeight', value)"
+      />
+      <TokenColorRow
+        label="选项悬停"
+        token-path="component.Popup.optionHoverBg"
+        :model-value="component.Popup.optionHoverBg"
+        :resolved-value="resolved.Popup.optionHoverBg"
+        @update:model-value="(value) => update('Popup', 'optionHoverBg', value)"
+      />
+      <TokenColorRow
+        label="选项选中背景"
+        token-path="component.Popup.optionActiveBg"
+        :model-value="component.Popup.optionActiveBg"
+        :resolved-value="resolved.Popup.optionActiveBg"
+        @update:model-value="(value) => update('Popup', 'optionActiveBg', value)"
+      />
+      <TokenColorRow
+        label="选项选中文字"
+        token-path="component.Popup.optionActiveTextColor"
+        :model-value="component.Popup.optionActiveTextColor"
+        :resolved-value="resolved.Popup.optionActiveTextColor"
+        @update:model-value="(value) => update('Popup', 'optionActiveTextColor', value)"
+      />
+      <TokenSizeRow
+        label="日期格尺寸"
+        token-path="component.Picker.itemSize"
+        :model-value="component.Picker.itemSize"
+        :min="24"
+        :max="48"
+        @update:model-value="(value) => update('Picker', 'itemSize', value)"
+      />
+      <TokenColorRow
+        label="日期选中背景"
+        token-path="component.Picker.itemActiveBg"
+        :model-value="component.Picker.itemActiveBg"
+        :resolved-value="resolved.Picker.itemActiveBg"
+        @update:model-value="(value) => update('Picker', 'itemActiveBg', value)"
+      />
+    </section>
+
     <section v-else-if="activeTarget === 'DataTable'" class="component-token-panel__section">
       <header class="component-token-panel__header">
         <span>组件样式</span>

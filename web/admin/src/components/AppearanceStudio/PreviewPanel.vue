@@ -178,6 +178,59 @@
             </label>
           </div>
 
+          <div v-if="componentTarget === 'Picker'" class="picker-preview">
+            <div class="picker-preview__inputs">
+              <span>2026-05-09</span>
+              <span>10:30:00</span>
+              <span>系统管理 / 角色权限</span>
+            </div>
+            <div class="picker-preview__panel">
+              <div class="picker-preview__calendar">
+                <header>
+                  <strong>2026 年 5 月</strong>
+                  <i></i>
+                </header>
+                <div class="picker-preview__week">
+                  <span>一</span>
+                  <span>二</span>
+                  <span>三</span>
+                  <span>四</span>
+                  <span>五</span>
+                  <span>六</span>
+                  <span>日</span>
+                </div>
+                <div class="picker-preview__days">
+                  <span class="is-muted">27</span>
+                  <span class="is-muted">28</span>
+                  <span class="is-muted">29</span>
+                  <span>30</span>
+                  <span class="is-hover">1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                  <span>5</span>
+                  <span>6</span>
+                  <span>7</span>
+                  <span>8</span>
+                  <span class="is-active">9</span>
+                  <span>10</span>
+                </div>
+              </div>
+              <div class="picker-preview__options">
+                <span>08:00</span>
+                <span class="is-hover">09:00</span>
+                <span class="is-active">10:00</span>
+                <span class="is-disabled">11:00</span>
+              </div>
+              <div class="picker-preview__options picker-preview__options--tree">
+                <span>平台管理</span>
+                <span class="is-active">角色权限</span>
+                <span>菜单权限</span>
+                <span class="is-disabled">租户主题</span>
+              </div>
+            </div>
+          </div>
+
           <div v-if="componentTarget === 'DataTable'" class="table-sample table-sample--focus">
             <div class="table-sample__head">
               <span>名称</span>
@@ -485,6 +538,7 @@
     const map: Record<string, { kicker: string; title: string }> = {
       Button: { kicker: 'Button', title: '按钮状态样张' },
       Field: { kicker: 'Field', title: '表单控件样张' },
+      Picker: { kicker: 'Picker / Popup', title: '选择与弹层样张' },
       DataTable: { kicker: 'Data Table', title: '数据表格样张' },
       TableToolbar: { kicker: 'Table System', title: '表格工具栏与批量操作' },
       StatusAction: { kicker: 'Status / Action', title: '状态与操作样张' },
@@ -586,6 +640,25 @@
     '--app-upload-action-icon-hover-color': tokens.value.component.Upload.actionIconHoverColor,
     '--app-upload-progress-color': tokens.value.component.Upload.progressColor,
     '--app-upload-error-color': tokens.value.component.Upload.errorColor,
+    '--app-popup-bg': tokens.value.component.Popup.bgColor,
+    '--app-popup-border-color': tokens.value.component.Popup.borderColor,
+    '--app-popup-shadow': tokens.value.component.Popup.shadow,
+    '--app-popup-radius': tokens.value.component.Popup.radius,
+    '--app-popup-option-height': tokens.value.component.Popup.optionHeight,
+    '--app-popup-option-text-color': tokens.value.component.Popup.optionTextColor,
+    '--app-popup-option-hover-bg': tokens.value.component.Popup.optionHoverBg,
+    '--app-popup-option-active-bg': tokens.value.component.Popup.optionActiveBg,
+    '--app-popup-option-active-text-color': tokens.value.component.Popup.optionActiveTextColor,
+    '--app-popup-option-disabled-text-color': tokens.value.component.Popup.optionDisabledTextColor,
+    '--app-popup-divider-color': tokens.value.component.Popup.dividerColor,
+    '--app-picker-item-size': tokens.value.component.Picker.itemSize,
+    '--app-picker-item-radius': tokens.value.component.Picker.itemRadius,
+    '--app-picker-item-hover-bg': tokens.value.component.Picker.itemHoverBg,
+    '--app-picker-item-active-bg': tokens.value.component.Picker.itemActiveBg,
+    '--app-picker-item-active-text-color': tokens.value.component.Picker.itemActiveTextColor,
+    '--app-picker-item-disabled-text-color': tokens.value.component.Picker.itemDisabledTextColor,
+    '--app-picker-panel-header-text-color': tokens.value.component.Picker.panelHeaderTextColor,
+    '--app-picker-icon-color': tokens.value.component.Picker.iconColor,
   }));
 
   const fontRows = computed(() => [
@@ -1062,6 +1135,140 @@
   .component-preview__fields--focus {
     min-height: 180px;
     align-items: center;
+  }
+
+  .picker-preview {
+    display: grid;
+    gap: 12px;
+    min-height: 260px;
+    min-width: 0;
+  }
+
+  .picker-preview__inputs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+
+    span {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: var(--app-input-height, 34px);
+      padding: 0 10px;
+      overflow: hidden;
+      color: var(--app-text-color);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      background: var(--app-surface-bg);
+      border: 1px solid var(--app-border-color);
+      border-radius: var(--app-card-radius);
+    }
+  }
+
+  .picker-preview__panel {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.1fr) minmax(88px, 0.54fr) minmax(120px, 0.74fr);
+    gap: 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--app-popup-option-text-color);
+    background: var(--app-popup-bg);
+    border: 1px solid var(--app-popup-border-color);
+    border-radius: var(--app-popup-radius);
+    box-shadow: var(--app-popup-shadow);
+
+    > div + div {
+      border-left: 1px solid var(--app-popup-divider-color);
+    }
+  }
+
+  .picker-preview__calendar {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px;
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-width: 0;
+      color: var(--app-picker-panel-header-text-color);
+    }
+
+    header i {
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--app-picker-icon-color);
+      border-radius: 99px;
+    }
+  }
+
+  .picker-preview__week,
+  .picker-preview__days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    text-align: center;
+  }
+
+  .picker-preview__week {
+    color: var(--app-icon-color);
+    font-size: var(--app-font-size-xs, 12px);
+  }
+
+  .picker-preview__days span {
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    min-height: var(--app-picker-item-size);
+    color: var(--app-popup-option-text-color);
+    border-radius: var(--app-picker-item-radius);
+  }
+
+  .picker-preview__days .is-muted,
+  .picker-preview__options .is-disabled {
+    color: var(--app-picker-item-disabled-text-color);
+  }
+
+  .picker-preview__days .is-hover,
+  .picker-preview__options .is-hover {
+    background: var(--app-popup-option-hover-bg);
+  }
+
+  .picker-preview__days .is-active {
+    color: var(--app-picker-item-active-text-color);
+    background: var(--app-picker-item-active-bg);
+  }
+
+  .picker-preview__options {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 0;
+    padding: 10px;
+
+    span {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      min-height: var(--app-popup-option-height);
+      padding: 0 10px;
+      overflow: hidden;
+      color: var(--app-popup-option-text-color);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-radius: var(--app-picker-item-radius);
+    }
+
+    .is-active {
+      color: var(--app-popup-option-active-text-color);
+      background: var(--app-popup-option-active-bg);
+    }
+  }
+
+  .picker-preview__options--tree span {
+    padding-left: 14px;
   }
 
   .sample-button,
@@ -1755,8 +1962,15 @@
     .radius-focus,
     .radius-grid,
     .layout-metrics,
-    .component-preview__fields {
+    .component-preview__fields,
+    .picker-preview__inputs,
+    .picker-preview__panel {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .picker-preview__panel > div + div {
+      border-top: 1px solid var(--app-popup-divider-color);
+      border-left: 0;
     }
 
     .field-sample {

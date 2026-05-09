@@ -249,6 +249,31 @@ export interface UploadTokens {
   errorColor: string;
 }
 
+export interface PopupTokens {
+  bgColor: string;
+  borderColor: string;
+  shadow: string;
+  radius: string;
+  optionHeight: string;
+  optionTextColor: string;
+  optionHoverBg: string;
+  optionActiveBg: string;
+  optionActiveTextColor: string;
+  optionDisabledTextColor: string;
+  dividerColor: string;
+}
+
+export interface PickerTokens {
+  itemSize: string;
+  itemRadius: string;
+  itemHoverBg: string;
+  itemActiveBg: string;
+  itemActiveTextColor: string;
+  itemDisabledTextColor: string;
+  panelHeaderTextColor: string;
+  iconColor: string;
+}
+
 export interface ComponentTokens {
   Button: ButtonTokens;
   Form: FormTokens;
@@ -290,6 +315,8 @@ export interface ComponentTokens {
   Menu: MenuTokens;
   Tree: TreeTokens;
   Upload: UploadTokens;
+  Popup: PopupTokens;
+  Picker: PickerTokens;
   Tooltip: {
     bgColor: string;
     textColor: string;
