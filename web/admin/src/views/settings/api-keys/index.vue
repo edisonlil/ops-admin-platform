@@ -1,18 +1,19 @@
 <template>
   <div>
     <n-card :bordered="false" size="small" class="proCard">
-      <template #header>API 密钥</template>
-      <template #header-extra>
-        <n-button type="primary" @click="showCreate = true">新建密钥</n-button>
-      </template>
-
-      <n-data-table
+      <AppDataTable
+        title="API 密钥"
+        description="创建和撤销平台或当前租户的访问密钥。"
         size="small"
         :columns="columns"
         :data="rows"
         :loading="loading"
         :pagination="{ pageSize: 20 }"
-      />
+      >
+        <template #actions>
+          <n-button type="primary" @click="showCreate = true">新建密钥</n-button>
+        </template>
+      </AppDataTable>
     </n-card>
 
     <n-modal v-model:show="showCreate" preset="dialog" title="新建 API 密钥" positive-text="创建" @positive-click="create">
@@ -29,7 +30,7 @@
 <script lang="ts" setup>
   import { computed, h, ref } from 'vue';
   import { useRoute } from 'vue-router';
-  import { NButton, NTag, useMessage } from 'naive-ui';
+  import { NButton, useMessage } from 'naive-ui';
   import type { DataTableColumns } from 'naive-ui';
   import {
     createApiKey,
@@ -40,6 +41,9 @@
     revokeCurrentTenantApiKey,
   } from '@/api/business';
   import { useUserStore } from '@/store/modules/user';
+  import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusTag from '@/components/Application/AppStatusTag.vue';
+  import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   const message = useMessage();
@@ -63,9 +67,7 @@
       key: 'is_active',
       width: 100,
       render(row) {
-        return h(NTag, { size: 'small', type: row.is_active ? 'success' : 'default' }, () =>
-          row.is_active ? '有效' : '已撤销'
-        );
+        return h(AppStatusTag, { statusKey: row.is_active ? 'valid' : 'revoked' });
       },
     },
     { title: '创建人', key: 'created_by', width: 120 },
@@ -76,17 +78,19 @@
       width: 110,
       fixed: 'right',
       render(row) {
-        return h(
-          NButton,
-          {
-            size: 'small',
-            type: 'error',
-            secondary: true,
-            disabled: !row.is_active,
-            onClick: () => revoke(row),
-          },
-          () => '撤销'
-        );
+        return h(AppTableActions, {
+          actions: [
+            {
+              label: '撤销',
+              tone: 'danger',
+              disabled: !row.is_active,
+              confirm: true,
+              confirmTitle: '撤销 API 密钥',
+              confirmContent: `确认撤销密钥「${row.name || row.prefix}」吗？`,
+              onConfirm: () => revoke(row),
+            },
+          ],
+        });
       },
     },
   ];
