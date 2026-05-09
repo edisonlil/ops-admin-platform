@@ -10,6 +10,8 @@
     placement="top-end"
     :width="confirmPopoverWidth"
     content-class="app-confirm-action-popover"
+    :positive-button-props="positiveButtonProps"
+    :negative-button-props="negativeButtonProps"
     @positive-click="handleConfirm"
     @negative-click="emit('cancel')"
   >
@@ -77,7 +79,14 @@
     }
     return 'default';
   });
-  const confirmPopoverWidth = 260;
+  const confirmPopoverWidth = 248;
+  const positiveButtonProps = computed(() => ({
+    size: 'small',
+    type: resolvedTone.value === 'danger' ? 'error' : 'primary',
+  }));
+  const negativeButtonProps = {
+    size: 'small',
+  };
 
   function handleConfirm() {
     return props.confirmHandler?.();
@@ -130,37 +139,59 @@
 
   .app-confirm-action__content {
     display: grid;
-    gap: 4px;
-    width: min(100vw - 48px, var(--app-table-action-confirm-width));
+    gap: 6px;
+    width: min(100vw - 48px, 224px);
     min-width: 0;
 
     strong {
       color: var(--app-text-color);
-      font-size: var(--app-font-size-sm, 13px);
+      font-size: var(--app-font-size-base, 14px);
+      font-weight: 700;
       line-height: 20px;
     }
 
     span {
       color: var(--app-icon-color);
       font-size: var(--app-font-size-sm, 13px);
-      line-height: 20px;
+      line-height: 19px;
     }
-  }
-
-  :deep(.n-popover) {
-    background: var(--app-table-action-confirm-bg);
-    border: 1px solid var(--app-table-action-confirm-border);
-    border-radius: var(--app-table-action-confirm-radius);
-    box-shadow: var(--app-table-action-confirm-shadow);
   }
 </style>
 
 <style lang="less">
-  .app-confirm-action-popover {
-    max-width: min(calc(100vw - 48px), 260px);
+  .n-popover.app-confirm-action-popover,
+  .n-popover:has(.app-confirm-action-popover) {
+    padding: 0;
+    overflow: hidden;
     background: var(--app-table-action-confirm-bg);
     border: 1px solid var(--app-table-action-confirm-border);
     border-radius: var(--app-table-action-confirm-radius);
     box-shadow: var(--app-table-action-confirm-shadow);
+  }
+
+  .app-confirm-action-popover {
+    max-width: min(calc(100vw - 48px), 248px);
+
+    .n-popconfirm__panel {
+      padding: 12px 12px 10px;
+    }
+
+    .n-popconfirm__body {
+      margin-bottom: 10px;
+    }
+
+    .n-popconfirm__action {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .n-button {
+      min-width: 54px;
+      height: 30px;
+      padding: 0 12px;
+      font-size: var(--app-font-size-sm, 13px);
+      border-radius: var(--app-table-action-button-radius);
+    }
   }
 </style>
