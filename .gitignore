@@ -8,6 +8,7 @@ dist/
 *.egg-info/
 *.jsonl
 config/*.local.json
+web/admin/.env*.local
 .browser-use/
 .idea/*
 ops_admin.db

@@ -44,6 +44,24 @@ Default development login:
 
 Runtime code must not initialize, migrate, seed, backfill, or repair schema implicitly. Initialization is an operations task run through the scripts above.
 
+## One-Click Development Startup
+
+Use the Windows starter to configure and run both services:
+
+```powershell
+.\start-dev.bat
+```
+
+The script asks for backend/frontend ports and database settings, writes local-only configuration to `config/database.local.json` and `web/admin/.env.development.local`, installs missing backend/frontend dependencies, builds the frontend if `dist` is missing, and then starts FastAPI plus Vite. Logs and pid files are written under `.tmp`.
+
+For unattended runs, pass parameters through the batch file:
+
+```powershell
+.\start-dev.bat -BackendPort 8000 -FrontendPort 8001 -NonInteractive
+```
+
+Add `-InitializeStorage` when you want the script to run the explicit storage initialization tasks before startup.
+
 ## Frontend Setup
 
 ```powershell
