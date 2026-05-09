@@ -1,6 +1,10 @@
 <template>
-  <n-collapse v-model:expanded-names="expandedNames">
-    <n-collapse-item title="圆角" name="radius">
+  <div class="visual-token-panel">
+    <section v-if="activeTarget === 'radius'" class="visual-token-panel__section">
+      <header class="visual-token-panel__header">
+        <span>全局样式</span>
+        <strong>圆角</strong>
+      </header>
       <TokenTextRow
         v-for="item in radiusRows"
         :key="item.key"
@@ -9,8 +13,12 @@
         :model-value="primitive[item.key]"
         @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
       />
-    </n-collapse-item>
-    <n-collapse-item title="字体" name="type">
+    </section>
+    <section v-else-if="activeTarget === 'type'" class="visual-token-panel__section">
+      <header class="visual-token-panel__header">
+        <span>全局样式</span>
+        <strong>字体</strong>
+      </header>
       <TokenTextRow
         v-for="item in fontRows"
         :key="item.key"
@@ -19,8 +27,12 @@
         :model-value="primitive[item.key]"
         @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
       />
-    </n-collapse-item>
-    <n-collapse-item title="阴影" name="shadow">
+    </section>
+    <section v-else class="visual-token-panel__section">
+      <header class="visual-token-panel__header">
+        <span>全局样式</span>
+        <strong>阴影</strong>
+      </header>
       <TokenTextRow
         v-for="item in shadowRows"
         :key="item.key"
@@ -29,31 +41,22 @@
         :model-value="primitive[item.key]"
         @update:model-value="(value) => appearanceStore.updatePrimitiveToken(item.key, value)"
       />
-    </n-collapse-item>
-  </n-collapse>
+    </section>
+  </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref, watch } from 'vue';
+  import { computed } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenTextRow from './TokenTextRow.vue';
 
-  const emit = defineEmits<{
-    (e: 'preview-target-change', value: string): void;
+  const props = defineProps<{
+    target?: string;
   }>();
 
   const appearanceStore = useAppearanceStore();
   const primitive = computed(() => appearanceStore.editorMergedTokens.primitive);
-  const expandedNames = ref<string[]>(['radius']);
-
-  watch(
-    expandedNames,
-    (names) => {
-      const activeName = names[names.length - 1] || 'radius';
-      emit('preview-target-change', activeName);
-    },
-    { immediate: true },
-  );
+  const activeTarget = computed(() => props.target || 'radius');
 
   const radiusRows = [
     { key: 'radiusXs', label: '超小圆角' },
@@ -75,3 +78,34 @@
     { key: 'shadowMd', label: '中阴影' },
   ] as const;
 </script>
+
+<style lang="less" scoped>
+  .visual-token-panel {
+    min-width: 0;
+  }
+
+  .visual-token-panel__section {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+
+  .visual-token-panel__header {
+    display: grid;
+    gap: 2px;
+    margin-bottom: 14px;
+
+    span {
+      color: var(--app-icon-color);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    strong {
+      color: var(--app-text-color);
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 26px;
+    }
+  }
+</style>

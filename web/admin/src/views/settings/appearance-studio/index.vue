@@ -152,17 +152,25 @@
           <strong>{{ activePanelTitle }}</strong>
           <p>{{ activePanelDescription }}</p>
         </div>
-        <button
-          v-for="panel in studioPanels"
-          :key="panel.key"
-          class="studio-nav__item"
-          :class="{ 'studio-nav__item--active': activePanel === panel.key }"
-          type="button"
-          @click="setActivePanel(panel.key)"
-        >
-          <span>{{ panel.group }}</span>
-          <strong>{{ panel.title }}</strong>
-        </button>
+        <nav class="studio-nav__groups">
+          <section v-for="section in studioNavigation" :key="section.key" class="studio-nav__group">
+            <div class="studio-nav__group-title">
+              <span>{{ section.title }}</span>
+              <em>{{ section.items.length }}</em>
+            </div>
+            <button
+              v-for="page in section.items"
+              :key="page.key"
+              class="studio-nav__item"
+              :class="{ 'studio-nav__item--active': activePageKey === page.key }"
+              type="button"
+              @click="setActivePage(page.key)"
+            >
+              <strong>{{ page.title }}</strong>
+              <span>{{ page.caption }}</span>
+            </button>
+          </section>
+        </nav>
       </aside>
 
       <main ref="editorPane" class="studio-editor">
@@ -178,8 +186,8 @@
           <PresetPanel v-if="activePanel === 'presets'" />
           <PrimitivePanel v-else-if="activePanel === 'primitive'" />
           <SemanticPanel v-else-if="activePanel === 'semantic'" />
-          <VisualTokenPanel v-else-if="activePanel === 'visual'" @preview-target-change="previewTarget = $event" />
-          <ComponentPanel v-else-if="activePanel === 'components'" @preview-target-change="previewTarget = $event" />
+          <VisualTokenPanel v-else-if="activePanel === 'visual'" :target="activePreviewTarget" />
+          <ComponentPanel v-else-if="activePanel === 'components'" :target="activePreviewTarget" />
           <LayoutPanel v-else-if="activePanel === 'layout'" />
           <BehaviorPanel v-else-if="activePanel === 'behavior'" />
           <ImportExportPanel v-else />
@@ -193,7 +201,7 @@
             {{ error.path }}: {{ error.message }}
           </div>
         </n-alert>
-        <PreviewPanel :active-panel="activePanel" :preview-target="previewTarget" />
+        <PreviewPanel :active-panel="activePanel" :preview-target="activePreviewTarget" />
       </aside>
     </section>
   </div>
@@ -230,6 +238,36 @@
     | 'layout'
     | 'behavior'
     | 'io';
+  type StudioPageKey =
+    | 'presets'
+    | 'primitive'
+    | 'semantic'
+    | 'radius'
+    | 'type'
+    | 'shadow'
+    | 'Button'
+    | 'Field'
+    | 'DataTable'
+    | 'StatusAction'
+    | 'Shell'
+    | 'layout'
+    | 'behavior'
+    | 'io';
+
+  interface StudioPage {
+    key: StudioPageKey;
+    panel: PanelKey;
+    previewTarget: string;
+    title: string;
+    caption: string;
+    description: string;
+  }
+
+  interface StudioSection {
+    key: string;
+    title: string;
+    items: StudioPage[];
+  }
 
   const appearanceStore = useAppearanceStore();
   const themes = ref<ThemeItem[]>([]);
@@ -237,8 +275,7 @@
   const publishingTheme = ref(false);
   const themeSearch = ref('');
   const statusFilter = ref('all');
-  const activePanel = ref<PanelKey>('presets');
-  const previewTarget = ref('Button');
+  const activePageKey = ref<StudioPageKey>('presets');
   const navPane = ref<HTMLElement | null>(null);
   const editorPane = ref<HTMLElement | null>(null);
   const previewPane = ref<HTMLElement | null>(null);
@@ -251,29 +288,63 @@
     { label: '已停用', value: 'disabled' },
   ];
 
-  const studioPanels: Array<{ key: PanelKey; group: string; title: string; description: string }> = [
-    { key: 'presets', group: '设计体系', title: '风格预设', description: '从内置预设开始，快速确定主题的基础气质。' },
-    { key: 'primitive', group: '设计体系', title: '基础变量', description: '维护色阶、字号、圆角、间距等底层变量。' },
-    { key: 'semantic', group: '设计体系', title: '语义变量', description: '把品牌色、状态色、文本和页面背景映射到业务语义。' },
-    { key: 'visual', group: '设计体系', title: '圆角 / 字体', description: '集中调整影响全局观感的尺寸型变量。' },
-    { key: 'components', group: '组件风格', title: '组件样式', description: '调整按钮、表格、状态标签和菜单等高频组件。' },
-    { key: 'layout', group: '布局行为', title: '布局外观', description: '控制导航宽度、顶栏高度、内容留白和页面密度。' },
-    { key: 'behavior', group: '布局行为', title: '界面行为', description: '配置导航模式、面包屑、多页签和页面动画。' },
-    { key: 'io', group: '导入导出', title: '配置流转', description: '导出主题覆盖或完整外观配置，也可导入已有配置。' },
+  const studioNavigation: StudioSection[] = [
+    {
+      key: 'global',
+      title: '全局样式',
+      items: [
+        { key: 'presets', panel: 'presets', previewTarget: 'presets', title: '风格预设', caption: '主题起点', description: '从内置预设开始，快速确定主题的基础气质。' },
+        { key: 'primitive', panel: 'primitive', previewTarget: 'primitive', title: '基础变量', caption: '色阶 / 字号 / 间距', description: '维护色阶、字号、圆角、间距等底层变量。' },
+        { key: 'semantic', panel: 'semantic', previewTarget: 'semantic', title: '语义变量', caption: '品牌 / 状态 / 文本', description: '把品牌色、状态色、文本和页面背景映射到业务语义。' },
+        { key: 'radius', panel: 'visual', previewTarget: 'radius', title: '圆角', caption: '全局形态', description: '调整卡片、按钮、输入框等常用界面的圆角节奏。' },
+        { key: 'type', panel: 'visual', previewTarget: 'type', title: '字体', caption: '字号层级', description: '检查字号层级在标题、数字、中文与表单内容中的真实效果。' },
+        { key: 'shadow', panel: 'visual', previewTarget: 'shadow', title: '阴影', caption: '层级深度', description: '控制浮层、卡片和弱强调区域的阴影强度。' },
+      ],
+    },
+    {
+      key: 'component',
+      title: '组件样式',
+      items: [
+        { key: 'Button', panel: 'components', previewTarget: 'Button', title: '按钮', caption: '默认 / 主按钮 / 状态', description: '单独配置按钮颜色、圆角、高度和不同交互状态。' },
+        { key: 'Field', panel: 'components', previewTarget: 'Field', title: '表单控件', caption: '输入框 / 选择器', description: '单独配置输入框、选择器的边框、焦点色和控件高度。' },
+        { key: 'DataTable', panel: 'components', previewTarget: 'DataTable', title: '数据表格', caption: '表头 / 行 / 单元格', description: '单独配置表格背景、行状态、单元格尺寸和表格圆角。' },
+        { key: 'StatusAction', panel: 'components', previewTarget: 'StatusAction', title: '状态与操作', caption: '标签 / 表格操作', description: '单独配置状态标签与表格操作按钮的尺寸和状态色。' },
+        { key: 'Shell', panel: 'components', previewTarget: 'Shell', title: '外壳与内容面', caption: '菜单 / 卡片 / 弹窗', description: '单独配置导航菜单、内容卡片和弹窗的基础质感。' },
+      ],
+    },
+    {
+      key: 'layout',
+      title: '界面布局',
+      items: [
+        { key: 'layout', panel: 'layout', previewTarget: 'layout', title: '布局外观', caption: '顶栏 / 菜单 / 留白', description: '控制导航宽度、顶栏高度、内容留白和页面密度。' },
+        { key: 'behavior', panel: 'behavior', previewTarget: 'behavior', title: '界面行为', caption: '导航 / 页签 / 动画', description: '配置导航模式、面包屑、多页签和页面动画。' },
+      ],
+    },
+    {
+      key: 'exchange',
+      title: '导入导出',
+      items: [
+        { key: 'io', panel: 'io', previewTarget: 'io', title: '配置流转', caption: '导入 / 导出', description: '导出主题覆盖或完整外观配置，也可导入已有配置。' },
+      ],
+    },
   ];
 
+  const studioPages = computed(() => studioNavigation.flatMap((section) => section.items));
   const activePanelConfig = computed(() => {
-    return studioPanels.find((panel) => panel.key === activePanel.value) || studioPanels[0];
+    return studioPages.value.find((page) => page.key === activePageKey.value) || studioPages.value[0];
   });
 
   const activePanelTitle = computed(() => activePanelConfig.value.title);
-  const activePanelGroup = computed(() => activePanelConfig.value.group);
+  const activePanelGroup = computed(() => {
+    return studioNavigation.find((section) => section.items.some((page) => page.key === activePageKey.value))?.title || '工作台';
+  });
   const activePanelDescription = computed(() => activePanelConfig.value.description);
+  const activePanel = computed(() => activePanelConfig.value.panel);
+  const activePreviewTarget = computed(() => activePanelConfig.value.previewTarget);
 
-  async function setActivePanel(panel: PanelKey) {
-    if (activePanel.value === panel) return;
-    activePanel.value = panel;
-    previewTarget.value = panel === 'visual' ? 'radius' : panel === 'components' ? 'Button' : panel;
+  async function setActivePage(page: StudioPageKey) {
+    if (activePageKey.value === page) return;
+    activePageKey.value = page;
     await nextTick();
     resetWorkbenchScroll();
   }
@@ -356,15 +427,13 @@
       layoutOverrides: {},
       skinClass: '',
     });
-    activePanel.value = 'presets';
-    previewTarget.value = 'presets';
+    activePageKey.value = 'presets';
     await appearanceStore.loadThemeDraft(Number(payload.item.id));
   }
 
   async function editTheme(themeId?: number) {
     if (!themeId) return;
-    activePanel.value = 'presets';
-    previewTarget.value = 'presets';
+    activePageKey.value = 'presets';
     await appearanceStore.loadThemeDraft(themeId);
   }
 
@@ -798,8 +867,8 @@
 
   .studio-shell {
     display: grid;
-    grid-template-columns: 180px minmax(420px, 1fr) minmax(320px, 380px);
-    gap: 16px;
+    grid-template-columns: 220px minmax(360px, 0.82fr) minmax(460px, 1.18fr);
+    gap: 12px;
     align-items: start;
     min-width: 0;
   }
@@ -814,7 +883,7 @@
     position: sticky;
     top: calc(var(--app-header-height, 64px) + var(--app-tabs-height, 44px) + 12px);
     display: grid;
-    gap: 8px;
+    gap: 12px;
     max-height: calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 24px);
     overflow-y: auto;
     scrollbar-gutter: stable;
@@ -822,10 +891,8 @@
     &__summary {
       display: grid;
       gap: 3px;
-      padding: 12px;
-      background: var(--app-surface-bg);
-      border: 1px solid var(--app-border-color);
-      border-radius: var(--app-card-radius);
+      padding: 0 4px 10px;
+      border-bottom: 1px solid var(--app-border-color);
 
       strong {
         color: var(--app-text-color);
@@ -847,31 +914,69 @@
       line-height: 18px;
     }
 
+    &__groups {
+      display: grid;
+      gap: 14px;
+    }
+
+    &__group {
+      display: grid;
+      gap: 4px;
+    }
+
+    &__group-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 4px 4px;
+      color: var(--app-icon-color);
+      font-size: 12px;
+      line-height: 18px;
+
+      span {
+        font-weight: 650;
+      }
+
+      em {
+        min-width: 18px;
+        color: color-mix(in srgb, var(--app-icon-color) 72%, transparent);
+        font-style: normal;
+        text-align: right;
+      }
+    }
+
     &__item {
       display: grid;
       gap: 2px;
       width: 100%;
-      padding: 10px 12px;
+      padding: 8px 10px 8px 12px;
       font: inherit;
       text-align: left;
       cursor: pointer;
       background: transparent;
-      border: 1px solid transparent;
-      border-radius: var(--app-card-radius);
+      border: 0;
+      border-left: 2px solid transparent;
+      border-radius: 0 6px 6px 0;
 
       strong {
         color: var(--app-text-color);
         font-weight: 650;
-        line-height: 22px;
+        line-height: 20px;
       }
 
       &:hover {
         background: var(--app-hover-color);
       }
 
+      &:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--app-primary-color) 42%, transparent);
+        outline-offset: 1px;
+      }
+
       &--active {
         background: var(--app-primary-soft-bg, var(--app-surface-muted-bg));
-        border-color: color-mix(in srgb, var(--app-primary-color) 34%, var(--app-border-color));
+        border-left-color: var(--app-primary-color);
 
         strong {
           color: var(--app-primary-color);
@@ -886,10 +991,10 @@
     gap: 12px;
     max-height: calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 24px);
     overflow-y: auto;
-    padding: 16px;
+    padding: 14px 16px;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: var(--app-card-radius);
+    border-left: 1px solid var(--app-border-color);
+    border-radius: 0;
     scrollbar-gutter: stable;
 
     &__header {
@@ -944,7 +1049,7 @@
 
   @media (max-width: 1280px) {
     .studio-shell {
-      grid-template-columns: 168px minmax(380px, 1fr) minmax(300px, 340px);
+      grid-template-columns: 198px minmax(340px, 0.9fr) minmax(400px, 1.1fr);
     }
   }
 

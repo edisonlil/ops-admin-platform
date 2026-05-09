@@ -330,37 +330,37 @@
   const previewMeta = computed(() => {
     const map: Record<PreviewMode, { kicker: string; title: string; description: string }> = {
       preset: {
-        kicker: 'Preset Preview',
-        title: '主题整体样张',
+        kicker: 'Preset',
+        title: '主题整体效果',
         description: '先看当前预设的基础气质，再进入变量微调。',
       },
       color: {
-        kicker: 'Color Preview',
-        title: '颜色落地样张',
+        kicker: 'Color',
+        title: '颜色落地效果',
         description: '聚焦主色、状态色、背景、边框和文字色的组合关系。',
       },
       visual: {
-        kicker: 'Visual Preview',
-        title: '字体与圆角样张',
+        kicker: 'Visual',
+        title: '全局视觉效果',
         description: '字体层级、圆角、阴影在同一个轻量画布中即时反馈。',
       },
       component: {
-        kicker: 'Component Preview',
-        title: '组件状态样张',
+        kicker: 'Component',
+        title: '组件最终效果',
         description: '只展示高频组件本身，方便判断按钮、表单、状态和表格是否成体系。',
       },
       layout: {
-        kicker: 'Layout Preview',
+        kicker: 'Layout',
         title: '布局比例示意',
         description: '用结构示意判断壳层比例和工作区密度，不再塞完整页面。',
       },
       behavior: {
-        kicker: 'Behavior Preview',
+        kicker: 'Behavior',
         title: '界面行为状态',
         description: '确认导航、多页签和显示项的当前开关状态。',
       },
       io: {
-        kicker: 'Config Preview',
+        kicker: 'Config',
         title: '配置流转样张',
         description: '确认导入导出的影响范围和主题资产流转路径。',
       },
@@ -511,17 +511,19 @@
 <style lang="less" scoped>
   .theme-preview {
     display: grid;
-    gap: 10px;
+    gap: 14px;
     min-width: 0;
-    padding: 12px;
+    min-height: 620px;
+    padding: 0;
     color: var(--app-text-color);
-    background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: var(--app-card-radius);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
   }
 
   .theme-preview__header {
     min-width: 0;
+    padding: 2px 4px 0;
 
     div {
       display: grid;
@@ -557,12 +559,14 @@
 
   .sample-panel {
     display: grid;
-    gap: 14px;
+    align-content: start;
+    gap: 18px;
     min-width: 0;
-    padding: 16px;
+    min-height: 560px;
+    padding: clamp(18px, 2.4vw, 28px);
     background: var(--app-page-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: var(--app-card-radius);
+    border: 0;
+    border-radius: 8px;
   }
 
   .sample-heading {
@@ -611,7 +615,7 @@
     font-size: 12px;
     font-weight: 650;
     line-height: 18px;
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 68%, transparent);
     border-radius: var(--app-card-radius);
   }
 
@@ -620,7 +624,7 @@
   .field-sample,
   .behavior-list div {
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
     border-radius: var(--app-card-radius);
   }
 
@@ -659,14 +663,14 @@
     min-width: 0;
     padding: 8px;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 68%, transparent);
     border-radius: var(--app-card-radius);
 
     i {
       grid-row: 1 / 3;
       width: 34px;
       height: 34px;
-      border: 1px solid var(--app-border-color);
+      border: 1px solid color-mix(in srgb, var(--app-border-color) 68%, transparent);
       border-radius: 7px;
     }
 
@@ -709,11 +713,11 @@
   .type-showcase {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    padding: 16px 10px;
+    gap: 12px;
+    padding: 44px 18px;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: var(--app-card-radius);
+    border: 0;
+    border-radius: 8px;
 
     div {
       display: grid;
@@ -724,7 +728,7 @@
 
     strong {
       color: var(--app-text-color);
-      font-size: 40px;
+      font-size: clamp(44px, 5vw, 72px);
       font-weight: 780;
       line-height: 1;
     }
@@ -732,8 +736,8 @@
     span {
       max-width: 100%;
       color: var(--app-icon-color);
-      font-size: 12px;
-      line-height: 17px;
+      font-size: 14px;
+      line-height: 20px;
       text-align: center;
       overflow-wrap: anywhere;
     }
@@ -753,7 +757,7 @@
     min-height: 54px;
     padding: 10px 12px;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
     border-radius: var(--app-card-radius);
 
     span {
@@ -802,7 +806,7 @@
       min-height: 96px;
       padding: 14px;
       background: var(--app-surface-bg);
-      border: 1px solid var(--app-border-color);
+      border: 0;
     }
 
     strong {
@@ -827,7 +831,7 @@
       min-height: 82px;
       padding: 16px;
       background: var(--app-surface-bg);
-      border: 1px solid var(--app-border-color);
+      border: 0;
       border-radius: var(--app-card-radius);
     }
 
@@ -873,7 +877,7 @@
       padding: 0 10px;
       color: var(--app-text-color);
       background: var(--app-surface-bg);
-      border: 1px solid var(--app-border-color);
+      border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
       border-radius: var(--app-card-radius);
       outline: 0;
     }
@@ -923,7 +927,7 @@
     min-width: 0;
     overflow: hidden;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
     border-radius: var(--app-card-radius);
   }
 
@@ -945,7 +949,7 @@
   }
 
   .button-matrix__row {
-    border-top: 1px solid var(--app-border-color);
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color) 72%, transparent);
 
     strong {
       overflow: hidden;
@@ -1012,7 +1016,7 @@
   .table-sample {
     overflow: hidden;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
     border-radius: var(--app-table-radius);
   }
 
@@ -1036,7 +1040,7 @@
 
   .table-sample__row {
     color: var(--app-text-color);
-    border-top: 1px solid var(--app-border-color);
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color) 72%, transparent);
 
     &:nth-child(odd) {
       background: var(--app-surface-muted-bg);
@@ -1053,7 +1057,7 @@
       padding: 0 var(--app-table-action-padding-x, 12px);
       color: var(--app-primary-color);
       background: transparent;
-      border-color: var(--app-border-color);
+      border-color: color-mix(in srgb, var(--app-border-color) 76%, transparent);
       border-radius: var(--app-table-action-radius, var(--app-card-radius));
     }
   }
@@ -1068,7 +1072,7 @@
     min-height: 188px;
     padding: 16px;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 0;
     border-radius: var(--app-card-radius);
 
     > div:first-child {
@@ -1089,7 +1093,7 @@
     min-height: 260px;
     overflow: hidden;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 0;
     border-radius: var(--app-card-radius);
 
     aside {
@@ -1133,7 +1137,7 @@
     main section {
       min-height: 72px;
       background: var(--app-surface-bg);
-      border: 1px solid var(--app-border-color);
+      border: 1px solid color-mix(in srgb, var(--app-border-color) 72%, transparent);
       border-radius: var(--app-card-radius);
     }
 
@@ -1149,7 +1153,7 @@
     min-height: 220px;
     overflow: hidden;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 0;
     border-radius: var(--app-card-radius);
   }
 

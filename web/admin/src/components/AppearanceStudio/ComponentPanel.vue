@@ -1,6 +1,10 @@
 <template>
-  <n-collapse v-model:expanded-names="expandedNames">
-    <n-collapse-item title="按钮" name="Button">
+  <div class="component-token-panel">
+    <section v-if="activeTarget === 'Button'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>按钮</strong>
+      </header>
       <TokenColorRow
         label="主按钮背景"
         token-path="component.Button.primaryBg"
@@ -35,9 +39,13 @@
         :model-value="component.Button.height"
         @update:model-value="(value) => update('Button', 'height', value)"
       />
-    </n-collapse-item>
+    </section>
 
-    <n-collapse-item title="表单控件" name="Field">
+    <section v-else-if="activeTarget === 'Field'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>表单控件</strong>
+      </header>
       <TokenColorRow
         label="输入框边框"
         token-path="component.Input.borderColor"
@@ -64,9 +72,13 @@
         :model-value="component.Select.height"
         @update:model-value="(value) => update('Select', 'height', value)"
       />
-    </n-collapse-item>
+    </section>
 
-    <n-collapse-item title="数据表格" name="DataTable">
+    <section v-else-if="activeTarget === 'DataTable'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>数据表格</strong>
+      </header>
       <TokenColorRow
         label="表格背景"
         token-path="component.DataTable.bodyBg"
@@ -168,9 +180,13 @@
         :resolved-value="resolved.DataTable.selectionColor"
         @update:model-value="(value) => update('DataTable', 'selectionColor', value)"
       />
-    </n-collapse-item>
+    </section>
 
-    <n-collapse-item title="状态与表格操作" name="StatusAction">
+    <section v-else-if="activeTarget === 'StatusAction'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>状态与表格操作</strong>
+      </header>
       <TokenColorRow
         label="成功状态背景"
         token-path="component.StatusTag.successBg"
@@ -224,9 +240,13 @@
         :model-value="component.TableAction.buttonHeight"
         @update:model-value="(value) => update('TableAction', 'buttonHeight', value)"
       />
-    </n-collapse-item>
+    </section>
 
-    <n-collapse-item title="外壳与内容面" name="Shell">
+    <section v-else class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>外壳与内容面</strong>
+      </header>
       <TokenColorRow
         label="菜单选中背景"
         token-path="component.Menu.itemBgActive"
@@ -283,35 +303,57 @@
         :resolved-value="resolved.Modal.radius"
         @update:model-value="(value) => update('Modal', 'radius', value)"
       />
-    </n-collapse-item>
-  </n-collapse>
+    </section>
+  </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref, watch } from 'vue';
+  import { computed } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenColorRow from './TokenColorRow.vue';
   import TokenTextRow from './TokenTextRow.vue';
 
-  const emit = defineEmits<{
-    (e: 'preview-target-change', value: string): void;
+  const props = defineProps<{
+    target?: string;
   }>();
 
   const appearanceStore = useAppearanceStore();
   const component = computed(() => appearanceStore.editorMergedTokens.component);
   const resolved = computed(() => appearanceStore.editorResolvedTokens.component);
-  const expandedNames = ref<string[]>(['Button']);
-
-  watch(
-    expandedNames,
-    (names) => {
-      const activeName = names[names.length - 1] || 'Button';
-      emit('preview-target-change', activeName);
-    },
-    { immediate: true },
-  );
+  const activeTarget = computed(() => props.target || 'Button');
 
   function update(componentName: string, key: string, value: string) {
     appearanceStore.updateComponentToken(componentName, key, value);
   }
 </script>
+
+<style lang="less" scoped>
+  .component-token-panel {
+    min-width: 0;
+  }
+
+  .component-token-panel__section {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+
+  .component-token-panel__header {
+    display: grid;
+    gap: 2px;
+    margin-bottom: 14px;
+
+    span {
+      color: var(--app-icon-color);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    strong {
+      color: var(--app-text-color);
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 26px;
+    }
+  }
+</style>
