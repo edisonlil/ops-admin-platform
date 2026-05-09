@@ -6,7 +6,10 @@
     :negative-text="negativeText"
     :disabled="disabled"
     trigger="click"
-    :to="false"
+    to=".appearance-root"
+    placement="top-end"
+    :width="confirmPopoverWidth"
+    content-class="app-confirm-action-popover"
     @positive-click="handleConfirm"
     @negative-click="emit('cancel')"
   >
@@ -74,6 +77,7 @@
     }
     return 'default';
   });
+  const confirmPopoverWidth = 260;
 
   function handleConfirm() {
     return props.confirmHandler?.();
@@ -144,6 +148,16 @@
   }
 
   :deep(.n-popover) {
+    background: var(--app-table-action-confirm-bg);
+    border: 1px solid var(--app-table-action-confirm-border);
+    border-radius: var(--app-table-action-confirm-radius);
+    box-shadow: var(--app-table-action-confirm-shadow);
+  }
+</style>
+
+<style lang="less">
+  .app-confirm-action-popover {
+    max-width: min(calc(100vw - 48px), 260px);
     background: var(--app-table-action-confirm-bg);
     border: 1px solid var(--app-table-action-confirm-border);
     border-radius: var(--app-table-action-confirm-radius);
