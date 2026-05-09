@@ -15,6 +15,27 @@
       </template>
     </n-data-table>
 
+    <n-spin v-else-if="isCardCollection" :show="loading">
+      <div
+        v-if="rows.length"
+        class="app-collection-view__card-grid"
+        :style="{ '--app-card-list-min-width': schema.cardMinWidth || '320px' }"
+      >
+        <slot
+          v-for="(row, index) in rows"
+          name="item"
+          :row="row"
+          :index="index"
+          :key="resolveItemKey(row, index)"
+        >
+          <article class="app-collection-view__card-fallback">
+            <strong>{{ resolveItemKey(row, index) }}</strong>
+          </article>
+        </slot>
+      </div>
+      <n-empty v-else description="暂无数据" class="app-collection-view__empty" />
+    </n-spin>
+
     <div v-else class="app-collection-view__placeholder">
       <strong>{{ viewDefinition.label }}</strong>
       <span>{{ viewDefinition.description }}</span>
@@ -42,6 +63,13 @@
 
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
   const resolvedRowKey = computed(() => props.schema.rowKey || props.schema.itemKey || 'id');
+  const isCardCollection = computed(() => ['card-list', 'product-list', 'gallery'].includes(props.schema.type));
+
+  function resolveItemKey(row: Row, index: number) {
+    const key = props.schema.itemKey || props.schema.rowKey || 'id';
+    if (typeof key === 'function') return key(row);
+    return row[key] ?? index;
+  }
 </script>
 
 <style lang="less" scoped>
@@ -67,6 +95,15 @@
     min-width: 0;
   }
 
+  .app-collection-view__card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--app-card-list-min-width)), 1fr));
+    gap: var(--app-page-collection-gap);
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .app-collection-view__card-fallback,
   .app-collection-view__placeholder {
     display: grid;
     gap: 4px;
@@ -78,17 +115,24 @@
     border-radius: var(--app-card-radius);
     place-content: center;
     text-align: center;
+  }
 
-    strong {
-      color: var(--app-text-color);
-      font-size: 15px;
-      font-weight: 650;
-    }
+  .app-collection-view__card-fallback strong,
+  .app-collection-view__placeholder strong {
+    color: var(--app-text-color);
+    font-size: 15px;
+    font-weight: 650;
+  }
 
+  .app-collection-view__placeholder {
     span,
     small {
       font-size: 13px;
       line-height: 1.45;
     }
+  }
+
+  .app-collection-view__empty {
+    padding: 48px 0;
   }
 </style>

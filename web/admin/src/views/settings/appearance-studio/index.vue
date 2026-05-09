@@ -1,121 +1,85 @@
 <template>
   <div v-if="!isEditorMode" class="appearance-theme-page">
-    <section class="theme-workbench-header">
-      <div class="theme-workbench-header__copy">
-        <span class="theme-workbench-header__eyebrow">Appearance Studio</span>
-        <h1>主题管理</h1>
-        <p>集中管理后台外观主题。主题发布后，可在租户管理中分配给具体租户。</p>
-      </div>
-      <n-space class="theme-workbench-header__actions" align="center">
-        <n-button :loading="themesLoading" @click="loadThemes">刷新</n-button>
-        <n-button type="primary" @click="createTheme">新建主题</n-button>
-      </n-space>
-    </section>
+    <ListPageRuntime :schema="themeListPage" :rows="filteredThemes" :loading="themesLoading" @refresh="loadThemes">
+      <template #filters>
+        <n-input
+          v-model:value="themeSearch"
+          clearable
+          class="theme-filter-search"
+          placeholder="搜索主题名称、状态或预设"
+        />
+        <div class="theme-status-filter" role="group" aria-label="主题状态筛选">
+          <button
+            v-for="option in statusFilterOptions"
+            :key="option.value"
+            type="button"
+            class="theme-status-filter__item"
+            :class="{ 'theme-status-filter__item--active': statusFilter === option.value }"
+            @click="statusFilter = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <span class="theme-filter-summary">共 {{ themes.length }} 个，当前显示 {{ filteredThemes.length }} 个</span>
+      </template>
 
-    <section class="theme-toolbar" aria-label="主题筛选">
-      <n-input
-        v-model:value="themeSearch"
-        clearable
-        class="theme-toolbar__search"
-        placeholder="搜索主题名称或状态"
-      />
-      <div class="theme-toolbar__filters" role="group" aria-label="主题状态筛选">
-        <button
-          v-for="option in statusFilterOptions"
-          :key="option.value"
-          type="button"
-          :class="{ 'theme-toolbar__filter--active': statusFilter === option.value }"
-          @click="statusFilter = option.value"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-      <div class="theme-toolbar__summary">
-        共 {{ themes.length }} 个主题，当前显示 {{ filteredThemes.length }} 个
-      </div>
-    </section>
-
-    <section class="theme-card-grid" aria-label="主题资产">
-      <article v-for="theme in filteredThemes" :key="theme.id" class="theme-card">
-        <button class="theme-card__preview" type="button" :style="previewStyle(theme)" @click="editTheme(theme.id)">
-          <div class="theme-card__preview-nav">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <div class="theme-card__preview-main">
-            <div class="theme-card__preview-bar"></div>
-            <div class="theme-card__preview-row">
-              <span></span>
-              <span></span>
+      <template #item="{ row: theme }">
+        <article class="theme-resource-card" :style="previewStyle(theme)">
+          <button class="theme-resource-card__preview" type="button" @click="editTheme(theme.id)">
+            <div class="theme-preview-shell">
+              <aside class="theme-preview-shell__nav">
+                <span></span>
+                <span></span>
+                <span></span>
+              </aside>
+              <main class="theme-preview-shell__main">
+                <div class="theme-preview-shell__topline"></div>
+                <div class="theme-preview-shell__metric-row">
+                  <span></span>
+                  <span></span>
+                </div>
+                <div class="theme-preview-shell__table">
+                  <span v-for="index in 9" :key="index"></span>
+                </div>
+              </main>
             </div>
-            <div class="theme-card__preview-table">
-              <span v-for="index in 9" :key="index"></span>
-            </div>
-          </div>
-        </button>
+          </button>
 
-        <div class="theme-card__body">
-          <div class="theme-card__title-row">
-            <div class="theme-card__title">
-              <span class="theme-card__mark" :style="previewStyle(theme)">{{ themeInitial(theme) }}</span>
-              <div>
+          <div class="theme-resource-card__body">
+            <header class="theme-resource-card__header">
+              <div class="theme-resource-card__title-block">
                 <h2>{{ theme.name || '未命名主题' }}</h2>
                 <p>版本 {{ theme.version || 1 }}</p>
               </div>
+              <n-space size="small" align="center">
+                <n-tag v-if="theme.is_platform_default" size="small" type="info">平台默认</n-tag>
+                <n-tag size="small" :type="statusTagType(theme.status)">
+                  {{ statusLabel(theme.status) }}
+                </n-tag>
+              </n-space>
+            </header>
+
+            <div class="theme-resource-card__footer">
+              <div class="theme-resource-card__palette" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="theme-resource-card__actions">
+                <n-button size="small" type="primary" secondary @click="editTheme(theme.id)">编辑</n-button>
+                <n-dropdown
+                  trigger="click"
+                  :options="themeActionOptions(theme)"
+                  @select="(key) => handleThemeAction(key, theme)"
+                >
+                  <n-button size="small" quaternary>更多</n-button>
+                </n-dropdown>
+              </div>
             </div>
-            <n-space size="small" align="center">
-              <n-tag v-if="theme.is_platform_default" size="small" type="info">平台默认</n-tag>
-              <n-tag size="small" :type="statusTagType(theme.status)">
-                {{ statusLabel(theme.status) }}
-              </n-tag>
-            </n-space>
           </div>
-
-          <div class="theme-card__facts">
-            <span>分配租户 {{ theme.tenant_assignment_count || 0 }}</span>
-            <span>预设 {{ theme.presetId || theme.preset_id || 'default' }}</span>
-          </div>
-
-          <n-space class="theme-card__actions" justify="end" :wrap="true">
-            <n-button size="small" type="primary" secondary @click="editTheme(theme.id)">编辑</n-button>
-            <n-button
-              size="small"
-              type="info"
-              secondary
-              :disabled="theme.status !== 'published' || theme.is_platform_default"
-              @click="setPlatformDefault(theme.id)"
-            >
-              设为平台默认
-            </n-button>
-            <n-button
-              size="small"
-              type="primary"
-              secondary
-              :disabled="theme.status === 'published'"
-              @click="publishTheme(theme.id)"
-            >
-              发布
-            </n-button>
-            <n-button
-              size="small"
-              type="warning"
-              secondary
-              :disabled="theme.status === 'disabled'"
-              @click="disableThemeItem(theme.id)"
-            >
-              停用
-            </n-button>
-          </n-space>
-        </div>
-      </article>
-    </section>
-
-    <n-empty
-      v-if="!themesLoading && !filteredThemes.length"
-      class="theme-empty"
-      description="没有匹配的主题"
-    />
+        </article>
+      </template>
+    </ListPageRuntime>
   </div>
 
   <div v-else class="appearance-studio-page" :style="appearanceStore.editorCssVars">
@@ -227,6 +191,7 @@
   import SemanticPanel from '@/components/AppearanceStudio/SemanticPanel.vue';
   import VisualTokenPanel from '@/components/AppearanceStudio/VisualTokenPanel.vue';
   import type { EffectiveAppearanceTheme } from '@/api/appearance';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
 
   type ThemeItem = NonNullable<EffectiveAppearanceTheme['theme']>;
   type PanelKey =
@@ -288,6 +253,29 @@
     { label: '草稿', value: 'draft' },
     { label: '已停用', value: 'disabled' },
   ];
+
+  const themeListPage = defineListPage<ThemeItem>({
+    id: 'appearance.themes',
+    title: '主题管理',
+    description: '集中管理后台外观主题。主题发布后，可在租户管理中分配给具体租户。',
+    variant: 'enterprise',
+    density: 'comfortable',
+    view: {
+      type: 'card-list',
+      itemKey: (theme) => Number(theme.id),
+      cardMinWidth: '292px',
+    },
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新建主题',
+        type: 'primary',
+        onClick: () => createTheme(),
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: false,
+  });
 
   const studioNavigation: StudioSection[] = [
     {
@@ -396,10 +384,6 @@
     return 'warning';
   }
 
-  function themeInitial(theme: ThemeItem) {
-    return (theme.name || '主题').trim().slice(0, 1).toUpperCase();
-  }
-
   function previewStyle(theme: ThemeItem) {
     const draft = theme.draft || theme;
     const semantic = (draft.tokenOverrides?.semantic || draft.token_overrides?.semantic || {}) as Record<string, string>;
@@ -411,6 +395,33 @@
       '--preview-border': semantic.borderColorBase || '#e2e8f0',
       '--preview-nav': semantic.menuDarkBgColor || '#172033',
     };
+  }
+
+  function themeActionOptions(theme: ThemeItem) {
+    return [
+      {
+        label: '设为平台默认',
+        key: 'platform-default',
+        disabled: theme.status !== 'published' || theme.is_platform_default,
+      },
+      {
+        label: '发布',
+        key: 'publish',
+        disabled: theme.status === 'published',
+      },
+      {
+        label: '停用',
+        key: 'disable',
+        disabled: theme.status === 'disabled',
+      },
+    ];
+  }
+
+  function handleThemeAction(key: string | number, theme: ThemeItem) {
+    if (key === 'platform-default') return setPlatformDefault(theme.id);
+    if (key === 'publish') return publishTheme(theme.id);
+    if (key === 'disable') return disableThemeItem(theme.id);
+    return undefined;
   }
 
   async function loadThemes() {
@@ -501,7 +512,12 @@
 </script>
 
 <style lang="less" scoped>
-  .appearance-theme-page,
+  .appearance-theme-page {
+    min-width: 0;
+    font-family: var(--app-font-family-base);
+    font-size: var(--app-font-size-base, 14px);
+  }
+
   .appearance-studio-page {
     display: grid;
     gap: 16px;
@@ -510,302 +526,256 @@
     font-size: var(--app-font-size-base, 14px);
   }
 
-  .theme-workbench-header,
-  .studio-topbar {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    min-width: 0;
+  .theme-filter-search {
+    flex: 0 1 360px;
+    min-width: 220px;
   }
 
-  .theme-workbench-header {
-    padding-bottom: 4px;
-
-    &__copy {
-      min-width: 0;
-    }
-
-    &__eyebrow {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--app-primary-color);
-      font-size: var(--app-font-size-xs, 12px);
-      font-weight: 700;
-      line-height: 18px;
-    }
-
-    h1 {
-      margin: 0;
-      color: var(--app-text-color);
-      font-size: calc(var(--app-font-size-lg, 16px) + 6px);
-      font-weight: 650;
-      line-height: 30px;
-    }
-
-    p {
-      margin: 4px 0 0;
-      color: var(--app-icon-color);
-      line-height: 22px;
-    }
-  }
-
-  .theme-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  .theme-status-filter {
+    display: inline-flex;
+    flex: 0 0 auto;
     min-width: 0;
-    padding: 12px;
-    background: var(--app-surface-bg);
+    padding: 2px;
+    background: var(--app-page-bg);
     border: 1px solid var(--app-border-color);
-    border-radius: var(--app-card-radius);
+    border-radius: 8px;
+  }
 
-    &__search {
-      flex: 0 1 320px;
-      min-width: 220px;
-    }
+  .theme-status-filter__item {
+    min-height: 28px;
+    padding: 0 12px;
+    color: var(--app-icon-color);
+    font: inherit;
+    font-size: var(--app-font-size-sm, 13px);
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    transition:
+      color 0.16s ease,
+      background 0.16s ease,
+      box-shadow 0.16s ease;
 
-    &__summary {
-      margin-left: auto;
-      color: var(--app-icon-color);
-      font-size: var(--app-font-size-sm, 13px);
-      white-space: nowrap;
-    }
-
-    &__filters {
-      display: inline-flex;
-      flex: 0 0 auto;
-      min-width: 0;
-      padding: 2px;
-      background: var(--app-page-bg);
-      border: 1px solid var(--app-border-color);
-      border-radius: 8px;
-
-      button {
-        min-height: 28px;
-        padding: 0 12px;
-        color: var(--app-icon-color);
-        font: inherit;
-        font-size: var(--app-font-size-sm, 13px);
-        white-space: nowrap;
-        cursor: pointer;
-        background: transparent;
-        border: 0;
-        border-radius: 6px;
-
-        &:hover {
-          color: var(--app-text-color);
-          background: var(--app-hover-color);
-        }
-      }
-    }
-
-    &__filter--active {
-      color: var(--app-primary-color) !important;
-      background: var(--app-surface-bg) !important;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    &:hover {
+      color: var(--app-text-color);
+      background: var(--app-hover-color);
     }
   }
 
-  .theme-card-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 16px;
-    align-items: stretch;
+  .theme-status-filter__item--active {
+    color: var(--app-primary-color);
+    background: var(--app-surface-bg);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   }
 
-  .theme-card {
+  .theme-filter-summary {
+    margin-left: auto;
+    color: var(--app-icon-color);
+    font-size: var(--app-font-size-sm, 13px);
+    white-space: nowrap;
+  }
+
+  .theme-resource-card {
     display: grid;
     grid-template-rows: auto 1fr;
     min-width: 0;
     overflow: hidden;
     background: var(--app-card-bg, var(--app-surface-bg));
     border: 1px solid var(--app-card-border-color, var(--app-border-color));
-    border-radius: var(--app-card-radius);
+    border-radius: var(--app-card-radius, 8px);
     box-shadow: var(--app-card-shadow, none);
-
-    &__preview {
-      display: grid;
-      grid-template-columns: 82px minmax(0, 1fr);
-      gap: 12px;
-      width: 100%;
-      height: 156px;
-      padding: 14px;
-      font: inherit;
-      color: var(--preview-text);
-      text-align: left;
-      cursor: pointer;
-      background: var(--preview-bg);
-      border: 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--preview-border) 88%, transparent);
-      transition:
-        filter 0.18s ease,
-        background 0.18s ease;
-
-      &:hover {
-        filter: saturate(1.04);
-        background: color-mix(in srgb, var(--preview-bg) 90%, var(--preview-primary));
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--preview-primary);
-        outline-offset: -3px;
-      }
-    }
-
-    &__preview-nav,
-    &__preview-main {
-      min-width: 0;
-      overflow: hidden;
-      border: 1px solid color-mix(in srgb, var(--preview-border) 76%, transparent);
-      border-radius: 8px;
-      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-    }
-
-    &__preview-nav {
-      display: grid;
-      align-content: start;
-      gap: 10px;
-      padding: 14px 12px;
-      background: var(--preview-nav);
-
-      span {
-        display: block;
-        height: 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.45);
-      }
-
-      span:first-child {
-        background: var(--preview-primary);
-      }
-
-      span:nth-child(2) {
-        width: 78%;
-      }
-
-      span:nth-child(3) {
-        width: 54%;
-      }
-    }
-
-    &__preview-main {
-      display: grid;
-      gap: 12px;
-      padding: 14px;
-      background: color-mix(in srgb, var(--preview-bg) 72%, #fff);
-    }
-
-    &__preview-bar {
-      width: 48%;
-      height: 12px;
-      border-radius: 999px;
-      background: var(--preview-primary);
-    }
-
-    &__preview-row {
-      display: grid;
-      grid-template-columns: 1fr 0.72fr;
-      gap: 8px;
-
-      span {
-        height: 24px;
-        border-radius: 6px;
-        background: color-mix(in srgb, var(--preview-primary) 12%, #fff);
-      }
-    }
-
-    &__preview-table {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 7px;
-
-      span {
-        height: 13px;
-        border-radius: 4px;
-        background: color-mix(in srgb, var(--preview-border) 70%, #fff);
-      }
-    }
-
-    &__body {
-      display: grid;
-      gap: 14px;
-      min-width: 0;
-      padding: 14px;
-    }
-
-    &__title-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    &__title {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-
-      h2 {
-        margin: 0;
-        color: var(--app-text-color);
-        font-size: var(--app-font-size-lg, 16px);
-        font-weight: 700;
-        line-height: 24px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      p {
-        margin: 1px 0 0;
-        color: var(--app-icon-color);
-        font-size: var(--app-font-size-sm, 13px);
-        line-height: 18px;
-      }
-    }
-
-    &__mark {
-      display: inline-grid;
-      flex: 0 0 34px;
-      width: 34px;
-      height: 34px;
-      color: #fff;
-      font-size: calc(var(--app-font-size-lg, 16px) + 1px);
-      font-weight: 800;
-      place-items: center;
-      background: var(--preview-primary);
-      border-radius: 8px;
-    }
-
-    &__facts {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-
-      span {
-        padding: 3px 8px;
-        color: var(--app-icon-color);
-        font-size: var(--app-font-size-xs, 12px);
-        line-height: 18px;
-        background: var(--app-surface-muted-bg);
-        border: 1px solid var(--app-border-color);
-        border-radius: 999px;
-      }
-    }
-
-    &__actions {
-      min-width: 0;
-    }
+    transition:
+      border-color 0.18s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
   }
 
-  .theme-empty {
-    padding: 48px 0;
+  .theme-resource-card:hover {
+    border-color: color-mix(in srgb, var(--preview-primary) 38%, var(--app-border-color));
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .theme-resource-card__preview {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--preview-primary) 10%, transparent), transparent 46%),
+      var(--preview-bg);
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--preview-border) 86%, transparent);
+  }
+
+  .theme-resource-card__preview:focus-visible {
+    outline: 2px solid var(--preview-primary);
+    outline-offset: -3px;
+  }
+
+  .theme-preview-shell {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 10px;
+    height: 106px;
+    min-width: 0;
+  }
+
+  .theme-preview-shell__nav,
+  .theme-preview-shell__main {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--preview-border) 78%, transparent);
+    border-radius: 8px;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  .theme-preview-shell__nav {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 12px 10px;
+    background: var(--preview-nav);
+  }
+
+  .theme-preview-shell__nav span {
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.48);
+  }
+
+  .theme-preview-shell__nav span:first-child {
+    background: var(--preview-primary);
+  }
+
+  .theme-preview-shell__nav span:nth-child(2) {
+    width: 78%;
+  }
+
+  .theme-preview-shell__nav span:nth-child(3) {
+    width: 54%;
+  }
+
+  .theme-preview-shell__main {
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    background: color-mix(in srgb, var(--preview-bg) 74%, #fff);
+  }
+
+  .theme-preview-shell__topline {
+    width: 48%;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--preview-primary);
+  }
+
+  .theme-preview-shell__metric-row {
+    display: grid;
+    grid-template-columns: 1fr 0.72fr;
+    gap: 8px;
+  }
+
+  .theme-preview-shell__metric-row span {
+    height: 20px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--preview-primary) 12%, #fff);
+  }
+
+  .theme-preview-shell__table {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .theme-preview-shell__table span {
+    height: 10px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--preview-border) 70%, #fff);
+  }
+
+  .theme-resource-card__body {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .theme-resource-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .theme-resource-card__title-block {
+    min-width: 0;
+  }
+
+  .theme-resource-card__title-block h2 {
+    margin: 0;
+    overflow: hidden;
+    color: var(--app-text-color);
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .theme-resource-card__title-block p {
+    margin: 2px 0 0;
+    color: var(--app-icon-color);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .theme-resource-card__palette {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 6px;
+    height: 6px;
+  }
+
+  .theme-resource-card__palette span {
+    border-radius: 999px;
+    background: var(--preview-primary);
+  }
+
+  .theme-resource-card__palette span:nth-child(2) {
+    background: var(--preview-accent);
+  }
+
+  .theme-resource-card__palette span:nth-child(3) {
+    background: var(--preview-border);
+  }
+
+  .theme-resource-card__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .theme-resource-card__actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
   }
 
   .studio-topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--app-border-color);
 
@@ -1070,33 +1040,27 @@
   }
 
   @media (max-width: 920px) {
-    .theme-workbench-header,
     .studio-topbar {
       flex-direction: column;
     }
 
-    .studio-editor__header {
-      grid-template-columns: minmax(0, 1fr);
+    .theme-filter-search {
+      flex-basis: auto;
+      width: 100%;
+      min-width: 0;
     }
 
-    .theme-toolbar {
-      align-items: stretch;
-      flex-direction: column;
+    .theme-filter-summary {
+      margin-left: 0;
+      white-space: normal;
+    }
 
-      &__search {
-        flex-basis: auto;
-        width: 100%;
-        min-width: 0;
-      }
+    .theme-status-filter {
+      overflow-x: auto;
+    }
 
-      &__summary {
-        margin-left: 0;
-        white-space: normal;
-      }
-
-      &__filters {
-        overflow-x: auto;
-      }
+    .studio-editor__header {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .studio-shell {
@@ -1127,16 +1091,6 @@
   }
 
   @media (max-width: 560px) {
-    .theme-card-grid {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .theme-card__preview {
-      grid-template-columns: 64px minmax(0, 1fr);
-      height: 136px;
-      padding: 10px;
-    }
-
     .studio-topbar__name-input {
       width: 100%;
     }

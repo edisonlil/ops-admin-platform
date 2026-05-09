@@ -54,6 +54,7 @@ export interface CollectionViewSchema<Row = Record<string, unknown>> {
   rowKey?: string | ((row: Row) => string | number);
   scrollX?: number;
   itemKey?: string | ((row: Row) => string | number);
+  cardMinWidth?: string;
   groupBy?: string | ((row: Row) => string);
   modes?: string[];
   mode?: string;
