@@ -40,6 +40,8 @@ Owned tables:
 
 DDL lives in `infrastructure/persistence/ddl.sqlite.sql` and `ddl.postgres.sql`. Runtime code checks that the tables exist but never creates or migrates them. Run `python scripts/init_appearance.py` explicitly to initialize storage.
 
+All appearance tables follow the repository-wide base field convention in `docs/backend-table-conventions.md`.
+
 ## Testing
 
 Run targeted backend tests after changes:

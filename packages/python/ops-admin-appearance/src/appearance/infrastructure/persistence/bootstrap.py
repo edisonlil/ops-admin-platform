@@ -46,7 +46,7 @@ def require_appearance_schema(conn: Any) -> None:
         )
     missing_branding_columns = [
         column_name
-        for column_name in ("platform_name", "logo_url", "platform_name_font_size", "updated_by", "updated_at")
+        for column_name in ("platform_name", "logo_url", "platform_name_font_size", "editor", "update_time")
         if not has_column(conn, "appearance_platform_branding", column_name)
     ]
     if missing_branding_columns:

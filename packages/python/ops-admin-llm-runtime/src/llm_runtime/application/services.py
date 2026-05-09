@@ -95,7 +95,7 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
                         temperature = ?,
                         extra_body = ?,
                         is_active = ?,
-                        updated_at = ?
+                        update_time = ?
                     WHERE id = ?
                       AND tenant_id = ?
                     """,
@@ -107,7 +107,7 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
                     INSERT INTO llm_configs (
                         tenant_id, provider, model, base_url, api_key, command,
                         timeout_seconds, temperature, extra_body, is_active,
-                        created_at, updated_at
+                        create_time, update_time
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -317,7 +317,7 @@ def active_llm_config_row(conn: Any) -> dict[str, Any] | None:
         SELECT *
         FROM llm_configs
         WHERE tenant_id = ?
-        ORDER BY is_active DESC, updated_at DESC, id DESC
+        ORDER BY is_active DESC, update_time DESC, id DESC
         LIMIT 1
         """,
         (current_tenant_id(),),
@@ -375,7 +375,7 @@ def llm_config_response_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(row.get("is_active", True)),
         "api_key_configured": bool(api_key),
         "api_key_mask": mask_secret(api_key),
-        "updated_at": str(row.get("updated_at", "") or ""),
+        "update_time": str(row.get("update_time", "") or ""),
         "source": "database",
     }
 
@@ -393,7 +393,7 @@ def default_llm_config_response(*, source: str) -> dict[str, Any]:
         "enabled": False,
         "api_key_configured": False,
         "api_key_mask": "",
-        "updated_at": "",
+        "update_time": "",
         "source": source,
     }
 

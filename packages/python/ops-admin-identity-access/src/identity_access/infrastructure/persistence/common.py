@@ -57,6 +57,61 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="microseconds")
 
 
+def audit_insert_values(*, tenant_id: int = 1, actor: str | None = "system", actor_id: int | None = None) -> dict[str, Any]:
+    timestamp = now_iso()
+    return {
+        "tenant_id": tenant_id,
+        "lock_version": 0,
+        "deleted": False,
+        "create_time": timestamp,
+        "creator": actor,
+        "creator_id": actor_id,
+        "update_time": timestamp,
+        "editor": actor,
+        "editor_id": actor_id,
+    }
+
+
+def audit_update_values(*, actor: str | None = "system", actor_id: int | None = None) -> dict[str, Any]:
+    return {
+        "update_time": now_iso(),
+        "editor": actor,
+        "editor_id": actor_id,
+    }
+
+
+def audit_insert_columns_sql() -> str:
+    return "tenant_id, lock_version, deleted, create_time, creator, creator_id, update_time, editor, editor_id"
+
+
+def audit_insert_placeholders_sql() -> str:
+    return "?, ?, ?, ?, ?, ?, ?, ?, ?"
+
+
+def audit_insert_params(*, tenant_id: int = 1, actor: str | None = "system", actor_id: int | None = None) -> tuple[Any, ...]:
+    values = audit_insert_values(tenant_id=tenant_id, actor=actor, actor_id=actor_id)
+    return (
+        values["tenant_id"],
+        values["lock_version"],
+        values["deleted"],
+        values["create_time"],
+        values["creator"],
+        values["creator_id"],
+        values["update_time"],
+        values["editor"],
+        values["editor_id"],
+    )
+
+
+def audit_update_sql() -> str:
+    return "update_time = ?, editor = ?, editor_id = ?, lock_version = lock_version + 1"
+
+
+def audit_update_params(*, actor: str | None = "system", actor_id: int | None = None) -> tuple[Any, ...]:
+    values = audit_update_values(actor=actor, actor_id=actor_id)
+    return (values["update_time"], values["editor"], values["editor_id"])
+
+
 def normalize_username(username: str) -> str:
     return username.strip()
 
@@ -82,8 +137,8 @@ def ensure_menu_schema(conn: Any) -> None:
                 tenant_id BIGINT NOT NULL,
                 menu_key TEXT NOT NULL,
                 is_enabled BOOLEAN DEFAULT TRUE,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
+                create_time TEXT NOT NULL,
+                update_time TEXT NOT NULL,
                 PRIMARY KEY (tenant_id, menu_key)
             )
             """
@@ -123,7 +178,7 @@ def ensure_menu_schema(conn: Any) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tenant_menu_overrides_tenant ON tenant_menu_overrides(tenant_id)")
         conn.execute(
             """
-            INSERT INTO tenants (id, tenant_key, name, status, remark, created_at, updated_at)
+            INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
             OVERRIDING SYSTEM VALUE
             SELECT 1, ?, ?, 'active', ?, ?, ?
             WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
@@ -140,7 +195,7 @@ def ensure_menu_schema(conn: Any) -> None:
         )
         conn.execute(
             """
-            INSERT INTO tenants (id, tenant_key, name, status, remark, created_at, updated_at)
+            INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
             OVERRIDING SYSTEM VALUE
             SELECT 2, ?, ?, 'active', ?, ?, ?
             WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
@@ -188,8 +243,8 @@ def ensure_menu_schema(conn: Any) -> None:
             tenant_id INTEGER NOT NULL,
             menu_key TEXT NOT NULL,
             is_enabled INTEGER DEFAULT 1,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
+            create_time TEXT NOT NULL,
+            update_time TEXT NOT NULL,
             PRIMARY KEY (tenant_id, menu_key)
         )
         """
@@ -204,7 +259,7 @@ def ensure_menu_schema(conn: Any) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tenant_menu_overrides_tenant ON tenant_menu_overrides(tenant_id)")
     conn.execute(
         """
-        INSERT INTO tenants (id, tenant_key, name, status, remark, created_at, updated_at)
+        INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
         SELECT 1, ?, ?, 'active', ?, ?, ?
         WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
           AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = 1)
@@ -220,7 +275,7 @@ def ensure_menu_schema(conn: Any) -> None:
     )
     conn.execute(
         """
-        INSERT INTO tenants (id, tenant_key, name, status, remark, created_at, updated_at)
+        INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
         SELECT 2, ?, ?, 'active', ?, ?, ?
         WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
           AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = 2)
@@ -259,8 +314,8 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
             hashed_password TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
             is_superuser INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
+            create_time TEXT NOT NULL,
+            update_time TEXT NOT NULL,
             UNIQUE (tenant_id, username)
         )
         """
@@ -269,9 +324,9 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     conn.execute(
         f"""
         INSERT INTO users_tenant_migration (
-            id, tenant_id, username, hashed_password, is_active, is_superuser, created_at, updated_at
+            id, tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time
         )
-        SELECT id, {select_tenant}, username, hashed_password, is_active, is_superuser, created_at, updated_at
+        SELECT id, {select_tenant}, username, hashed_password, is_active, is_superuser, create_time, update_time
         FROM users
         """
     )
@@ -285,7 +340,7 @@ def ensure_platform_tenant(conn: Any) -> dict[str, Any]:
     if not row:
         conn.execute(
             """
-            INSERT INTO tenants (tenant_key, name, status, remark, created_at, updated_at)
+            INSERT INTO tenants (tenant_key, name, status, remark, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
@@ -307,7 +362,7 @@ def ensure_default_tenant(conn: Any) -> dict[str, Any]:
     if not row:
         conn.execute(
             """
-            INSERT INTO tenants (tenant_key, name, status, remark, created_at, updated_at)
+            INSERT INTO tenants (tenant_key, name, status, remark, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (DEFAULT_TENANT_KEY, "Default Tenant", "active", "Migrated single-tenant workspace", now, now),
@@ -331,7 +386,7 @@ def ensure_default_admin(conn: Any) -> None:
             UPDATE users
             SET is_active = TRUE,
                 is_superuser = TRUE,
-                updated_at = ?
+                update_time = ?
             WHERE id = ?
             """,
             (now, int(row["id"])),
@@ -355,7 +410,7 @@ def ensure_default_admin(conn: Any) -> None:
             SET tenant_id = ?,
                 is_active = TRUE,
                 is_superuser = TRUE,
-                updated_at = ?
+                update_time = ?
             WHERE id = ?
             """,
             (tenant_id, now, int(legacy["id"])),
@@ -365,7 +420,7 @@ def ensure_default_admin(conn: Any) -> None:
 
     conn.execute(
         """
-        INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, created_at, updated_at)
+        INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -388,7 +443,7 @@ def ensure_tenant_menu_defaults(conn: Any, tenant_id: int) -> None:
     for menu_key in DEFAULT_TENANT_ENABLED_MENU_KEYS:
         conn.execute(
             """
-            INSERT INTO tenant_menu_overrides (tenant_id, menu_key, is_enabled, created_at, updated_at)
+            INSERT INTO tenant_menu_overrides (tenant_id, menu_key, is_enabled, create_time, update_time)
             SELECT ?, ?, TRUE, ?, ?
             WHERE NOT EXISTS (
                 SELECT 1 FROM tenant_menu_overrides WHERE tenant_id = ? AND menu_key = ?
@@ -841,7 +896,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
         is_new_role = existing_role is None
         conn.execute(
             """
-            INSERT INTO roles (role_key, name, description, is_system, role_scope, created_at, updated_at)
+            INSERT INTO roles (role_key, name, description, is_system, role_scope, create_time, update_time)
             SELECT ?, ?, ?, TRUE, 'tenant', ?, ?
             WHERE NOT EXISTS (SELECT 1 FROM roles WHERE role_key = ?)
             """,
@@ -968,9 +1023,12 @@ def row_to_api_key(row: dict[str, Any]) -> dict[str, Any]:
         "name": str(row.get("name", "")),
         "prefix": str(row.get("prefix", "")),
         "is_active": bool(row.get("is_active", True)),
-        "created_by": str(row.get("created_by", "") or ""),
-        "created_at": str(row.get("created_at", "") or ""),
-        "revoked_at": str(row.get("revoked_at", "") or ""),
+        "creator": str(row.get("creator", "") or ""),
+        "creator_id": row.get("creator_id"),
+        "create_time": str(row.get("create_time", "") or ""),
+        "editor": str(row.get("editor", "") or ""),
+        "editor_id": row.get("editor_id"),
+        "update_time": str(row.get("update_time", "") or ""),
     }
 
 

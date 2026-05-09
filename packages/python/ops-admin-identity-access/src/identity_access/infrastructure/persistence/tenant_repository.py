@@ -23,8 +23,8 @@ def row_to_tenant(row: dict[str, Any]) -> dict[str, Any]:
         "name": str(row.get("name", "")),
         "status": str(row.get("status", "active") or "active"),
         "remark": str(row.get("remark", "") or ""),
-        "created_at": str(row.get("created_at", "") or ""),
-        "updated_at": str(row.get("updated_at", "") or ""),
+        "create_time": str(row.get("create_time", "") or ""),
+        "update_time": str(row.get("update_time", "") or ""),
     }
 
 
@@ -103,7 +103,7 @@ def create_tenant(*, tenant_key: str, name: str, remark: str = "", status_value:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="tenant key already exists")
         cursor = conn.execute(
             """
-            INSERT INTO tenants (tenant_key, name, status, remark, created_at, updated_at)
+            INSERT INTO tenants (tenant_key, name, status, remark, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (normalized_key, normalized_name, normalized_status, remark.strip(), now, now),
@@ -137,7 +137,7 @@ def update_tenant(tenant_id: int, *, name: str, remark: str = "", status_value: 
         conn.execute(
             """
             UPDATE tenants
-            SET name = ?, remark = ?, status = ?, updated_at = ?
+            SET name = ?, remark = ?, status = ?, update_time = ?
             WHERE id = ?
             """,
             (normalized_name, remark.strip(), normalized_status, now_iso(), tenant_id),
@@ -203,7 +203,7 @@ def ensure_membership(conn: Any, *, tenant_id: int, user_id: int, is_tenant_admi
         return
     conn.execute(
         """
-        INSERT INTO tenant_memberships (tenant_id, user_id, is_tenant_admin, created_at)
+        INSERT INTO tenant_memberships (tenant_id, user_id, is_tenant_admin, create_time)
         VALUES (?, ?, ?, ?)
         """,
         (tenant_id, user_id, bool(is_tenant_admin), now_iso()),

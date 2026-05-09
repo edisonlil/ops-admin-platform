@@ -127,7 +127,7 @@ def list_users() -> list[dict[str, Any]]:
         require_auth_ready(conn)
         rows = conn.execute(
             """
-            SELECT id, tenant_id, username, is_active, is_superuser, created_at, updated_at
+            SELECT id, tenant_id, username, is_active, is_superuser, create_time, update_time
             FROM users
             ORDER BY tenant_id, username, id
             """
@@ -153,8 +153,8 @@ def list_users() -> list[dict[str, Any]]:
             "is_active": bool(dict(row)["is_active"]),
             "is_superuser": bool(dict(row)["is_superuser"]),
             "roles": roles_by_user.get(int(dict(row)["id"]), []),
-            "created_at": str(dict(row).get("created_at", "") or ""),
-            "updated_at": str(dict(row).get("updated_at", "") or ""),
+            "create_time": str(dict(row).get("create_time", "") or ""),
+            "update_time": str(dict(row).get("update_time", "") or ""),
         }
         for row in rows
     ]
@@ -249,7 +249,7 @@ def create_user(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
         cursor = conn.execute(
             """
-            INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, created_at, updated_at)
+            INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, normalized_username, hash_password(password), bool(is_active), bool(is_superuser), now, now),
@@ -302,7 +302,7 @@ def update_user(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
         ensure_last_superuser_survives(conn, user_id, is_active=bool(is_active), is_superuser=bool(is_superuser))
 
-        fields = ["tenant_id = ?", "username = ?", "is_active = ?", "is_superuser = ?", "updated_at = ?"]
+        fields = ["tenant_id = ?", "username = ?", "is_active = ?", "is_superuser = ?", "update_time = ?"]
         params: list[Any] = [effective_tenant_id, normalized_username, bool(is_active), bool(is_superuser), now]
         if password.strip():
             fields.insert(3, "hashed_password = ?")

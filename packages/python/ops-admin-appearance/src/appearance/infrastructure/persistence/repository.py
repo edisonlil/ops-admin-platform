@@ -40,7 +40,7 @@ def get_effective_tenant_theme(tenant_id: int) -> AppearanceTheme | None:
                   AND a.scope_id = ?
                   AND a.is_default = ?
                   AND t.status = ?
-                ORDER BY a.assigned_at DESC, t.updated_at DESC, t.id DESC
+                ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
                 LIMIT 1
                 """,
                 (TENANT_SCOPE, tenant_id, True, THEME_STATUS_PUBLISHED),
@@ -57,7 +57,7 @@ def get_effective_tenant_theme(tenant_id: int) -> AppearanceTheme | None:
                   AND a.scope_id = ?
                   AND a.is_default = ?
                   AND t.status = ?
-                ORDER BY a.assigned_at DESC, t.updated_at DESC, t.id DESC
+                ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
                 LIMIT 1
                 """,
                 (PLATFORM_SCOPE, 0, True, THEME_STATUS_PUBLISHED),
@@ -100,7 +100,7 @@ def list_themes() -> list[AppearanceTheme]:
                     WHEN 'published' THEN 1
                     ELSE 2
                 END,
-                t.updated_at DESC,
+                t.update_time DESC,
                 t.id DESC
             """
         ).fetchall()
@@ -122,7 +122,7 @@ def get_platform_branding() -> PlatformBranding:
         require_appearance_schema(conn)
         row = conn.execute(
             """
-            SELECT platform_name, logo_url, platform_name_font_size, updated_by, updated_at
+            SELECT platform_name, logo_url, platform_name_font_size, editor, update_time
             FROM appearance_platform_branding
             WHERE id = ?
             """,
@@ -145,8 +145,8 @@ def save_platform_branding(
         platform_name=platform_name,
         logo_url=logo_url,
         platform_name_font_size=platform_name_font_size,
-        updated_by=actor,
-        updated_at=timestamp,
+        editor=actor,
+        update_time=timestamp,
     )
     with connect(database_target(), readonly=False) as conn:
         require_appearance_schema(conn)
@@ -158,8 +158,8 @@ def save_platform_branding(
                 SET platform_name = ?,
                     logo_url = ?,
                     platform_name_font_size = ?,
-                    updated_by = ?,
-                    updated_at = ?
+                    editor = ?,
+                    update_time = ?
                 WHERE id = ?
                 """,
                 (branding.platform_name, branding.logo_url, branding.platform_name_font_size, actor, timestamp, 1),
@@ -168,7 +168,7 @@ def save_platform_branding(
             conn.execute(
                 """
                 INSERT INTO appearance_platform_branding (
-                    id, platform_name, logo_url, platform_name_font_size, updated_by, updated_at
+                    id, platform_name, logo_url, platform_name_font_size, editor, update_time
                 )
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -176,7 +176,7 @@ def save_platform_branding(
             )
         row = conn.execute(
             """
-            SELECT platform_name, logo_url, platform_name_font_size, updated_by, updated_at
+            SELECT platform_name, logo_url, platform_name_font_size, editor, update_time
             FROM appearance_platform_branding
             WHERE id = ?
             """,
@@ -202,7 +202,7 @@ def create_theme(*, name: str, payload: AppearancePayload, actor: str) -> Appear
                 tenant_id, name, status, version, preset_id, token_overrides_json,
                 layout_overrides_json, project_overrides_json, skin_class, draft_preset_id,
                 draft_token_overrides_json, draft_layout_overrides_json, draft_project_overrides_json,
-                draft_skin_class, created_by, updated_by, created_at, updated_at
+                draft_skin_class, creator, editor, create_time, update_time
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -233,7 +233,7 @@ def create_theme(*, name: str, payload: AppearancePayload, actor: str) -> Appear
                 """
                 SELECT id
                 FROM appearance_themes
-                WHERE created_at = ? AND created_by = ?
+                WHERE create_time = ? AND creator = ?
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -260,8 +260,8 @@ def update_theme(*, theme_id: int, name: str, payload: AppearancePayload, actor:
                 draft_layout_overrides_json = ?,
                 draft_project_overrides_json = ?,
                 draft_skin_class = ?,
-                updated_by = ?,
-                updated_at = ?
+                editor = ?,
+                update_time = ?
             WHERE id = ?
             """,
             (
@@ -300,8 +300,8 @@ def publish_theme(*, theme_id: int, actor: str) -> AppearanceTheme | None:
                 layout_overrides_json = draft_layout_overrides_json,
                 project_overrides_json = draft_project_overrides_json,
                 skin_class = draft_skin_class,
-                updated_by = ?,
-                updated_at = ?
+                editor = ?,
+                update_time = ?
             WHERE id = ?
             """,
             (THEME_STATUS_PUBLISHED, next_version, actor, timestamp, theme_id),
@@ -311,7 +311,7 @@ def publish_theme(*, theme_id: int, actor: str) -> AppearanceTheme | None:
         conn.execute(
             """
             INSERT INTO appearance_theme_revisions (
-                theme_id, revision_no, snapshot_json, created_by, created_at
+                theme_id, revision_no, snapshot_json, creator, create_time
             )
             VALUES (?, ?, ?, ?, ?)
             """,
@@ -331,8 +331,8 @@ def disable_theme(*, theme_id: int, actor: str) -> AppearanceTheme | None:
             """
             UPDATE appearance_themes
             SET status = ?,
-                updated_by = ?,
-                updated_at = ?
+                editor = ?,
+                update_time = ?
             WHERE id = ?
             """,
             (THEME_STATUS_DISABLED, actor, timestamp, theme_id),
@@ -419,7 +419,7 @@ def get_tenant_assigned_theme(tenant_id: int) -> AppearanceTheme | None:
             WHERE a.scope_type = ?
               AND a.scope_id = ?
               AND a.is_default = ?
-            ORDER BY a.assigned_at DESC, t.updated_at DESC, t.id DESC
+            ORDER BY a.assigned_at DESC, t.update_time DESC, t.id DESC
             LIMIT 1
             """,
             (TENANT_SCOPE, tenant_id, True),
@@ -471,10 +471,10 @@ def row_to_theme(row: dict[str, Any]) -> AppearanceTheme:
             project_overrides=decode_json(row.get("draft_project_overrides_json", row.get("project_overrides_json"))),
             skin_class=str(row.get("draft_skin_class", row.get("skin_class", "")) or ""),
         ),
-        created_by=str(row.get("created_by", "") or ""),
-        updated_by=str(row.get("updated_by", "") or ""),
-        created_at=str(row.get("created_at", "") or ""),
-        updated_at=str(row.get("updated_at", "") or ""),
+        creator=str(row.get("creator", "") or ""),
+        editor=str(row.get("editor", "") or ""),
+        create_time=str(row.get("create_time", "") or ""),
+        update_time=str(row.get("update_time", "") or ""),
     )
 
 
@@ -483,8 +483,8 @@ def row_to_platform_branding(row: dict[str, Any]) -> PlatformBranding:
         platform_name=str(row.get("platform_name", DEFAULT_PLATFORM_NAME) or DEFAULT_PLATFORM_NAME),
         logo_url=str(row.get("logo_url", "") or ""),
         platform_name_font_size=row.get("platform_name_font_size", 20),
-        updated_by=str(row.get("updated_by", "") or ""),
-        updated_at=str(row.get("updated_at", "") or ""),
+        editor=str(row.get("editor", "") or ""),
+        update_time=str(row.get("update_time", "") or ""),
     )
 
 
@@ -501,10 +501,10 @@ def theme_with_extra(theme: AppearanceTheme, data: dict[str, Any]) -> Appearance
         version=theme.version,
         payload=theme.payload,
         draft_payload=theme.draft_payload,
-        created_by=theme.created_by,
-        updated_by=theme.updated_by,
-        created_at=theme.created_at,
-        updated_at=theme.updated_at,
+        creator=theme.creator,
+        editor=theme.editor,
+        create_time=theme.create_time,
+        update_time=theme.update_time,
     )
 
 

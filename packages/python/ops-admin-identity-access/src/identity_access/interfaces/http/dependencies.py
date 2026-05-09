@@ -82,6 +82,7 @@ def _attach_user_tenant_scope(current_user: dict[str, Any], payload: dict[str, A
                 is_platform_admin=bool(tenant_payload["is_platform_admin"]),
                 source="user",
                 principal_id=int(current_user.get("id", 0) or 0),
+                principal_name=str(current_user.get("username", "") or ""),
             )
         )
     current_user.update(tenant_payload)
@@ -124,6 +125,7 @@ def require_business_api_key_or_permission(permission_code: str) -> Any:
                         tenant_name=str(tenant.get("name") or "Default Tenant"),
                         source="api_key",
                         principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
+                        principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
                     )
                 )
                 return principal
@@ -149,6 +151,7 @@ async def require_auth(
                     tenant_name=str(tenant.get("name") or "Default Tenant"),
                     source="api_key",
                     principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
+                    principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
                 )
             )
             return principal

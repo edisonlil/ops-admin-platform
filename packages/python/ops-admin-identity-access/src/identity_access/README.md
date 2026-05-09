@@ -33,6 +33,8 @@ Owned tables include `users`, `api_keys`, `roles`, `permissions`, `menus`, role 
 
 DDL and seed data live in `infrastructure/persistence`.
 
+All identity tables follow the repository-wide base field convention in `docs/backend-table-conventions.md`, including `id` primary keys on relation tables plus unique business keys such as `(tenant_id, user_id, role_id)`.
+
 Initialization is an explicit operations step, not a runtime behavior. Run it manually when provisioning or migrating an environment:
 
 ```bash

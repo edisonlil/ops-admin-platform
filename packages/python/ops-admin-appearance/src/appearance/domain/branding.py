@@ -14,8 +14,8 @@ class PlatformBranding:
     platform_name: str
     logo_url: str
     platform_name_font_size: int
-    updated_by: str
-    updated_at: str
+    editor: str
+    update_time: str
 
     @classmethod
     def from_values(
@@ -24,8 +24,8 @@ class PlatformBranding:
         platform_name: str | None,
         logo_url: str | None,
         platform_name_font_size: int | str | None = DEFAULT_PLATFORM_NAME_FONT_SIZE,
-        updated_by: str = "",
-        updated_at: str = "",
+        editor: str = "",
+        update_time: str = "",
     ) -> "PlatformBranding":
         name = str(platform_name or DEFAULT_PLATFORM_NAME).strip() or DEFAULT_PLATFORM_NAME
         logo = str(logo_url or "").strip()
@@ -38,8 +38,8 @@ class PlatformBranding:
             platform_name=name,
             logo_url=logo,
             platform_name_font_size=font_size,
-            updated_by=updated_by,
-            updated_at=updated_at,
+            editor=editor,
+            update_time=update_time,
         )
 
     def to_dict(self) -> dict[str, str | int]:
@@ -50,6 +50,6 @@ class PlatformBranding:
             "logoUrl": self.logo_url,
             "platform_name_font_size": self.platform_name_font_size,
             "platformNameFontSize": self.platform_name_font_size,
-            "updated_by": self.updated_by,
-            "updated_at": self.updated_at,
+            "editor": self.editor,
+            "update_time": self.update_time,
         }

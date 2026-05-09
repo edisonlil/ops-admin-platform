@@ -19,10 +19,18 @@ Use this skill for ops-admin-platform project automation and extensions.
 4. Prefer existing package patterns over inventing new structure.
 5. Validate with backend tests after server changes and frontend build after `web/admin` changes.
 
+## Project Creation Routes
+
+When the user wants a new project, choose the route before acting:
+
+- Scaffold route, recommended by default: run `scripts/create_project.py` to create an application shell that consumes published ops-admin-platform packages through `pip` and `@edisonlil/ops-admin-web` through npm. The scaffold must not copy `packages/python/ops-admin-*` or `packages/web/ops-admin-web` source into the generated project.
+- Clone route: use `git clone` when the user wants to own and modify the full platform source. The cloned project keeps the monorepo package layout and the user takes on future merge/upgrade work.
+
 ## Guardrails
 
 - Keep backend DDD boundaries: `interfaces/http`, `application`, `domain`, `infrastructure`.
-- Keep each bounded context under `packages/python/<package>/src/<context>`.
+- In the platform repository or clone route, keep each platform bounded context under `packages/python/<package>/src/<context>`.
+- In scaffold route projects, consume platform bounded contexts as package dependencies and add only local application-owned business contexts.
 - Use package entry points for routers and explicit init tasks.
 - Never initialize, migrate, seed, backfill, or repair schema implicitly at runtime.
 - Keep frontend envelope handling in the request layer; components consume unwrapped data.
@@ -31,7 +39,7 @@ Use this skill for ops-admin-platform project automation and extensions.
 
 ## Scripts
 
-- `scripts/create_project.py`: generate a small starter project skeleton for validating the create-project workflow.
+- `scripts/create_project.py`: generate a scaffold-route starter that depends on published platform packages instead of embedding platform package source.
 
 Example:
 

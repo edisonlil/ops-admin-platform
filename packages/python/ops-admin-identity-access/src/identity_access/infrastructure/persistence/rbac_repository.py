@@ -262,8 +262,8 @@ def list_roles() -> list[dict[str, Any]]:
             "role_scope": str(dict(row).get("role_scope", "") or "platform"),
             "permissions": permissions_by_role.get(int(dict(row)["id"]), []),
             "menus": menus_by_role.get(int(dict(row)["id"]), []),
-            "created_at": str(dict(row).get("created_at", "") or ""),
-            "updated_at": str(dict(row).get("updated_at", "") or ""),
+            "create_time": str(dict(row).get("create_time", "") or ""),
+            "update_time": str(dict(row).get("update_time", "") or ""),
         }
         for row in role_rows
     ]
@@ -349,7 +349,7 @@ def create_role(*, role_key: str, name: str, description: str = "", menu_keys: l
 
         cursor = conn.execute(
             """
-            INSERT INTO roles (role_key, name, description, is_system, created_at, updated_at)
+            INSERT INTO roles (role_key, name, description, is_system, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (normalized_key, name.strip(), description.strip(), False, now, now),
@@ -400,7 +400,7 @@ def update_role(
         conn.execute(
             """
             UPDATE roles
-            SET role_key = ?, name = ?, description = ?, updated_at = ?
+            SET role_key = ?, name = ?, description = ?, update_time = ?
             WHERE id = ?
             """,
             (normalized_key, name.strip(), description.strip(), now, role_id),
@@ -667,7 +667,7 @@ def update_menu(
                 """,
                 (payload["menu_key"], current_key),
             )
-        conn.execute("UPDATE roles SET updated_at = ? WHERE id IN (SELECT role_id FROM role_menus)", (now,))
+        conn.execute("UPDATE roles SET update_time = ? WHERE id IN (SELECT role_id FROM role_menus)", (now,))
         rebuild_all_role_permissions(conn)
 
     menu = next((item for item in list_menus() if int(item["id"]) == menu_id), None)

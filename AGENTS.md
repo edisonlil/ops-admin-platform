@@ -37,6 +37,7 @@
 - FastAPI routers should only receive input, call application services, and return the response envelope.
 - Business rules belong in `domain` or `application`, not in routers.
 - SQL, schema initialization, seed data, and external adapters belong in `infrastructure`.
+- Business tables must follow `docs/backend-table-conventions.md`: `id`, `tenant_id`, `lock_version`, `deleted`, `create_time`, `creator`, `creator_id`, `update_time`, `editor`, and `editor_id` are required base fields.
 - Business runtime must never initialize, migrate, seed, backfill, or repair database schema/data implicitly.
 - Runtime code may check that required tables/data already exist and fail with a clear operational error if they do not.
 - Every bounded context must maintain its own `README.md` at the context root.

@@ -95,7 +95,7 @@ def create_api_key(
     payload: ApiKeyCreateRequest,
     current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:create")),
 ) -> dict[str, Any]:
-    return ok(services.create_api_key(name=payload.name, created_by=str(current_user["username"])))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"])))
 
 
 @router.delete("/api-keys/{key_id}")
@@ -173,7 +173,7 @@ def create_tenant_api_key(
     payload: ApiKeyCreateRequest,
     current_user: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
 ) -> dict[str, Any]:
-    return ok(services.create_api_key(name=payload.name, created_by=str(current_user["username"]), tenant_id=tenant_id))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
 
 
 @router.delete("/tenants/{tenant_id}/api-keys/{key_id}")
@@ -231,7 +231,7 @@ def create_current_tenant_api_key(
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok(services.create_api_key(name=payload.name, created_by=str(current_user["username"]), tenant_id=tenant_id))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
 
 
 @router.delete("/tenant/api-keys/{key_id}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import tomllib
 from pathlib import Path
 
@@ -30,6 +31,25 @@ REQUIRED_PERSISTENCE_FILES = {
     "ddl.sqlite.sql",
     "ddl.postgres.sql",
     "seed.sql",
+}
+BASE_TABLE_COLUMNS = {
+    "id",
+    "tenant_id",
+    "lock_version",
+    "deleted",
+    "create_time",
+    "creator",
+    "creator_id",
+    "update_time",
+    "editor",
+    "editor_id",
+}
+SYSTEM_TABLELESS_DDL_COMMENT = "-- The system context currently has no durable tables."
+RELATION_UNIQUE_COLUMNS = {
+    "tenant_memberships": ("tenant_id", "user_id"),
+    "user_roles": ("tenant_id", "user_id", "role_id"),
+    "role_permissions": ("tenant_id", "role_id", "permission_id"),
+    "role_menus": ("tenant_id", "role_id", "menu_id"),
 }
 
 
@@ -100,6 +120,58 @@ def test_identity_access_does_not_depend_on_api_or_business_infrastructure() -> 
         for forbidden in ("from api ", "import api\n", "import api.", "llm_runtime.infrastructure"):
             if forbidden in source:
                 violations.append(f"{path.relative_to(ROOT)} imports {forbidden}")
+    assert not violations, "\n".join(violations)
+
+
+def ddl_tables(sql: str) -> dict[str, str]:
+    pattern = re.compile(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);", re.IGNORECASE | re.DOTALL)
+    return {match.group(1): match.group(2) for match in pattern.finditer(sql)}
+
+
+def ddl_columns(body: str) -> set[str]:
+    columns: set[str] = set()
+    for line in body.splitlines():
+        stripped = line.strip().lstrip("\ufeff")
+        if not stripped:
+            continue
+        name = stripped.split(None, 1)[0].strip('"`,')
+        if name.upper() in {"PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT"}:
+            continue
+        columns.add(name)
+    return columns
+
+
+def test_business_tables_use_standard_base_columns() -> None:
+    violations: list[str] = []
+    for context, context_path in BOUNDED_CONTEXTS.items():
+        persistence_path = context_path / "infrastructure" / "persistence"
+        for filename in ("ddl.sqlite.sql", "ddl.postgres.sql"):
+            ddl_path = persistence_path / filename
+            sql = ddl_path.read_text(encoding="utf-8")
+            tables = ddl_tables(sql)
+            if not tables and SYSTEM_TABLELESS_DDL_COMMENT not in sql:
+                violations.append(f"{ddl_path.relative_to(ROOT)} defines no tables")
+            for table_name, body in tables.items():
+                missing = BASE_TABLE_COLUMNS - ddl_columns(body)
+                if missing:
+                    violations.append(
+                        f"{ddl_path.relative_to(ROOT)} table {table_name} missing {', '.join(sorted(missing))}"
+                    )
+    assert not violations, "\n".join(violations)
+
+
+def test_identity_relation_tables_use_id_primary_key_and_unique_business_key() -> None:
+    violations: list[str] = []
+    ddl_path = BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "ddl.sqlite.sql"
+    tables = ddl_tables(ddl_path.read_text(encoding="utf-8"))
+    for table_name, unique_columns in RELATION_UNIQUE_COLUMNS.items():
+        body = tables.get(table_name, "")
+        first_column = next((line.strip() for line in body.splitlines() if line.strip()), "")
+        if not first_column.startswith("id "):
+            violations.append(f"{table_name} does not define id as the first primary key column")
+        unique_sql = f"UNIQUE ({', '.join(unique_columns)})"
+        if unique_sql not in body:
+            violations.append(f"{table_name} missing {unique_sql}")
     assert not violations, "\n".join(violations)
 
 

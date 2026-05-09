@@ -1,4 +1,4 @@
-INSERT INTO roles (role_key, name, description, is_system, created_at, updated_at)
+INSERT INTO roles (role_key, name, description, is_system, create_time, update_time)
 SELECT 'admin', 'Administrator', 'Full backend administrator', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM roles WHERE role_key = 'admin');
 
@@ -82,7 +82,7 @@ SELECT 'llm-debug', 'tenant', '模型调试', 'page', '/settings/llm-debug', 'll
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-debug');
 
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'rbac', 'RBAC 权限', '', '', 'shield', '', '', 100, TRUE
+SELECT 'rbac', '权限管理', '', '', 'shield', '', '', 100, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'rbac');
 
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)

@@ -228,7 +228,7 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
         rows = conn.execute(
             """
-            SELECT u.id, u.username, u.is_active, u.is_superuser, u.created_at, u.updated_at, tm.is_tenant_admin
+            SELECT u.id, u.username, u.is_active, u.is_superuser, u.create_time, u.update_time, tm.is_tenant_admin
             FROM tenant_memberships tm
             JOIN users u ON u.id = tm.user_id
             WHERE tm.tenant_id = ?

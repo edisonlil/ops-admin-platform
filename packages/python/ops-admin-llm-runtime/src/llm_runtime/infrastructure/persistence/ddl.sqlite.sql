@@ -9,9 +9,15 @@ CREATE TABLE IF NOT EXISTS llm_configs (
     timeout_seconds REAL DEFAULT 120,
     temperature REAL DEFAULT 0.1,
     extra_body TEXT DEFAULT '{}',
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    is_active INTEGER NOT NULL DEFAULT 1,
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_configs_active ON llm_configs(is_active);
@@ -28,9 +34,15 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     extra_headers TEXT NOT NULL DEFAULT '{}',
     extra_body TEXT NOT NULL DEFAULT '{}',
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-    ,UNIQUE(tenant_id, provider_key)
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE(tenant_id, provider_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_providers_enabled ON llm_providers(enabled);
@@ -46,9 +58,15 @@ CREATE TABLE IF NOT EXISTS llm_models (
     capabilities TEXT NOT NULL DEFAULT '{}',
     context_window INTEGER,
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-    ,UNIQUE(tenant_id, model_key)
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE(tenant_id, model_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_models_tenant ON llm_models(tenant_id);
@@ -66,9 +84,15 @@ CREATE TABLE IF NOT EXISTS llm_tasks (
     description TEXT NOT NULL DEFAULT '',
     owner_context TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-    ,UNIQUE(tenant_id, task_key)
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE(tenant_id, task_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_tasks_tenant ON llm_tasks(tenant_id);
@@ -82,9 +106,15 @@ CREATE TABLE IF NOT EXISTS llm_routing_policies (
     display_name TEXT NOT NULL DEFAULT '',
     strategy TEXT NOT NULL DEFAULT 'priority',
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-    ,UNIQUE(tenant_id, route_key)
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE(tenant_id, route_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_routing_policies_tenant ON llm_routing_policies(tenant_id);
@@ -102,8 +132,14 @@ CREATE TABLE IF NOT EXISTS llm_routing_policy_entries (
     response_format TEXT NOT NULL DEFAULT 'text',
     extra_body TEXT NOT NULL DEFAULT '{}',
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_routing_entries_tenant ON llm_routing_policy_entries(tenant_id);
@@ -131,9 +167,17 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
     error_message TEXT NOT NULL DEFAULT '',
     request_id TEXT NOT NULL DEFAULT '',
     correlation_id TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_tenant ON llm_call_logs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_task ON llm_call_logs(task_key);
-CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created ON llm_call_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created ON llm_call_logs(create_time);
+

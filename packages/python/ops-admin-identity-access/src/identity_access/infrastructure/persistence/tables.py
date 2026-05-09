@@ -13,8 +13,8 @@ tenants = Table(
     Column("name", String, nullable=False),
     Column("status", String, nullable=False, default="active"),
     Column("remark", Text, nullable=False, default=""),
-    Column("created_at", String, nullable=False),
-    Column("updated_at", String, nullable=False),
+    Column("create_time", String, nullable=False),
+    Column("update_time", String, nullable=False),
 )
 
 tenant_memberships = Table(
@@ -23,5 +23,5 @@ tenant_memberships = Table(
     Column("tenant_id", Integer, nullable=False),
     Column("user_id", Integer, nullable=False),
     Column("is_tenant_admin", Boolean, nullable=False, default=False),
-    Column("created_at", String, nullable=False),
+    Column("create_time", String, nullable=False),
 )

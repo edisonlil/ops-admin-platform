@@ -5,8 +5,8 @@ from typing import Any
 from identity_access.infrastructure.persistence import repositories
 
 
-def create_api_key(*, name: str, created_by: str, tenant_id: int | None = None) -> dict[str, Any]:
-    return repositories.create_api_key(name=name, created_by=created_by, tenant_id=tenant_id)
+def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> dict[str, Any]:
+    return repositories.create_api_key(name=name, creator=creator, tenant_id=tenant_id)
 
 
 def list_api_keys(tenant_id: int | None = None) -> list[dict[str, Any]]:

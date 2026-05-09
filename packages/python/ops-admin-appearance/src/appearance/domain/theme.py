@@ -64,10 +64,10 @@ class AppearanceTheme:
     version: int
     payload: AppearancePayload
     draft_payload: AppearancePayload
-    created_by: str
-    updated_by: str
-    created_at: str
-    updated_at: str
+    creator: str
+    editor: str
+    create_time: str
+    update_time: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,10 +76,10 @@ class AppearanceTheme:
             "name": self.name,
             "status": self.status,
             "version": self.version,
-            "created_by": self.created_by,
-            "updated_by": self.updated_by,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
+            "creator": self.creator,
+            "editor": self.editor,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
             "draft": self.draft_payload.to_dict(),
             **self.payload.to_dict(),
         }

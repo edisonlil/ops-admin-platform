@@ -2,18 +2,38 @@
 
 ## create_project
 
-Use `scripts/create_project.py` for a deterministic starter skeleton when the user wants a new project.
+First choose the project creation route:
+
+- Scaffold route, recommended by default: use `scripts/create_project.py` for a deterministic application shell that consumes published platform packages.
+- Clone route: use `git clone` when the user wants the complete platform source and accepts owning future source maintenance.
 
 Required decisions:
 
+- Route: scaffold or clone.
 - Project name.
 - Target directory.
 - Enabled modules: default to `identity_access,appearance,llm_runtime`.
+- Optional package versions for published Python packages and `@edisonlil/ops-admin-web`.
 
-After generation:
+Scaffold route rules:
 
-- Check that backend packages live under `packages/python`.
-- Check that frontend module registration lives under `packages/web/ops-admin-web` and `web/admin/src/modules.ts`.
+- Generate `requirements.txt` with `ops-admin-system` and selected `ops-admin-*` module dependencies.
+- Generate `web/admin/package.json` with `@edisonlil/ops-admin-web`.
+- Keep project composition local in files such as `api/module_registry.py` and `web/admin/src/modules.ts`.
+- Do not generate `packages/python/ops-admin-*` or `packages/web/ops-admin-web`.
+
+Clone route rules:
+
+- Clone the platform repository into the target directory.
+- Keep backend platform packages under `packages/python`.
+- Keep the shared frontend package under `packages/web/ops-admin-web`.
+- Tell the user that source-level customization also means source-level upgrade work.
+
+After scaffold generation:
+
+- Check that backend platform packages are listed as dependencies, not copied as source.
+- Check that frontend module registration lives in `web/admin/src/modules.ts`.
+- Check that `web/admin/package.json` depends on `@edisonlil/ops-admin-web`.
 - Run the generated test command if the target includes tests.
 
 ## enable_module

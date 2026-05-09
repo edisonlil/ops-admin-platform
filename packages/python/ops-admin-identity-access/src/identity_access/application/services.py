@@ -374,8 +374,8 @@ def delete_menu(menu_id: int) -> dict[str, Any]:
     return rbac_service.delete_menu(menu_id)
 
 
-def create_api_key(*, name: str, created_by: str, tenant_id: int | None = None) -> dict[str, Any]:
-    payload = api_key_service.create_api_key(name=name, created_by=created_by, tenant_id=tenant_id)
+def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> dict[str, Any]:
+    payload = api_key_service.create_api_key(name=name, creator=creator, tenant_id=tenant_id)
     publish_event(events.api_key_created(payload["item"], correlation_id=current_request_id()))
     return payload
 

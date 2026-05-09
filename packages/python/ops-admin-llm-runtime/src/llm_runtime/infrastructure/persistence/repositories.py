@@ -68,7 +68,7 @@ def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 description = ?,
                 owner_context = ?,
                 enabled = ?,
-                updated_at = ?
+                update_time = ?
             WHERE tenant_id = ? AND task_key = ?
             """,
             (*values, tenant_id, task_key),
@@ -78,7 +78,7 @@ def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_tasks (
                 tenant_id, task_key, context_key, scene_key, task_name, display_name,
-                description, owner_context, enabled, created_at, updated_at
+                description, owner_context, enabled, create_time, update_time
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -135,7 +135,7 @@ def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 extra_headers = ?,
                 extra_body = ?,
                 enabled = ?,
-                updated_at = ?
+                update_time = ?
             WHERE tenant_id = ? AND provider_key = ?
             """,
             (*values, tenant_id, provider_key),
@@ -145,7 +145,7 @@ def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_providers (
                 tenant_id, provider_key, display_name, base_url, api_key, auth_type,
-                extra_headers, extra_body, enabled, created_at, updated_at
+                extra_headers, extra_body, enabled, create_time, update_time
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -191,7 +191,7 @@ def public_provider(row: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool_value(row.get("enabled", True)),
         "api_key_configured": bool(api_key),
         "api_key_mask": mask_secret(api_key),
-        "updated_at": str(row.get("updated_at", "")),
+        "update_time": str(row.get("update_time", "")),
     }
 
 
@@ -238,7 +238,7 @@ def upsert_model(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 capabilities = ?,
                 context_window = ?,
                 enabled = ?,
-                updated_at = ?
+                update_time = ?
             WHERE tenant_id = ? AND model_key = ?
             """,
             (*values, tenant_id, model_key),
@@ -248,7 +248,7 @@ def upsert_model(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_models (
                 tenant_id, model_key, provider_key, model_name, display_name, capabilities,
-                context_window, enabled, created_at, updated_at
+                context_window, enabled, create_time, update_time
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -307,7 +307,7 @@ def upsert_routing_policy(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             SET display_name = ?,
                 strategy = ?,
                 enabled = ?,
-                updated_at = ?
+                update_time = ?
             WHERE tenant_id = ? AND route_key = ?
             """,
             (*values, tenant_id, route_key),
@@ -316,7 +316,7 @@ def upsert_routing_policy(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     else:
         conn.execute(
             """
-            INSERT INTO llm_routing_policies (tenant_id, route_key, display_name, strategy, enabled, created_at, updated_at)
+            INSERT INTO llm_routing_policies (tenant_id, route_key, display_name, strategy, enabled, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, route_key, *values, timestamp),
@@ -348,7 +348,7 @@ def insert_policy_entry(conn: Any, policy_id: int, payload: dict[str, Any]) -> N
         """
         INSERT INTO llm_routing_policy_entries (
             tenant_id, policy_id, model_key, priority, temperature, timeout_seconds,
-            max_retries, response_format, extra_body, enabled, created_at, updated_at
+            max_retries, response_format, extra_body, enabled, create_time, update_time
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -559,15 +559,16 @@ def policy_to_dict(policy: RoutingPolicy) -> dict[str, Any]:
 
 
 def record_call_log(conn: Any, payload: dict[str, Any]) -> None:
+    timestamp = now_text()
     conn.execute(
         """
         INSERT INTO llm_call_logs (
             tenant_id, task_key, route_key, policy_id, entry_id, provider_key, model_key,
             model_name, status, is_fallback, elapsed_ms, prompt_tokens,
             completion_tokens, total_tokens, error_code, error_message,
-            request_id, correlation_id, created_at
+            request_id, correlation_id, lock_version, deleted, create_time, update_time
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             current_tenant_id(),
@@ -588,7 +589,10 @@ def record_call_log(conn: Any, payload: dict[str, Any]) -> None:
             str(payload.get("error_message", ""))[:1000],
             str(payload.get("request_id", "")),
             str(payload.get("correlation_id", "")),
-            now_text(),
+            0,
+            0,
+            timestamp,
+            timestamp,
         ),
     )
 
@@ -599,7 +603,7 @@ def list_call_logs(conn: Any, limit: int = 50) -> list[dict[str, Any]]:
         SELECT *
         FROM llm_call_logs
         WHERE tenant_id = ?
-        ORDER BY created_at DESC, id DESC
+        ORDER BY create_time DESC, id DESC
         LIMIT ?
         """,
         (current_tenant_id(), limit),

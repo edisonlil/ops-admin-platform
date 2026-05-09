@@ -21,7 +21,7 @@ def api_key_created(item: dict[str, Any], *, correlation_id: str | None = None) 
     return DomainEvent(
         event_type="identity.api_key_created",
         source=SOURCE,
-        payload={"api_key_id": item.get("id"), "name": item.get("name"), "created_by": item.get("created_by")},
+        payload={"api_key_id": item.get("id"), "name": item.get("name"), "creator": item.get("creator")},
         correlation_id=correlation_id,
     )
 

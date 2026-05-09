@@ -14,6 +14,7 @@ class TenantScope:
     is_platform_admin: bool = False
     source: str = "user"
     principal_id: int | None = None
+    principal_name: str | None = None
 
 
 def default_tenant_scope() -> TenantScope:
@@ -23,4 +24,5 @@ def default_tenant_scope() -> TenantScope:
         tenant_name="Default Tenant",
         is_platform_admin=True,
         source="system",
+        principal_name="system",
     )
