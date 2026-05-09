@@ -261,7 +261,7 @@ def list_resource(loader: Any) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {
         "items": items,
-        "pagination": {"total": len(items), "limit": len(items), "offset": 0},
+        "pagination": {"page": 1, "page_size": len(items), "total": len(items)},
     }
 
 

@@ -160,6 +160,36 @@ def test_business_tables_use_standard_base_columns() -> None:
     assert not violations, "\n".join(violations)
 
 
+def test_response_envelope_does_not_expand_business_data_to_top_level() -> None:
+    http_path = BOUNDED_CONTEXTS["system"] / "interfaces" / "http.py"
+    source = http_path.read_text(encoding="utf-8")
+    assert "payload.update(data)" not in source
+
+
+def test_list_pagination_uses_standard_field_names() -> None:
+    violations: list[str] = []
+    for base_path in (ROOT / "api", ROOT / "packages" / "python"):
+        for path in python_files(base_path):
+            source = path.read_text(encoding="utf-8")
+            if '"pagination"' in source and ('"limit"' in source or '"offset"' in source):
+                violations.append(str(path.relative_to(ROOT)))
+    assert not violations, "pagination should use page/page_size/total:\n" + "\n".join(violations)
+
+
+def test_application_code_uses_standard_time_field_names() -> None:
+    violations: list[str] = []
+    for base_path in (ROOT / "api", ROOT / "packages", ROOT / "web" / "admin" / "src"):
+        for path in base_path.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in {".py", ".ts", ".tsx", ".vue", ".sql"}:
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "created_at" in source or "updated_at" in source:
+                violations.append(str(path.relative_to(ROOT)))
+    assert not violations, "use create_time/update_time instead of created_at/updated_at:\n" + "\n".join(violations)
+
+
 def test_identity_relation_tables_use_id_primary_key_and_unique_business_key() -> None:
     violations: list[str] = []
     ddl_path = BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "ddl.sqlite.sql"

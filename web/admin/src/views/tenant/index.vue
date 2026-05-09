@@ -103,7 +103,7 @@
                 </n-tag>
               </n-descriptions-item>
               <n-descriptions-item label="名称">{{ activeTenant.name }}</n-descriptions-item>
-              <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.updated_at) }}</n-descriptions-item>
+              <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.update_time) }}</n-descriptions-item>
               <n-descriptions-item label="备注" :span="2">{{ activeTenant.remark || '-' }}</n-descriptions-item>
             </n-descriptions>
           </n-tab-pane>
@@ -213,7 +213,7 @@
     remark?: string;
     user_count?: number;
     api_key_count?: number;
-    updated_at?: string;
+    update_time?: string;
   }
 
   const message = useMessage();
@@ -295,7 +295,7 @@
     },
     { title: '成员', key: 'user_count', width: 90 },
     { title: 'API Key', key: 'api_key_count', width: 100 },
-    { title: '更新时间', key: 'updated_at', width: 190, render: (row) => formatToDateTime(row.updated_at) },
+    { title: '更新时间', key: 'update_time', width: 190, render: (row) => formatToDateTime(row.update_time) },
     {
       title: '操作',
       key: 'actions',
@@ -360,7 +360,7 @@
         return h(AppStatusTag, { tone: row.is_active ? 'success' : 'neutral', label: row.is_active ? '有效' : '已撤销' });
       },
     },
-    { title: '创建时间', key: 'created_at', width: 190, render: (row) => formatToDateTime(row.created_at) },
+    { title: '创建时间', key: 'create_time', width: 190, render: (row) => formatToDateTime(row.create_time) },
     {
       title: '操作',
       key: 'actions',

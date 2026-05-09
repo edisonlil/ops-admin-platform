@@ -69,7 +69,7 @@
       },
     },
     { title: '创建人', key: 'created_by', width: 120 },
-    { title: '创建时间', key: 'created_at', width: 220, render: (row) => formatToDateTime(row.created_at) },
+    { title: '创建时间', key: 'create_time', width: 220, render: (row) => formatToDateTime(row.create_time) },
     {
       title: '操作',
       key: 'actions',

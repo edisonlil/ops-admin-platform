@@ -349,7 +349,7 @@ export const useAppearanceStore = defineStore({
         this.applyPayload(response.theme);
         this.backendThemeSource = response.source;
         this.backendThemeId = response.theme.id || null;
-        this.backendThemeUpdatedAt = response.theme.updated_at || '';
+        this.backendThemeUpdatedAt = response.theme.update_time || '';
         this.cacheTenantPayload(toStoragePayload(this.runtimeState));
       } finally {
         this.isLoadingRemote = false;
@@ -364,7 +364,7 @@ export const useAppearanceStore = defineStore({
         this.platformName = branding.platformName || branding.platform_name || 'fg-agent';
         this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
         this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
-        this.brandingUpdatedAt = branding.updated_at || '';
+        this.brandingUpdatedAt = branding.update_time || '';
       } finally {
         this.isLoadingBranding = false;
       }
@@ -382,7 +382,7 @@ export const useAppearanceStore = defineStore({
           this.platformName = branding.platformName || branding.platform_name || 'fg-agent';
           this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
           this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
-          this.brandingUpdatedAt = branding.updated_at || '';
+          this.brandingUpdatedAt = branding.update_time || '';
         }
         return response;
       } finally {
@@ -488,7 +488,7 @@ export const useAppearanceStore = defineStore({
           this.applyPayload(response.theme);
           this.backendThemeSource = response.source;
           this.backendThemeId = response.theme.id || null;
-          this.backendThemeUpdatedAt = response.theme.updated_at || '';
+          this.backendThemeUpdatedAt = response.theme.update_time || '';
           this.persistRuntime();
           this.cacheTenantPayload(toStoragePayload(this.runtimeState));
         }

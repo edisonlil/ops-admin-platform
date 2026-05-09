@@ -16,8 +16,8 @@ export interface EffectiveAppearanceTheme {
     draft?: AppearanceStoragePayload;
     tenant_assignment_count?: number;
     is_platform_default?: boolean;
-    created_at?: string;
-    updated_at?: string;
+    create_time?: string;
+    update_time?: string;
   }) | null;
 }
 
@@ -33,7 +33,7 @@ export interface PlatformBranding {
   platform_name_font_size?: number;
   platformNameFontSize: number;
   updated_by?: string;
-  updated_at?: string;
+  update_time?: string;
 }
 
 function withNoCacheParams() {

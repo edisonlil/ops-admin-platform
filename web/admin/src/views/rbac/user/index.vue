@@ -104,8 +104,8 @@
     roles?: UserRole[];
     is_active: boolean;
     is_superuser: boolean;
-    created_at?: string;
-    updated_at?: string;
+    create_time?: string;
+    update_time?: string;
   }
 
   interface UserFormState {
@@ -190,15 +190,15 @@
     },
     {
       title: '创建时间',
-      key: 'created_at',
+      key: 'create_time',
       width: 220,
-      render: (row) => formatToDateTime(row.created_at),
+      render: (row) => formatToDateTime(row.create_time),
     },
     {
       title: '更新时间',
-      key: 'updated_at',
+      key: 'update_time',
       width: 220,
-      render: (row) => formatToDateTime(row.updated_at),
+      render: (row) => formatToDateTime(row.update_time),
     },
     {
       title: '操作',

@@ -14,7 +14,7 @@ def list_themes() -> dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     items = [theme.to_dict() for theme in themes]
-    return {"items": items, "pagination": {"total": len(items), "limit": len(items), "offset": 0}}
+    return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
 
 
 def get_theme(theme_id: int) -> dict[str, Any]:

@@ -168,8 +168,8 @@ class ApiTests(unittest.TestCase):
         me_response = self.request("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token}"}, auth=False)
 
         self.assertEqual(me_response.status_code, 200)
-        self.assertEqual(me_response.json()["username"], "admin")
-        self.assertTrue(me_response.json()["is_platform_admin"])
+        self.assertEqual(me_response.json()["data"]["username"], "admin")
+        self.assertTrue(me_response.json()["data"]["is_platform_admin"])
 
     def test_business_endpoints_require_auth(self) -> None:
         response = self.request("GET", "/api/tenants", auth=False)
@@ -199,15 +199,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(role_response.status_code, 200)
         self.assertEqual(permission_response.status_code, 200)
 
-        menu_keys = {item["key"] for item in menu_response.json()["items"]}
+        menu_keys = {item["key"] for item in menu_response.json()["data"]["items"]}
         self.assertIn("tenant-management", menu_keys)
         self.assertIn("appearance-studio", menu_keys)
         self.assertIn("llm-debug", menu_keys)
         self.assertNotIn("recommend", menu_keys)
         self.assertNotIn("function-points", menu_keys)
 
-        self.assertTrue(any(item["key"] == "admin" for item in role_response.json()["items"]))
-        self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["items"]))
+        self.assertTrue(any(item["key"] == "admin" for item in role_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["data"]["items"]))
 
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})
@@ -263,7 +263,7 @@ class ApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(create_response.status_code, 200)
-        menu_id = create_response.json()["item"]["id"]
+        menu_id = create_response.json()["data"]["item"]["id"]
 
         update_response = self.request(
             "PUT",
@@ -283,7 +283,7 @@ class ApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(update_response.status_code, 200)
-        self.assertEqual(update_response.json()["item"]["label"], "Reports Updated")
+        self.assertEqual(update_response.json()["data"]["item"]["label"], "Reports Updated")
 
         delete_response = self.request("DELETE", f"/api/rbac/menus/{menu_id}")
         self.assertEqual(delete_response.status_code, 200)

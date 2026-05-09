@@ -24,7 +24,7 @@ def now_iso() -> str:
 
 
 def ok(data: Any = None, *, code: str = "OK", message: str = "success") -> dict[str, Any]:
-    payload = {
+    return {
         "success": True,
         "code": code,
         "message": message,
@@ -32,11 +32,6 @@ def ok(data: Any = None, *, code: str = "OK", message: str = "success") -> dict[
         "request_id": current_request_id(),
         "timestamp": now_iso(),
     }
-    if isinstance(data, dict):
-        # Transitional compatibility for tests and callers that still read the
-        # previous top-level shape while the frontend consumes the new envelope.
-        payload.update(data)
-    return payload
 
 
 def page(items: list[dict[str, Any]], *, page: int, page_size: int, total: int) -> dict[str, Any]:

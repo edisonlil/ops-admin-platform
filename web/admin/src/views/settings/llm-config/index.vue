@@ -420,7 +420,7 @@
   ];
 
   const logColumns: DataTableColumns<Recordable> = [
-    { title: '时间', key: 'created_at', width: 180, render: (row) => formatDateTime(row.created_at) },
+    { title: '时间', key: 'create_time', width: 180, render: (row) => formatDateTime(row.create_time) },
     { title: '任务', key: 'task_key', minWidth: 260, ellipsis: { tooltip: true } },
     { title: 'Route', key: 'route_key', minWidth: 220, ellipsis: { tooltip: true } },
     { title: '模型', key: 'model_key', minWidth: 190 },

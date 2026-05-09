@@ -156,7 +156,7 @@
     menus?: MenuRow[];
     permissions?: Recordable[];
     role_scope?: 'platform' | 'tenant' | string;
-    created_at?: string;
+    create_time?: string;
   }
 
   interface RoleFormState {
@@ -234,9 +234,9 @@
     },
     {
       title: '创建时间',
-      key: 'created_at',
+      key: 'create_time',
       width: 190,
-      render: (row) => formatToDateTime(row.created_at),
+      render: (row) => formatToDateTime(row.create_time),
     },
     {
       title: '操作',

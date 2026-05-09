@@ -10,7 +10,7 @@ export interface OpsAdminEnvelope<TData = unknown> {
 
 export interface OpsAdminPagination {
   page: number;
-  pageSize: number;
+  page_size: number;
   total: number;
 }
 
