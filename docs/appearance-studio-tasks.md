@@ -925,6 +925,8 @@ pnpm run build
 - 已新增 `TreeTokens`，覆盖节点高度、缩进、图标大小、hover、selected、disabled 和连接线颜色。
 - 已将 Tree tokens 输出到 Naive `Tree` themeOverrides 与全局 CSS variables。
 - Appearance Studio 已新增“树组件”配置页和节点状态预览。
+- 已新增 `UploadTokens`，覆盖图片上传卡片、触发区、遮罩、操作图标、进度和错误颜色。
+- 已让 `BasicUpload` 消费上传组件 CSS variables，并在 Appearance Studio 增加“上传组件”配置页和预览。
 
 验收：
 

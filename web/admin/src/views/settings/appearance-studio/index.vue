@@ -312,6 +312,7 @@
         { key: 'TableToolbar', panel: 'components', previewTarget: 'TableToolbar', title: '表格工具栏', caption: '查询 / 批量操作', description: '配置表格查询区、工具栏、批量操作栏和选择列的外观入口。' },
         { key: 'StatusAction', panel: 'components', previewTarget: 'StatusAction', title: '状态与操作', caption: '标签 / 表格操作', description: '单独配置状态标签与表格操作按钮的尺寸和状态色。' },
         { key: 'Tree', panel: 'components', previewTarget: 'Tree', title: '树组件', caption: '节点 / 缩进 / 选中', description: '配置菜单权限树、角色授权树和树选择类控件的节点密度与状态。' },
+        { key: 'Upload', panel: 'components', previewTarget: 'Upload', title: '上传组件', caption: '卡片 / 拖拽 / 文件项', description: '配置图片上传卡片、触发区、遮罩和操作图标状态。' },
         { key: 'Shell', panel: 'components', previewTarget: 'Shell', title: '外壳与内容面', caption: '菜单 / 卡片 / 弹窗', description: '单独配置导航菜单、内容卡片和弹窗的基础质感。' },
       ],
     },

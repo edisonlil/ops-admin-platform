@@ -287,6 +287,25 @@
             </div>
           </div>
 
+          <div v-if="componentTarget === 'Upload'" class="upload-preview">
+            <div class="upload-preview__item">
+              <div class="upload-preview__thumb"></div>
+              <div class="upload-preview__overlay">
+                <span>查看</span>
+                <span>删除</span>
+              </div>
+            </div>
+            <div class="upload-preview__trigger">
+              <strong>+</strong>
+              <span>上传图片</span>
+            </div>
+            <div class="upload-preview__file">
+              <strong>contract.pdf</strong>
+              <span>上传中 68%</span>
+              <i></i>
+            </div>
+          </div>
+
           <div v-if="componentTarget === 'Shell'" class="shell-component-preview">
             <aside>
               <strong>ops</strong>
@@ -470,6 +489,7 @@
       TableToolbar: { kicker: 'Table System', title: '表格工具栏与批量操作' },
       StatusAction: { kicker: 'Status / Action', title: '状态与操作样张' },
       Tree: { kicker: 'Tree', title: '树组件节点样张' },
+      Upload: { kicker: 'Upload', title: '上传组件样张' },
       Shell: { kicker: 'Shell', title: '外壳与内容面样张' },
     };
     return map[componentTarget.value] || map.Button;
@@ -551,6 +571,21 @@
     '--app-tree-selected-bg': tokens.value.component.Tree.selectedBg,
     '--app-tree-disabled-text-color': tokens.value.component.Tree.disabledTextColor,
     '--app-tree-line-color': tokens.value.component.Tree.lineColor,
+    '--app-upload-item-size': tokens.value.component.Upload.itemSize,
+    '--app-upload-item-padding': tokens.value.component.Upload.itemPadding,
+    '--app-upload-item-radius': tokens.value.component.Upload.itemRadius,
+    '--app-upload-item-bg': tokens.value.component.Upload.itemBgColor,
+    '--app-upload-item-border-color': tokens.value.component.Upload.itemBorderColor,
+    '--app-upload-item-border-hover-color': tokens.value.component.Upload.itemBorderHoverColor,
+    '--app-upload-trigger-bg': tokens.value.component.Upload.triggerBgColor,
+    '--app-upload-trigger-text-color': tokens.value.component.Upload.triggerTextColor,
+    '--app-upload-hint-text-color': tokens.value.component.Upload.hintTextColor,
+    '--app-upload-icon-color': tokens.value.component.Upload.iconColor,
+    '--app-upload-overlay-bg': tokens.value.component.Upload.overlayBgColor,
+    '--app-upload-action-icon-color': tokens.value.component.Upload.actionIconColor,
+    '--app-upload-action-icon-hover-color': tokens.value.component.Upload.actionIconHoverColor,
+    '--app-upload-progress-color': tokens.value.component.Upload.progressColor,
+    '--app-upload-error-color': tokens.value.component.Upload.errorColor,
   }));
 
   const fontRows = computed(() => [
@@ -1426,6 +1461,108 @@
 
     &.is-disabled {
       color: var(--app-tree-disabled-text-color);
+    }
+  }
+
+  .upload-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+    min-height: 220px;
+    padding: 14px;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
+    border-radius: var(--app-card-radius);
+  }
+
+  .upload-preview__item,
+  .upload-preview__trigger {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: var(--app-upload-item-size, 100px);
+    height: var(--app-upload-item-size, 100px);
+    padding: var(--app-upload-item-padding, 8px);
+    overflow: hidden;
+    background: var(--app-upload-item-bg);
+    border: 1px solid var(--app-upload-item-border-color);
+    border-radius: var(--app-upload-item-radius, var(--app-card-radius));
+  }
+
+  .upload-preview__thumb {
+    width: 100%;
+    height: 100%;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--app-primary-color) 28%, transparent), transparent 58%),
+      var(--app-surface-muted-bg);
+    border-radius: max(2px, calc(var(--app-upload-item-radius, 6px) - 2px));
+  }
+
+  .upload-preview__overlay {
+    position: absolute;
+    inset: var(--app-upload-item-padding, 8px);
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    color: var(--app-upload-action-icon-color);
+    background: var(--app-upload-overlay-bg);
+    opacity: 1;
+
+    span {
+      font-size: var(--app-font-size-xs, 12px);
+      font-weight: 650;
+    }
+  }
+
+  .upload-preview__trigger {
+    color: var(--app-upload-trigger-text-color);
+    background: var(--app-upload-trigger-bg);
+    border-style: dashed;
+
+    strong {
+      color: var(--app-upload-icon-color);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    span {
+      font-size: var(--app-font-size-xs, 12px);
+    }
+
+    &:hover {
+      border-color: var(--app-upload-item-border-hover-color);
+    }
+  }
+
+  .upload-preview__file {
+    display: grid;
+    gap: 6px;
+    width: min(100%, 260px);
+    padding: 12px;
+    color: var(--app-text-color);
+    background: var(--app-upload-item-bg);
+    border: 1px solid var(--app-upload-item-border-color);
+    border-radius: var(--app-upload-item-radius, var(--app-card-radius));
+
+    strong,
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: var(--app-upload-hint-text-color);
+      font-size: var(--app-font-size-xs, 12px);
+    }
+
+    i {
+      width: 68%;
+      height: 4px;
+      background: var(--app-upload-progress-color);
+      border-radius: 99px;
     }
   }
 

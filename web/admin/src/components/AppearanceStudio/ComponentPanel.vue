@@ -426,6 +426,65 @@
       />
     </section>
 
+    <section v-else-if="activeTarget === 'Upload'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>上传组件</strong>
+      </header>
+      <TokenColorRow
+        label="卡片背景"
+        token-path="component.Upload.itemBgColor"
+        :model-value="component.Upload.itemBgColor"
+        :resolved-value="resolved.Upload.itemBgColor"
+        @update:model-value="(value) => update('Upload', 'itemBgColor', value)"
+      />
+      <TokenColorRow
+        label="卡片边框"
+        token-path="component.Upload.itemBorderColor"
+        :model-value="component.Upload.itemBorderColor"
+        :resolved-value="resolved.Upload.itemBorderColor"
+        @update:model-value="(value) => update('Upload', 'itemBorderColor', value)"
+      />
+      <TokenColorRow
+        label="悬停边框"
+        token-path="component.Upload.itemBorderHoverColor"
+        :model-value="component.Upload.itemBorderHoverColor"
+        :resolved-value="resolved.Upload.itemBorderHoverColor"
+        @update:model-value="(value) => update('Upload', 'itemBorderHoverColor', value)"
+      />
+      <TokenColorRow
+        label="触发区背景"
+        token-path="component.Upload.triggerBgColor"
+        :model-value="component.Upload.triggerBgColor"
+        :resolved-value="resolved.Upload.triggerBgColor"
+        @update:model-value="(value) => update('Upload', 'triggerBgColor', value)"
+      />
+      <TokenColorRow
+        label="触发区文字"
+        token-path="component.Upload.triggerTextColor"
+        :model-value="component.Upload.triggerTextColor"
+        :resolved-value="resolved.Upload.triggerTextColor"
+        @update:model-value="(value) => update('Upload', 'triggerTextColor', value)"
+      />
+      <TokenSizeRow
+        label="卡片尺寸"
+        token-path="component.Upload.itemSize"
+        :model-value="component.Upload.itemSize"
+        :min="72"
+        :max="160"
+        @update:model-value="(value) => update('Upload', 'itemSize', value)"
+      />
+      <TokenSizeRow
+        label="卡片圆角"
+        token-path="component.Upload.itemRadius"
+        :model-value="component.Upload.itemRadius"
+        :resolved-value="resolved.Upload.itemRadius"
+        :min="0"
+        :max="24"
+        @update:model-value="(value) => update('Upload', 'itemRadius', value)"
+      />
+    </section>
+
     <section v-else class="component-token-panel__section">
       <header class="component-token-panel__header">
         <span>组件样式</span>

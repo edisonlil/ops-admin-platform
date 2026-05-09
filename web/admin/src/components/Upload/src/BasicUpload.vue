@@ -91,8 +91,8 @@
     setup(props, { emit }) {
       const getCSSProperties = computed(() => {
         return {
-          width: `${props.width}px`,
-          height: `${props.height}px`,
+          width: props.width ? `${props.width}px` : 'var(--app-upload-item-size)',
+          height: props.height ? `${props.height}px` : 'var(--app-upload-item-size)',
         };
       });
 
@@ -215,9 +215,10 @@
       &-item {
         margin: 0 8px 8px 0;
         position: relative;
-        padding: 8px;
-        border: 1px solid #d9d9d9;
-        border-radius: 2px;
+        padding: var(--app-upload-item-padding, 8px);
+        background: var(--app-upload-item-bg, #fff);
+        border: 1px solid var(--app-upload-item-border-color, #d9d9d9);
+        border-radius: var(--app-upload-item-radius, 2px);
         display: flex;
         justify-content: center;
         flex-direction: column;
@@ -253,7 +254,7 @@
             z-index: 1;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
+            background-color: var(--app-upload-overlay-bg, rgba(0, 0, 0, 0.5));
             opacity: 0;
             transition: all 0.3s;
             content: ' ';
@@ -263,7 +264,7 @@
             position: relative;
             //padding: 8px;
             //border: 1px solid #d9d9d9;
-            border-radius: 2px;
+            border-radius: var(--app-upload-item-radius, 2px);
           }
 
           .img-box-actions {
@@ -284,11 +285,11 @@
             }
 
             .action-icon {
-              color: rgba(255, 255, 255, 0.85);
+              color: var(--app-upload-action-icon-color, rgba(255, 255, 255, 0.85));
 
               &:hover {
                 cursor: pointer;
-                color: #fff;
+                color: var(--app-upload-action-icon-hover-color, #fff);
               }
             }
           }
@@ -296,14 +297,18 @@
       }
 
       &-item-select-picture {
-        border: 1px dashed #d9d9d9;
-        border-radius: 2px;
+        color: var(--app-upload-trigger-text-color, #666);
         cursor: pointer;
-        background: #fafafa;
-        color: #666;
+        background: var(--app-upload-trigger-bg, #fafafa);
+        border: 1px dashed var(--app-upload-item-border-color, #d9d9d9);
+        border-radius: var(--app-upload-item-radius, 2px);
+
+        &:hover {
+          border-color: var(--app-upload-item-border-hover-color, #18a058);
+        }
 
         .upload-title {
-          color: #666;
+          color: var(--app-upload-trigger-text-color, #666);
         }
       }
     }

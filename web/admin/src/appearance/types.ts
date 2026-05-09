@@ -231,6 +231,24 @@ export interface TreeTokens {
   lineColor: string;
 }
 
+export interface UploadTokens {
+  itemSize: string;
+  itemPadding: string;
+  itemRadius: string;
+  itemBgColor: string;
+  itemBorderColor: string;
+  itemBorderHoverColor: string;
+  triggerBgColor: string;
+  triggerTextColor: string;
+  hintTextColor: string;
+  iconColor: string;
+  overlayBgColor: string;
+  actionIconColor: string;
+  actionIconHoverColor: string;
+  progressColor: string;
+  errorColor: string;
+}
+
 export interface ComponentTokens {
   Button: ButtonTokens;
   Form: FormTokens;
@@ -271,6 +289,7 @@ export interface ComponentTokens {
   Drawer: SurfaceTokens;
   Menu: MenuTokens;
   Tree: TreeTokens;
+  Upload: UploadTokens;
   Tooltip: {
     bgColor: string;
     textColor: string;

@@ -104,6 +104,12 @@ export const primevueLikePreset: AppearancePreset = {
         hoverBg: '{surfaceMutedColor}',
         selectedBg: '{primaryColorSoft}',
       },
+      Upload: {
+        ...defaultPreset.tokens.component.Upload,
+        itemRadius: '{borderRadiusBase}',
+        triggerBgColor: '{surfaceMutedColor}',
+        itemBorderHoverColor: '{primaryColor}',
+      },
       Card: {
         ...defaultPreset.tokens.component.Card,
         shadow: '{shadowNone}',

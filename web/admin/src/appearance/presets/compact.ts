@@ -89,6 +89,11 @@ export const compactEnterprisePreset: AppearancePreset = {
         indent: '18px',
         iconSize: '16px',
       },
+      Upload: {
+        ...primevueLikePreset.tokens.component.Upload,
+        itemSize: '88px',
+        itemPadding: '6px',
+      },
     },
     layout: {
       ...primevueLikePreset.tokens.layout,
