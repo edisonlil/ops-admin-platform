@@ -39,4 +39,42 @@
   .n-data-table .n-data-table-tr.n-data-table-tr--expanded {
     background: var(--app-table-expanded-row-bg);
   }
+
+  .n-tree .n-tree-node {
+    min-height: var(--app-tree-node-height);
+    color: var(--app-tree-text-color);
+  }
+
+  .n-tree .n-tree-node-content {
+    min-height: var(--app-tree-node-height);
+    border-radius: var(--app-tree-node-radius);
+  }
+
+  .n-tree .n-tree-node-content:hover {
+    background: var(--app-tree-hover-bg);
+  }
+
+  .n-tree .n-tree-node-content.n-tree-node-content--selected {
+    color: var(--app-tree-text-selected-color);
+    background: var(--app-tree-selected-bg);
+  }
+
+  .n-tree .n-tree-node-switcher,
+  .n-tree .n-tree-node-switcher__icon,
+  .n-tree .n-tree-node-checkbox {
+    color: var(--app-tree-icon-color);
+  }
+
+  .n-tree .n-tree-node-switcher {
+    width: var(--app-tree-indent);
+    height: var(--app-tree-node-height);
+  }
+
+  .n-tree .n-tree-node-switcher__icon {
+    font-size: var(--app-tree-icon-size);
+  }
+
+  .n-tree .n-tree-node-content.n-tree-node-content--disabled {
+    color: var(--app-tree-disabled-text-color);
+  }
 }

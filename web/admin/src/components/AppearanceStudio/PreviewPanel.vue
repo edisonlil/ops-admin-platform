@@ -264,6 +264,29 @@
             </div>
           </div>
 
+          <div v-if="componentTarget === 'Tree'" class="tree-preview">
+            <div class="tree-preview__node is-expanded">
+              <i></i>
+              <span>系统管理</span>
+            </div>
+            <div class="tree-preview__node is-child is-selected">
+              <i></i>
+              <span>角色权限</span>
+            </div>
+            <div class="tree-preview__node is-child">
+              <i></i>
+              <span>菜单权限</span>
+            </div>
+            <div class="tree-preview__node is-expanded">
+              <i></i>
+              <span>外观配置</span>
+            </div>
+            <div class="tree-preview__node is-child is-disabled">
+              <i></i>
+              <span>租户主题绑定</span>
+            </div>
+          </div>
+
           <div v-if="componentTarget === 'Shell'" class="shell-component-preview">
             <aside>
               <strong>ops</strong>
@@ -446,6 +469,7 @@
       DataTable: { kicker: 'Data Table', title: '数据表格样张' },
       TableToolbar: { kicker: 'Table System', title: '表格工具栏与批量操作' },
       StatusAction: { kicker: 'Status / Action', title: '状态与操作样张' },
+      Tree: { kicker: 'Tree', title: '树组件节点样张' },
       Shell: { kicker: 'Shell', title: '外壳与内容面样张' },
     };
     return map[componentTarget.value] || map.Button;
@@ -516,6 +540,17 @@
     '--app-table-action-disabled-text': tokens.value.component.TableAction.disabledTextColor,
     '--app-table-action-disabled-bg': tokens.value.component.TableAction.disabledBgColor,
     '--app-table-action-disabled-border': tokens.value.component.TableAction.disabledBorderColor,
+    '--app-tree-node-height': tokens.value.component.Tree.nodeHeight,
+    '--app-tree-indent': tokens.value.component.Tree.indent,
+    '--app-tree-node-radius': tokens.value.component.Tree.nodeRadius,
+    '--app-tree-text-color': tokens.value.component.Tree.textColor,
+    '--app-tree-text-selected-color': tokens.value.component.Tree.textColorSelected,
+    '--app-tree-icon-color': tokens.value.component.Tree.iconColor,
+    '--app-tree-icon-size': tokens.value.component.Tree.iconSize,
+    '--app-tree-hover-bg': tokens.value.component.Tree.hoverBg,
+    '--app-tree-selected-bg': tokens.value.component.Tree.selectedBg,
+    '--app-tree-disabled-text-color': tokens.value.component.Tree.disabledTextColor,
+    '--app-tree-line-color': tokens.value.component.Tree.lineColor,
   }));
 
   const fontRows = computed(() => [
@@ -1340,6 +1375,58 @@
     gap: 6px;
     align-items: center;
     min-width: 0;
+  }
+
+  .tree-preview {
+    display: grid;
+    gap: 4px;
+    min-height: 220px;
+    padding: 14px;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color) 76%, transparent);
+    border-radius: var(--app-card-radius);
+  }
+
+  .tree-preview__node {
+    display: grid;
+    grid-template-columns: var(--app-tree-icon-size, 18px) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: var(--app-tree-node-height, 34px);
+    padding: 0 8px;
+    color: var(--app-tree-text-color);
+    border-radius: var(--app-tree-node-radius, var(--app-card-radius));
+
+    i {
+      width: var(--app-tree-icon-size, 18px);
+      height: var(--app-tree-icon-size, 18px);
+      border: 1px solid var(--app-tree-icon-color);
+      border-radius: 5px;
+    }
+
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &.is-expanded {
+      background: var(--app-tree-hover-bg);
+    }
+
+    &.is-child {
+      margin-left: var(--app-tree-indent, 22px);
+      border-left: 1px solid var(--app-tree-line-color);
+    }
+
+    &.is-selected {
+      color: var(--app-tree-text-selected-color);
+      background: var(--app-tree-selected-bg);
+    }
+
+    &.is-disabled {
+      color: var(--app-tree-disabled-text-color);
+    }
   }
 
   .shell-component-preview {

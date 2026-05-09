@@ -98,6 +98,12 @@ export const primevueLikePreset: AppearancePreset = {
         itemBgActiveInverted: '{primaryColor}',
         itemBgHoverInverted: '#0000',
       },
+      Tree: {
+        ...defaultPreset.tokens.component.Tree,
+        nodeHeight: '34px',
+        hoverBg: '{surfaceMutedColor}',
+        selectedBg: '{primaryColorSoft}',
+      },
       Card: {
         ...defaultPreset.tokens.component.Card,
         shadow: '{shadowNone}',

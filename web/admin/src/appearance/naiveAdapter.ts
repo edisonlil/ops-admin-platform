@@ -202,6 +202,17 @@ export function createNaiveThemeOverrides(tokens: AppearanceTokens): GlobalTheme
       arrowColorChildActiveInverted: component.Menu.itemTextColorActiveInverted,
       arrowColorChildActiveHoverInverted: component.Menu.itemTextColorActiveInverted,
     },
+    Tree: {
+      nodeHeight: component.Tree.nodeHeight,
+      nodeBorderRadius: component.Tree.nodeRadius,
+      nodeTextColor: component.Tree.textColor,
+      nodeTextColorSelected: component.Tree.textColorSelected,
+      nodeTextColorDisabled: component.Tree.disabledTextColor,
+      nodeColorHover: component.Tree.hoverBg,
+      nodeColorSelected: component.Tree.selectedBg,
+      arrowColor: component.Tree.iconColor,
+      loadingColor: semantic.primaryColor,
+    },
     Tooltip: {
       color: component.Tooltip.bgColor,
       textColor: component.Tooltip.textColor,

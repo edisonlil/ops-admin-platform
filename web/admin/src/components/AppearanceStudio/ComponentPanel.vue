@@ -366,6 +366,66 @@
       />
     </section>
 
+    <section v-else-if="activeTarget === 'Tree'" class="component-token-panel__section">
+      <header class="component-token-panel__header">
+        <span>组件样式</span>
+        <strong>树组件</strong>
+      </header>
+      <TokenColorRow
+        label="节点文字"
+        token-path="component.Tree.textColor"
+        :model-value="component.Tree.textColor"
+        :resolved-value="resolved.Tree.textColor"
+        @update:model-value="(value) => update('Tree', 'textColor', value)"
+      />
+      <TokenColorRow
+        label="选中文字"
+        token-path="component.Tree.textColorSelected"
+        :model-value="component.Tree.textColorSelected"
+        :resolved-value="resolved.Tree.textColorSelected"
+        @update:model-value="(value) => update('Tree', 'textColorSelected', value)"
+      />
+      <TokenColorRow
+        label="悬停背景"
+        token-path="component.Tree.hoverBg"
+        :model-value="component.Tree.hoverBg"
+        :resolved-value="resolved.Tree.hoverBg"
+        @update:model-value="(value) => update('Tree', 'hoverBg', value)"
+      />
+      <TokenColorRow
+        label="选中背景"
+        token-path="component.Tree.selectedBg"
+        :model-value="component.Tree.selectedBg"
+        :resolved-value="resolved.Tree.selectedBg"
+        @update:model-value="(value) => update('Tree', 'selectedBg', value)"
+      />
+      <TokenSizeRow
+        label="节点高度"
+        token-path="component.Tree.nodeHeight"
+        :model-value="component.Tree.nodeHeight"
+        :min="24"
+        :max="54"
+        @update:model-value="(value) => update('Tree', 'nodeHeight', value)"
+      />
+      <TokenSizeRow
+        label="节点缩进"
+        token-path="component.Tree.indent"
+        :model-value="component.Tree.indent"
+        :min="12"
+        :max="36"
+        @update:model-value="(value) => update('Tree', 'indent', value)"
+      />
+      <TokenSizeRow
+        label="节点圆角"
+        token-path="component.Tree.nodeRadius"
+        :model-value="component.Tree.nodeRadius"
+        :resolved-value="resolved.Tree.nodeRadius"
+        :min="0"
+        :max="24"
+        @update:model-value="(value) => update('Tree', 'nodeRadius', value)"
+      />
+    </section>
+
     <section v-else class="component-token-panel__section">
       <header class="component-token-panel__header">
         <span>组件样式</span>

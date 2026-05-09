@@ -912,13 +912,19 @@ pnpm run build
 
 ### Task 9.4 Upload 与 Tree
 
-状态：待开始
+状态：进行中
 
 内容：
 
 - Upload 覆盖拖拽区、文件列表、上传进度、错误提示、删除按钮、禁用态。
 - Tree 覆盖节点高度、缩进、图标大小、hover、selected、expanded、disabled、连接线。
 - TreeSelect 复用 Tree tokens，并和 Select / Popup tokens 对齐。
+
+当前进展：
+
+- 已新增 `TreeTokens`，覆盖节点高度、缩进、图标大小、hover、selected、disabled 和连接线颜色。
+- 已将 Tree tokens 输出到 Naive `Tree` themeOverrides 与全局 CSS variables。
+- Appearance Studio 已新增“树组件”配置页和节点状态预览。
 
 验收：
 

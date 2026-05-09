@@ -217,6 +217,20 @@ export interface MenuTokens {
   itemBgHoverInverted: string;
 }
 
+export interface TreeTokens {
+  nodeHeight: string;
+  indent: string;
+  nodeRadius: string;
+  textColor: string;
+  textColorSelected: string;
+  iconColor: string;
+  iconSize: string;
+  hoverBg: string;
+  selectedBg: string;
+  disabledTextColor: string;
+  lineColor: string;
+}
+
 export interface ComponentTokens {
   Button: ButtonTokens;
   Form: FormTokens;
@@ -256,6 +270,7 @@ export interface ComponentTokens {
   Modal: SurfaceTokens;
   Drawer: SurfaceTokens;
   Menu: MenuTokens;
+  Tree: TreeTokens;
   Tooltip: {
     bgColor: string;
     textColor: string;

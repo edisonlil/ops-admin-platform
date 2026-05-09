@@ -83,6 +83,12 @@ export const compactEnterprisePreset: AppearancePreset = {
         ...primevueLikePreset.tokens.component.Menu,
         itemHeight: '36px',
       },
+      Tree: {
+        ...primevueLikePreset.tokens.component.Tree,
+        nodeHeight: '30px',
+        indent: '18px',
+        iconSize: '16px',
+      },
     },
     layout: {
       ...primevueLikePreset.tokens.layout,
