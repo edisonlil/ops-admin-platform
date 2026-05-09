@@ -5,10 +5,7 @@
       class="layout-header-left"
       v-if="navMode === 'horizontal' || (navMode === 'horizontal-mix' && mixMenu)"
     >
-      <div class="logo" v-if="navMode === 'horizontal'">
-        <img :src="websiteConfig.logo" alt="" />
-        <h2 v-show="!collapsed" class="title">{{ websiteConfig.title }}</h2>
-      </div>
+      <Logo v-if="navMode === 'horizontal'" class="header-logo" :collapsed="collapsed" />
       <AsideMenu
         :collapsed="collapsed"
         v-model:location="getMenuLocation"
@@ -141,6 +138,7 @@
 <script lang="ts">
   import { websiteConfig } from '@/config/website.config';
   import { useProjectSetting } from '@/hooks/setting/useProjectSetting';
+  import { Logo } from '@/layout/components/Logo';
   import { AsideMenu } from '@/layout/components/Menu';
   import { RedirectName } from '@/router/constant';
   import { useDesignSettingStore } from '@/store/modules/designSetting';
@@ -154,7 +152,7 @@
 
   export default defineComponent({
     name: 'PageHeader',
-    components: { ...components, NDialogProvider, AsideMenu },
+    components: { ...components, NDialogProvider, AsideMenu, Logo },
     props: {
       collapsed: {
         type: Boolean,
@@ -407,6 +405,13 @@
     &-left {
       display: flex;
       align-items: center;
+
+      .header-logo {
+        flex: 0 0 auto;
+        max-width: 260px;
+        min-width: 0;
+        padding: 0 18px 0 0;
+      }
 
       .logo {
         display: flex;
