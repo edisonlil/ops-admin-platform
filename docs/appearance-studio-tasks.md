@@ -883,6 +883,7 @@ pnpm run build
 - 已新增状态语义字典和 `AppStatusGroup`，支持 enabled、disabled、draft、published、revoked、matched、pendingReview、system、platform、tenant 等业务状态。
 - 已迁移角色权限页到 `AppDataTable`、`AppStatusGroup`、`AppTableActions` 与统一删除确认入口。
 - 已迁移 API 密钥页到 `AppDataTable`、`AppStatusTag`、`AppTableActions` 与统一撤销确认入口。
+- 已迁移模型路由中心的供应商、模型、任务、路由策略和调用日志表格到统一表格、状态和操作组件。
 - Appearance Studio “状态与操作”预览已补充主要、危险和禁用操作按钮状态。
 
 验收：

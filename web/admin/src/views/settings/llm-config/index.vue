@@ -19,51 +19,91 @@
     <n-tabs v-model:value="activeTab" type="line" animated class="llm-tabs">
       <n-tab-pane name="providers" tab="供应商">
         <n-card :bordered="false" size="small" class="proCard">
-          <template #header>供应商连接</template>
-          <template #header-extra>
-            <n-button type="primary" @click="openProvider()">新增供应商</n-button>
-          </template>
-          <n-data-table size="small" :columns="providerColumns" :data="providers" :loading="loading" :pagination="{ pageSize: 10 }" />
+          <AppDataTable
+            title="供应商连接"
+            description="维护模型供应商连接、密钥配置和启用状态。"
+            size="small"
+            :columns="providerColumns"
+            :data="providers"
+            :loading="loading"
+            :pagination="{ pageSize: 10 }"
+          >
+            <template #actions>
+              <n-button type="primary" @click="openProvider()">新增供应商</n-button>
+            </template>
+          </AppDataTable>
         </n-card>
       </n-tab-pane>
 
       <n-tab-pane name="models" tab="模型">
         <n-card :bordered="false" size="small" class="proCard">
-          <template #header>模型目录</template>
-          <template #header-extra>
-            <n-button type="primary" @click="openModel()">新增模型</n-button>
-          </template>
-          <n-data-table size="small" :columns="modelColumns" :data="models" :loading="loading" :pagination="{ pageSize: 10 }" />
+          <AppDataTable
+            title="模型目录"
+            description="维护模型 Key、供应商模型名、上下文长度和启用状态。"
+            size="small"
+            :columns="modelColumns"
+            :data="models"
+            :loading="loading"
+            :pagination="{ pageSize: 10 }"
+          >
+            <template #actions>
+              <n-button type="primary" @click="openModel()">新增模型</n-button>
+            </template>
+          </AppDataTable>
         </n-card>
       </n-tab-pane>
 
       <n-tab-pane name="tasks" tab="任务">
         <n-card :bordered="false" size="small" class="proCard">
-          <template #header>业务 LLM 任务</template>
-          <template #header-extra>
-            <n-button type="primary" @click="openTask()">注册任务</n-button>
-          </template>
-          <n-data-table size="small" :columns="taskColumns" :data="tasks" :loading="loading" :pagination="{ pageSize: 12 }" />
+          <AppDataTable
+            title="业务 LLM 任务"
+            description="注册业务任务 Key，并按点号推导领域、场景和任务名。"
+            size="small"
+            :columns="taskColumns"
+            :data="tasks"
+            :loading="loading"
+            :pagination="{ pageSize: 12 }"
+          >
+            <template #actions>
+              <n-button type="primary" @click="openTask()">注册任务</n-button>
+            </template>
+          </AppDataTable>
         </n-card>
       </n-tab-pane>
 
       <n-tab-pane name="routes" tab="路由策略">
         <n-card :bordered="false" size="small" class="proCard">
-          <template #header>优先级 fallback 路由</template>
-          <template #header-extra>
-            <n-button type="primary" @click="openPolicy()">新增策略</n-button>
-          </template>
-          <n-data-table size="small" :columns="policyColumns" :data="policies" :loading="loading" :pagination="{ pageSize: 8 }" />
+          <AppDataTable
+            title="优先级 fallback 路由"
+            description="按任务配置候选模型、优先级和 fallback 策略。"
+            size="small"
+            :columns="policyColumns"
+            :data="policies"
+            :loading="loading"
+            :pagination="{ pageSize: 8 }"
+          >
+            <template #actions>
+              <n-button type="primary" @click="openPolicy()">新增策略</n-button>
+            </template>
+          </AppDataTable>
         </n-card>
       </n-tab-pane>
 
       <n-tab-pane name="logs" tab="调用日志">
         <n-card :bordered="false" size="small" class="proCard">
-          <template #header>最近调用</template>
-          <template #header-extra>
-            <n-button secondary :loading="logsLoading" @click="loadLogs">刷新日志</n-button>
-          </template>
-          <n-data-table size="small" :columns="logColumns" :data="logs" :loading="logsLoading" :pagination="{ pageSize: 12 }" />
+          <AppDataTable
+            title="最近调用"
+            description="查看最近的任务路由、模型调用、耗时和失败原因。"
+            size="small"
+            :columns="logColumns"
+            :data="logs"
+            :loading="logsLoading"
+            :pagination="{ pageSize: 12 }"
+          >
+            <template #actions>
+              <n-button secondary :loading="logsLoading" @click="loadLogs">刷新日志</n-button>
+            </template>
+          </AppDataTable>
         </n-card>
       </n-tab-pane>
     </n-tabs>
@@ -227,7 +267,7 @@
 
 <script lang="ts" setup>
   import { computed, h, onMounted, reactive, ref } from 'vue';
-  import { NButton, NTag, NSpace, useMessage } from 'naive-ui';
+  import { useMessage } from 'naive-ui';
   import type { DataTableColumns } from 'naive-ui';
   import {
     getLlmCallLogs,
@@ -240,6 +280,10 @@
     saveLlmProvider,
     saveLlmRoutingPolicy,
   } from '@/api/business';
+  import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
+  import AppStatusTag from '@/components/Application/AppStatusTag.vue';
+  import AppTableActions from '@/components/Application/AppTableActions.vue';
 
   type JsonObject = Record<string, unknown>;
   type EntryForm = {
@@ -359,9 +403,10 @@
       key: 'api_key_configured',
       width: 120,
       render(row) {
-        return h(NTag, { size: 'small', type: row.api_key_configured ? 'success' : 'warning' }, () =>
-          row.api_key_configured ? row.api_key_mask || '已配置' : '未配置'
-        );
+        return h(AppStatusTag, {
+          statusKey: row.api_key_configured ? 'valid' : 'pendingReview',
+          label: row.api_key_configured ? row.api_key_mask || '已配置' : '未配置',
+        });
       },
     },
     { title: '状态', key: 'enabled', width: 100, render: renderStatus },
@@ -371,7 +416,7 @@
       width: 100,
       fixed: 'right',
       render(row) {
-        return h(NButton, { size: 'small', secondary: true, onClick: () => openProvider(row) }, () => '编辑');
+        return h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openProvider(row) }] });
       },
     },
   ];
@@ -383,7 +428,13 @@
     { title: '展示名称', key: 'display_name', minWidth: 150 },
     { title: '上下文', key: 'context_window', width: 110 },
     { title: '状态', key: 'enabled', width: 100, render: renderStatus },
-    { title: '操作', key: 'actions', width: 100, fixed: 'right', render: (row) => h(NButton, { size: 'small', secondary: true, onClick: () => openModel(row) }, () => '编辑') },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      fixed: 'right',
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openModel(row) }] }),
+    },
   ];
 
   const taskColumns: DataTableColumns<Recordable> = [
@@ -393,7 +444,13 @@
     { title: '任务', key: 'task_name', width: 130 },
     { title: '名称', key: 'display_name', minWidth: 160 },
     { title: '状态', key: 'enabled', width: 100, render: renderStatus },
-    { title: '操作', key: 'actions', width: 100, fixed: 'right', render: (row) => h(NButton, { size: 'small', secondary: true, onClick: () => openTask(row) }, () => '编辑') },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      fixed: 'right',
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openTask(row) }] }),
+    },
   ];
 
   const policyColumns: DataTableColumns<Recordable> = [
@@ -406,17 +463,22 @@
       minWidth: 260,
       render(row) {
         const entries = Array.isArray(row.entries) ? row.entries : [];
-        return h(
-          NSpace,
-          { size: 4 },
-          () =>
-            entries.map((entry: Recordable) =>
-              h(NTag, { size: 'small', type: 'info' }, () => `${entry.priority}. ${entry.model_key}`)
-            )
-        );
+        return h(AppStatusGroup, {
+          items: entries.map((entry: Recordable) => ({
+            key: `${entry.priority}-${entry.model_key}`,
+            label: `${entry.priority}. ${entry.model_key}`,
+            tone: 'info',
+          })),
+        });
       },
     },
-    { title: '操作', key: 'actions', width: 100, fixed: 'right', render: (row) => h(NButton, { size: 'small', secondary: true, onClick: () => openPolicy(row) }, () => '编辑') },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      fixed: 'right',
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openPolicy(row) }] }),
+    },
   ];
 
   const logColumns: DataTableColumns<Recordable> = [
@@ -465,12 +527,12 @@
   }
 
   function renderStatus(row: Recordable) {
-    return h(NTag, { size: 'small', type: row.enabled ? 'success' : 'default' }, () => (row.enabled ? '启用' : '停用'));
+    return h(AppStatusTag, { statusKey: row.enabled ? 'enabled' : 'disabled' });
   }
 
   function renderLogStatus(row: Recordable) {
     const success = row.status === 'success';
-    return h(NTag, { size: 'small', type: success ? 'success' : 'error' }, () => (success ? '成功' : '失败'));
+    return h(AppStatusTag, { statusKey: success ? 'success' : 'failed' });
   }
 
   async function reloadAll() {
