@@ -99,6 +99,8 @@ columnRuntime: {
 
 ```ts
 tableLayout: {
+  heightMode: 'fill',
+  rowDensity: 'medium',
   maxHeight: 520,
   headerHeight: 44,
   minRowHeight: 48,
@@ -108,6 +110,30 @@ tableLayout: {
 ```
 
 `rowHeight` 可以是固定数字，也可以是 `(row, index) => number`。
+
+表格列表默认在右侧工具区提供高度铺满和行高密度控件：
+
+- 高度铺满：表格区域使用固定视口高度，内部滚动；
+- 不铺满：表格按内容自然高度展开，页面到底部滚动；
+- 行高密度：`default` / `medium` / `compact`。
+
+普通业务页不需要自己实现这组工具；只有需要初始状态时才在 `tableLayout` 里声明。
+
+表格工具必须渲染在 CollectionView 容器内部，和表头、表体共用同一个列表边界；不要在筛选区和表格之间单独放置悬浮工具条。
+
+### 分页
+
+所有 Runtime 分页默认支持页大小下拉：
+
+```ts
+pagination: {
+  pageSize: 20,
+  pageSizes: [20, 50, 100],
+  showSizePicker: true,
+}
+```
+
+业务页可以继续传入 Naive UI 的 `PaginationProps` 覆盖当前页、总数等状态，但页大小选项必须保持 `20 / 50 / 100`。
 
 ### Escape Hatch
 

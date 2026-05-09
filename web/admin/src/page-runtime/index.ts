@@ -19,4 +19,8 @@ export type {
   ListPageSchema,
   PageAction,
   PageRuntimeContext,
+  TableColumnRuntimeSchema,
+  TableHeightMode,
+  TableLayoutRuntimeSchema,
+  TableRowDensity,
 } from './types';

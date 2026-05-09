@@ -1,19 +1,24 @@
 <template>
   <section class="app-collection-view" :class="`app-collection-view--${schema.type}`">
-    <n-data-table
-      v-if="schema.type === 'table'"
-      class="app-collection-view__table"
-      :columns="resolvedColumns"
-      :data="rows"
-      :loading="loading"
-      :row-key="resolvedRowKey"
-      :scroll-x="schema.scrollX"
-      v-bind="resolvedTableProps"
-    >
-      <template #[name]="slotProps" v-for="(_, name) in $slots" :key="name">
-        <slot :name="name" v-bind="slotProps"></slot>
-      </template>
-    </n-data-table>
+    <template v-if="schema.type === 'table'">
+      <div v-if="$slots['table-tools']" class="app-collection-view__table-tools">
+        <slot name="table-tools"></slot>
+      </div>
+      <n-data-table
+        class="app-collection-view__table"
+        :class="tableClass"
+        :columns="resolvedColumns"
+        :data="rows"
+        :loading="loading"
+        :row-key="resolvedRowKey"
+        :scroll-x="schema.scrollX"
+        v-bind="resolvedTableProps"
+      >
+        <template #[name]="slotProps" v-for="(_, name) in $slots" :key="name">
+          <slot v-if="name !== 'table-tools'" :name="name" v-bind="slotProps"></slot>
+        </template>
+      </n-data-table>
+    </template>
 
     <n-spin v-else-if="isCardCollection" :show="loading">
       <div
@@ -73,6 +78,13 @@
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
   const resolvedRowKey = computed(() => props.schema.rowKey || props.schema.itemKey || 'id');
   const isCardCollection = computed(() => ['card-list', 'product-list', 'gallery'].includes(props.schema.type));
+  const tableClass = computed(() => {
+    if (props.schema.type !== 'table') return undefined;
+    return [
+      `app-collection-view__table--height-${props.schema.tableLayout?.heightMode || 'natural'}`,
+      `app-collection-view__table--row-${props.schema.tableLayout?.rowDensity || 'default'}`,
+    ];
+  });
   const resolvedColumns = computed<DataTableColumns<Row>>(() => {
     const columns = props.schema.columns || [];
     if (props.schema.type !== 'table') return columns;
@@ -89,9 +101,11 @@
     if (props.schema.type !== 'table') return props.schema.tableProps || {};
     const tableLayout = props.schema.tableLayout || {};
     const rowHeight = tableLayout.rowHeight;
+    const heightMode = tableLayout.heightMode || 'natural';
+    const fillHeight = tableLayout.fillHeight || 'clamp(320px, calc(100vh - 440px), 560px)';
     const runtimeProps = {
-      maxHeight: tableLayout.maxHeight,
-      flexHeight: tableLayout.flexHeight,
+      maxHeight: heightMode === 'fill' ? undefined : tableLayout.maxHeight,
+      flexHeight: heightMode === 'fill' ? true : tableLayout.flexHeight,
       headerHeight: tableLayout.headerHeight,
       minRowHeight: tableLayout.minRowHeight,
       heightForRow:
@@ -105,7 +119,15 @@
     return {
       ...compactObject(runtimeProps),
       ...(props.schema.tableProps || {}),
-      style: [tableLayout.height ? { height: formatCssSize(tableLayout.height) } : undefined, props.schema.tableProps?.style],
+      pagination: normalizeTablePagination(props.schema.tableProps?.pagination),
+      style: [
+        heightMode === 'fill'
+          ? { height: formatCssSize(tableLayout.height || fillHeight) }
+          : tableLayout.height
+            ? { height: formatCssSize(tableLayout.height) }
+            : undefined,
+        props.schema.tableProps?.style,
+      ],
     };
   });
 
@@ -247,6 +269,18 @@
   function formatCssSize(value: number | string) {
     return typeof value === 'number' ? `${value}px` : value;
   }
+
+  function normalizeTablePagination(pagination: unknown) {
+    if (pagination === false) return false;
+    if (!pagination) return pagination;
+    return {
+      page: 1,
+      pageSize: 20,
+      pageSizes: [20, 50, 100],
+      showSizePicker: true,
+      ...(pagination as Record<string, unknown>),
+    };
+  }
 </script>
 
 <style lang="less" scoped>
@@ -259,12 +293,20 @@
       height: var(--app-page-table-header-height);
       padding-right: var(--app-page-table-cell-padding-inline);
       padding-left: var(--app-page-table-cell-padding-inline);
+      color: var(--app-text-color);
+      background: color-mix(in srgb, var(--app-surface-muted-bg) 48%, var(--app-surface-bg));
+      border-color: color-mix(in srgb, var(--app-border-color) 62%, transparent);
     }
 
     :deep(.n-data-table-td) {
       height: var(--app-page-table-row-height);
       padding-right: var(--app-page-table-cell-padding-inline);
       padding-left: var(--app-page-table-cell-padding-inline);
+      border-color: color-mix(in srgb, var(--app-border-color) 58%, transparent);
+    }
+
+    :deep(.n-data-table-thead) {
+      background: color-mix(in srgb, var(--app-surface-muted-bg) 42%, var(--app-surface-bg));
     }
 
     :deep(.n-data-table-th--selection),
@@ -321,8 +363,35 @@
     }
   }
 
+  .app-collection-view--table {
+    gap: 0;
+    overflow: hidden;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-card-radius);
+  }
+
+  .app-collection-view__table-tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    min-height: 34px;
+    padding: 4px 12px;
+    background: var(--app-surface-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color) 62%, transparent);
+  }
+
   .app-collection-view__table {
     min-width: 0;
+  }
+
+  .app-collection-view--table :deep(.n-data-table) {
+    border-radius: 0;
+  }
+
+  .app-collection-view__table--height-fill {
+    min-height: 320px;
   }
 
   .app-collection-view__card-grid {

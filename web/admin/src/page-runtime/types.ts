@@ -24,6 +24,9 @@ export type DetailPageKind =
   | 'workspace-detail'
   | 'master-detail';
 
+export type TableHeightMode = 'natural' | 'fill';
+export type TableRowDensity = 'default' | 'medium' | 'compact';
+
 export interface PageRuntimeContext {
   pageId: string;
   density: PageDensity;
@@ -62,7 +65,10 @@ export interface TableColumnRuntimeSchema<Row = Record<string, unknown>> {
 }
 
 export interface TableLayoutRuntimeSchema<Row = Record<string, unknown>> {
+  heightMode?: TableHeightMode;
+  rowDensity?: TableRowDensity;
   height?: number | string;
+  fillHeight?: number | string;
   maxHeight?: number | string;
   flexHeight?: boolean;
   headerHeight?: number;
