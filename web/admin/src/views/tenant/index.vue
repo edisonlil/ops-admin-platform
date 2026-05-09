@@ -40,7 +40,7 @@
         :row-key="(row) => row.id"
       >
         <template #actions>
-          <n-tag v-if="activeTenant" size="small" type="info">{{ activeTenant.tenant_key }}</n-tag>
+          <AppStatusTag v-if="activeTenant" tone="info" :label="activeTenant.tenant_key" />
           <n-button type="primary" @click="openUserCreate">新增成员</n-button>
           <n-button :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
         </template>
@@ -96,9 +96,7 @@
             <n-descriptions bordered :column="2" size="small" v-if="activeTenant">
               <n-descriptions-item label="租户 Key">{{ activeTenant.tenant_key }}</n-descriptions-item>
               <n-descriptions-item label="状态">
-                <n-tag :type="activeTenant.status === 'active' ? 'success' : 'warning'" size="small">
-                  {{ activeTenant.status === 'active' ? '启用' : '停用' }}
-                </n-tag>
+                <AppStatusTag :status-key="activeTenant.status === 'active' ? 'active' : 'suspended'" />
               </n-descriptions-item>
               <n-descriptions-item label="名称">{{ activeTenant.name }}</n-descriptions-item>
               <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.update_time) }}</n-descriptions-item>
@@ -190,7 +188,7 @@
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
   import { useRoute } from 'vue-router';
-  import { NButton, NTag, useMessage } from 'naive-ui';
+  import { NButton, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import {
     activateTenant,
@@ -216,6 +214,7 @@
   import { useUserStore } from '@/store/modules/user';
   import { assignTenantAppearanceTheme, getAppearanceThemes, getTenantAppearanceTheme } from '@/api/appearance';
   import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -342,10 +341,23 @@
       minWidth: 220,
       render(row) {
         const roles = row.roles || [];
-        return h('div', {}, roles.length ? roles.map((role) => h(NTag, { size: 'small', type: 'info', style: 'margin-right:6px' }, () => role.name || role.key)) : '-');
+        return h(AppStatusGroup, {
+          items: roles.length
+            ? roles.map((role) => ({
+                key: String(role.key || role.name),
+                label: String(role.name || role.key),
+                tone: 'info',
+              }))
+            : [{ statusKey: 'unassigned' }],
+        });
       },
     },
-    { title: '租户管理员', key: 'is_tenant_admin', width: 120, render: (row) => (row.is_tenant_admin ? '是' : '否') },
+    {
+      title: '租户管理员',
+      key: 'is_tenant_admin',
+      width: 120,
+      render: (row) => h(AppStatusTag, { statusKey: row.is_tenant_admin ? 'yes' : 'no' }),
+    },
     {
       title: '状态',
       key: 'is_active',

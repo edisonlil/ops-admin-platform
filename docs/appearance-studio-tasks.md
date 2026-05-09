@@ -884,6 +884,7 @@ pnpm run build
 - 已迁移角色权限页到 `AppDataTable`、`AppStatusGroup`、`AppTableActions` 与统一删除确认入口。
 - 已迁移 API 密钥页到 `AppDataTable`、`AppStatusTag`、`AppTableActions` 与统一撤销确认入口。
 - 已迁移模型路由中心的供应商、模型、任务、路由策略和调用日志表格到统一表格、状态和操作组件。
+- 已清理用户管理和租户管理中的角色标签、租户状态和管理员标记，使其复用 `AppStatusGroup` / `AppStatusTag`。
 - Appearance Studio “状态与操作”预览已补充主要、危险和禁用操作按钮状态。
 
 验收：

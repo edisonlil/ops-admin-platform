@@ -89,11 +89,12 @@
 
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
-  import { NTag, useMessage } from 'naive-ui';
+  import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import { PlusOutlined } from '@vicons/antd';
   import { createRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
   import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -160,16 +161,15 @@
       minWidth: 240,
       render(row) {
         const roles = row.roles || [];
-        if (!roles.length) {
-          return h(NTag, { size: 'small' }, () => '未分配');
-        }
-        return h(
-          'div',
-          {},
-          roles.map((role) =>
-            h(NTag, { size: 'small', type: 'info', style: 'margin-right: 6px;' }, () => String(role.name || role.key))
-          )
-        );
+        return h(AppStatusGroup, {
+          items: roles.length
+            ? roles.map((role) => ({
+                key: String(role.key || role.name),
+                label: String(role.name || role.key),
+                tone: 'info',
+              }))
+            : [{ statusKey: 'unassigned' }],
+        });
       },
     },
     {
