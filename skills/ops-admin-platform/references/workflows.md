@@ -5,15 +5,18 @@
 First choose the project creation route:
 
 - Scaffold route, recommended by default: use `scripts/create_project.py` for a deterministic application shell that consumes published platform packages.
-- Clone route: use `git clone` when the user wants the complete platform source and accepts owning future source maintenance.
+- Clone route: default to the `main` branch unless the user names another branch, then use `git clone --branch <branch> https://github.com/edisonlil/ops-admin-platform.git <target>` when the user wants the complete platform source and accepts owning future source maintenance.
 
 Required decisions:
 
 - Route: scaffold or clone.
+- Clone branch when using clone route; default to `main`.
 - Project name.
 - Target directory.
 - Enabled modules: default to `identity_access,appearance,llm_runtime`.
 - Optional package versions for published Python packages and `@edisonlil/ops-admin-web`.
+
+Do not ask for a repository URL for clone route. The canonical repository is `https://github.com/edisonlil/ops-admin-platform.git`; only ask for a URL if the user explicitly says they want a fork, mirror, or alternate source.
 
 Scaffold route rules:
 
@@ -24,7 +27,9 @@ Scaffold route rules:
 
 Clone route rules:
 
-- Clone the platform repository into the target directory.
+- Clone the selected branch from `https://github.com/edisonlil/ops-admin-platform.git` into the target directory.
+- Remove only the target directory's `.git` folder after a successful clone. Resolve and verify the target path before deletion.
+- Leave the cloned source files intact; only Git history and remotes are removed to prevent accidental commits or pushes to the platform repository.
 - Keep backend platform packages under `packages/python`.
 - Keep the shared frontend package under `packages/web/ops-admin-web`.
 - Tell the user that source-level customization also means source-level upgrade work.

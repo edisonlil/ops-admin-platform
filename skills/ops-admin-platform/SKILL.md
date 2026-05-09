@@ -24,7 +24,7 @@ Use this skill for ops-admin-platform project automation and extensions.
 When the user wants a new project, choose the route before acting:
 
 - Scaffold route, recommended by default: run `scripts/create_project.py` to create an application shell that consumes published ops-admin-platform packages through `pip` and `@edisonlil/ops-admin-web` through npm. The scaffold must not copy `packages/python/ops-admin-*` or `packages/web/ops-admin-web` source into the generated project.
-- Clone route: use `git clone` when the user wants to own and modify the full platform source. The cloned project keeps the monorepo package layout and the user takes on future merge/upgrade work.
+- Clone route: default to the `main` branch unless the user names another branch, then use `git clone --branch <branch> https://github.com/edisonlil/ops-admin-platform.git <target>` when the user wants to own and modify the full platform source. Do not ask for a repository URL unless the user explicitly wants a fork or mirror. After cloning, remove only the cloned target's `.git` directory so the new project cannot accidentally commit or push to the platform repository. The cloned project keeps the monorepo package layout and the user takes on future merge/upgrade work.
 
 ## Guardrails
 
