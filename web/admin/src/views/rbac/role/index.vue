@@ -7,25 +7,27 @@
     </div>
 
     <n-card :bordered="false" size="small" class="proCard mt-4">
-      <template #header>
-        <n-button type="primary" @click="handleCreate">
-          <template #icon>
-            <n-icon>
-              <PlusOutlined />
-            </n-icon>
-          </template>
-          新增角色
-        </n-button>
-      </template>
-
-      <n-data-table
+      <AppDataTable
+        title="角色列表"
+        description="维护角色、系统标记、适用范围和菜单权限。"
         size="small"
         :columns="columns"
         :data="rows"
         :loading="loading"
         :row-key="(row) => row.id"
         :pagination="{ pageSize: 20 }"
-      />
+      >
+        <template #actions>
+          <n-button type="primary" @click="handleCreate">
+            <template #icon>
+              <n-icon>
+                <PlusOutlined />
+              </n-icon>
+            </template>
+            新增角色
+          </n-button>
+        </template>
+      </AppDataTable>
     </n-card>
 
     <n-modal v-model:show="roleModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
@@ -125,7 +127,7 @@
 
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
-  import { NButton, NSpace, NTag, useDialog, useMessage } from 'naive-ui';
+  import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, TreeOption } from 'naive-ui';
   import { PlusOutlined } from '@vicons/antd';
   import {
@@ -136,6 +138,9 @@
     updateRbacRole,
     updateRbacRoleMenus,
   } from '@/api/business';
+  import AppDataTable from '@/components/Application/AppDataTable.vue';
+  import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
+  import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface MenuRow extends Recordable {
@@ -169,7 +174,6 @@
   }
 
   const message = useMessage();
-  const dialog = useDialog();
   const loading = ref(false);
   const menusLoading = ref(false);
   const savingMenus = ref(false);
@@ -223,13 +227,17 @@
     { title: '角色 Key', key: 'key', width: 180 },
     { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
     {
-      title: '是否系统角色',
-      key: 'is_system',
-      width: 130,
+      title: '状态',
+      key: 'status',
+      width: 220,
       render(row) {
-        return h(NTag, { size: 'small', type: row.is_system ? 'success' : 'error' }, () =>
-          row.is_system ? '是' : '否'
-        );
+        return h(AppStatusGroup, {
+          items: [
+            { statusKey: row.is_system ? 'system' : 'custom' },
+            { statusKey: row.role_scope === 'tenant' ? 'tenant' : 'platform' },
+            { statusKey: row.menus?.length ? 'assigned' : 'unassigned' },
+          ],
+        });
       },
     },
     {
@@ -244,29 +252,22 @@
       width: 260,
       fixed: 'right',
       render(row) {
-        return h(
-          NSpace,
-          { size: 8 },
-          {
-            default: () => [
-              h(
-                NButton,
-                { size: 'small', type: 'primary', ghost: true, onClick: () => openMenuPermission(row) },
-                () => '菜单权限'
-              ),
-              h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-              h(
-                NButton,
-                {
-                  size: 'small',
-                  disabled: !!row.is_system,
-                  onClick: () => handleDelete(row),
-                },
-                () => '删除'
-              ),
-            ],
-          }
-        );
+        return h(AppTableActions, {
+          actions: [
+            { label: '菜单权限', tone: 'primary', onClick: () => openMenuPermission(row) },
+            { label: '编辑', onClick: () => handleEdit(row) },
+            {
+              label: '删除',
+              tone: 'danger',
+              disabled: !!row.is_system,
+              confirm: true,
+              confirmTitle: '删除角色',
+              confirmContent: `确认删除角色「${row.name || row.key}」吗？相关用户角色关联也会被移除。`,
+              positiveText: '删除',
+              onConfirm: () => handleDelete(row),
+            },
+          ],
+        });
       },
     },
   ];
@@ -482,26 +483,20 @@
       return;
     }
 
-    dialog.warning({
-      title: '删除角色',
-      content: `确认删除角色「${row.name || row.key}」吗？相关用户角色关联也会被移除。`,
-      positiveText: '删除',
-      negativeText: '取消',
-      async onPositiveClick() {
-        try {
-          await deleteRbacRole(row.id);
-          if (currentRole.value?.id === row.id) {
-            currentRole.value = null;
-            menuModalVisible.value = false;
-          }
-          await reload();
-          message.success('角色已删除');
-        } catch (error) {
-          message.error(error instanceof Error ? error.message : '角色删除失败');
-          throw error;
+    return (async () => {
+      try {
+        await deleteRbacRole(row.id);
+        if (currentRole.value?.id === row.id) {
+          currentRole.value = null;
+          menuModalVisible.value = false;
         }
-      },
-    });
+        await reload();
+        message.success('角色已删除');
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '角色删除失败');
+        throw error;
+      }
+    })();
   }
 
   async function reload() {

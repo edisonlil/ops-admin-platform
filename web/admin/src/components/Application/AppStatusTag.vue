@@ -1,29 +1,43 @@
 <template>
-  <span class="app-status-tag" :class="`app-status-tag--${resolvedTone}`">
-    {{ label }}
+  <span class="app-status-tag" :class="`app-status-tag--${resolvedStatus.tone}`">
+    {{ resolvedStatus.label }}
   </span>
 </template>
 
 <script lang="ts" setup>
   import { computed } from 'vue';
-
-  type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
+  import { resolveAppStatusSemantic } from './statusSemantic';
+  import type { AppStatusTone } from './statusSemantic';
 
   const props = withDefaults(
     defineProps<{
-      label: string;
-      tone?: StatusTone | string;
+      label?: string;
+      tone?: AppStatusTone | string;
+      statusKey?: string;
     }>(),
     {
       tone: 'neutral',
     }
   );
 
-  const resolvedTone = computed<StatusTone>(() => {
+  const resolvedTone = computed<AppStatusTone>(() => {
     if (['success', 'warning', 'error', 'info', 'neutral'].includes(props.tone)) {
-      return props.tone as StatusTone;
+      return props.tone as AppStatusTone;
     }
     return 'neutral';
+  });
+
+  const resolvedStatus = computed(() => {
+    if (props.statusKey) {
+      return resolveAppStatusSemantic(props.statusKey, {
+        label: props.label || props.statusKey,
+        tone: resolvedTone.value,
+      });
+    }
+    return {
+      label: props.label || '-',
+      tone: resolvedTone.value,
+    };
   });
 </script>
 

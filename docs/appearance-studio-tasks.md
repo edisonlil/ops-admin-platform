@@ -880,6 +880,8 @@ pnpm run build
 - 已扩展 `TableActionTokens` 的默认、主要、危险、禁用和确认层外观字段。
 - 已新增 `AppConfirmAction`，并让 `AppTableActions` 支持确认操作。
 - 已将租户停用 / 启用、用户禁用 / 启用、API Key 撤销接入统一确认入口。
+- 已新增状态语义字典和 `AppStatusGroup`，支持 enabled、disabled、draft、published、revoked、matched、pendingReview、system、platform、tenant 等业务状态。
+- 已迁移角色权限页到 `AppDataTable`、`AppStatusGroup`、`AppTableActions` 与统一删除确认入口。
 - Appearance Studio “状态与操作”预览已补充主要、危险和禁用操作按钮状态。
 
 验收：

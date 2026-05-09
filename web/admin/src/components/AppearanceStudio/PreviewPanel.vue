@@ -251,6 +251,11 @@
               <span class="status-pill status-pill--error">错误</span>
               <span class="status-pill status-pill--info">草稿</span>
             </div>
+            <div class="status-group-sample">
+              <span class="status-pill status-pill--success">系统</span>
+              <span class="status-pill status-pill--info">平台</span>
+              <span class="status-pill status-pill--neutral">已分配</span>
+            </div>
             <div class="table-actions">
               <button type="button">查看</button>
               <button class="is-primary" type="button">复核</button>
@@ -1106,6 +1111,12 @@
     border-color: var(--app-status-info-border);
   }
 
+  .status-pill--neutral {
+    color: var(--app-status-neutral-text);
+    background: var(--app-status-neutral-bg);
+    border-color: var(--app-status-neutral-border);
+  }
+
   .table-sample {
     overflow: hidden;
     background: var(--app-surface-bg);
@@ -1321,6 +1332,14 @@
     .table-actions {
       justify-content: flex-start;
     }
+  }
+
+  .status-group-sample {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
   }
 
   .shell-component-preview {
