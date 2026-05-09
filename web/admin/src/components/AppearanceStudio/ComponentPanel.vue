@@ -375,13 +375,13 @@
 
     span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-base, 14px);
       line-height: 18px;
     }
 
     strong {
       color: var(--app-text-color);
-      font-size: 18px;
+      font-size: calc(var(--app-font-size-base, 14px) + 6px);
       font-weight: 700;
       line-height: 26px;
     }

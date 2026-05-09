@@ -1,7 +1,7 @@
 import type { AppearanceCssVars, AppearanceTokens } from './types';
 
 export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCssVars {
-  const { semantic, component, layout } = tokens;
+  const { primitive, semantic, component, layout } = tokens;
 
   return {
     '--app-page-bg': semantic.pageBgColor,
@@ -47,6 +47,12 @@ export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCss
     '--app-shadow-sm': semantic.shadowBase,
     '--app-icon-color': semantic.textColorSecondary,
     '--app-icon-hover-bg': semantic.surfaceMutedColor,
+    '--app-font-family-base': semantic.fontFamilyBase,
+    '--app-font-size-xs': primitive.fontSizeXs,
+    '--app-font-size-sm': primitive.fontSizeSm,
+    '--app-font-size-md': primitive.fontSizeMd,
+    '--app-font-size-lg': primitive.fontSizeLg,
+    '--app-font-size-base': semantic.fontSizeBase,
     '--app-primary-color': semantic.primaryColor,
     '--app-primary-hover-color': semantic.primaryColorHover,
     '--app-primary-pressed-color': semantic.primaryColorPressed,

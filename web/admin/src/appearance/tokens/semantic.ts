@@ -18,6 +18,7 @@ export const defaultSemanticTokens: SemanticTokens = {
   borderColorBase: '{gray200}',
   borderColorStrong: '{gray300}',
   borderRadiusBase: '{radiusMd}',
+  fontFamilyBase: '{fontFamilySans}',
   fontSizeBase: '{fontSizeMd}',
   shadowBase: '{shadowSm}',
 };

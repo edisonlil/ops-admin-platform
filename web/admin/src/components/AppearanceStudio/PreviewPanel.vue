@@ -409,6 +409,7 @@
 
   const previewCssVars = computed(() => ({
     ...appearanceStore.editorCssVars,
+    '--app-font-family-base': tokens.value.semantic.fontFamilyBase,
     '--app-font-size': tokens.value.semantic.fontSizeBase,
     '--app-button-height': tokens.value.component.Button.height,
     '--app-button-padding-x': tokens.value.component.Button.paddingX,
@@ -516,6 +517,8 @@
     min-height: 620px;
     padding: 0;
     color: var(--app-text-color);
+    font-family: var(--app-font-family-base);
+    font-size: var(--app-font-size-base, 14px);
     background: transparent;
     border: 0;
     border-radius: 0;
@@ -533,22 +536,22 @@
 
     span {
       color: var(--app-primary-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-sm, 13px);
       font-weight: 700;
       line-height: 18px;
     }
 
     strong {
       color: var(--app-text-color);
-      font-size: 18px;
+      font-size: calc(var(--app-font-size-base, 14px) + 4px);
       font-weight: 750;
-      line-height: 26px;
+      line-height: 24px;
     }
 
     p {
       margin: 0;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-base, 14px);
       line-height: 18px;
     }
   }
@@ -576,14 +579,14 @@
 
     span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-sm, 13px);
       font-weight: 700;
       line-height: 18px;
     }
 
     strong {
       color: var(--app-text-color);
-      font-size: 16px;
+      font-size: calc(var(--app-font-size-base, 14px) + 4px);
       font-weight: 750;
       line-height: 24px;
     }
@@ -612,7 +615,7 @@
     padding: 8px;
     overflow: hidden;
     color: var(--app-text-color);
-    font-size: 12px;
+    font-size: var(--app-font-size-xs, 12px);
     font-weight: 650;
     line-height: 18px;
     border: 1px solid color-mix(in srgb, var(--app-border-color) 68%, transparent);
@@ -651,7 +654,7 @@
 
     span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
     }
   }
 
@@ -676,7 +679,7 @@
 
     span {
       color: var(--app-text-color);
-      font-size: 13px;
+      font-size: var(--app-font-size-sm, 13px);
       font-weight: 650;
       line-height: 18px;
     }
@@ -684,7 +687,7 @@
     em {
       overflow: hidden;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       font-style: normal;
       line-height: 18px;
       text-overflow: ellipsis;
@@ -736,7 +739,7 @@
     span {
       max-width: 100%;
       color: var(--app-icon-color);
-      font-size: 14px;
+      font-size: var(--app-font-size-base, 14px);
       line-height: 20px;
       text-align: center;
       overflow-wrap: anywhere;
@@ -763,7 +766,7 @@
     span {
       display: grid;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       line-height: 18px;
     }
 
@@ -811,7 +814,7 @@
 
     strong {
       color: var(--app-primary-color);
-      font-size: 24px;
+      font-size: calc(var(--app-font-size-lg, 16px) + 8px);
       line-height: 1.2;
     }
 
@@ -837,13 +840,13 @@
 
     strong {
       color: var(--app-text-color);
-      font-size: 15px;
+      font-size: calc(var(--app-font-size-base, 14px) + 1px);
     }
 
     span {
       overflow: hidden;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       line-height: 18px;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -865,7 +868,7 @@
 
     span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       line-height: 18px;
     }
 
@@ -943,7 +946,7 @@
 
   .button-matrix__head {
     color: var(--app-icon-color);
-    font-size: 12px;
+    font-size: var(--app-font-size-xs, 12px);
     font-weight: 650;
     background: var(--app-surface-muted-bg);
   }
@@ -954,7 +957,7 @@
     strong {
       overflow: hidden;
       color: var(--app-text-color);
-      font-size: 13px;
+      font-size: var(--app-font-size-sm, 13px);
       line-height: 20px;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -965,7 +968,7 @@
       height: var(--app-button-height, 34px);
       padding: 0 8px;
       overflow: hidden;
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       text-overflow: ellipsis;
     }
 
@@ -981,7 +984,7 @@
     justify-content: center;
     height: var(--app-status-tag-height, 24px);
     padding: 0 var(--app-status-tag-padding-x, 8px);
-    font-size: 12px;
+    font-size: var(--app-font-size-xs, 12px);
     font-weight: var(--app-status-tag-font-weight, 500);
     line-height: 1;
     white-space: nowrap;
@@ -1033,7 +1036,7 @@
 
   .table-sample__head {
     color: var(--app-icon-color);
-    font-size: 12px;
+    font-size: var(--app-font-size-xs, 12px);
     font-weight: 650;
     background: var(--app-table-header-bg, var(--app-surface-muted-bg));
   }
@@ -1106,7 +1109,7 @@
     }
 
     strong {
-      font-size: 18px;
+      font-size: calc(var(--app-font-size-base, 14px) + 4px);
       line-height: 26px;
     }
 
@@ -1258,7 +1261,7 @@
       padding: 12px 8px;
 
       strong {
-        font-size: 34px;
+        font-size: clamp(28px, 3.6vw, 42px);
       }
     }
 

@@ -118,7 +118,7 @@
     />
   </div>
 
-  <div v-else class="appearance-studio-page">
+  <div v-else class="appearance-studio-page" :style="appearanceStore.editorCssVars">
     <header class="studio-topbar">
       <div class="studio-topbar__main">
         <n-button quaternary size="small" @click="backToThemes">返回</n-button>
@@ -501,6 +501,8 @@
     display: grid;
     gap: 16px;
     padding: var(--app-content-padding);
+    font-family: var(--app-font-family-base);
+    font-size: var(--app-font-size-base, 14px);
   }
 
   .theme-workbench-header,
@@ -523,7 +525,7 @@
       display: block;
       margin-bottom: 4px;
       color: var(--app-primary-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       font-weight: 700;
       line-height: 18px;
     }
@@ -531,7 +533,7 @@
     h1 {
       margin: 0;
       color: var(--app-text-color);
-      font-size: 22px;
+      font-size: calc(var(--app-font-size-lg, 16px) + 6px);
       font-weight: 650;
       line-height: 30px;
     }
@@ -561,7 +563,7 @@
     &__summary {
       margin-left: auto;
       color: var(--app-icon-color);
-      font-size: 13px;
+      font-size: var(--app-font-size-sm, 13px);
       white-space: nowrap;
     }
 
@@ -579,7 +581,7 @@
         padding: 0 12px;
         color: var(--app-icon-color);
         font: inherit;
-        font-size: 13px;
+        font-size: var(--app-font-size-sm, 13px);
         white-space: nowrap;
         cursor: pointer;
         background: transparent;
@@ -744,7 +746,7 @@
       h2 {
         margin: 0;
         color: var(--app-text-color);
-        font-size: 16px;
+        font-size: var(--app-font-size-lg, 16px);
         font-weight: 700;
         line-height: 24px;
         overflow: hidden;
@@ -755,7 +757,7 @@
       p {
         margin: 1px 0 0;
         color: var(--app-icon-color);
-        font-size: 13px;
+        font-size: var(--app-font-size-sm, 13px);
         line-height: 18px;
       }
     }
@@ -766,7 +768,7 @@
       width: 34px;
       height: 34px;
       color: #fff;
-      font-size: 17px;
+      font-size: calc(var(--app-font-size-lg, 16px) + 1px);
       font-weight: 800;
       place-items: center;
       background: var(--preview-primary);
@@ -781,7 +783,7 @@
       span {
         padding: 3px 8px;
         color: var(--app-icon-color);
-        font-size: 12px;
+        font-size: var(--app-font-size-xs, 12px);
         line-height: 18px;
         background: var(--app-surface-muted-bg);
         border: 1px solid var(--app-border-color);
@@ -821,7 +823,7 @@
       align-items: center;
       gap: 8px;
       color: var(--app-icon-color);
-      font-size: 13px;
+      font-size: var(--app-font-size-sm, 13px);
       line-height: 20px;
     }
 
@@ -851,7 +853,7 @@
       :deep(.n-input__placeholder) {
         height: 36px;
         color: var(--app-text-color);
-        font-size: 22px;
+        font-size: calc(var(--app-font-size-lg, 16px) + 6px);
         font-weight: 650;
         line-height: 36px;
       }
@@ -896,13 +898,13 @@
 
       strong {
         color: var(--app-text-color);
-        font-size: 15px;
+        font-size: var(--app-font-size-md, 14px);
       }
 
       p {
         margin: 0;
         color: var(--app-icon-color);
-        font-size: 12px;
+        font-size: var(--app-font-size-xs, 12px);
         line-height: 18px;
       }
     }
@@ -910,7 +912,7 @@
     &__label,
     &__item span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-sm, 13px);
       line-height: 18px;
     }
 
@@ -931,7 +933,7 @@
       gap: 8px;
       padding: 0 4px 4px;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-sm, 13px);
       line-height: 18px;
 
       span {
@@ -961,6 +963,7 @@
 
       strong {
         color: var(--app-text-color);
+        font-size: var(--app-font-size-md, 14px);
         font-weight: 650;
         line-height: 20px;
       }
@@ -998,32 +1001,40 @@
     scrollbar-gutter: stable;
 
     &__header {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(124px, 0.42fr) minmax(240px, 1fr);
+      align-items: start;
       gap: 16px;
       min-width: 0;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--app-border-color);
 
+      > div {
+        min-width: 0;
+      }
+
       h2 {
         margin: 0;
         color: var(--app-text-color);
-        font-size: 18px;
+        font-size: calc(var(--app-font-size-base, 14px) + 4px);
         font-weight: 700;
-        line-height: 26px;
+        line-height: 24px;
+        overflow-wrap: anywhere;
       }
 
       p {
-        max-width: 360px;
+        max-width: 56ch;
         margin: 0;
         color: var(--app-icon-color);
-        line-height: 22px;
+        font-size: var(--app-font-size-base, 14px);
+        line-height: 1.55;
       }
 
       span {
         color: var(--app-icon-color);
-        font-size: 12px;
+        font-size: var(--app-font-size-sm, 13px);
         line-height: 18px;
+        white-space: nowrap;
       }
     }
 
@@ -1055,9 +1066,12 @@
 
   @media (max-width: 920px) {
     .theme-workbench-header,
-    .studio-topbar,
-    .studio-editor__header {
+    .studio-topbar {
       flex-direction: column;
+    }
+
+    .studio-editor__header {
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .theme-toolbar {

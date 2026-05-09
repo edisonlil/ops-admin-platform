@@ -20,6 +20,7 @@ export function createNaiveThemeOverrides(tokens: AppearanceTokens): GlobalTheme
       textColor2: semantic.textColorSecondary,
       borderColor: semantic.borderColorBase,
       borderRadius: radius,
+      fontFamily: semantic.fontFamilyBase,
       fontSize: semantic.fontSizeBase,
       bodyColor: semantic.pageBgColor,
       cardColor: semantic.surfaceColor,

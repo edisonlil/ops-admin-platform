@@ -88,6 +88,8 @@
   .appearance-root {
     min-height: 100vh;
     color: var(--app-text-color);
+    font-family: var(--app-font-family-base);
+    font-size: var(--app-font-size-base);
     background: var(--app-page-bg);
   }
 </style>

@@ -17,6 +17,8 @@ export const defaultPrimitiveTokens: PrimitiveTokens = {
   red500: '#d03050',
   cyan500: '#2080f0',
   white: '#ffffff',
+  fontFamilySans:
+    'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',
   fontSizeXs: '12px',
   fontSizeSm: '13px',
   fontSizeMd: '14px',

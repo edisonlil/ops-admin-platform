@@ -57,6 +57,7 @@
     &__label {
       display: block;
       color: var(--app-text-color);
+      font-size: var(--app-font-size-md, 14px);
       font-weight: 500;
       line-height: 20px;
     }
@@ -65,7 +66,7 @@
     &__resolved {
       display: block;
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-xs, 12px);
       line-height: 18px;
     }
 

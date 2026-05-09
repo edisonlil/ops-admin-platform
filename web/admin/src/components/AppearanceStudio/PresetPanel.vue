@@ -54,7 +54,7 @@
       h3 {
         margin: 0;
         color: var(--app-text-color);
-        font-size: 16px;
+        font-size: calc(var(--app-font-size-base, 14px) + 4px);
         font-weight: 700;
         line-height: 24px;
       }
@@ -127,12 +127,13 @@
 
       small {
         color: var(--app-icon-color);
+        font-size: var(--app-font-size-sm, 13px);
         line-height: 20px;
       }
 
       em {
         color: var(--app-icon-color);
-        font-size: 12px;
+        font-size: var(--app-font-size-xs, 12px);
         font-style: normal;
         line-height: 18px;
       }

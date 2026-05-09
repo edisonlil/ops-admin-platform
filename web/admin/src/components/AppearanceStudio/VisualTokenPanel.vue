@@ -22,6 +22,13 @@
         <span>全局样式</span>
         <strong>字体</strong>
       </header>
+      <TokenSelectRow
+        label="字体"
+        token-path="semantic.fontFamilyBase"
+        :model-value="fontFamilyValue"
+        :options="fontOptions"
+        @update:model-value="(value) => appearanceStore.updateSemanticToken('fontFamilyBase', value)"
+      />
       <TokenSizeRow
         v-for="item in fontRows"
         :key="item.key"
@@ -58,7 +65,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
+  import { computed, onMounted, ref } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenSelectRow from './TokenSelectRow.vue';
   import TokenSizeRow from './TokenSizeRow.vue';
@@ -69,7 +76,61 @@
 
   const appearanceStore = useAppearanceStore();
   const primitive = computed(() => appearanceStore.editorMergedTokens.primitive);
+  const semantic = computed(() => appearanceStore.editorMergedTokens.semantic);
+  const resolvedSemantic = computed(() => appearanceStore.editorResolvedTokens.semantic);
   const activeTarget = computed(() => props.target || 'radius');
+
+  type FontOption = {
+    label: string;
+    value: string;
+    family?: string;
+  };
+
+  const systemFontOptions: FontOption[] = [
+    { label: '跟随系统默认', value: '{fontFamilySans}' },
+    { label: 'Microsoft YaHei', value: '"Microsoft YaHei", sans-serif', family: 'Microsoft YaHei' },
+    { label: 'PingFang SC', value: '"PingFang SC", sans-serif', family: 'PingFang SC' },
+    { label: 'Segoe UI', value: '"Segoe UI", sans-serif', family: 'Segoe UI' },
+    { label: 'Noto Sans CJK SC', value: '"Noto Sans CJK SC", sans-serif', family: 'Noto Sans CJK SC' },
+    { label: 'Source Han Sans SC', value: '"Source Han Sans SC", sans-serif', family: 'Source Han Sans SC' },
+    { label: 'Hiragino Sans GB', value: '"Hiragino Sans GB", sans-serif', family: 'Hiragino Sans GB' },
+    { label: 'SimSun', value: 'SimSun, serif', family: 'SimSun' },
+    { label: 'SimHei', value: 'SimHei, sans-serif', family: 'SimHei' },
+    { label: 'Arial', value: 'Arial, sans-serif', family: 'Arial' },
+    { label: 'Helvetica Neue', value: '"Helvetica Neue", sans-serif', family: 'Helvetica Neue' },
+  ];
+
+  const availableFontOptions = ref<FontOption[]>(systemFontOptions);
+  const fontFamilyValue = computed(
+    () => semantic.value.fontFamilyBase || resolvedSemantic.value.fontFamilyBase || '{fontFamilySans}'
+  );
+  const fontOptions = computed(() => {
+    const exists = availableFontOptions.value.some((option) => option.value === fontFamilyValue.value);
+    if (exists) return availableFontOptions.value;
+    return [{ label: '当前字体', value: fontFamilyValue.value }, ...availableFontOptions.value];
+  });
+
+  function isFontAvailable(fontName: string) {
+    if (typeof document === 'undefined') return true;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return true;
+
+    const sample = 'mmmmmmmmmmllllll速搭Aa123';
+    const bases = ['monospace', 'sans-serif', 'serif'];
+    return bases.some((base) => {
+      context.font = `72px ${base}`;
+      const baseWidth = context.measureText(sample).width;
+      context.font = `72px "${fontName}", ${base}`;
+      return context.measureText(sample).width !== baseWidth;
+    });
+  }
+
+  onMounted(() => {
+    availableFontOptions.value = systemFontOptions.filter(
+      (option) => !option.family || isFontAvailable(option.family)
+    );
+  });
 
   const radiusRows = [
     { key: 'radiusXs', label: '超小圆角' },
@@ -111,15 +172,15 @@
 
     span {
       color: var(--app-icon-color);
-      font-size: 12px;
+      font-size: var(--app-font-size-sm, 13px);
       line-height: 18px;
     }
 
     strong {
       color: var(--app-text-color);
-      font-size: 18px;
+      font-size: calc(var(--app-font-size-base, 14px) + 4px);
       font-weight: 700;
-      line-height: 26px;
+      line-height: 24px;
     }
   }
 </style>

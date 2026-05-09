@@ -21,6 +21,7 @@ export interface PrimitiveTokens {
   red500: string;
   cyan500: string;
   white: string;
+  fontFamilySans: string;
   fontSizeXs: string;
   fontSizeSm: string;
   fontSizeMd: string;
@@ -57,6 +58,7 @@ export interface SemanticTokens {
   borderColorBase: string;
   borderColorStrong: string;
   borderRadiusBase: string;
+  fontFamilyBase: string;
   fontSizeBase: string;
   shadowBase: string;
 }
