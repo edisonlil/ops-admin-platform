@@ -1,117 +1,83 @@
 <template>
   <div class="llm-console">
-    <n-card :bordered="false" size="small" class="proCard llm-header">
-      <div class="header-grid">
-        <div>
-          <div class="eyebrow">LLM Runtime</div>
-          <h2>模型路由中心</h2>
-          <p>统一维护供应商、模型目录、业务任务、fallback 路由和调用观测。</p>
-        </div>
-        <n-space justify="end" align="center" class="header-actions">
-          <n-statistic label="供应商" :value="providers.length" />
+    <ListPageRuntime :schema="llmConfigPage" :rows="[]" :loading="loading" @refresh="reloadAll">
+      <template #toolbar-left>
+        <n-space align="center" class="llm-stats">
+          <n-statistic label="Provider" :value="providers.length" />
           <n-statistic label="模型" :value="models.length" />
           <n-statistic label="任务" :value="tasks.length" />
-          <n-button secondary :loading="loading" @click="reloadAll">刷新</n-button>
         </n-space>
-      </div>
-    </n-card>
+      </template>
 
-    <n-tabs v-model:value="activeTab" type="line" animated class="llm-tabs">
-      <n-tab-pane name="providers" tab="供应商">
-        <n-card :bordered="false" size="small" class="proCard">
-          <AppDataTable
-            title="供应商连接"
-            description="维护模型供应商连接、密钥配置和启用状态。"
-            size="small"
-            :columns="providerColumns"
-            :data="providers"
-            :loading="loading"
-            :pagination="{ pageSize: 10 }"
-            :scroll-x="940"
-          >
-            <template #actions>
-              <n-button type="primary" @click="openProvider()">新增供应商</n-button>
-            </template>
-          </AppDataTable>
-        </n-card>
-      </n-tab-pane>
+      <template #collection>
+        <n-tabs v-model:value="activeTab" type="line" animated class="llm-tabs">
+          <n-tab-pane name="providers" tab="Provider">
+            <section class="llm-section">
+              <div class="llm-section__header">
+                <div>
+                  <h3>Provider 配置</h3>
+                  <p>管理 LLM 服务商、Base URL、密钥状态和启用状态。</p>
+                </div>
+                <n-button type="primary" @click="openProvider()">新增 Provider</n-button>
+              </div>
+              <AppCollectionView :schema="providerView" :rows="providers" :loading="loading" />
+            </section>
+          </n-tab-pane>
 
-      <n-tab-pane name="models" tab="模型">
-        <n-card :bordered="false" size="small" class="proCard">
-          <AppDataTable
-            title="模型目录"
-            description="维护模型 Key、供应商模型名、上下文长度和启用状态。"
-            size="small"
-            :columns="modelColumns"
-            :data="models"
-            :loading="loading"
-            :pagination="{ pageSize: 10 }"
-            :scroll-x="1040"
-          >
-            <template #actions>
-              <n-button type="primary" @click="openModel()">新增模型</n-button>
-            </template>
-          </AppDataTable>
-        </n-card>
-      </n-tab-pane>
+          <n-tab-pane name="models" tab="模型">
+            <section class="llm-section">
+              <div class="llm-section__header">
+                <div>
+                  <h3>模型目录</h3>
+                  <p>维护模型 Key、Provider 归属、上下文窗口和能力配置。</p>
+                </div>
+                <n-button type="primary" @click="openModel()">新增模型</n-button>
+              </div>
+              <AppCollectionView :schema="modelView" :rows="models" :loading="loading" />
+            </section>
+          </n-tab-pane>
 
-      <n-tab-pane name="tasks" tab="任务">
-        <n-card :bordered="false" size="small" class="proCard">
-          <AppDataTable
-            title="业务 LLM 任务"
-            description="注册业务任务 Key，并按点号推导领域、场景和任务名。"
-            size="small"
-            :columns="taskColumns"
-            :data="tasks"
-            :loading="loading"
-            :pagination="{ pageSize: 12 }"
-            :scroll-x="1120"
-          >
-            <template #actions>
-              <n-button type="primary" @click="openTask()">注册任务</n-button>
-            </template>
-          </AppDataTable>
-        </n-card>
-      </n-tab-pane>
+          <n-tab-pane name="tasks" tab="任务">
+            <section class="llm-section">
+              <div class="llm-section__header">
+                <div>
+                  <h3>LLM 任务</h3>
+                  <p>注册业务任务 Key，后续路由策略会按任务或 fallback Key 命中。</p>
+                </div>
+                <n-button type="primary" @click="openTask()">注册任务</n-button>
+              </div>
+              <AppCollectionView :schema="taskView" :rows="tasks" :loading="loading" />
+            </section>
+          </n-tab-pane>
 
-      <n-tab-pane name="routes" tab="路由策略">
-        <n-card :bordered="false" size="small" class="proCard">
-          <AppDataTable
-            title="优先级 fallback 路由"
-            description="按任务配置候选模型、优先级和 fallback 策略。"
-            size="small"
-            :columns="policyColumns"
-            :data="policies"
-            :loading="loading"
-            :pagination="{ pageSize: 8 }"
-            :scroll-x="960"
-          >
-            <template #actions>
-              <n-button type="primary" @click="openPolicy()">新增策略</n-button>
-            </template>
-          </AppDataTable>
-        </n-card>
-      </n-tab-pane>
+          <n-tab-pane name="routes" tab="路由策略">
+            <section class="llm-section">
+              <div class="llm-section__header">
+                <div>
+                  <h3>优先级与 fallback 路由</h3>
+                  <p>为任务配置模型优先级、超时、温度和响应格式。</p>
+                </div>
+                <n-button type="primary" @click="openPolicy()">新增策略</n-button>
+              </div>
+              <AppCollectionView :schema="policyView" :rows="policies" :loading="loading" />
+            </section>
+          </n-tab-pane>
 
-      <n-tab-pane name="logs" tab="调用日志">
-        <n-card :bordered="false" size="small" class="proCard">
-          <AppDataTable
-            title="最近调用"
-            description="查看最近的任务路由、模型调用、耗时和失败原因。"
-            size="small"
-            :columns="logColumns"
-            :data="logs"
-            :loading="logsLoading"
-            :pagination="{ pageSize: 12 }"
-            :scroll-x="1680"
-          >
-            <template #actions>
-              <n-button secondary :loading="logsLoading" @click="loadLogs">刷新日志</n-button>
-            </template>
-          </AppDataTable>
-        </n-card>
-      </n-tab-pane>
-    </n-tabs>
+          <n-tab-pane name="logs" tab="调用日志">
+            <section class="llm-section">
+              <div class="llm-section__header">
+                <div>
+                  <h3>调用日志</h3>
+                  <p>查看任务路由、模型命中、fallback、耗时和错误信息。</p>
+                </div>
+                <n-button secondary :loading="logsLoading" @click="loadLogs">刷新日志</n-button>
+              </div>
+              <AppCollectionView :schema="logView" :rows="logs" :loading="logsLoading" />
+            </section>
+          </n-tab-pane>
+        </n-tabs>
+      </template>
+    </ListPageRuntime>
 
     <n-modal v-model:show="providerModalVisible" preset="card" :title="providerFormTitle" :style="{ width: '720px' }" :bordered="false">
       <n-form label-placement="top" :model="providerForm">
@@ -119,15 +85,15 @@
           <n-form-item-gi label="Provider Key">
             <n-input v-model:value="providerForm.provider_key" placeholder="dashscope / siliconflow" />
           </n-form-item-gi>
-          <n-form-item-gi label="展示名称">
-            <n-input v-model:value="providerForm.display_name" placeholder="通义百炼 / 硅基流动" />
+          <n-form-item-gi label="显示名称">
+            <n-input v-model:value="providerForm.display_name" placeholder="阿里云百炼 / 硅基流动" />
           </n-form-item-gi>
         </n-grid>
         <n-form-item label="Base URL">
           <n-input v-model:value="providerForm.base_url" placeholder="https://.../v1" />
         </n-form-item>
         <n-form-item label="API Key">
-          <n-input v-model:value="providerForm.api_key" type="password" show-password-on="click" placeholder="留空表示保留原密钥" />
+          <n-input v-model:value="providerForm.api_key" type="password" show-password-on="click" placeholder="留空表示不修改已有密钥" />
         </n-form-item>
         <n-space align="center" class="form-row">
           <n-checkbox v-model:checked="providerForm.clear_api_key">保存时清空已配置密钥</n-checkbox>
@@ -152,20 +118,20 @@
           <n-form-item-gi label="Model Key">
             <n-input v-model:value="modelForm.model_key" placeholder="dashscope.qwen-plus" />
           </n-form-item-gi>
-          <n-form-item-gi label="供应商">
-            <n-select v-model:value="modelForm.provider_key" :options="providerOptions" filterable placeholder="选择供应商" />
+          <n-form-item-gi label="Provider">
+            <n-select v-model:value="modelForm.provider_key" :options="providerOptions" filterable placeholder="选择 Provider" />
           </n-form-item-gi>
         </n-grid>
         <n-grid :cols="2" :x-gap="16">
-          <n-form-item-gi label="供应商模型名">
+          <n-form-item-gi label="模型名称">
             <n-input v-model:value="modelForm.model_name" placeholder="qwen-plus / Qwen/Qwen3-32B" />
           </n-form-item-gi>
-          <n-form-item-gi label="展示名称">
+          <n-form-item-gi label="显示名称">
             <n-input v-model:value="modelForm.display_name" />
           </n-form-item-gi>
         </n-grid>
         <n-grid :cols="2" :x-gap="16">
-          <n-form-item-gi label="上下文长度">
+          <n-form-item-gi label="上下文窗口">
             <n-input-number v-model:value="modelForm.context_window" clearable :min="1" />
           </n-form-item-gi>
           <n-form-item-gi label="状态">
@@ -191,9 +157,9 @@
           <n-input v-model:value="taskForm.task_key" placeholder="function_point.recommendation.rank" />
         </n-form-item>
         <n-alert type="info" :bordered="false" class="task-key-hint">
-          只需要维护稳定的 Task Key。系统会按点号自动推导领域、场景和任务名。
+          推荐使用“上下文.场景.任务”的层级命名，路由策略会自动推导 fallback Key。
         </n-alert>
-        <n-form-item label="展示名称">
+        <n-form-item label="显示名称">
           <n-input v-model:value="taskForm.display_name" />
         </n-form-item>
         <n-form-item label="描述">
@@ -220,11 +186,11 @@
               v-model:value="policyForm.route_key"
               :options="routeOptions"
               filterable
-              placeholder="选择已注册任务或兜底路由"
+              placeholder="选择任务或 fallback 路由"
               @update:value="syncPolicyDisplayName"
             />
           </n-form-item-gi>
-          <n-form-item-gi label="展示名称">
+          <n-form-item-gi label="显示名称">
             <n-input v-model:value="policyForm.display_name" />
           </n-form-item-gi>
         </n-grid>
@@ -234,7 +200,7 @@
             <template #checked>启用</template>
             <template #unchecked>停用</template>
           </n-switch>
-          <n-button size="small" secondary @click="addPolicyEntry">添加候选模型</n-button>
+          <n-button size="small" secondary @click="addPolicyEntry">新增路由项</n-button>
         </n-space>
         <div class="entry-list">
           <div v-for="(entry, index) in policyForm.entries" :key="index" class="entry-row">
@@ -251,13 +217,13 @@
               <n-form-item-gi :span="2" label="超时">
                 <n-input-number v-model:value="entry.timeout_seconds" :min="1" :max="600" />
               </n-form-item-gi>
-              <n-form-item-gi :span="2" label="格式">
+              <n-form-item-gi :span="2" label="响应">
                 <n-select v-model:value="entry.response_format" :options="responseFormatOptions" />
               </n-form-item-gi>
             </n-grid>
             <n-space justify="space-between" align="center">
-              <n-checkbox v-model:checked="entry.enabled">启用候选</n-checkbox>
-              <n-button size="small" text type="error" @click="removePolicyEntry(index)">移除</n-button>
+              <n-checkbox v-model:checked="entry.enabled">启用路由项</n-checkbox>
+              <n-button size="small" text type="error" @click="removePolicyEntry(index)">删除</n-button>
             </n-space>
           </div>
         </div>
@@ -285,10 +251,11 @@
     saveLlmProvider,
     saveLlmRoutingPolicy,
   } from '@/api/business';
-  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { AppCollectionView, defineListPage, ListPageRuntime } from '@/page-runtime';
+  import type { CollectionViewSchema } from '@/page-runtime';
 
   type JsonObject = Record<string, unknown>;
   type EntryForm = {
@@ -365,7 +332,7 @@
     entries: [] as EntryForm[],
   });
 
-  const providerFormTitle = computed(() => (editingProvider.value ? '编辑供应商' : '新增供应商'));
+  const providerFormTitle = computed(() => (editingProvider.value ? '编辑 Provider' : '新增 Provider'));
   const modelFormTitle = computed(() => (editingModel.value ? '编辑模型' : '新增模型'));
   const taskFormTitle = computed(() => (editingTask.value ? '编辑任务' : '注册任务'));
   const policyFormTitle = computed(() => (editingPolicy.value ? '编辑路由策略' : '新增路由策略'));
@@ -389,9 +356,9 @@
       const key = String(task.task_key || '').trim();
       if (!key) return;
       push(key, `${task.display_name || key} - ${key}`);
-      routeFallbackKeys(key).forEach((fallback) => push(fallback, `${fallback}（兜底）`));
+      routeFallbackKeys(key).forEach((fallback) => push(fallback, `${fallback} fallback`));
     });
-    push('default', 'default（全局兜底）');
+    push('default', 'default fallback');
     return options;
   });
   const responseFormatOptions = [
@@ -428,9 +395,9 @@
 
   const modelColumns: DataTableColumns<Recordable> = [
     { title: 'Model Key', key: 'model_key', minWidth: 190 },
-    { title: '供应商', key: 'provider_key', width: 130 },
-    { title: '模型名', key: 'model_name', minWidth: 190 },
-    { title: '展示名称', key: 'display_name', minWidth: 150 },
+    { title: 'Provider', key: 'provider_key', width: 130 },
+    { title: '模型名称', key: 'model_name', minWidth: 190 },
+    { title: '显示名称', key: 'display_name', minWidth: 150 },
     { title: '上下文', key: 'context_window', width: 110 },
     { title: '状态', key: 'enabled', width: 100, render: renderStatus },
     {
@@ -444,7 +411,7 @@
 
   const taskColumns: DataTableColumns<Recordable> = [
     { title: 'Task Key', key: 'task_key', minWidth: 260 },
-    { title: '领域', key: 'context_key', width: 140 },
+    { title: '上下文', key: 'context_key', width: 140 },
     { title: '场景', key: 'scene_key', width: 150 },
     { title: '任务', key: 'task_name', width: 130 },
     { title: '名称', key: 'display_name', minWidth: 160 },
@@ -463,7 +430,7 @@
     { title: '名称', key: 'display_name', minWidth: 160 },
     { title: '策略', key: 'strategy', width: 100 },
     {
-      title: '候选模型',
+      title: '路由项',
       key: 'entries',
       minWidth: 260,
       render(row) {
@@ -493,10 +460,39 @@
     { title: '模型', key: 'model_key', minWidth: 190 },
     { title: '状态', key: 'status', width: 100, render: renderLogStatus },
     { title: 'fallback', key: 'is_fallback', width: 90, render: (row) => (row.is_fallback ? '是' : '否') },
-    { title: '耗时(秒)', key: 'elapsed_ms', width: 100, render: (row) => formatElapsedSeconds(row.elapsed_ms) },
+    { title: '耗时', key: 'elapsed_ms', width: 100, render: (row) => formatElapsedSeconds(row.elapsed_ms) },
     { title: 'Tokens', key: 'total_tokens', width: 100 },
     { title: '错误', key: 'error_message', minWidth: 220, ellipsis: { tooltip: true } },
   ];
+
+  const llmConfigPage = defineListPage<Recordable>({
+    id: 'settings.llm-config',
+    title: '大模型配置',
+    description: '统一管理 Provider、模型、任务、路由策略和调用日志。',
+    variant: 'enterprise',
+    density: 'comfortable',
+    view: { type: 'basic-list' },
+    toolbar: {
+      rightTools: ['refresh'],
+    },
+    pagination: false,
+  });
+
+  const providerView = createTableView(providerColumns, 940, 10);
+  const modelView = createTableView(modelColumns, 1040, 10);
+  const taskView = createTableView(taskColumns, 1120, 12);
+  const policyView = createTableView(policyColumns, 960, 8);
+  const logView = createTableView(logColumns, 1680, 12);
+
+  function createTableView(columns: DataTableColumns<Recordable>, scrollX: number, pageSize: number): CollectionViewSchema<Recordable> {
+    return {
+      type: 'table',
+      columns,
+      rowKey: (row) => String(row.id || row.provider_key || row.model_key || row.task_key || row.route_key || row.create_time),
+      scrollX,
+      tableProps: { size: 'small', pagination: { pageSize } },
+    };
+  }
 
   function padTime(value: number) {
     return String(value).padStart(2, '0');
@@ -705,7 +701,7 @@
     saving.value = true;
     try {
       await saveLlmProvider({ ...providerForm, extra_body: extraBody });
-      message.success('供应商已保存');
+      message.success('Provider 已保存');
       providerModalVisible.value = false;
       await reloadAll();
     } finally {
@@ -742,7 +738,7 @@
 
   async function savePolicyForm() {
     if (!policyForm.entries.length || policyForm.entries.some((entry) => !entry.model_key)) {
-      message.warning('请至少配置一个候选模型');
+      message.warning('请至少配置一个有效模型路由项');
       return;
     }
     saving.value = true;
@@ -764,43 +760,10 @@
 
 <style scoped>
   .llm-console {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+    min-width: 0;
   }
 
-  .llm-header {
-    overflow: hidden;
-  }
-
-  .header-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 24px;
-    align-items: center;
-  }
-
-  .eyebrow {
-    color: #667085;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  h2 {
-    margin: 4px 0 6px;
-    font-size: 24px;
-    line-height: 1.25;
-    font-weight: 700;
-  }
-
-  p {
-    margin: 0;
-    color: #667085;
-  }
-
-  .header-actions {
+  .llm-stats {
     min-width: 360px;
   }
 
@@ -808,8 +771,40 @@
     padding: 0 4px;
   }
 
+  .llm-section {
+    display: grid;
+    gap: var(--app-page-section-gap);
+  }
+
+  .llm-section__header {
+    display: flex;
+    gap: var(--app-page-toolbar-gap);
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .llm-section__header h3 {
+    margin: 0 0 4px;
+    color: var(--app-text-color);
+    font-size: 16px;
+    line-height: 1.35;
+    font-weight: 650;
+  }
+
+  .llm-section__header p {
+    margin: 0;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
   .form-row {
     margin-bottom: 16px;
+  }
+
+  .task-key-hint {
+    margin-bottom: 14px;
   }
 
   .entry-list {
@@ -820,20 +815,20 @@
   }
 
   .entry-row {
-    border: 1px solid #eaecf0;
-    border-radius: 8px;
     padding: 12px;
-    background: #fcfcfd;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-card-radius);
   }
 
   @media (max-width: 900px) {
-    .header-grid {
-      grid-template-columns: 1fr;
+    .llm-stats,
+    .llm-section__header {
+      width: 100%;
     }
 
-    .header-actions {
-      justify-content: flex-start !important;
-      min-width: 0;
+    .llm-section__header {
+      flex-direction: column;
     }
   }
 </style>

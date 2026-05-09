@@ -1,28 +1,13 @@
 <template>
   <div>
-    <n-card :bordered="false" size="small" class="proCard">
-      <AppDataTable
-        title="API 密钥"
-        description="创建和撤销平台或当前租户的访问密钥。"
-        size="small"
-        :columns="columns"
-        :data="rows"
-        :loading="loading"
-        :pagination="{ pageSize: 20 }"
-        :scroll-x="1000"
-      >
-        <template #actions>
-          <n-button type="primary" @click="showCreate = true">新建密钥</n-button>
-        </template>
-      </AppDataTable>
-    </n-card>
+    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" @refresh="reload" />
 
-    <n-modal v-model:show="showCreate" preset="dialog" title="新建 API 密钥" positive-text="创建" @positive-click="create">
-      <n-input v-model:value="newKeyName" placeholder="密钥名称" />
+    <n-modal v-model:show="showCreate" preset="dialog" title="新增 API Key" positive-text="创建" @positive-click="create">
+      <n-input v-model:value="newKeyName" placeholder="API Key 名称" />
     </n-modal>
 
-    <n-modal v-model:show="createdVisible" preset="card" title="密钥已创建" style="width: 620px">
-      <n-alert type="warning" class="mb-3">密钥只会显示一次，请妥善保存。</n-alert>
+    <n-modal v-model:show="createdVisible" preset="card" title="API Key 已创建" style="width: 620px">
+      <n-alert type="warning" class="mb-3">请立即保存密钥明文，关闭后将无法再次查看。</n-alert>
       <n-input :value="createdKey" readonly type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
     </n-modal>
   </div>
@@ -31,7 +16,7 @@
 <script lang="ts" setup>
   import { computed, h, ref } from 'vue';
   import { useRoute } from 'vue-router';
-  import { NButton, useMessage } from 'naive-ui';
+  import { useMessage } from 'naive-ui';
   import type { DataTableColumns } from 'naive-ui';
   import {
     createApiKey,
@@ -41,10 +26,10 @@
     revokeApiKey,
     revokeCurrentTenantApiKey,
   } from '@/api/business';
-  import { useUserStore } from '@/store/modules/user';
-  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { useUserStore } from '@/store/modules/user';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   const message = useMessage();
@@ -82,12 +67,12 @@
         return h(AppTableActions, {
           actions: [
             {
-              label: '撤销',
+              label: '吊销',
               tone: 'danger',
               disabled: !row.is_active,
               confirm: true,
-              confirmTitle: '撤销 API 密钥',
-              confirmContent: `确认撤销密钥「${row.name || row.prefix}」吗？`,
+              confirmTitle: '吊销 API Key',
+              confirmContent: `确认吊销 API Key「${row.name || row.prefix}」？`,
               onConfirm: () => revoke(row),
             },
           ],
@@ -95,6 +80,35 @@
       },
     },
   ];
+
+  const apiKeyListPage = defineListPage<Recordable>({
+    id: 'settings.api-keys',
+    title: 'API Key',
+    description: '管理用于外部集成和自动化访问的 API Key。',
+    variant: 'dense-data',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns,
+      rowKey: (row) => Number(row.id),
+      scrollX: 1000,
+      tableProps: {
+        size: 'small',
+      },
+    },
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新增 API Key',
+        type: 'primary',
+        onClick: () => {
+          showCreate.value = true;
+        },
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
 
   async function reload() {
     loading.value = true;
@@ -108,7 +122,7 @@
 
   async function create() {
     if (!newKeyName.value.trim()) {
-      message.warning('请输入密钥名称');
+      message.warning('请输入 API Key 名称');
       return false;
     }
     const payload = usePlatformApiKeys.value
@@ -124,7 +138,7 @@
   async function revoke(row: Recordable) {
     if (usePlatformApiKeys.value) await revokeApiKey(Number(row.id));
     else await revokeCurrentTenantApiKey(Number(row.id));
-    message.success('密钥已撤销');
+    message.success('API Key 已吊销');
     await reload();
   }
 

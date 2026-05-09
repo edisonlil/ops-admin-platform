@@ -1,35 +1,6 @@
 <template>
   <div>
-    <div class="n-layout-page-header">
-      <n-card :bordered="false" title="角色权限管理">
-        角色由后端 RBAC 统一维护，这里支持新增、编辑、菜单授权调整与删除。
-      </n-card>
-    </div>
-
-    <n-card :bordered="false" size="small" class="proCard mt-4">
-      <AppDataTable
-        title="角色列表"
-        description="维护角色、系统标记、适用范围和菜单权限。"
-        size="small"
-        :columns="columns"
-        :data="rows"
-        :loading="loading"
-        :row-key="(row) => row.id"
-        :pagination="{ pageSize: 20 }"
-        :scroll-x="1440"
-      >
-        <template #actions>
-          <n-button type="primary" @click="handleCreate">
-            <template #icon>
-              <n-icon>
-                <PlusOutlined />
-              </n-icon>
-            </template>
-            新增角色
-          </n-button>
-        </template>
-      </AppDataTable>
-    </n-card>
+    <ListPageRuntime :schema="roleListPage" :rows="rows" :loading="loading" @refresh="reload" />
 
     <n-modal v-model:show="roleModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
       <template #header>
@@ -37,7 +8,7 @@
       </template>
 
       <n-alert v-if="editingSystemRole" type="warning" class="mb-4">
-        系统角色允许修改名称、说明和菜单权限，但不允许修改角色 Key。
+        系统角色只能调整名称和菜单权限，角色 Key 受到保护。
       </n-alert>
 
       <n-form
@@ -51,13 +22,9 @@
           <n-input v-model:value="roleForm.name" placeholder="请输入角色名称" />
         </n-form-item>
         <n-form-item label="角色 Key" path="key">
-          <n-input
-            v-model:value="roleForm.key"
-            placeholder="例如 ops-reviewer"
-            :disabled="editingSystemRole"
-          />
+          <n-input v-model:value="roleForm.key" placeholder="例如 ops-reviewer" :disabled="editingSystemRole" />
         </n-form-item>
-        <n-form-item label="说明" path="description">
+        <n-form-item label="描述" path="description">
           <n-input
             v-model:value="roleForm.description"
             type="textarea"
@@ -87,8 +54,10 @@
       <template #footer>
         <n-space justify="end">
           <n-button @click="roleModalVisible = false">取消</n-button>
-          <n-button @click="toggleMenuTreeExpanded">全部{{ expandedMenuKeys.length ? '收起' : '展开' }}</n-button>
-          <n-button @click="selectAllRoleMenus">全部选择</n-button>
+          <n-button @click="toggleMenuTreeExpanded">
+            {{ expandedMenuKeys.length ? '收起全部' : '展开全部' }}
+          </n-button>
+          <n-button @click="selectAllRoleMenus">全选菜单</n-button>
           <n-button type="primary" :loading="savingRole" @click="submitRoleForm">{{ roleSubmitText }}</n-button>
         </n-space>
       </template>
@@ -96,7 +65,7 @@
 
     <n-modal v-model:show="menuModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
       <template #header>
-        <span>分配 {{ currentRole?.name || currentRole?.key || '' }} 的菜单权限</span>
+        <span>配置 {{ currentRole?.name || currentRole?.key || '' }} 的菜单权限</span>
       </template>
 
       <div class="role-menu-tree">
@@ -117,8 +86,10 @@
 
       <template #footer>
         <n-space justify="end">
-          <n-button @click="toggleMenuTreeExpanded">全部{{ expandedMenuKeys.length ? '收起' : '展开' }}</n-button>
-          <n-button @click="selectAllMenus">全部选择</n-button>
+          <n-button @click="toggleMenuTreeExpanded">
+            {{ expandedMenuKeys.length ? '收起全部' : '展开全部' }}
+          </n-button>
+          <n-button @click="selectAllMenus">全选菜单</n-button>
           <n-button type="primary" :loading="savingMenus" @click="submitRoleMenus">保存</n-button>
         </n-space>
       </template>
@@ -130,7 +101,6 @@
   import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, TreeOption } from 'naive-ui';
-  import { PlusOutlined } from '@vicons/antd';
   import {
     createRbacRole,
     deleteRbacRole,
@@ -139,9 +109,9 @@
     updateRbacRole,
     updateRbacRoleMenus,
   } from '@/api/business';
-  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface MenuRow extends Recordable {
@@ -199,7 +169,7 @@
 
   const editingSystemRole = computed(() => roleFormMode.value === 'edit' && roleForm.is_system);
   const roleModalTitle = computed(() => (roleFormMode.value === 'create' ? '新增角色' : '编辑角色'));
-  const roleSubmitText = computed(() => (roleFormMode.value === 'create' ? '提交' : '保存'));
+  const roleSubmitText = computed(() => (roleFormMode.value === 'create' ? '创建' : '保存'));
   const roleFormScope = computed(() => {
     if (roleFormMode.value === 'edit' && roleForm.id) {
       return rows.value.find((row) => row.id === roleForm.id)?.role_scope || 'platform';
@@ -216,7 +186,7 @@
       { required: true, message: '请输入角色 Key', trigger: ['blur', 'input'] },
       {
         pattern: /^[A-Za-z0-9_-]+$/,
-        message: '角色 Key 仅支持字母、数字、下划线和中划线',
+        message: '角色 Key 只能包含字母、数字、下划线和中划线',
         trigger: ['blur', 'input'],
       },
     ],
@@ -226,7 +196,7 @@
     { title: 'ID', key: 'id', width: 80 },
     { title: '角色名称', key: 'name', width: 200 },
     { title: '角色 Key', key: 'key', width: 180 },
-    { title: '说明', key: 'description', minWidth: 260, ellipsis: { tooltip: true } },
+    { title: '描述', key: 'description', minWidth: 260, ellipsis: { tooltip: true } },
     {
       title: '状态',
       key: 'status',
@@ -263,7 +233,7 @@
               disabled: !!row.is_system,
               confirm: true,
               confirmTitle: '删除角色',
-              confirmContent: `确认删除角色「${row.name || row.key}」吗？相关用户角色关联也会被移除。`,
+              confirmContent: `确认删除角色「${row.name || row.key}」？删除后不可恢复。`,
               positiveText: '删除',
               onConfirm: () => handleDelete(row),
             },
@@ -272,6 +242,33 @@
       },
     },
   ];
+
+  const roleListPage = defineListPage<RoleRow>({
+    id: 'rbac.roles',
+    title: '角色权限',
+    description: '管理 RBAC 角色、角色范围和菜单权限。',
+    variant: 'enterprise',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns,
+      rowKey: (row) => row.id,
+      scrollX: 1440,
+      tableProps: {
+        size: 'small',
+      },
+    },
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新增角色',
+        type: 'primary',
+        onClick: () => handleCreate(),
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
 
   function buildMenuTree(items: MenuRow[]) {
     const nodeMap = new Map<string, MenuRow>();
@@ -427,10 +424,10 @@
 
       if (roleFormMode.value === 'create') {
         await createRbacRole(payload);
-        message.success('角色已新增');
+        message.success('角色创建成功');
       } else if (roleForm.id) {
         await updateRbacRole(roleForm.id, payload);
-        message.success('角色已更新');
+        message.success('角色保存成功');
       }
 
       roleModalVisible.value = false;
@@ -451,7 +448,7 @@
     try {
       await updateRbacRoleMenus(currentRole.value.id, checkedMenuKeys.value);
       await reload();
-      message.success('菜单权限已保存');
+      message.success('菜单权限保存成功');
       menuModalVisible.value = false;
     } catch (error) {
       message.error(error instanceof Error ? error.message : '菜单权限保存失败');
@@ -480,7 +477,7 @@
 
   function handleDelete(row: RoleRow) {
     if (row.is_system) {
-      message.warning('系统角色不允许删除');
+      message.warning('系统角色不能删除');
       return;
     }
 
@@ -519,11 +516,12 @@
     padding: 8px 2px;
 
     &--form {
+      box-sizing: border-box;
       width: 100%;
       min-height: 220px;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
       padding: 10px 12px;
+      border: 1px solid var(--app-border-color);
+      border-radius: var(--app-card-radius);
     }
   }
 </style>

@@ -3,6 +3,8 @@ import type { GlobalThemeOverrides } from 'naive-ui';
 
 export type Density = 'compact' | 'default' | 'comfortable';
 export type CardStyle = 'bordered' | 'shadow' | 'flat';
+export type PageDensity = 'compact' | 'comfortable' | 'spacious';
+export type PageVariant = 'default' | 'enterprise' | 'saas' | 'dense-data' | 'minimal';
 
 export interface PrimitiveTokens {
   blue50: string;
@@ -338,6 +340,63 @@ export interface LayoutTokens {
   tableDensity: Density;
 }
 
+export interface PageTokens {
+  density: PageDensity;
+  variant: PageVariant;
+  header: {
+    minHeight: number;
+    paddingBlock: number;
+    paddingInline: number;
+    titleSize: number;
+    descriptionSize: number;
+    actionGap: number;
+  };
+  section: {
+    gap: number;
+    blockMargin: number;
+    dividerStrength: 'none' | 'subtle' | 'strong';
+  };
+  content: {
+    maxWidth: string;
+    paddingBlock: number;
+  };
+  filter: {
+    minHeight: number;
+    padding: number;
+    fieldGap: number;
+    rowGap: number;
+    labelWidth: number;
+    collapsedRows: number;
+  };
+  toolbar: {
+    minHeight: number;
+    gap: number;
+    paddingInline: number;
+    leftGap: number;
+    rightGap: number;
+  };
+  collection: {
+    gap: number;
+    borderStrategy: 'container' | 'item' | 'none';
+  };
+  table: {
+    rowHeight: number;
+    headerHeight: number;
+    cellPaddingInline: number;
+  };
+  card: {
+    padding: number;
+    gap: number;
+    minItemWidth: number;
+  };
+  detail: {
+    sectionGap: number;
+    labelWidth: number;
+    formItemGap: number;
+    footerHeight: number;
+  };
+}
+
 export interface ProjectBehaviorOverrides {
   navMode?: string;
   navTheme?: string;
@@ -365,6 +424,7 @@ export interface AppearanceTokens {
   semantic: SemanticTokens;
   component: ComponentTokens;
   layout: LayoutTokens;
+  page: PageTokens;
 }
 
 export interface AppearancePreset {
@@ -400,6 +460,7 @@ export type TokenOverrides = Partial<{
   semantic: Partial<SemanticTokens>;
   darkSemantic: Partial<SemanticTokens>;
   component: Partial<Record<keyof ComponentTokens, Record<string, string>>>;
+  page: Partial<PageTokens>;
 }>;
 
 export interface AppearanceStoragePayload {

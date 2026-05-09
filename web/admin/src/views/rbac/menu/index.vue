@@ -1,166 +1,164 @@
 <template>
   <div>
-    <div class="n-layout-page-header">
-      <n-card :bordered="false" title="菜单管理">
-        菜单类型统一为目录或页面。已挂角色的菜单可以编辑基础信息，但修改菜单类型、路径、父级前需要先解绑角色。
-      </n-card>
-    </div>
-
-    <n-grid class="mt-4" cols="1 s:1 m:1 l:3 xl:3 2xl:3" responsive="screen" :x-gap="12">
-      <n-gi span="1">
-        <n-card :segmented="{ content: true }" :bordered="false" size="small">
-          <template #header>
-            <n-space>
-              <n-dropdown trigger="hover" :options="addMenuOptions" @select="handleAddMenu">
-                <n-button type="info" ghost icon-placement="right">
-                  添加菜单
-                  <template #icon>
-                    <div class="flex items-center">
-                      <n-icon size="14">
-                        <DownOutlined />
-                      </n-icon>
-                    </div>
-                  </template>
-                </n-button>
-              </n-dropdown>
-              <n-button type="info" ghost icon-placement="left" @click="toggleExpanded">
-                全部{{ expandedKeys.length ? '收起' : '展开' }}
-                <template #icon>
-                  <div class="flex items-center">
-                    <n-icon size="14">
-                      <AlignLeftOutlined />
-                    </n-icon>
-                  </div>
-                </template>
-              </n-button>
-            </n-space>
-          </template>
-
-          <div class="w-full menu-tree-panel">
-            <n-input v-model:value="pattern" placeholder="输入菜单名称搜索">
-              <template #suffix>
-                <n-icon size="18" class="cursor-pointer">
-                  <SearchOutlined />
-                </n-icon>
-              </template>
-            </n-input>
-
-            <div class="py-3 menu-list">
-              <div v-if="loading" class="flex items-center justify-center py-4">
-                <n-spin size="medium" />
-              </div>
-              <n-tree
-                v-else
-                block-line
-                :data="treeRows"
-                :pattern="pattern"
-                :selected-keys="selectedKeys"
-                :expanded-keys="expandedKeys"
-                style="max-height: 650px; overflow: auto"
-                @update:selected-keys="handleSelectMenu"
-                @update:expanded-keys="handleExpandedKeys"
-              />
-            </div>
-          </div>
-        </n-card>
-      </n-gi>
-
-      <n-gi span="2">
-        <n-card :segmented="{ content: true }" :bordered="false" size="small">
-          <template #header>
-            <n-space>
-              <n-icon size="18">
-                <FormOutlined />
-              </n-icon>
-              <span>{{ formMode === 'create' ? '新增菜单' : currentTitle ? `编辑菜单：${currentTitle}` : '编辑菜单' }}</span>
-            </n-space>
-          </template>
-
-          <n-alert v-if="!selectedMenuKey && formMode !== 'create'" type="info" closable>
-            从菜单列表选择一项后，进行编辑。
-          </n-alert>
-
-          <n-alert v-if="menuLockedByRoles" type="warning" class="mb-4">
-            当前菜单已挂载角色：{{ currentBoundRoleNames }}。基础信息可以编辑，但修改菜单类型、路径、父级，或删除菜单前需要先解绑相关角色。
-          </n-alert>
-
-          <n-form
-            v-if="formVisible"
-            ref="formRef"
-            class="py-4"
-            :model="formParams"
-            :rules="rules"
-            label-placement="left"
-            :label-width="110"
-          >
-            <n-form-item label="菜单类型" path="menu_type">
-              <n-radio-group v-model:value="formParams.menu_type" name="menuType" :disabled="structureLockedByRoles">
+    <ListPageRuntime :schema="menuListPage" :rows="rows" :loading="loading" @refresh="reload">
+      <template #collection>
+        <n-grid cols="1 s:1 m:1 l:3 xl:3 2xl:3" responsive="screen" :x-gap="12" :y-gap="12">
+          <n-gi span="1">
+            <n-card :segmented="{ content: true }" :bordered="false" size="small">
+              <template #header>
                 <n-space>
-                  <n-radio value="directory">目录</n-radio>
-                  <n-radio value="page">页面</n-radio>
+                  <n-dropdown trigger="hover" :options="addMenuOptions" @select="handleAddMenu">
+                    <n-button type="info" ghost icon-placement="right">
+                      新增菜单
+                      <template #icon>
+                        <div class="flex items-center">
+                          <n-icon size="14">
+                            <DownOutlined />
+                          </n-icon>
+                        </div>
+                      </template>
+                    </n-button>
+                  </n-dropdown>
+                  <n-button type="info" ghost icon-placement="left" @click="toggleExpanded">
+                    {{ expandedKeys.length ? '收起全部' : '展开全部' }}
+                    <template #icon>
+                      <div class="flex items-center">
+                        <n-icon size="14">
+                          <AlignLeftOutlined />
+                        </n-icon>
+                      </div>
+                    </template>
+                  </n-button>
                 </n-space>
-              </n-radio-group>
-            </n-form-item>
-            <n-form-item label="标题" path="label">
-              <n-input v-model:value="formParams.label" placeholder="请输入菜单标题" />
-            </n-form-item>
-            <n-form-item label="菜单 Key" path="key">
-              <n-input v-model:value="formParams.key" placeholder="例如 recommend-center" />
-            </n-form-item>
-            <n-form-item label="父级菜单" path="parent_key">
-              <n-select
-                v-model:value="formParams.parent_key"
-                clearable
-                :options="parentMenuOptions"
-                placeholder="顶级菜单"
-                :disabled="structureLockedByRoles"
-              />
-            </n-form-item>
-            <n-form-item label="路径" path="path">
-              <n-input
-                v-model:value="formParams.path"
-                placeholder="目录如 /settings，页面如 /recommend"
-                :disabled="structureLockedByRoles"
-              />
-            </n-form-item>
-            <n-form-item label="路由名" path="route_name">
-              <n-input v-model:value="formParams.route_name" placeholder="为空时默认使用菜单 Key" />
-            </n-form-item>
-            <n-form-item v-if="formParams.menu_type === 'page'" label="组件路径" path="component">
-              <n-input v-model:value="formParams.component" placeholder="例如 /recommend/index" />
-            </n-form-item>
-            <n-form-item label="图标" path="icon">
-              <n-input v-model:value="formParams.icon" placeholder="例如 FileSearchOutlined" />
-            </n-form-item>
-            <n-form-item label="菜单权限" path="permission_code">
-              <n-input v-model:value="formParams.permission_code" placeholder="例如 recommendation:access" />
-            </n-form-item>
-            <n-form-item label="排序" path="sort_order">
-              <n-input-number v-model:value="formParams.sort_order" :min="0" :max="9999" />
-            </n-form-item>
-            <n-form-item label="显示状态" path="is_visible">
-              <n-switch v-model:value="formParams.is_visible">
-                <template #checked>显示</template>
-                <template #unchecked>隐藏</template>
-              </n-switch>
-            </n-form-item>
-            <n-form-item style="margin-left: 110px">
-              <n-space>
-                <n-button type="primary" :loading="saving" @click="handleSave">
-                  {{ formMode === 'create' ? '创建菜单' : '保存修改' }}
-                </n-button>
-                <n-button @click="handleReset">重置</n-button>
-                <n-button v-if="formMode === 'edit'" :disabled="menuLockedByRoles" @click="handleDelete">
-                  删除
-                </n-button>
-              </n-space>
-            </n-form-item>
-          </n-form>
+              </template>
 
-          <n-empty v-else class="py-10" description="请选择一个菜单，或点击添加菜单" />
-        </n-card>
-      </n-gi>
-    </n-grid>
+              <div class="w-full menu-tree-panel">
+                <n-input v-model:value="pattern" placeholder="搜索菜单名称">
+                  <template #suffix>
+                    <n-icon size="18" class="cursor-pointer">
+                      <SearchOutlined />
+                    </n-icon>
+                  </template>
+                </n-input>
+
+                <div class="py-3 menu-list">
+                  <div v-if="loading" class="flex items-center justify-center py-4">
+                    <n-spin size="medium" />
+                  </div>
+                  <n-tree
+                    v-else
+                    block-line
+                    :data="treeRows"
+                    :pattern="pattern"
+                    :selected-keys="selectedKeys"
+                    :expanded-keys="expandedKeys"
+                    style="max-height: 650px; overflow: auto"
+                    @update:selected-keys="handleSelectMenu"
+                    @update:expanded-keys="handleExpandedKeys"
+                  />
+                </div>
+              </div>
+            </n-card>
+          </n-gi>
+
+          <n-gi span="2">
+            <n-card :segmented="{ content: true }" :bordered="false" size="small">
+              <template #header>
+                <n-space>
+                  <n-icon size="18">
+                    <FormOutlined />
+                  </n-icon>
+                  <span>{{ formMode === 'create' ? '新增菜单' : currentTitle ? `编辑菜单：${currentTitle}` : '编辑菜单' }}</span>
+                </n-space>
+              </template>
+
+              <n-alert v-if="!selectedMenuKey && formMode !== 'create'" type="info" closable>
+                请从左侧选择菜单，或点击新增菜单开始配置。
+              </n-alert>
+
+              <n-alert v-if="menuLockedByRoles" type="warning" class="mb-4">
+                当前菜单已绑定角色：{{ currentBoundRoleNames }}。为避免权限结构漂移，暂不允许调整层级结构。
+              </n-alert>
+
+              <n-form
+                v-if="formVisible"
+                ref="formRef"
+                class="py-4"
+                :model="formParams"
+                :rules="rules"
+                label-placement="left"
+                :label-width="110"
+              >
+                <n-form-item label="菜单类型" path="menu_type">
+                  <n-radio-group v-model:value="formParams.menu_type" name="menuType" :disabled="structureLockedByRoles">
+                    <n-space>
+                      <n-radio value="directory">目录</n-radio>
+                      <n-radio value="page">页面</n-radio>
+                    </n-space>
+                  </n-radio-group>
+                </n-form-item>
+                <n-form-item label="名称" path="label">
+                  <n-input v-model:value="formParams.label" placeholder="请输入菜单名称" />
+                </n-form-item>
+                <n-form-item label="菜单 Key" path="key">
+                  <n-input v-model:value="formParams.key" placeholder="例如 recommend-center" />
+                </n-form-item>
+                <n-form-item label="父级菜单" path="parent_key">
+                  <n-select
+                    v-model:value="formParams.parent_key"
+                    clearable
+                    :options="parentMenuOptions"
+                    placeholder="选择父级菜单"
+                    :disabled="structureLockedByRoles"
+                  />
+                </n-form-item>
+                <n-form-item label="路径" path="path">
+                  <n-input
+                    v-model:value="formParams.path"
+                    placeholder="目录可填 /settings，页面例如 /recommend"
+                    :disabled="structureLockedByRoles"
+                  />
+                </n-form-item>
+                <n-form-item label="路由名称" path="route_name">
+                  <n-input v-model:value="formParams.route_name" placeholder="页面路由名称 Key" />
+                </n-form-item>
+                <n-form-item v-if="formParams.menu_type === 'page'" label="组件路径" path="component">
+                  <n-input v-model:value="formParams.component" placeholder="例如 /recommend/index" />
+                </n-form-item>
+                <n-form-item label="图标" path="icon">
+                  <n-input v-model:value="formParams.icon" placeholder="例如 FileSearchOutlined" />
+                </n-form-item>
+                <n-form-item label="权限码" path="permission_code">
+                  <n-input v-model:value="formParams.permission_code" placeholder="例如 recommendation:access" />
+                </n-form-item>
+                <n-form-item label="排序" path="sort_order">
+                  <n-input-number v-model:value="formParams.sort_order" :min="0" :max="9999" />
+                </n-form-item>
+                <n-form-item label="显示状态" path="is_visible">
+                  <n-switch v-model:value="formParams.is_visible">
+                    <template #checked>显示</template>
+                    <template #unchecked>隐藏</template>
+                  </n-switch>
+                </n-form-item>
+                <n-form-item style="margin-left: 110px">
+                  <n-space>
+                    <n-button type="primary" :loading="saving" @click="handleSave">
+                      {{ formMode === 'create' ? '创建菜单' : '保存修改' }}
+                    </n-button>
+                    <n-button @click="handleReset">重置</n-button>
+                    <n-button v-if="formMode === 'edit'" :disabled="menuLockedByRoles" @click="handleDelete">
+                      删除
+                    </n-button>
+                  </n-space>
+                </n-form-item>
+              </n-form>
+
+              <n-empty v-else class="py-10" description="请选择菜单或新建菜单" />
+            </n-card>
+          </n-gi>
+        </n-grid>
+      </template>
+    </ListPageRuntime>
   </div>
 </template>
 
@@ -172,6 +170,7 @@
   import { createRbacMenu, deleteRbacMenu, getRbacMenus, updateRbacMenu } from '@/api/business';
   import { useAsyncRouteStore } from '@/store/modules/asyncRoute';
   import { useUserStore } from '@/store/modules/user';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
 
   interface BoundRole extends Recordable {
     id: number;
@@ -242,14 +241,30 @@
     bound_roles: [],
   });
 
+  const menuListPage = defineListPage<MenuRow>({
+    id: 'rbac.menus',
+    title: '菜单管理',
+    description: '管理后台菜单结构、路由配置和权限码。',
+    variant: 'enterprise',
+    density: 'comfortable',
+    view: {
+      type: 'split-list',
+      itemKey: 'key',
+    },
+    toolbar: {
+      rightTools: ['refresh'],
+    },
+    pagination: false,
+  });
+
   const rules: FormRules = {
-    label: { required: true, message: '请输入菜单标题', trigger: 'blur' },
+    label: { required: true, message: '请输入菜单名称', trigger: 'blur' },
     key: { required: true, message: '请输入菜单 Key', trigger: 'blur' },
     menu_type: { required: true, message: '请选择菜单类型', trigger: 'change' },
     component: {
       validator: (_rule, value: string) => {
         if (formParams.menu_type === 'page' && !String(value || '').trim()) {
-          return new Error('页面菜单必须填写组件路径');
+          return new Error('页面菜单必须配置组件路径');
         }
         return true;
       },
@@ -258,7 +273,7 @@
     path: {
       validator: (_rule, value: string) => {
         if (formParams.menu_type === 'page' && !String(value || '').trim()) {
-          return new Error('页面菜单必须填写路径');
+          return new Error('页面菜单必须配置路径');
         }
         return true;
       },
@@ -269,15 +284,13 @@
   const treeRows = computed<TreeOption[]>(() => buildMenuTree(rows.value));
   const formVisible = computed(() => formMode.value === 'create' || !!selectedMenuKey.value);
   const currentTitle = computed(() => formParams.label || '');
-  const currentBoundRoleNames = computed(() =>
-    (formParams.bound_roles || []).map((role) => role.name || role.key).join('、')
-  );
+  const currentBoundRoleNames = computed(() => (formParams.bound_roles || []).map((role) => role.name || role.key).join('、'));
   const menuLockedByRoles = computed(() => formMode.value === 'edit' && (formParams.bound_roles || []).length > 0);
   const structureLockedByRoles = computed(() => menuLockedByRoles.value);
   const addMenuOptions = computed<DropdownOption[]>(() => [
-    { label: '添加顶级菜单', key: 'root' },
+    { label: '新增根菜单', key: 'root' },
     {
-      label: '添加子菜单',
+      label: '新增子菜单',
       key: 'child',
       disabled: !selectedMenuKey.value || selectedMenuRow.value?.menu_type !== 'directory',
     },
@@ -432,7 +445,7 @@
       return;
     }
     if (menu.menu_type !== 'directory') {
-      message.warning('只有目录类型菜单可以添加子菜单');
+      message.warning('只有目录菜单可以新增子菜单');
       return;
     }
     startCreate(menu.key);
@@ -463,11 +476,11 @@
 
       if (formMode.value === 'create') {
         await createRbacMenu(payload);
-        message.success('菜单已创建');
+        message.success('菜单创建成功');
         startCreate('');
       } else if (formParams.id) {
         await updateRbacMenu(formParams.id, payload);
-        message.success('菜单已更新');
+        message.success('菜单保存成功');
       }
 
       await refreshDynamicMenus();
@@ -492,7 +505,7 @@
     if (!formParams.id) return;
     dialog.warning({
       title: '删除菜单',
-      content: `确认删除菜单「${formParams.label || formParams.key}」吗？`,
+      content: `确认删除菜单「${formParams.label || formParams.key}」？`,
       positiveText: '删除',
       negativeText: '取消',
       async onPositiveClick() {

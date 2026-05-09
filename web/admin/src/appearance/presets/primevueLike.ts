@@ -120,6 +120,18 @@ export const primevueLikePreset: AppearancePreset = {
       contentPadding: 14,
       cardStyle: 'bordered',
     },
+    page: {
+      ...defaultPreset.tokens.page,
+      variant: 'enterprise',
+      header: {
+        ...defaultPreset.tokens.page.header,
+        minHeight: 76,
+      },
+      collection: {
+        ...defaultPreset.tokens.page.collection,
+        borderStrategy: 'container',
+      },
+    },
   },
   darkSemantic: {
     ...defaultPreset.darkSemantic,

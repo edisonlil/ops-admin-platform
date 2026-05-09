@@ -1,5 +1,6 @@
 import { cloneDeep, merge } from 'lodash-es';
 import type { AppearancePreset, AppearanceTokens, LayoutTokens, TokenOverrides } from './types';
+import { defaultPageTokens } from './tokens/page';
 
 export function mergeAppearanceTokens(
   preset: AppearancePreset,
@@ -12,6 +13,7 @@ export function mergeAppearanceTokens(
     semantic: cloneDeep(tokenOverrides.semantic || {}),
     component: cloneDeep(tokenOverrides.component || {}),
     layout: cloneDeep(layoutOverrides),
+    page: merge(cloneDeep(defaultPageTokens), cloneDeep(preset.tokens.page || {}), cloneDeep(tokenOverrides.page || {})),
   }) as AppearanceTokens;
 
   if (isDark) {

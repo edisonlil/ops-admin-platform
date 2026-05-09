@@ -4,6 +4,7 @@ import { defaultSemanticTokens } from '../tokens/semantic';
 import { defaultDarkSemanticTokens } from '../tokens/darkSemantic';
 import { defaultComponentTokens } from '../tokens/component';
 import { defaultLayoutTokens } from '../tokens/layout';
+import { defaultPageTokens } from '../tokens/page';
 
 export const defaultPreset: AppearancePreset = {
   id: 'default',
@@ -15,6 +16,7 @@ export const defaultPreset: AppearancePreset = {
     semantic: defaultSemanticTokens,
     component: defaultComponentTokens,
     layout: defaultLayoutTokens,
+    page: defaultPageTokens,
   },
   darkSemantic: defaultDarkSemanticTokens,
 };

@@ -1,7 +1,7 @@
 import type { AppearanceCssVars, AppearanceTokens } from './types';
 
 export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCssVars {
-  const { primitive, semantic, component, layout } = tokens;
+  const { primitive, semantic, component, layout, page } = tokens;
 
   return {
     '--app-page-bg': semantic.pageBgColor,
@@ -13,6 +13,37 @@ export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCss
     '--app-tabs-height': `${layout.tabsHeight}px`,
     '--app-menu-width': `${layout.menuWidth}px`,
     '--app-collapsed-menu-width': `${layout.collapsedMenuWidth}px`,
+    '--app-page-header-min-height': `${page.header.minHeight}px`,
+    '--app-page-header-padding-block': `${page.header.paddingBlock}px`,
+    '--app-page-header-padding-inline': `${page.header.paddingInline}px`,
+    '--app-page-header-title-size': `${page.header.titleSize}px`,
+    '--app-page-header-description-size': `${page.header.descriptionSize}px`,
+    '--app-page-header-action-gap': `${page.header.actionGap}px`,
+    '--app-page-section-gap': `${page.section.gap}px`,
+    '--app-page-block-margin': `${page.section.blockMargin}px`,
+    '--app-page-content-max-width': page.content.maxWidth,
+    '--app-page-content-padding-block': `${page.content.paddingBlock}px`,
+    '--app-page-filter-min-height': `${page.filter.minHeight}px`,
+    '--app-page-filter-padding': `${page.filter.padding}px`,
+    '--app-page-filter-field-gap': `${page.filter.fieldGap}px`,
+    '--app-page-filter-row-gap': `${page.filter.rowGap}px`,
+    '--app-page-filter-label-width': `${page.filter.labelWidth}px`,
+    '--app-page-toolbar-min-height': `${page.toolbar.minHeight}px`,
+    '--app-page-toolbar-gap': `${page.toolbar.gap}px`,
+    '--app-page-toolbar-padding-inline': `${page.toolbar.paddingInline}px`,
+    '--app-page-toolbar-left-gap': `${page.toolbar.leftGap}px`,
+    '--app-page-toolbar-right-gap': `${page.toolbar.rightGap}px`,
+    '--app-page-collection-gap': `${page.collection.gap}px`,
+    '--app-page-table-row-height': `${page.table.rowHeight}px`,
+    '--app-page-table-header-height': `${page.table.headerHeight}px`,
+    '--app-page-table-cell-padding-inline': `${page.table.cellPaddingInline}px`,
+    '--app-page-card-padding': `${page.card.padding}px`,
+    '--app-page-card-gap': `${page.card.gap}px`,
+    '--app-page-card-min-item-width': `${page.card.minItemWidth}px`,
+    '--app-page-detail-section-gap': `${page.detail.sectionGap}px`,
+    '--app-page-detail-label-width': `${page.detail.labelWidth}px`,
+    '--app-page-detail-form-item-gap': `${page.detail.formItemGap}px`,
+    '--app-page-detail-footer-height': `${page.detail.footerHeight}px`,
     '--app-border-color': semantic.borderColorBase,
     '--app-card-bg': component.Card.bgColor,
     '--app-card-border-color': component.Card.borderColor,

@@ -76,12 +76,37 @@ export function validateAppearanceTokens(tokens: AppearanceTokens): TokenValidat
     });
   }
 
+  const { page } = tokens;
+  if (!['compact', 'comfortable', 'spacious'].includes(page.density)) {
+    errors.push({
+      path: 'page.density',
+      code: 'TOKEN_INVALID_ENUM',
+      message: 'page.density must be compact, comfortable, or spacious.',
+    });
+  }
+
+  if (!['default', 'enterprise', 'saas', 'dense-data', 'minimal'].includes(page.variant)) {
+    errors.push({
+      path: 'page.variant',
+      code: 'TOKEN_INVALID_ENUM',
+      message: 'page.variant must be default, enterprise, saas, dense-data, or minimal.',
+    });
+  }
+
   [
     ['layout.headerHeight', layout.headerHeight],
     ['layout.tabsHeight', layout.tabsHeight],
     ['layout.menuWidth', layout.menuWidth],
     ['layout.collapsedMenuWidth', layout.collapsedMenuWidth],
     ['layout.contentPadding', layout.contentPadding],
+    ['page.header.minHeight', page.header.minHeight],
+    ['page.header.paddingBlock', page.header.paddingBlock],
+    ['page.header.paddingInline', page.header.paddingInline],
+    ['page.section.gap', page.section.gap],
+    ['page.filter.padding', page.filter.padding],
+    ['page.toolbar.minHeight', page.toolbar.minHeight],
+    ['page.table.rowHeight', page.table.rowHeight],
+    ['page.card.padding', page.card.padding],
   ].forEach(([path, value]) => {
     if (typeof value !== 'number' || value < 0) {
       errors.push({

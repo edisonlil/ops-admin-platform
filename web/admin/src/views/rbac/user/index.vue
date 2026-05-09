@@ -1,35 +1,19 @@
 <template>
   <div>
-    <div class="n-layout-page-header">
-      <n-card :bordered="false" title="用户管理">
-        这里维护后台登录用户、角色分配、启用状态和超级用户标记。
-      </n-card>
-    </div>
-
-    <n-card :bordered="false" size="small" class="proCard mt-4">
-      <AppDataTable
-        title="用户列表"
-        description="维护后台登录用户、角色分配、启用状态和超级用户标记。"
-        size="small"
-        :columns="columns"
-        :data="rows"
-        :loading="loading"
-        :pagination="{ pageSize: 20 }"
-        :row-key="(row) => row.id"
-        :scroll-x="1380"
-      >
-        <template #actions>
-          <n-button type="primary" @click="handleCreate">
-            <template #icon>
-              <n-icon>
-                <PlusOutlined />
-              </n-icon>
-            </template>
-            新增用户
-          </n-button>
-        </template>
-      </AppDataTable>
-    </n-card>
+    <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" @refresh="reload">
+      <template #filters>
+        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名" @keyup.enter="reload" />
+        <n-select
+          v-model:value="query.status"
+          clearable
+          placeholder="用户状态"
+          :options="statusOptions"
+          @update:value="reload"
+        />
+        <n-button secondary @click="resetQuery">重置</n-button>
+        <n-button type="primary" @click="reload">查询</n-button>
+      </template>
+    </ListPageRuntime>
 
     <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
       <template #header>
@@ -46,15 +30,15 @@
         <n-form-item label="用户名" path="username">
           <n-input v-model:value="userForm.username" placeholder="请输入用户名" />
         </n-form-item>
-        <n-form-item :label="userFormMode === 'create' ? '初始密码' : '新密码'" path="password">
+        <n-form-item :label="userFormMode === 'create' ? '登录密码' : '重置密码'" path="password">
           <n-input
             v-model:value="userForm.password"
             type="password"
             show-password-on="mousedown"
-            :placeholder="userFormMode === 'create' ? '请输入初始密码' : '留空表示不修改密码'"
+            :placeholder="userFormMode === 'create' ? '请输入登录密码' : '留空则不修改密码'"
           />
         </n-form-item>
-        <n-form-item label="角色分配" path="role_keys">
+        <n-form-item label="角色" path="role_keys">
           <n-select
             v-model:value="userForm.role_keys"
             multiple
@@ -67,7 +51,7 @@
         <n-form-item label="启用状态" path="is_active">
           <n-switch v-model:value="userForm.is_active">
             <template #checked>启用</template>
-            <template #unchecked>禁用</template>
+            <template #unchecked>停用</template>
           </n-switch>
         </n-form-item>
         <n-form-item label="超级用户" path="is_superuser">
@@ -92,12 +76,11 @@
   import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
-  import { PlusOutlined } from '@vicons/antd';
   import { createRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
-  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface UserRole extends Recordable {
@@ -129,10 +112,15 @@
   const savingUser = ref(false);
   const rolesLoading = ref(false);
   const rows = ref<UserRow[]>([]);
+  const allRows = ref<UserRow[]>([]);
   const roleOptions = ref<SelectOption[]>([]);
   const userFormRef = ref<FormInst | null>(null);
   const userModalVisible = ref(false);
   const userFormMode = ref<'create' | 'edit'>('create');
+  const query = reactive({
+    keyword: '',
+    status: null as 'active' | 'disabled' | null,
+  });
   const userForm = reactive<UserFormState>({
     id: null,
     username: '',
@@ -142,14 +130,18 @@
     is_superuser: false,
   });
 
+  const statusOptions: SelectOption[] = [
+    { label: '启用', value: 'active' },
+    { label: '停用', value: 'disabled' },
+  ];
   const userModalTitle = computed(() => (userFormMode.value === 'create' ? '新增用户' : '编辑用户'));
-  const userSubmitText = computed(() => (userFormMode.value === 'create' ? '提交' : '保存'));
+  const userSubmitText = computed(() => (userFormMode.value === 'create' ? '创建' : '保存'));
 
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
     password:
       userFormMode.value === 'create'
-        ? [{ required: true, message: '请输入初始密码', trigger: ['blur', 'input'] }]
+        ? [{ required: true, message: '请输入登录密码', trigger: ['blur', 'input'] }]
         : [],
   }));
 
@@ -180,7 +172,7 @@
       render(row) {
         return h(AppStatusTag, {
           tone: row.is_active ? 'success' : 'error',
-          label: row.is_active ? '启用' : '禁用',
+          label: row.is_active ? '启用' : '停用',
         });
       },
     },
@@ -217,11 +209,11 @@
           actions: [
             { label: '编辑', onClick: () => handleEdit(row) },
             {
-              label: row.is_active ? '禁用' : '启用',
+              label: row.is_active ? '停用' : '启用',
               tone: row.is_active ? 'danger' : 'primary',
               confirm: true,
-              confirmTitle: row.is_active ? '禁用用户' : '启用用户',
-              confirmContent: `确认${row.is_active ? '禁用' : '启用'}用户「${row.username}」吗？`,
+              confirmTitle: row.is_active ? '停用用户' : '启用用户',
+              confirmContent: `确认${row.is_active ? '停用' : '启用'}用户「${row.username}」？`,
               onConfirm: () => handleToggleActive(row),
             },
           ],
@@ -229,6 +221,37 @@
       },
     },
   ];
+
+  const userListPage = defineListPage<UserRow>({
+    id: 'rbac.users',
+    title: '用户管理',
+    description: '统一管理用户、角色关系和用户状态。',
+    variant: 'enterprise',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns,
+      rowKey: (row) => row.id,
+      scrollX: 1380,
+      tableProps: {
+        size: 'small',
+      },
+    },
+    filters: [
+      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名' },
+      { key: 'status', type: 'select', placeholder: '用户状态', options: statusOptions },
+    ],
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新增用户',
+        type: 'primary',
+        onClick: () => handleCreate(),
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
 
   function resetUserForm() {
     userForm.id = null;
@@ -285,10 +308,10 @@
 
       if (userFormMode.value === 'create') {
         await createRbacUser(payload);
-        message.success('用户已新增');
+        message.success('用户创建成功');
       } else if (userForm.id) {
         await updateRbacUser(userForm.id, payload);
-        message.success('用户已更新');
+        message.success('用户保存成功');
       }
 
       userModalVisible.value = false;
@@ -327,7 +350,7 @@
           is_superuser: !!row.is_superuser,
         });
         await reload();
-        message.success(`用户已${nextActive ? '启用' : '禁用'}`);
+        message.success(`用户已${nextActive ? '启用' : '停用'}`);
       } catch (error) {
         message.error(error instanceof Error ? error.message : '用户状态更新失败');
         throw error;
@@ -335,14 +358,33 @@
     })();
   }
 
+  function applyQuery() {
+    const keyword = query.keyword.trim();
+    rows.value = allRows.value.filter((row) => {
+      const keywordMatched = !keyword || String(row.username || '').includes(keyword);
+      const statusMatched =
+        !query.status ||
+        (query.status === 'active' && row.is_active) ||
+        (query.status === 'disabled' && !row.is_active);
+      return keywordMatched && statusMatched;
+    });
+  }
+
   async function reload() {
     loading.value = true;
     try {
       const payload = await getRbacUsers();
-      rows.value = payload.items || [];
+      allRows.value = payload.items || [];
+      applyQuery();
     } finally {
       loading.value = false;
     }
+  }
+
+  function resetQuery() {
+    query.keyword = '';
+    query.status = null;
+    applyQuery();
   }
 
   reload();

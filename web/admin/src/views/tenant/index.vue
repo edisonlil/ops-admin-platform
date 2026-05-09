@@ -1,61 +1,39 @@
 <template>
   <div>
-    <div class="n-layout-page-header">
-      <n-card :bordered="false" :title="pageTitle">
-        {{ pageDescription }}
-      </n-card>
-    </div>
+    <ListPageRuntime
+      v-if="isPlatformTenantManagement"
+      :schema="tenantListPage"
+      :rows="tenants"
+      :loading="loading"
+      @refresh="reload"
+    >
+      <template #filters>
+        <n-input
+          v-model:value="query"
+          clearable
+          placeholder="搜索租户 Key / 名称"
+          @keyup.enter="reload"
+        />
+        <n-button @click="reload">查询</n-button>
+      </template>
+    </ListPageRuntime>
 
-    <n-card v-if="isPlatformTenantManagement" :bordered="false" size="small" class="proCard mt-4">
-      <AppDataTable
-        title="租户列表"
-        description="查询租户、维护状态，并进入详情管理成员与 API Key。"
-        compact-search
-        size="small"
-        :columns="tenantColumns"
-        :data="tenants"
-        :loading="loading"
-        :pagination="{ pageSize: 20 }"
-        :row-key="(row) => row.id"
-        :scroll-x="1160"
-      >
-        <template #search>
-          <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" @keyup.enter="reload" />
-          <n-button @click="reload">查询</n-button>
-        </template>
-        <template #actions>
-          <n-button type="primary" @click="openCreate">新建租户</n-button>
-        </template>
-      </AppDataTable>
-    </n-card>
-
-    <n-card v-else :bordered="false" size="small" class="proCard mt-4">
-      <AppDataTable
-        :title="activeTenant?.name || '当前租户'"
-        description="维护当前租户的成员账号、角色和启用状态。"
-        size="small"
-        :columns="userColumns"
-        :data="tenantUsers"
-        :loading="usersLoading || loading"
-        :pagination="{ pageSize: 20 }"
-        :row-key="(row) => row.id"
-      >
-        <template #actions>
-          <AppStatusTag v-if="activeTenant" tone="info" :label="activeTenant.tenant_key" />
-          <n-button type="primary" @click="openUserCreate">新增成员</n-button>
-          <n-button :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
-        </template>
-      </AppDataTable>
-    </n-card>
+    <ListPageRuntime
+      v-else
+      :schema="memberListPage"
+      :rows="tenantUsers"
+      :loading="usersLoading || loading"
+      @refresh="loadTenantUsers"
+    />
 
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
-      <template #header>{{ tenantFormMode === 'create' ? '新建租户' : '编辑租户' }}</template>
-      <n-form ref="tenantFormRef" :model="tenantForm" :rules="tenantRules" label-placement="left" :label-width="90">
+      <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
+      <n-form ref="tenantFormRef" :model="tenantForm" :rules="tenantRules" label-placement="left" :label-width="96">
         <n-form-item label="租户 Key" path="key">
           <n-input v-model:value="tenantForm.key" :disabled="tenantFormMode === 'edit'" placeholder="例如 docs-team" />
         </n-form-item>
-        <n-form-item label="名称" path="name">
-          <n-input v-model:value="tenantForm.name" placeholder="租户显示名称" />
+        <n-form-item label="租户名称" path="name">
+          <n-input v-model:value="tenantForm.name" placeholder="请输入租户名称" />
         </n-form-item>
         <n-form-item label="状态" path="status">
           <n-select v-model:value="tenantForm.status" :options="statusOptions" />
@@ -70,12 +48,12 @@
             filterable
             :loading="themesLoading"
             :options="themeOptions"
-            placeholder="使用平台默认主题"
+            placeholder="选择租户外观主题"
           />
         </n-form-item>
         <template v-if="tenantFormMode === 'create'">
           <n-form-item label="管理员账号">
-            <n-input v-model:value="tenantAdminForm.username" placeholder="可选，创建租户时同步开通" />
+            <n-input v-model:value="tenantAdminForm.username" placeholder="默认租户管理员账号" />
           </n-form-item>
           <n-form-item label="管理员密码">
             <n-input v-model:value="tenantAdminForm.password" type="password" show-password-on="mousedown" />
@@ -93,54 +71,42 @@
     <n-drawer v-model:show="detailVisible" :width="920" placement="right">
       <n-drawer-content :title="activeTenant ? `${activeTenant.name} / ${activeTenant.tenant_key}` : '租户详情'">
         <n-tabs type="line" animated>
-          <n-tab-pane name="base" tab="基本信息">
-            <n-descriptions bordered :column="2" size="small" v-if="activeTenant">
+          <n-tab-pane name="base" tab="基础信息">
+            <n-descriptions v-if="activeTenant" bordered :column="2" size="small">
               <n-descriptions-item label="租户 Key">{{ activeTenant.tenant_key }}</n-descriptions-item>
               <n-descriptions-item label="状态">
                 <AppStatusTag :status-key="activeTenant.status === 'active' ? 'active' : 'suspended'" />
               </n-descriptions-item>
-              <n-descriptions-item label="名称">{{ activeTenant.name }}</n-descriptions-item>
+              <n-descriptions-item label="租户名称">{{ activeTenant.name }}</n-descriptions-item>
               <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.update_time) }}</n-descriptions-item>
               <n-descriptions-item label="备注" :span="2">{{ activeTenant.remark || '-' }}</n-descriptions-item>
             </n-descriptions>
           </n-tab-pane>
 
-          <n-tab-pane name="users" tab="成员用户">
-            <AppDataTable
-              title="成员用户"
-              size="small"
-              :columns="userColumns"
-              :data="tenantUsers"
-              :loading="usersLoading"
-              :pagination="{ pageSize: 20 }"
-            >
-              <template #actions>
-                <n-button type="primary" @click="openUserCreate">新增成员</n-button>
-                <n-button @click="loadTenantUsers">刷新</n-button>
-              </template>
-            </AppDataTable>
+          <n-tab-pane name="users" tab="成员">
+            <div class="tenant-drawer-toolbar">
+              <n-space>
+                <n-button type="primary" size="small" @click="openUserCreate">新增成员</n-button>
+                <n-button size="small" :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
+              </n-space>
+            </div>
+            <AppCollectionView :schema="drawerUserView" :rows="tenantUsers" :loading="usersLoading" />
           </n-tab-pane>
 
           <n-tab-pane name="keys" tab="API Key">
-            <AppDataTable
-              title="API Key"
-              size="small"
-              :columns="keyColumns"
-              :data="tenantKeys"
-              :loading="keysLoading"
-              :pagination="{ pageSize: 20 }"
-            >
-              <template #actions>
-                <n-button type="primary" @click="keyCreateVisible = true">新建 Key</n-button>
-                <n-button @click="loadTenantKeys">刷新</n-button>
-              </template>
-            </AppDataTable>
+            <div class="tenant-drawer-toolbar">
+              <n-space>
+                <n-button type="primary" size="small" @click="keyCreateVisible = true">新增 Key</n-button>
+                <n-button size="small" :loading="keysLoading" @click="loadTenantKeys">刷新</n-button>
+              </n-space>
+            </div>
+            <AppCollectionView :schema="drawerKeyView" :rows="tenantKeys" :loading="keysLoading" />
           </n-tab-pane>
 
-          <n-tab-pane name="init" tab="初始化状态">
-            <n-result status="success" title="租户基础数据已初始化">
+          <n-tab-pane name="init" tab="初始化">
+            <n-result status="success" title="租户初始化由后端能力保证">
               <template #footer>
-                <span class="text-gray-500">默认 RBAC、菜单与租户上下文由后端初始化和校验。</span>
+                <span class="tenant-drawer-note">RBAC、默认角色和租户基础数据应由受控初始化流程完成。</span>
               </template>
             </n-result>
           </n-tab-pane>
@@ -175,21 +141,21 @@
       </template>
     </n-modal>
 
-    <n-modal v-model:show="keyCreateVisible" preset="dialog" title="新建 API Key" positive-text="创建" @positive-click="createKey">
+    <n-modal v-model:show="keyCreateVisible" preset="dialog" title="新增 API Key" positive-text="创建" @positive-click="createKey">
       <n-input v-model:value="newKeyName" placeholder="Key 名称" />
     </n-modal>
 
-    <n-modal v-model:show="createdKeyVisible" preset="card" title="API Key 已创建" style="width: 620px">
-      <n-alert type="warning" class="mb-3">Key 只显示一次，请妥善保存。</n-alert>
+    <n-modal v-model:show="createdKeyVisible" preset="card" title="API Key 创建成功" style="width: 620px">
+      <n-alert type="warning" class="tenant-key-alert">Key 只会展示一次，请立即保存到安全位置。</n-alert>
       <n-input :value="createdKey" readonly type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
     </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref } from 'vue';
+  import { computed, h, reactive, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
-  import { NButton, useMessage } from 'naive-ui';
+  import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import {
     activateTenant,
@@ -198,8 +164,8 @@
     createTenant,
     createTenantApiKey,
     createTenantUser,
-    getCurrentTenantRoles,
     getCurrentTenantApiKeys,
+    getCurrentTenantRoles,
     getCurrentTenantUsers,
     getRbacRoles,
     getTenantApiKeys,
@@ -208,16 +174,17 @@
     revokeCurrentTenantApiKey,
     revokeTenantApiKey,
     suspendTenant,
-    updateTenant,
     updateCurrentTenantUser,
+    updateTenant,
     updateTenantUser,
   } from '@/api/business';
-  import { useUserStore } from '@/store/modules/user';
   import { assignTenantAppearanceTheme, getAppearanceThemes, getTenantAppearanceTheme } from '@/api/appearance';
-  import AppDataTable from '@/components/Application/AppDataTable.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { useUserStore } from '@/store/modules/user';
+  import { AppCollectionView, defineListPage, ListPageRuntime } from '@/page-runtime';
+  import type { CollectionViewSchema } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface TenantRow extends Recordable {
@@ -229,6 +196,23 @@
     user_count?: number;
     api_key_count?: number;
     update_time?: string;
+  }
+
+  interface TenantUserRow extends Recordable {
+    id: number;
+    username: string;
+    roles?: Array<{ key?: string; name?: string }>;
+    is_active?: boolean;
+    is_superuser?: boolean;
+    is_tenant_admin?: boolean;
+  }
+
+  interface TenantApiKeyRow extends Recordable {
+    id: number;
+    name?: string;
+    prefix?: string;
+    is_active?: boolean;
+    create_time?: string;
   }
 
   const message = useMessage();
@@ -245,8 +229,8 @@
   const tenantAdminForm = reactive({ username: '', password: '' });
   const detailVisible = ref(false);
   const activeTenant = ref<TenantRow | null>(null);
-  const tenantUsers = ref<Recordable[]>([]);
-  const tenantKeys = ref<Recordable[]>([]);
+  const tenantUsers = ref<TenantUserRow[]>([]);
+  const tenantKeys = ref<TenantApiKeyRow[]>([]);
   const usersLoading = ref(false);
   const keysLoading = ref(false);
   const userModalVisible = ref(false);
@@ -269,13 +253,10 @@
   const createdKeyVisible = ref(false);
   const createdKey = ref('');
   const newKeyName = ref('');
+
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const isTenantUserManagement = computed(() => String(route.name || '') === 'tenant-user-management');
   const isPlatformTenantManagement = computed(() => isPlatformAdmin.value && !isTenantUserManagement.value);
-  const pageTitle = computed(() => (isPlatformTenantManagement.value ? '租户管理' : '成员管理'));
-  const pageDescription = computed(() =>
-    isPlatformTenantManagement.value ? '管理平台租户、成员用户与租户级 API Key。' : '管理当前租户的成员账号、角色和启用状态。'
-  );
 
   const statusOptions = [
     { label: '启用', value: 'active' },
@@ -295,7 +276,7 @@
   const tenantColumns: DataTableColumns<TenantRow> = [
     { title: 'ID', key: 'id', width: 80 },
     { title: '租户 Key', key: 'tenant_key', minWidth: 160 },
-    { title: '名称', key: 'name', minWidth: 180 },
+    { title: '租户名称', key: 'name', minWidth: 180 },
     {
       title: '状态',
       key: 'status',
@@ -325,7 +306,7 @@
               tone: row.status === 'active' ? 'danger' : 'primary',
               confirm: true,
               confirmTitle: row.status === 'active' ? '停用租户' : '启用租户',
-              confirmContent: `确认${row.status === 'active' ? '停用' : '启用'}租户「${row.name}」吗？`,
+              confirmContent: `确认${row.status === 'active' ? '停用' : '启用'}租户 ${row.name}？`,
               onConfirm: () => toggleTenant(row),
             },
           ],
@@ -334,7 +315,7 @@
     },
   ];
 
-  const userColumns: DataTableColumns<Recordable> = [
+  const userColumns: DataTableColumns<TenantUserRow> = [
     { title: '用户名', key: 'username', minWidth: 160 },
     {
       title: '角色',
@@ -378,7 +359,7 @@
     },
   ];
 
-  const keyColumns: DataTableColumns<Recordable> = [
+  const keyColumns: DataTableColumns<TenantApiKeyRow> = [
     { title: '名称', key: 'name', minWidth: 180 },
     { title: '前缀', key: 'prefix', width: 150 },
     {
@@ -403,7 +384,7 @@
               disabled: !row.is_active,
               confirm: true,
               confirmTitle: '撤销 API Key',
-              confirmContent: `确认撤销 API Key「${row.name || row.prefix}」吗？`,
+              confirmContent: `确认撤销 API Key ${row.name || row.prefix}？`,
               onConfirm: () => revokeKey(row),
             },
           ],
@@ -411,6 +392,72 @@
       },
     },
   ];
+
+  const tenantListPage = defineListPage<TenantRow>({
+    id: 'tenant.platform',
+    title: '租户管理',
+    description: '管理平台租户、成员用户与租户级 API Key。',
+    variant: 'dense-data',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns: tenantColumns,
+      rowKey: (row) => Number(row.id),
+      scrollX: 1160,
+      tableProps: { size: 'small' },
+    },
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新增租户',
+        type: 'primary',
+        onClick: () => openCreate(),
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
+
+  const memberListPage = defineListPage<TenantUserRow>({
+    id: 'tenant.members',
+    title: '成员管理',
+    description: '管理当前租户的成员账号、角色和启用状态。',
+    variant: 'dense-data',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns: userColumns,
+      rowKey: (row) => Number(row.id),
+      scrollX: 760,
+      tableProps: { size: 'small' },
+    },
+    toolbar: {
+      primaryAction: {
+        key: 'create',
+        label: '新增成员',
+        type: 'primary',
+        onClick: () => openUserCreate(),
+      },
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
+
+  const drawerUserView: CollectionViewSchema<TenantUserRow> = {
+    type: 'table',
+    columns: userColumns,
+    rowKey: (row) => Number(row.id),
+    scrollX: 760,
+    tableProps: { size: 'small', pagination: { pageSize: 20 } },
+  };
+
+  const drawerKeyView: CollectionViewSchema<TenantApiKeyRow> = {
+    type: 'table',
+    columns: keyColumns,
+    rowKey: (row) => Number(row.id),
+    scrollX: 700,
+    tableProps: { size: 'small', pagination: { pageSize: 20 } },
+  };
 
   function resetTenantForm() {
     tenantForm.id = 0;
@@ -422,6 +469,19 @@
     tenantAdminForm.username = '';
     tenantAdminForm.password = '';
     tenantFormRef.value?.restoreValidation();
+  }
+
+  function resetUserForm() {
+    Object.assign(userForm, {
+      id: 0,
+      username: '',
+      password: '',
+      role_keys: [],
+      is_active: true,
+      is_superuser: false,
+      is_tenant_admin: false,
+    });
+    userFormRef.value?.restoreValidation();
   }
 
   function openCreate() {
@@ -539,18 +599,18 @@
   async function openUserCreate() {
     await ensureRoles();
     userFormMode.value = 'create';
-    Object.assign(userForm, { id: 0, username: '', password: '', role_keys: [], is_active: true, is_superuser: false, is_tenant_admin: false });
+    resetUserForm();
     userModalVisible.value = true;
   }
 
-  async function openUserEdit(row: Recordable) {
+  async function openUserEdit(row: TenantUserRow) {
     await ensureRoles();
     userFormMode.value = 'edit';
     Object.assign(userForm, {
       id: row.id,
       username: row.username,
       password: '',
-      role_keys: (row.roles || []).map((role) => role.key),
+      role_keys: (row.roles || []).map((role) => String(role.key)),
       is_active: !!row.is_active,
       is_superuser: !!row.is_superuser,
       is_tenant_admin: !!row.is_tenant_admin,
@@ -569,7 +629,7 @@
     try {
       const payload = {
         username: userForm.username,
-        password: userForm.password,
+        password: userForm.password || undefined,
         role_keys: userForm.role_keys,
         is_active: userForm.is_active,
         is_superuser: userForm.is_superuser,
@@ -577,11 +637,12 @@
       };
       if (userFormMode.value === 'create') {
         if (isPlatformTenantManagement.value) await createTenantUser(activeTenant.value.id, payload);
-        else await createCurrentTenantUser(payload);
+        else await createCurrentTenantUser({ ...payload, password: userForm.password });
       } else if (isPlatformTenantManagement.value) await updateTenantUser(activeTenant.value.id, userForm.id, payload);
       else await updateCurrentTenantUser(userForm.id, payload);
       userModalVisible.value = false;
       await loadTenantUsers();
+      message.success('成员已保存');
     } finally {
       savingUser.value = false;
     }
@@ -602,10 +663,11 @@
     return true;
   }
 
-  async function revokeKey(row: Recordable) {
+  async function revokeKey(row: TenantApiKeyRow) {
     if (!activeTenant.value) return;
     if (isPlatformTenantManagement.value) await revokeTenantApiKey(activeTenant.value.id, Number(row.id));
     else await revokeCurrentTenantApiKey(Number(row.id));
+    message.success('API Key 已撤销');
     await loadTenantKeys();
   }
 
@@ -626,5 +688,32 @@
     }
   }
 
+  watch(
+    () => route.name,
+    () => {
+      roleOptions.value = [];
+      tenantUsers.value = [];
+      tenantKeys.value = [];
+      reload();
+    }
+  );
+
   reload();
 </script>
+
+<style lang="less" scoped>
+  .tenant-drawer-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--app-page-toolbar-gap);
+  }
+
+  .tenant-drawer-note {
+    color: var(--app-text-color-2);
+    font-size: 13px;
+  }
+
+  .tenant-key-alert {
+    margin-bottom: 12px;
+  }
+</style>

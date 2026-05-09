@@ -103,5 +103,46 @@ export const compactEnterprisePreset: AppearancePreset = {
       contentPadding: 10,
       tableDensity: 'compact',
     },
+    page: {
+      ...primevueLikePreset.tokens.page,
+      density: 'compact',
+      variant: 'dense-data',
+      header: {
+        ...primevueLikePreset.tokens.page.header,
+        minHeight: 60,
+        paddingBlock: 10,
+        titleSize: 18,
+      },
+      section: {
+        ...primevueLikePreset.tokens.page.section,
+        gap: 8,
+        blockMargin: 8,
+      },
+      filter: {
+        ...primevueLikePreset.tokens.page.filter,
+        minHeight: 36,
+        padding: 8,
+        fieldGap: 8,
+        rowGap: 8,
+        labelWidth: 76,
+      },
+      toolbar: {
+        ...primevueLikePreset.tokens.page.toolbar,
+        minHeight: 36,
+        gap: 8,
+        paddingInline: 10,
+      },
+      table: {
+        ...primevueLikePreset.tokens.page.table,
+        rowHeight: 36,
+        headerHeight: 36,
+        cellPaddingInline: 10,
+      },
+      card: {
+        ...primevueLikePreset.tokens.page.card,
+        padding: 12,
+        gap: 8,
+      },
+    },
   },
 };
