@@ -16,6 +16,7 @@
         :loading="loading"
         :row-key="(row) => row.id"
         :pagination="{ pageSize: 20 }"
+        :scroll-x="1440"
       >
         <template #actions>
           <n-button type="primary" @click="handleCreate">
@@ -222,14 +223,14 @@
   };
 
   const columns: DataTableColumns<RoleRow> = [
-    { title: 'ID', key: 'id', width: 90 },
-    { title: '角色名称', key: 'name', width: 180 },
+    { title: 'ID', key: 'id', width: 80 },
+    { title: '角色名称', key: 'name', width: 200 },
     { title: '角色 Key', key: 'key', width: 180 },
-    { title: '说明', key: 'description', minWidth: 220, ellipsis: { tooltip: true } },
+    { title: '说明', key: 'description', minWidth: 260, ellipsis: { tooltip: true } },
     {
       title: '状态',
       key: 'status',
-      width: 220,
+      width: 240,
       render(row) {
         return h(AppStatusGroup, {
           items: [
@@ -243,13 +244,13 @@
     {
       title: '创建时间',
       key: 'create_time',
-      width: 190,
+      width: 200,
       render: (row) => formatToDateTime(row.create_time),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 260,
+      width: 280,
       fixed: 'right',
       render(row) {
         return h(AppTableActions, {
