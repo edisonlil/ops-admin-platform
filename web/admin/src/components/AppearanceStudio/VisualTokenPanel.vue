@@ -1,5 +1,5 @@
 <template>
-  <n-collapse default-expanded-names="radius">
+  <n-collapse v-model:expanded-names="expandedNames">
     <n-collapse-item title="圆角" name="radius">
       <TokenTextRow
         v-for="item in radiusRows"
@@ -34,12 +34,26 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenTextRow from './TokenTextRow.vue';
 
+  const emit = defineEmits<{
+    (e: 'preview-target-change', value: string): void;
+  }>();
+
   const appearanceStore = useAppearanceStore();
   const primitive = computed(() => appearanceStore.editorMergedTokens.primitive);
+  const expandedNames = ref<string[]>(['radius']);
+
+  watch(
+    expandedNames,
+    (names) => {
+      const activeName = names[names.length - 1] || 'radius';
+      emit('preview-target-change', activeName);
+    },
+    { immediate: true },
+  );
 
   const radiusRows = [
     { key: 'radiusXs', label: '超小圆角' },

@@ -1,5 +1,5 @@
 <template>
-  <n-collapse default-expanded-names="Button">
+  <n-collapse v-model:expanded-names="expandedNames">
     <n-collapse-item title="按钮" name="Button">
       <TokenColorRow
         label="主按钮背景"
@@ -288,14 +288,28 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import TokenColorRow from './TokenColorRow.vue';
   import TokenTextRow from './TokenTextRow.vue';
 
+  const emit = defineEmits<{
+    (e: 'preview-target-change', value: string): void;
+  }>();
+
   const appearanceStore = useAppearanceStore();
   const component = computed(() => appearanceStore.editorMergedTokens.component);
   const resolved = computed(() => appearanceStore.editorResolvedTokens.component);
+  const expandedNames = ref<string[]>(['Button']);
+
+  watch(
+    expandedNames,
+    (names) => {
+      const activeName = names[names.length - 1] || 'Button';
+      emit('preview-target-change', activeName);
+    },
+    { immediate: true },
+  );
 
   function update(componentName: string, key: string, value: string) {
     appearanceStore.updateComponentToken(componentName, key, value);
