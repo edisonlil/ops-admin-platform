@@ -76,7 +76,7 @@ def revoke_api_key(key_id: int) -> dict[str, Any]:
             """,
             (False, True, now_iso(), str(row["name"]), key_id),
         )
-        row = conn.execute("SELECT * FROM api_keys WHERE id = ? AND deleted = 0", (key_id,)).fetchone()
+        row = conn.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
     return row_to_api_key(dict(row))
 
 

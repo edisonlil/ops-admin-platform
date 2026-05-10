@@ -145,6 +145,21 @@ class ApiTests(unittest.TestCase):
             ):
                 self.assertEqual(resolve_db_path(), db_path)
 
+    def test_default_database_path_resolves_to_project_root(self) -> None:
+        from api.config import resolve_db_path as resolve_system_db_path
+        from identity_access.infrastructure.config import resolve_db_path as resolve_identity_db_path
+
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                "FG_AGENT_DB_PATH": "",
+            },
+            clear=False,
+        ):
+            self.assertEqual(resolve_system_db_path(), Path.cwd() / "ops_admin.db")
+            self.assertEqual(resolve_identity_db_path(), Path.cwd() / "ops_admin.db")
+
     def test_health_is_public(self) -> None:
         response = self.request("GET", "/api/health", auth=False)
 
@@ -243,6 +258,100 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn("tenant-management", keys)
         self.assertNotIn("rbac", keys)
         self.assertNotIn("function-points", keys)
+
+    def test_tenant_admin_can_revoke_current_tenant_api_key(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-key", "name": "Tenant Key"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "key-owner",
+                "password": "tenant-key-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+                "is_tenant_admin": True,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "tenant-key", "username": "key-owner", "password": "tenant-key-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        create_key_response = self.request(
+            "POST",
+            "/api/tenant/api-keys",
+            json={"name": "test-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(create_key_response.status_code, 200)
+        key_id = int(create_key_response.json()["data"]["item"]["id"])
+
+        revoke_response = self.request(
+            "DELETE",
+            f"/api/tenant/api-keys/{key_id}",
+            headers=tenant_headers,
+            auth=False,
+        )
+
+        self.assertEqual(revoke_response.status_code, 200)
+        self.assertTrue(revoke_response.json()["success"])
+        self.assertEqual(revoke_response.json()["data"]["id"], key_id)
+        self.assertFalse(revoke_response.json()["data"]["is_active"])
+
+        list_response = self.request("GET", "/api/tenant/api-keys", headers=tenant_headers, auth=False)
+        self.assertEqual(list_response.status_code, 200)
+        self.assertNotIn(key_id, {int(item["id"]) for item in list_response.json()["data"]["items"]})
+
+    def test_identity_initialization_repairs_tenant_admin_llm_update_permission(self) -> None:
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            conn.execute(
+                """
+                DELETE FROM role_permissions
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND permission_id = (SELECT id FROM permissions WHERE code = ?)
+                """,
+                ("tenant-admin", "llm_config:update"),
+            )
+
+            missing = conn.execute(
+                """
+                SELECT 1
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ? AND p.code = ?
+                """,
+                ("tenant-admin", "llm_config:update"),
+            ).fetchone()
+            self.assertIsNone(missing)
+
+            initialize_auth_storage(conn)
+
+            repaired = conn.execute(
+                """
+                SELECT 1
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ? AND p.code = ?
+                """,
+                ("tenant-admin", "llm_config:update"),
+            ).fetchone()
+
+        self.assertIsNotNone(repaired)
 
     def test_admin_can_create_update_and_delete_menu(self) -> None:
         create_response = self.request(

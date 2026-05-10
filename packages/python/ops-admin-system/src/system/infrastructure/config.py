@@ -7,7 +7,10 @@ from typing import Any
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "AGENTS.md").exists() and (parent / "packages").exists() and (parent / "api").exists():
+            return parent
+    return Path.cwd()
 
 
 def load_database_config() -> dict[str, Any]:

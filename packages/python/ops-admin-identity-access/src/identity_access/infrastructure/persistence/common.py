@@ -117,8 +117,50 @@ def normalize_username(username: str) -> str:
 
 
 def ensure_auth_schema(conn: Any) -> None:
+    if getattr(conn, "backend", "sqlite") != "postgres":
+        repair_sqlite_identity_tables_before_schema(conn)
     ensure_identity_schema(conn)
     ensure_menu_schema(conn)
+
+
+def repair_sqlite_identity_tables_before_schema(conn: Any) -> None:
+    migrate_sqlite_users_for_tenancy(conn)
+    for table_name in (
+        "tenants",
+        "tenant_memberships",
+        "users",
+        "api_keys",
+        "roles",
+        "permissions",
+        "menus",
+        "user_roles",
+        "role_permissions",
+        "role_menus",
+        "tenant_menu_overrides",
+    ):
+        columns = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
+        if not columns:
+            continue
+        if "tenant_id" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN tenant_id INTEGER DEFAULT 1")
+        if "lock_version" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN lock_version INTEGER NOT NULL DEFAULT 0")
+        if "deleted" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+        if "create_time" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN create_time TEXT")
+            conn.execute(f"UPDATE {table_name} SET create_time = ? WHERE create_time IS NULL", (now_iso(),))
+        if "creator" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN creator TEXT DEFAULT NULL")
+        if "creator_id" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN creator_id INTEGER DEFAULT NULL")
+        if "update_time" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN update_time TEXT")
+            conn.execute(f"UPDATE {table_name} SET update_time = ? WHERE update_time IS NULL", (now_iso(),))
+        if "editor" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN editor TEXT DEFAULT NULL")
+        if "editor_id" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN editor_id INTEGER DEFAULT NULL")
 
 
 def ensure_menu_schema(conn: Any) -> None:
@@ -296,12 +338,31 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     if not user_columns:
         return
     column_names = {str(row["name"]) for row in user_columns}
+    required_columns = {
+        "tenant_id",
+        "lock_version",
+        "deleted",
+        "create_time",
+        "creator",
+        "creator_id",
+        "update_time",
+        "editor",
+        "editor_id",
+    }
+    missing_required_columns = bool(required_columns - column_names)
     index_rows = [dict(row) for row in conn.execute("PRAGMA index_list(users)").fetchall()]
-    has_global_username_unique = any(
-        bool(row.get("unique")) and str(row.get("name", "")).startswith("sqlite_autoindex_users")
-        for row in index_rows
-    )
-    if "tenant_id" in column_names and not has_global_username_unique:
+    has_global_username_unique = False
+    for index_row in index_rows:
+        if not bool(index_row.get("unique")):
+            continue
+        index_columns = [
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA index_info({str(index_row['name'])})").fetchall()
+        ]
+        if index_columns == ["username"]:
+            has_global_username_unique = True
+            break
+    if not missing_required_columns and not has_global_username_unique:
         return
 
     conn.execute("DROP TABLE IF EXISTS users_tenant_migration")
@@ -314,19 +375,34 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
             hashed_password TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
             is_superuser INTEGER DEFAULT 0,
-            create_time TEXT NOT NULL,
-            update_time TEXT NOT NULL,
+            lock_version INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0,
+            create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            creator TEXT DEFAULT NULL,
+            creator_id INTEGER DEFAULT NULL,
+            update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            editor TEXT DEFAULT NULL,
+            editor_id INTEGER DEFAULT NULL,
             UNIQUE (tenant_id, username)
         )
         """
     )
     select_tenant = "tenant_id" if "tenant_id" in column_names else "1 AS tenant_id"
+    select_lock_version = "lock_version" if "lock_version" in column_names else "0 AS lock_version"
+    select_deleted = "deleted" if "deleted" in column_names else "0 AS deleted"
+    select_creator = "creator" if "creator" in column_names else "NULL AS creator"
+    select_creator_id = "creator_id" if "creator_id" in column_names else "NULL AS creator_id"
+    select_editor = "editor" if "editor" in column_names else "NULL AS editor"
+    select_editor_id = "editor_id" if "editor_id" in column_names else "NULL AS editor_id"
     conn.execute(
         f"""
         INSERT INTO users_tenant_migration (
-            id, tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time
+            id, tenant_id, username, hashed_password, is_active, is_superuser,
+            lock_version, deleted, create_time, creator, creator_id, update_time, editor, editor_id
         )
-        SELECT id, {select_tenant}, username, hashed_password, is_active, is_superuser, create_time, update_time
+        SELECT id, {select_tenant}, username, hashed_password, is_active, is_superuser,
+            {select_lock_version}, {select_deleted}, create_time, {select_creator}, {select_creator_id},
+            update_time, {select_editor}, {select_editor_id}
         FROM users
         """
     )
