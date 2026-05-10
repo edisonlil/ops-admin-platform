@@ -95,7 +95,7 @@
         ? [createSelectionColumn(), ...columns]
         : columns;
 
-    return normalizeColumns(runtimeColumns);
+    return orderRuntimeColumns(normalizeColumns(runtimeColumns));
   });
   const resolvedTableProps = computed(() => {
     if (props.schema.type !== 'table') return props.schema.tableProps || {};
@@ -206,6 +206,44 @@
     });
   }
 
+  function orderRuntimeColumns(columns: DataTableColumns<Row>): DataTableColumns<Row> {
+    if (!lockedColumnKeys.value.length) return columns;
+
+    const controlLeftColumns: DataTableColumns<Row> = [];
+    const staticLeftColumns: DataTableColumns<Row> = [];
+    const lockedLeftColumns: DataTableColumns<Row> = [];
+    const normalColumns: DataTableColumns<Row> = [];
+    const rightColumns: DataTableColumns<Row> = [];
+
+    columns.forEach((column) => {
+      if (isControlColumn(column)) {
+        controlLeftColumns.push(column);
+        return;
+      }
+
+      const columnKey = getColumnKey(column);
+
+      if ('fixed' in column && column.fixed === 'right') {
+        rightColumns.push(column);
+        return;
+      }
+
+      if (columnKey !== undefined && isColumnLocked(columnKey)) {
+        lockedLeftColumns.push(column);
+        return;
+      }
+
+      if ('fixed' in column && column.fixed === 'left') {
+        staticLeftColumns.push(column);
+        return;
+      }
+
+      normalColumns.push(column);
+    });
+
+    return [...controlLeftColumns, ...staticLeftColumns, ...lockedLeftColumns, ...normalColumns, ...rightColumns];
+  }
+
   function renderColumnTitle(column: DataTableColumn<Row>, columnKey: string | number) {
     const originalTitle = 'title' in column ? column.title : undefined;
     return () =>
@@ -262,6 +300,10 @@
     return undefined;
   }
 
+  function isControlColumn(column: DataTableColumn<Row>) {
+    return 'type' in column && (column.type === 'selection' || column.type === 'expand');
+  }
+
   function compactObject<T extends Record<string, unknown>>(value: T) {
     return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
   }
@@ -294,7 +336,7 @@
       padding-right: var(--app-page-table-cell-padding-inline);
       padding-left: var(--app-page-table-cell-padding-inline);
       color: var(--app-text-color);
-      background: color-mix(in srgb, var(--app-surface-muted-bg) 48%, var(--app-surface-bg));
+      background: color-mix(in srgb, var(--app-surface-muted-bg) 34%, var(--app-surface-bg));
       border-color: color-mix(in srgb, var(--app-border-color) 62%, transparent);
     }
 
@@ -306,7 +348,7 @@
     }
 
     :deep(.n-data-table-thead) {
-      background: color-mix(in srgb, var(--app-surface-muted-bg) 42%, var(--app-surface-bg));
+      background: color-mix(in srgb, var(--app-surface-muted-bg) 30%, var(--app-surface-bg));
     }
 
     :deep(.n-data-table-th--selection),
@@ -361,6 +403,35 @@
       color: var(--app-primary-color);
       background: var(--app-primary-soft-bg);
     }
+
+    :deep(.n-data-table-resize-button) {
+      width: 10px;
+      opacity: 0.38;
+    }
+
+    :deep(.n-data-table-resize-button::after) {
+      top: 18%;
+      bottom: 18%;
+      width: 1px;
+      background-color: color-mix(in srgb, var(--app-border-color) 44%, transparent);
+      border-radius: 999px;
+      transition:
+        background-color 0.16s ease,
+        opacity 0.16s ease;
+    }
+
+    :deep(.n-data-table-th:hover .n-data-table-resize-button),
+    :deep(.n-data-table-resize-button--active) {
+      opacity: 1;
+    }
+
+    :deep(.n-data-table-th:hover .n-data-table-resize-button::after) {
+      background-color: color-mix(in srgb, var(--app-border-color) 68%, transparent);
+    }
+
+    :deep(.n-data-table-resize-button--active::after) {
+      background-color: color-mix(in srgb, var(--app-primary-color) 72%, transparent);
+    }
   }
 
   .app-collection-view--table {
@@ -379,7 +450,7 @@
     min-height: 34px;
     padding: 4px 12px;
     background: var(--app-surface-bg);
-    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color) 62%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color) 26%, transparent);
   }
 
   .app-collection-view__table {
@@ -388,6 +459,10 @@
 
   .app-collection-view--table :deep(.n-data-table) {
     border-radius: 0;
+  }
+
+  .app-collection-view--table :deep(.n-data-table-base-table-header) {
+    border-top-color: color-mix(in srgb, var(--app-border-color) 22%, transparent);
   }
 
   .app-collection-view__table--height-fill {
