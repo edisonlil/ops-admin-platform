@@ -8,27 +8,19 @@
               <template #header>
                 <n-space>
                   <n-dropdown trigger="hover" :options="addMenuOptions" @select="handleAddMenu">
-                    <n-button type="info" ghost icon-placement="right">
+                    <button class="menu-panel-action" type="button">
                       新增菜单
-                      <template #icon>
-                        <div class="flex items-center">
-                          <n-icon size="14">
-                            <DownOutlined />
-                          </n-icon>
-                        </div>
-                      </template>
-                    </n-button>
+                      <n-icon size="14">
+                        <DownOutlined />
+                      </n-icon>
+                    </button>
                   </n-dropdown>
-                  <n-button type="info" ghost icon-placement="left" @click="toggleExpanded">
+                  <button class="menu-panel-action" type="button" @click="toggleExpanded">
                     {{ expandedKeys.length ? '收起全部' : '展开全部' }}
-                    <template #icon>
-                      <div class="flex items-center">
-                        <n-icon size="14">
-                          <AlignLeftOutlined />
-                        </n-icon>
-                      </div>
-                    </template>
-                  </n-button>
+                    <n-icon size="14">
+                      <AlignLeftOutlined />
+                    </n-icon>
+                  </button>
                 </n-space>
               </template>
 
@@ -52,7 +44,7 @@
                     :pattern="pattern"
                     :selected-keys="selectedKeys"
                     :expanded-keys="expandedKeys"
-                    style="max-height: 650px; overflow: auto"
+                    class="menu-tree"
                     @update:selected-keys="handleSelectMenu"
                     @update:expanded-keys="handleExpandedKeys"
                   />
@@ -140,7 +132,7 @@
                     <template #unchecked>隐藏</template>
                   </n-switch>
                 </n-form-item>
-                <n-form-item style="margin-left: 110px">
+                <n-form-item class="menu-form-actions">
                   <n-space>
                     <n-button type="primary" :loading="saving" @click="handleSave">
                       {{ formMode === 'create' ? '创建菜单' : '保存修改' }}
@@ -554,3 +546,47 @@
 
   reload();
 </script>
+
+<style lang="less" scoped>
+  .menu-panel-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    height: var(--app-table-action-button-height, 34px);
+    padding: 0 var(--app-table-action-button-padding-x, 12px);
+    color: var(--app-table-action-default-text, var(--app-primary-color));
+    font: inherit;
+    font-size: var(--app-font-size-base, 14px);
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    background: var(--app-table-action-default-bg, var(--app-surface-bg));
+    border: 1px solid var(--app-table-action-default-border, var(--app-border-color));
+    border-radius: var(--app-table-action-button-radius, var(--app-card-radius));
+    transition: color 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--app-primary-hover-color, var(--app-primary-color));
+      background: var(--app-table-toolbar-icon-hover-bg, var(--app-primary-soft-bg));
+      border-color: var(--app-primary-color);
+      outline: none;
+    }
+
+    &:active {
+      color: var(--app-primary-pressed-color, var(--app-primary-color));
+      border-color: var(--app-primary-pressed-color, var(--app-primary-color));
+    }
+  }
+
+  .menu-tree {
+    max-height: min(650px, calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 260px));
+    overflow: auto;
+  }
+
+  .menu-form-actions {
+    margin-left: var(--app-page-detail-label-width, 110px);
+  }
+</style>

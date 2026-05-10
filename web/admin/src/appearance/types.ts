@@ -207,6 +207,41 @@ export interface SurfaceTokens {
   shadow: string;
 }
 
+export interface DialogTokens extends SurfaceTokens {
+  titleTextColor: string;
+  contentTextColor: string;
+  iconColor: string;
+  padding: string;
+  actionGap: string;
+}
+
+export interface AlertTokens {
+  radius: string;
+  padding: string;
+  infoBg: string;
+  infoText: string;
+  infoBorder: string;
+  infoIcon: string;
+  successBg: string;
+  successText: string;
+  successBorder: string;
+  successIcon: string;
+  warningBg: string;
+  warningText: string;
+  warningBorder: string;
+  warningIcon: string;
+  errorBg: string;
+  errorText: string;
+  errorBorder: string;
+  errorIcon: string;
+}
+
+export interface PopoverTokens extends SurfaceTokens {
+  textColor: string;
+  padding: string;
+  dividerColor: string;
+}
+
 export interface MenuTokens {
   itemHeight: string;
   itemTextColor: string;
@@ -313,6 +348,7 @@ export interface ComponentTokens {
   };
   Card: SurfaceTokens;
   Modal: SurfaceTokens;
+  Dialog: DialogTokens;
   Drawer: SurfaceTokens;
   Menu: MenuTokens;
   Tree: TreeTokens;
@@ -323,6 +359,8 @@ export interface ComponentTokens {
     bgColor: string;
     textColor: string;
   };
+  Alert: AlertTokens;
+  Popover: PopoverTokens;
   LoadingBar: {
     color: string;
   };

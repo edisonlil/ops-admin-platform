@@ -624,6 +624,52 @@
         :max="32"
         @update:model-value="(value) => update('Modal', 'radius', value)"
       />
+      <TokenSizeRow
+        label="Dialog radius"
+        token-path="component.Dialog.radius"
+        :model-value="component.Dialog.radius"
+        :resolved-value="resolved.Dialog.radius"
+        :min="0"
+        :max="32"
+        @update:model-value="(value) => update('Dialog', 'radius', value)"
+      />
+      <TokenColorRow
+        label="Dialog background"
+        token-path="component.Dialog.bgColor"
+        :model-value="component.Dialog.bgColor"
+        :resolved-value="resolved.Dialog.bgColor"
+        @update:model-value="(value) => update('Dialog', 'bgColor', value)"
+      />
+      <TokenColorRow
+        label="Dialog icon"
+        token-path="component.Dialog.iconColor"
+        :model-value="component.Dialog.iconColor"
+        :resolved-value="resolved.Dialog.iconColor"
+        @update:model-value="(value) => update('Dialog', 'iconColor', value)"
+      />
+      <TokenColorRow
+        label="Alert info background"
+        token-path="component.Alert.infoBg"
+        :model-value="component.Alert.infoBg"
+        :resolved-value="resolved.Alert.infoBg"
+        @update:model-value="(value) => update('Alert', 'infoBg', value)"
+      />
+      <TokenSizeRow
+        label="Popover radius"
+        token-path="component.Popover.radius"
+        :model-value="component.Popover.radius"
+        :resolved-value="resolved.Popover.radius"
+        :min="0"
+        :max="32"
+        @update:model-value="(value) => update('Popover', 'radius', value)"
+      />
+      <TokenColorRow
+        label="Popover background"
+        token-path="component.Popover.bgColor"
+        :model-value="component.Popover.bgColor"
+        :resolved-value="resolved.Popover.bgColor"
+        @update:model-value="(value) => update('Popover', 'bgColor', value)"
+      />
     </section>
   </div>
 </template>
