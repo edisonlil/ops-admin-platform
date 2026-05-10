@@ -4,6 +4,7 @@ import type { PageDensity, PageVariant } from '@/appearance/types';
 
 export type CollectionViewType =
   | 'table'
+  | 'tabbed-list'
   | 'basic-list'
   | 'card-list'
   | 'product-list'
@@ -98,6 +99,21 @@ export interface CollectionViewSchema<Row = Record<string, unknown>> {
   dateField?: string;
   endDateField?: string;
   tableProps?: Record<string, unknown>;
+  tabs?: Array<TabbedListPaneSchema<Row>>;
+}
+
+export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
+  name: string;
+  label: string;
+  count?: number;
+  title?: string;
+  description?: string;
+  rows?: Row[];
+  loading?: boolean;
+  refresh?: () => void | Promise<void>;
+  primaryAction?: PageAction;
+  view: CollectionViewSchema<Row>;
+  pagination?: false | PaginationProps;
 }
 
 export interface ListToolbarSchema {

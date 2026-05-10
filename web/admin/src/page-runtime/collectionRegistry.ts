@@ -2,6 +2,7 @@ import type { CollectionViewDefinition, CollectionViewType } from './types';
 
 const collectionViewDefinitions: CollectionViewDefinition[] = [
   { type: 'table', label: '表格列表', description: '高密度数据扫描、排序、固定列和批量操作。' },
+  { type: 'tabbed-list', label: '多标签列表', description: '在同一页面内管理多个同级列表集合。' },
   { type: 'basic-list', label: '基础列表', description: '按行展示对象摘要和行内操作。' },
   { type: 'card-list', label: '卡片列表', description: '以卡片网格展示同构对象。' },
   { type: 'product-list', label: '商品列表', description: '展示商品图、价格、库存、状态和商品操作。' },

@@ -44,6 +44,41 @@
     <section v-if="$slots.collection" class="app-list-page__collection">
       <slot name="collection"></slot>
     </section>
+    <section v-else-if="isTabbedListView" class="app-list-page__tabbed">
+      <n-tabs v-model:value="activeTab" type="line" animated class="app-list-page__tabs">
+        <n-tab-pane v-for="pane in tabbedPanes" :key="pane.name" :name="pane.name" :tab="formatPaneTab(pane)">
+          <section class="app-list-page__pane">
+            <div v-if="pane.title || pane.description || pane.primaryAction" class="app-list-page__pane-header">
+              <div class="app-list-page__pane-title">
+                <h3 v-if="pane.title">{{ pane.title }}</h3>
+                <p v-if="pane.description">{{ pane.description }}</p>
+              </div>
+              <n-button
+                v-if="pane.primaryAction"
+                :type="pane.primaryAction.type || 'primary'"
+                :disabled="pane.primaryAction.disabled"
+                :loading="pane.primaryAction.loading"
+                @click="handleAction(pane.primaryAction)"
+              >
+                {{ pane.primaryAction.label }}
+              </n-button>
+            </div>
+            <AppCollectionView :schema="resolveTableViewSchema(pane.view)" :rows="pane.rows || []" :loading="pane.loading || false">
+              <template v-if="pane.view.type === 'table'" #table-tools>
+                <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="pane.loading" @click="handlePaneRefresh(pane)">
+                  刷新
+                </n-button>
+                <AppTableRuntimeControls
+                  v-model:fill-height="runtimeTableFillHeight"
+                  v-model:row-density="runtimeTableRowDensity"
+                />
+              </template>
+            </AppCollectionView>
+            <AppPagination :pagination="pane.pagination" />
+          </section>
+        </n-tab-pane>
+      </n-tabs>
+    </section>
     <AppCollectionView v-else :schema="resolvedViewSchema" :rows="rows" :loading="loading">
       <template v-if="hasRuntimeTableTools" #table-tools>
         <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="emit('refresh')">刷新</n-button>
@@ -57,12 +92,12 @@
       </template>
     </AppCollectionView>
 
-    <AppPagination :pagination="schema.pagination" />
+    <AppPagination v-if="!isTabbedListView" :pagination="schema.pagination" />
   </AppPage>
 </template>
 
 <script lang="ts" setup generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>">
-  import { computed, ref, useSlots } from 'vue';
+  import { computed, ref, watch, useSlots } from 'vue';
   import AppCollectionView from '../components/AppCollectionView.vue';
   import AppFilterBar from '../components/AppFilterBar.vue';
   import AppPage from '../components/AppPage.vue';
@@ -70,7 +105,7 @@
   import AppPageToolbar from '../components/AppPageToolbar.vue';
   import AppPagination from '../components/AppPagination.vue';
   import AppTableRuntimeControls from '../components/AppTableRuntimeControls.vue';
-  import type { ListPageSchema, PageAction, PageRuntimeContext, TableRowDensity } from '../types';
+  import type { CollectionViewSchema, ListPageSchema, PageAction, PageRuntimeContext, TabbedListPaneSchema, TableRowDensity } from '../types';
 
   const ROW_HEIGHT_BY_DENSITY: Record<TableRowDensity, number> = {
     default: 56,
@@ -96,12 +131,15 @@
   const slots = useSlots();
   const runtimeTableFillHeight = ref(props.schema.view.tableLayout?.heightMode === 'fill');
   const runtimeTableRowDensity = ref<TableRowDensity>(props.schema.view.tableLayout?.rowDensity || 'default');
+  const activeTab = ref(props.schema.view.tabs?.[0]?.name || '');
 
   const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
   const rightTools = computed(() => props.schema.toolbar?.rightTools || []);
   const hasRefreshTool = computed(() => rightTools.value.includes('refresh'));
-  const hasRuntimeTableTools = computed(() => props.schema.view.type === 'table');
+  const isTabbedListView = computed(() => props.schema.view.type === 'tabbed-list');
+  const tabbedPanes = computed(() => props.schema.view.tabs || []);
+  const hasRuntimeTableTools = computed(() => props.schema.view.type === 'table' || isTabbedListView.value);
   const hasOnlyRefreshTool = computed(() => hasRefreshTool.value && rightTools.value.length === 1);
   const hasBatchActions = computed(() => !!props.schema.toolbar?.batchActions?.length);
   const hasNonRefreshRightTools = computed(() => rightTools.value.some((tool) => tool !== 'refresh'));
@@ -120,23 +158,7 @@
     if (props.schema.view.type !== 'table') {
       return props.schema.view;
     }
-    const rowHeight = ROW_HEIGHT_BY_DENSITY[runtimeTableRowDensity.value];
-    return {
-      ...props.schema.view,
-      selectable: props.schema.view.selectable ?? true,
-      columnRuntime: {
-        defaultResizable: true,
-        ...props.schema.view.columnRuntime,
-      },
-      tableLayout: {
-        tableLayout: 'fixed',
-        ...props.schema.view.tableLayout,
-        rowHeight,
-        minRowHeight: rowHeight,
-        heightMode: runtimeTableFillHeight.value ? 'fill' : 'natural',
-        rowDensity: runtimeTableRowDensity.value,
-      },
-    };
+    return resolveTableViewSchema(props.schema.view);
   });
   const context = computed<PageRuntimeContext>(() => ({
     pageId: props.schema.id,
@@ -147,10 +169,113 @@
   function handleAction(action: PageAction) {
     return action.onClick?.(context.value);
   }
+
+  function resolveTableViewSchema(view: CollectionViewSchema<Row>) {
+    if (view.type !== 'table') return view;
+    const rowHeight = ROW_HEIGHT_BY_DENSITY[runtimeTableRowDensity.value];
+    return {
+      ...view,
+      selectable: view.selectable ?? true,
+      columnRuntime: {
+        defaultResizable: true,
+        ...view.columnRuntime,
+      },
+      tableLayout: {
+        tableLayout: 'fixed',
+        ...view.tableLayout,
+        rowHeight,
+        minRowHeight: rowHeight,
+        heightMode: runtimeTableFillHeight.value ? 'fill' : 'natural',
+        rowDensity: runtimeTableRowDensity.value,
+      },
+    };
+  }
+
+  function formatPaneTab(pane: TabbedListPaneSchema<Row>) {
+    return typeof pane.count === 'number' ? `${pane.label} (${pane.count})` : pane.label;
+  }
+
+  async function handlePaneRefresh(pane: TabbedListPaneSchema<Row>) {
+    if (pane.refresh) {
+      await pane.refresh();
+      return;
+    }
+    emit('refresh');
+  }
+
+  watch(
+    tabbedPanes,
+    (panes) => {
+      if (!panes.length) return;
+      if (!panes.some((pane) => pane.name === activeTab.value)) {
+        activeTab.value = panes[0].name;
+      }
+    },
+    { immediate: true }
+  );
 </script>
 
 <style lang="less" scoped>
   .app-list-page__collection {
     min-width: 0;
+  }
+
+  .app-list-page__tabbed {
+    min-width: 0;
+  }
+
+  .app-list-page__tabs :deep(.n-tabs-nav) {
+    padding: 0 4px;
+  }
+
+  .app-list-page__pane {
+    display: grid;
+    gap: var(--app-page-section-gap);
+  }
+
+  .app-list-page__pane-header {
+    display: flex;
+    gap: var(--app-page-toolbar-gap);
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+    padding-top: 2px;
+  }
+
+  .app-list-page__pane-title {
+    min-width: 0;
+    padding-left: 4px;
+  }
+
+  .app-list-page__pane-title h3 {
+    margin: 0 0 4px;
+    color: var(--app-text-color);
+    font-size: 16px;
+    line-height: 1.35;
+    font-weight: 650;
+  }
+
+  .app-list-page__pane-title p {
+    margin: 0;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 900px) {
+    .app-list-page__pane-header {
+      width: 100%;
+      min-width: 0;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .app-list-page__pane-title {
+      padding-left: 0;
+    }
+
+    .app-list-page__pane-header :deep(.n-button) {
+      align-self: flex-start;
+    }
   }
 </style>
