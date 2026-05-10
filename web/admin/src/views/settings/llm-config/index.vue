@@ -6,6 +6,7 @@
           <n-statistic label="Provider" :value="providers.length" />
           <n-statistic label="模型" :value="models.length" />
           <n-statistic label="任务" :value="tasks.length" />
+          <n-statistic label="策略" :value="policies.length" />
         </n-space>
       </template>
 
@@ -764,7 +765,8 @@
   }
 
   .llm-stats {
-    min-width: 360px;
+    width: min(520px, 100%);
+    min-width: 0;
   }
 
   .llm-tabs :deep(.n-tabs-nav) {
@@ -782,6 +784,7 @@
     align-items: flex-start;
     justify-content: space-between;
     min-width: 0;
+    padding-top: 2px;
   }
 
   .llm-section__header h3 {
@@ -825,10 +828,16 @@
     .llm-stats,
     .llm-section__header {
       width: 100%;
+      min-width: 0;
     }
 
     .llm-section__header {
       flex-direction: column;
+      align-items: stretch;
+    }
+
+    .llm-section__header :deep(.n-button) {
+      align-self: flex-start;
     }
   }
 </style>
