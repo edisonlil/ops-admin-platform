@@ -8,7 +8,28 @@
     content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=0"
     name="viewport"
   />
-  <link href="/favicon.ico" rel="icon"/>
+  <script>
+    (function () {
+      var storageKey = 'ops-admin-platform:branding:logo-url';
+      var href = '';
+      try {
+        href = window.localStorage.getItem(storageKey) || '';
+      } catch (error) {
+        href = '';
+      }
+      if (!href) return;
+      var type = href.indexOf('.svg') === href.length - 4 || href.indexOf('data:image/svg+xml') === 0
+        ? ' type="image/svg+xml"'
+        : '';
+      document.write(
+        '<link id="app-favicon" href="' +
+          href.replace(/"/g, '&quot;') +
+          '" rel="icon"' +
+          type +
+          '/>'
+      );
+    })();
+  </script>
   <title><%= title %></title>
 </head>
 <body>

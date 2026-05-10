@@ -27,6 +27,7 @@ import type {
 } from '@/appearance/types';
 
 const APPEARANCE_VERSION = 1;
+const BRANDING_LOGO_STORAGE_KEY = 'ops-admin-platform:branding:logo-url';
 
 type BackendAppearancePayload = Partial<AppearanceStoragePayload> & {
   preset_id?: string;
@@ -140,6 +141,48 @@ function mergeProjectOverrides(overrides: ProjectBehaviorOverrides): Required<Pr
     isPageAnimate: overrides.isPageAnimate ?? base.isPageAnimate,
     pageAnimateType: overrides.pageAnimateType || base.pageAnimateType,
   };
+}
+
+function syncDocumentFavicon(logoUrl: string) {
+  if (typeof document === 'undefined') return;
+
+  const nextHref = logoUrl.trim();
+  let favicon = document.querySelector<HTMLLinkElement>('link#app-favicon');
+  if (!favicon) {
+    favicon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
+  }
+  if (!nextHref) {
+    favicon?.remove();
+    return;
+  }
+  if (!favicon) {
+    favicon = document.createElement('link');
+    favicon.id = 'app-favicon';
+    favicon.rel = 'icon';
+    document.head.appendChild(favicon);
+  }
+
+  favicon.href = nextHref;
+  if (nextHref.endsWith('.svg') || nextHref.startsWith('data:image/svg+xml')) {
+    favicon.type = 'image/svg+xml';
+    return;
+  }
+  favicon.removeAttribute('type');
+}
+
+function cacheBrandingLogoUrl(logoUrl: string) {
+  if (typeof window === 'undefined') return;
+
+  const normalizedLogoUrl = logoUrl.trim();
+  try {
+    if (normalizedLogoUrl) {
+      window.localStorage.setItem(BRANDING_LOGO_STORAGE_KEY, normalizedLogoUrl);
+      return;
+    }
+    window.localStorage.removeItem(BRANDING_LOGO_STORAGE_KEY);
+  } catch (error) {
+    // Best effort only; favicon still updates for the current page.
+  }
 }
 
 export const useAppearanceStore = defineStore({
@@ -365,6 +408,8 @@ export const useAppearanceStore = defineStore({
         this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
         this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
         this.brandingUpdatedAt = branding.update_time || '';
+        cacheBrandingLogoUrl(this.platformLogoUrl);
+        syncDocumentFavicon(this.platformLogoUrl);
       } finally {
         this.isLoadingBranding = false;
       }
@@ -383,6 +428,8 @@ export const useAppearanceStore = defineStore({
           this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
           this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
           this.brandingUpdatedAt = branding.update_time || '';
+          cacheBrandingLogoUrl(this.platformLogoUrl);
+          syncDocumentFavicon(this.platformLogoUrl);
         }
         return response;
       } finally {
