@@ -33,6 +33,7 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
   ],
   appearance: ['appearance-studio'],
   llm_runtime: ['llm-config', 'llm-debug'],
+  messaging: ['messaging', 'message-inbox', 'message-outbox', 'message-send'],
 };
 
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();
@@ -95,6 +96,16 @@ export function registerLlmRuntimeModule(options: OpsAdminModuleOptions = {}) {
     key: 'llm_runtime',
     label: options.label || 'LLM Runtime',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.llm_runtime,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerMessagingModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'messaging',
+    label: options.label || '消息系统',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.messaging,
     routes: options.routes,
     install: options.install,
   });

@@ -116,6 +116,18 @@
         </div>
       </div>
       <!-- 个人中心 -->
+      <div class="layout-header-trigger layout-header-trigger-min message-entry" @click="openInbox">
+        <n-tooltip placement="bottom">
+          <template #trigger>
+            <n-badge :value="unreadCount" :max="99" :show="unreadCount > 0">
+              <n-icon size="18">
+                <MessageOutlined />
+              </n-icon>
+            </n-badge>
+          </template>
+          <span>站内信</span>
+        </n-tooltip>
+      </div>
       <div class="layout-header-trigger layout-header-trigger-min">
         <n-dropdown trigger="hover" @select="avatarSelect" :options="avatarOptions">
           <div class="avatar">
@@ -141,6 +153,7 @@
   import { NDialogProvider, useDialog, useMessage } from 'naive-ui';
   import { computed, defineComponent, reactive, toRefs, unref } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
+  import { getMessagingUnreadCount } from '@/api/messaging';
   import components from './components';
 
   export default defineComponent({
@@ -165,6 +178,7 @@
 
       const state = reactive({
         username: userStore?.info?.username ?? '',
+        unreadCount: 0,
         fullscreenIcon: 'FullscreenOutlined',
         navMode,
         navTheme,
@@ -351,6 +365,22 @@
         router.replace({ path: '/' }).finally(() => location.reload());
       };
 
+      const loadUnreadCount = async () => {
+        if (!userStore.getToken) return;
+        try {
+          const payload = await getMessagingUnreadCount();
+          state.unreadCount = Number(payload?.count || 0);
+        } catch {
+          state.unreadCount = 0;
+        }
+      };
+
+      const openInbox = () => {
+        router.push({ name: 'message-inbox' });
+      };
+
+      loadUnreadCount();
+
       function handleMenuCollapsed() {
         emit('update:collapsed', !props.collapsed);
       }
@@ -367,6 +397,7 @@
         currentTenantName,
         isPlatformAdmin,
         tenantSelect,
+        openInbox,
         getChangeStyle,
         avatarSelect,
         breadcrumbList,
@@ -478,6 +509,15 @@
         span {
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+      }
+
+      .message-entry {
+        :deep(.n-badge-sup) {
+          min-width: 16px;
+          height: 16px;
+          padding: 0 5px;
+          line-height: 16px;
         }
       }
 

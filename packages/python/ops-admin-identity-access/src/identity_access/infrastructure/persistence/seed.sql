@@ -69,6 +69,46 @@ INSERT INTO permissions (code, name, description)
 SELECT 'tenant:api_key:manage', 'Tenant API key manage', 'Manage API keys inside platform tenants'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:api_key:manage');
 
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:inbox:view', 'Messaging inbox view', 'View own in-app messages'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:inbox:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:inbox:manage_self', 'Messaging inbox manage self', 'Update own in-app message read state'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:inbox:manage_self');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:messages:view', 'Messaging messages view', 'View tenant message send records'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:messages:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:messages:send', 'Messaging messages send', 'Send tenant in-app messages'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:messages:send');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:messages:cancel', 'Messaging messages cancel', 'Cancel queued tenant messages'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:messages:cancel');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:manage', 'Messaging channels manage', 'Manage tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'messaging', 'tenant', '消息系统', 'directory', '', '', '', 'message', '', '', 85, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'messaging');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-inbox', 'tenant', '站内信', 'page', '/messaging/inbox', 'message-inbox', '/messaging/inbox/index', 'message', 'messaging', 'messaging:inbox:view', 86, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-inbox');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-outbox', 'tenant', '发送记录', 'page', '/messaging/outbox', 'message-outbox', '/messaging/outbox/index', 'FileSearchOutlined', 'messaging', 'messaging:messages:view', 87, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-outbox');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-send', 'tenant', '发送消息', 'page', '/messaging/send', 'message-send', '/messaging/send/index', 'message', 'messaging', 'messaging:messages:send', 88, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-send');
+
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'llm', 'tenant', '大模型', 'directory', '', '', '', 'experiment', '', '', 90, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm');

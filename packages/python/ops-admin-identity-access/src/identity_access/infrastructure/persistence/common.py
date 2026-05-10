@@ -32,6 +32,10 @@ class DisabledUserException(HTTPException):
 
 
 DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
+    "messaging": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "message-inbox": {"menu_type": "page", "component": "/messaging/inbox/index", "menu_scope": "tenant"},
+    "message-outbox": {"menu_type": "page", "component": "/messaging/outbox/index", "menu_scope": "tenant"},
+    "message-send": {"menu_type": "page", "component": "/messaging/send/index", "menu_scope": "tenant"},
     "llm": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "llm-config": {"menu_type": "page", "component": "/settings/llm-config/index", "menu_scope": "tenant"},
     "llm-debug": {"menu_type": "page", "component": "/settings/llm-debug/index", "menu_scope": "tenant"},
@@ -46,11 +50,22 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "role-management": {"menu_type": "page", "component": "/rbac/role/index", "menu_scope": "platform"},
 }
 
+TENANT_MESSAGING_MENU_KEYS = ["messaging", "message-inbox", "message-outbox", "message-send"]
 TENANT_LLM_MENU_KEYS = ["llm", "llm-config", "llm-debug"]
-TENANT_ADMIN_MENU_KEYS = ["tenant-settings", "tenant-user-management", "tenant-api-keys"] + TENANT_LLM_MENU_KEYS
+TENANT_ADMIN_MENU_KEYS = (
+    ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
+    + TENANT_MESSAGING_MENU_KEYS
+    + TENANT_LLM_MENU_KEYS
+)
 TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = TENANT_ADMIN_MENU_KEYS
-TENANT_ADMIN_EXTRA_PERMISSION_CODES = ["llm_config:update"]
+TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
+    "llm_config:update",
+    "messaging:inbox:view",
+    "messaging:inbox:manage_self",
+    "messaging:messages:view",
+    "messaging:messages:send",
+]
 
 
 def now_iso() -> str:
@@ -749,6 +764,46 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "",
             "",
             90,
+        ),
+        (
+            "messaging",
+            "消息系统",
+            "",
+            "",
+            "message",
+            "",
+            "",
+            85,
+        ),
+        (
+            "message-inbox",
+            "站内信",
+            "/messaging/inbox",
+            "message-inbox",
+            "inbox",
+            "messaging",
+            "messaging:inbox:view",
+            86,
+        ),
+        (
+            "message-outbox",
+            "发送记录",
+            "/messaging/outbox",
+            "message-outbox",
+            "send",
+            "messaging",
+            "messaging:messages:view",
+            87,
+        ),
+        (
+            "message-send",
+            "发送消息",
+            "/messaging/send",
+            "message-send",
+            "edit",
+            "messaging",
+            "messaging:messages:send",
+            88,
         ),
         (
             "llm-config",

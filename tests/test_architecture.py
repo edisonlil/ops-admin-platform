@@ -12,12 +12,14 @@ BOUNDED_CONTEXTS = {
     "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
     "identity_access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access" / "src" / "identity_access",
     "llm_runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime" / "src" / "llm_runtime",
+    "messaging": PYTHON_PACKAGES_ROOT / "ops-admin-messaging" / "src" / "messaging",
     "system": PYTHON_PACKAGES_ROOT / "ops-admin-system" / "src" / "system",
 }
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
     "ops-admin-identity-access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access",
     "ops-admin-llm-runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime",
+    "ops-admin-messaging": PYTHON_PACKAGES_ROOT / "ops-admin-messaging",
     "ops-admin-system": PYTHON_PACKAGES_ROOT / "ops-admin-system",
 }
 FORBIDDEN_DOMAIN_IMPORTS = {
@@ -218,6 +220,8 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["llm_runtime"] / "entrypoints.py",
         BOUNDED_CONTEXTS["llm_runtime"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["messaging"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["messaging"] / "infrastructure" / "persistence" / "bootstrap.py",
     }
     forbidden = {
         "initialize_auth_storage",
@@ -277,6 +281,7 @@ def test_python_packages_have_required_metadata_and_entrypoints() -> None:
         ),
         "ops-admin-appearance": ("appearance", "appearance.entrypoints:router", "appearance.entrypoints:init_tasks"),
         "ops-admin-llm-runtime": ("llm_runtime", "llm_runtime.entrypoints:router", "llm_runtime.entrypoints:init_tasks"),
+        "ops-admin-messaging": ("messaging", "messaging.entrypoints:router", "messaging.entrypoints:init_tasks"),
     }
     violations: list[str] = []
     for package_name, (module_name, router_entrypoint, init_entrypoint) in expected.items():

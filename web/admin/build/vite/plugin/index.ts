@@ -6,6 +6,7 @@ import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
 
 import { configHtmlPlugin } from './html';
+import { configAppConfigPlugin } from './appConfig';
 import { configCompressPlugin } from './compress';
 
 export function createVitePlugins(viteEnv: ViteEnv, isBuild: boolean) {
@@ -26,6 +27,7 @@ export function createVitePlugins(viteEnv: ViteEnv, isBuild: boolean) {
 
   // vite-plugin-html
   vitePlugins.push(configHtmlPlugin(viteEnv, isBuild));
+  vitePlugins.push(configAppConfigPlugin());
 
   if (isBuild) {
     // rollup-plugin-gzip

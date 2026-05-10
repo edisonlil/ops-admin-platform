@@ -1,0 +1,2 @@
+-- Messaging seed data is added through identity_access menu and permission seeds.
+-- Channel accounts and templates are tenant-specific and should not be seeded here.

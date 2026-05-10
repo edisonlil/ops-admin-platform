@@ -36,6 +36,12 @@ def mount_admin(app: FastAPI) -> None:
     if assets_path.exists():
         app.mount("/assets", StaticFiles(directory=assets_path), name="admin-assets")
 
+    config_path = dist_path / "app.config.js"
+    if config_path.exists():
+        @app.get("/app.config.js", include_in_schema=False)
+        def admin_config() -> FileResponse:
+            return FileResponse(config_path, media_type="application/javascript")
+
     index_path = dist_path / "index.html"
     if index_path.exists():
         @app.get("/")

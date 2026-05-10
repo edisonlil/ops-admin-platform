@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-admin-messaging"
+version = "0.1.0"
+description = "Messaging bounded context for ops-admin-platform."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "ops-admin-identity-access",
+    "ops-admin-system",
+]
+
+[project.entry-points."ops_admin.routers"]
+messaging = "messaging.entrypoints:router"
+
+[project.entry-points."ops_admin.init_tasks"]
+messaging = "messaging.entrypoints:init_tasks"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+messaging = ["infrastructure/persistence/*.sql"]

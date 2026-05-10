@@ -11,6 +11,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Normalize-ProcessPathEnvironment {
+  $pathValue = [Environment]::GetEnvironmentVariable("Path", "Process")
+  if ([string]::IsNullOrWhiteSpace($pathValue)) {
+    $pathValue = [Environment]::GetEnvironmentVariable("PATH", "Process")
+  }
+  if (-not [string]::IsNullOrWhiteSpace($pathValue)) {
+    [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+    [Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+  }
+}
+
+Normalize-ProcessPathEnvironment
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FrontendRoot = Join-Path $RepoRoot "web\admin"
 $ConfigRoot = Join-Path $RepoRoot "config"
@@ -174,6 +187,7 @@ function Configure-PythonPath {
     $RepoRoot,
     (Join-Path $RepoRoot "packages\python\ops-admin-system\src"),
     (Join-Path $RepoRoot "packages\python\ops-admin-identity-access\src"),
+    (Join-Path $RepoRoot "packages\python\ops-admin-messaging\src"),
     (Join-Path $RepoRoot "packages\python\ops-admin-appearance\src"),
     (Join-Path $RepoRoot "packages\python\ops-admin-llm-runtime\src")
   )
@@ -229,15 +243,14 @@ function Invoke-Checked {
   )
 
   Write-Host $Label
-  $process = Start-Process `
-    -FilePath $FilePath `
-    -ArgumentList $ArgumentList `
-    -WorkingDirectory $WorkingDirectory `
-    -NoNewWindow `
-    -Wait `
-    -PassThru
-  if ($process.ExitCode -ne 0) {
-    throw "$Label failed with exit code $($process.ExitCode)."
+  Push-Location $WorkingDirectory
+  try {
+    & $FilePath @ArgumentList
+    if ($LASTEXITCODE -ne 0) {
+      throw "$Label failed with exit code $LASTEXITCODE."
+    }
+  } finally {
+    Pop-Location
   }
 }
 
@@ -334,7 +347,7 @@ function Initialize-DatabaseStorage {
     }
   }
 
-  foreach ($scriptName in @("init_identity_access.py", "init_appearance.py", "init_llm_runtime.py")) {
+  foreach ($scriptName in @("init_identity_access.py", "init_messaging.py", "init_appearance.py", "init_llm_runtime.py")) {
     Invoke-Checked `
       -FilePath $Python `
       -ArgumentList @((Join-Path "scripts" $scriptName)) `

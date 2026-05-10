@@ -9,6 +9,7 @@ TEST_IMPORT_PATHS = (
     ROOT,
     ROOT / "packages" / "python" / "ops-admin-system" / "src",
     ROOT / "packages" / "python" / "ops-admin-identity-access" / "src",
+    ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     ROOT / "packages" / "python" / "ops-admin-appearance" / "src",
     ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
 )

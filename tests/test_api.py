@@ -104,6 +104,17 @@ class ApiTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def initialize_messaging_db(self) -> None:
+        from messaging.infrastructure.persistence.bootstrap import ensure_messaging_schema
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            ensure_messaging_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_database_url_can_come_from_config_file(self) -> None:
         from api.config import resolve_database_url
 
@@ -417,6 +428,51 @@ class ApiTests(unittest.TestCase):
         initialized_theme_response = self.request("GET", "/api/appearance/platform-theme", auth=False)
         self.assertEqual(initialized_theme_response.status_code, 200)
         self.assertEqual(initialized_theme_response.json()["data"]["source"], "builtin")
+
+    def test_messaging_requires_explicit_schema_initialization(self) -> None:
+        uninitialized_response = self.request("GET", "/api/messaging/inbox")
+
+        self.assertEqual(uninitialized_response.status_code, 503)
+        self.assertIn("messaging storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_admin_can_send_and_read_in_app_message(self) -> None:
+        self.initialize_messaging_db()
+        me_response = self.request("GET", "/api/auth/me")
+        self.assertEqual(me_response.status_code, 200)
+        user_id = int(me_response.json()["data"]["id"])
+
+        send_response = self.request(
+            "POST",
+            "/api/messaging/messages/send",
+            json={
+                "title": "Maintenance notice",
+                "content": "The platform will be updated tonight.",
+                "recipient_user_ids": [user_id],
+                "message_type": "system",
+                "priority": "normal",
+            },
+        )
+        self.assertEqual(send_response.status_code, 200)
+        self.assertEqual(send_response.json()["data"]["item"]["title"], "Maintenance notice")
+
+        unread_response = self.request("GET", "/api/messaging/inbox/unread-count")
+        self.assertEqual(unread_response.status_code, 200)
+        self.assertEqual(unread_response.json()["data"]["count"], 1)
+
+        inbox_response = self.request("GET", "/api/messaging/inbox")
+        self.assertEqual(inbox_response.status_code, 200)
+        items = inbox_response.json()["data"]["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "Maintenance notice")
+        self.assertEqual(items[0]["read_status"], "unread")
+
+        mark_response = self.request("POST", f"/api/messaging/inbox/{items[0]['id']}/read")
+        self.assertEqual(mark_response.status_code, 200)
+        self.assertEqual(mark_response.json()["data"]["item"]["read_status"], "read")
+
+        unread_after_response = self.request("GET", "/api/messaging/inbox/unread-count")
+        self.assertEqual(unread_after_response.status_code, 200)
+        self.assertEqual(unread_after_response.json()["data"]["count"], 0)
 
 
 if __name__ == "__main__":
