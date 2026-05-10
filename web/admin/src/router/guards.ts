@@ -4,6 +4,7 @@ import { useAsyncRoute } from '@/store/modules/asyncRoute';
 import { useUser } from '@/store/modules/user';
 import { ACCESS_TOKEN } from '@/store/mutation-types';
 import { storage } from '@/utils/Storage';
+import { useAppearanceStore } from '@/store/modules/appearance';
 import type { RouteRecordRaw } from 'vue-router';
 import { isNavigationFailure, Router } from 'vue-router';
 import { RedirectName } from './constant';
@@ -81,7 +82,8 @@ export function createRouterGuards(router: Router) {
   });
 
   router.afterEach((to, _, failure) => {
-    document.title = (to?.meta?.title as string) || document.title;
+    const appearanceStore = useAppearanceStore();
+    document.title = appearanceStore.displayPlatformName;
     if (isNavigationFailure(failure)) {
       //console.log('failed navigation', failure)
     }

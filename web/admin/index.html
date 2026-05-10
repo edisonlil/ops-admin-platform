@@ -31,6 +31,16 @@
     })();
   </script>
   <title><%= title %></title>
+  <script>
+    (function () {
+      try {
+        var title = window.localStorage.getItem('ops-admin-platform:branding:platform-name') || '';
+        if (title) {
+          document.title = title;
+        }
+      } catch (error) {}
+    })();
+  </script>
 </head>
 <body>
 <div id="appProvider" style="display: none"></div>

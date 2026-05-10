@@ -27,6 +27,8 @@ import type {
 } from '@/appearance/types';
 
 const APPEARANCE_VERSION = 1;
+const DEFAULT_PLATFORM_NAME = 'fg-agent';
+const BRANDING_NAME_STORAGE_KEY = 'ops-admin-platform:branding:platform-name';
 const BRANDING_LOGO_STORAGE_KEY = 'ops-admin-platform:branding:logo-url';
 
 type BackendAppearancePayload = Partial<AppearanceStoragePayload> & {
@@ -143,6 +145,22 @@ function mergeProjectOverrides(overrides: ProjectBehaviorOverrides): Required<Pr
   };
 }
 
+function readCachedPlatformName() {
+  if (typeof window === 'undefined') return DEFAULT_PLATFORM_NAME;
+
+  try {
+    return window.localStorage.getItem(BRANDING_NAME_STORAGE_KEY) || DEFAULT_PLATFORM_NAME;
+  } catch (error) {
+    return DEFAULT_PLATFORM_NAME;
+  }
+}
+
+function syncDocumentTitle(platformName: string) {
+  if (typeof document === 'undefined') return;
+
+  document.title = platformName.trim() || DEFAULT_PLATFORM_NAME;
+}
+
 function syncDocumentFavicon(logoUrl: string) {
   if (typeof document === 'undefined') return;
 
@@ -185,6 +203,21 @@ function cacheBrandingLogoUrl(logoUrl: string) {
   }
 }
 
+function cacheBrandingPlatformName(platformName: string) {
+  if (typeof window === 'undefined') return;
+
+  const normalizedPlatformName = platformName.trim();
+  try {
+    if (normalizedPlatformName) {
+      window.localStorage.setItem(BRANDING_NAME_STORAGE_KEY, normalizedPlatformName);
+      return;
+    }
+    window.localStorage.removeItem(BRANDING_NAME_STORAGE_KEY);
+  } catch (error) {
+    // Best effort only; title still updates for the current page.
+  }
+}
+
 export const useAppearanceStore = defineStore({
   id: 'app-appearance',
   state: (): AppearanceState => ({
@@ -208,7 +241,7 @@ export const useAppearanceStore = defineStore({
     editingSkinClass: '',
     isLoadingRemote: false,
     isPublishing: false,
-    platformName: 'fg-agent',
+    platformName: readCachedPlatformName(),
     platformLogoUrl: '',
     platformNameFontSize: 20,
     brandingUpdatedAt: '',
@@ -322,7 +355,7 @@ export const useAppearanceStore = defineStore({
       return state.editingSkinClass || this.editorPreset.skinClass || '';
     },
     displayPlatformName(state): string {
-      return state.platformName.trim() || 'fg-agent';
+      return state.platformName.trim() || DEFAULT_PLATFORM_NAME;
     },
     displayPlatformLogoUrl(state): string {
       return state.platformLogoUrl.trim();
@@ -404,11 +437,13 @@ export const useAppearanceStore = defineStore({
         const response = await getPlatformBranding();
         const branding = response?.branding;
         if (!branding) return;
-        this.platformName = branding.platformName || branding.platform_name || 'fg-agent';
+        this.platformName = branding.platformName || branding.platform_name || DEFAULT_PLATFORM_NAME;
         this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
         this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
         this.brandingUpdatedAt = branding.update_time || '';
+        cacheBrandingPlatformName(this.platformName);
         cacheBrandingLogoUrl(this.platformLogoUrl);
+        syncDocumentTitle(this.platformName);
         syncDocumentFavicon(this.platformLogoUrl);
       } finally {
         this.isLoadingBranding = false;
@@ -424,11 +459,13 @@ export const useAppearanceStore = defineStore({
         });
         const branding = response?.branding;
         if (branding) {
-          this.platformName = branding.platformName || branding.platform_name || 'fg-agent';
+          this.platformName = branding.platformName || branding.platform_name || DEFAULT_PLATFORM_NAME;
           this.platformLogoUrl = branding.logoUrl || branding.logo_url || '';
           this.platformNameFontSize = branding.platformNameFontSize || branding.platform_name_font_size || 20;
           this.brandingUpdatedAt = branding.update_time || '';
+          cacheBrandingPlatformName(this.platformName);
           cacheBrandingLogoUrl(this.platformLogoUrl);
+          syncDocumentTitle(this.platformName);
           syncDocumentFavicon(this.platformLogoUrl);
         }
         return response;

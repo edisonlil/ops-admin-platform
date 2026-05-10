@@ -225,8 +225,7 @@
     flex-direction: column;
     height: 100vh;
     overflow: auto;
-    background-color: #f0f2f5;
-    background: linear-gradient(140deg, #e8f1fa, #c2d9ec, #a1c3e0, #80aed3);
+    background: #fff;
     position: relative;
     
     &::before {
@@ -237,7 +236,7 @@
       right: 0;
       bottom: 0;
       background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCI+CiAgPGNpcmNsZSBjeD0iMTAiIGN5PSIxMCIgcj0iMiIgZmlsbD0icmdiYSg0NSwgMTQwLCAyNDAsIDAuMSkiIC8+Cjwvc3ZnPg==');
-      opacity: 0.6;
+      opacity: 0;
       z-index: 0;
     }
     
@@ -249,7 +248,7 @@
       right: 0;
       bottom: 0;
       background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj4KICA8cmVjdCB4PSI1MCIgeT0iNTAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgdHJhbnNmb3JtPSJyb3RhdGUoNDUgNTUgNTUpIiBmaWxsPSJyZ2JhKDQ1LCAxNDAsIDI0MCwgMC4wNSkiIC8+Cjwvc3ZnPg==');
-      opacity: 0.8;
+      opacity: 0;
       z-index: 0;
     }
 
@@ -516,11 +515,7 @@
 
   @media (min-width: 768px) {
     .view-account {
-      background-image: url('../../assets/images/login.svg'), 
-                        radial-gradient(circle at 10% 20%, rgba(100, 149, 237, 0.25) 0%, rgba(65, 105, 225, 0.2) 40%, rgba(30, 144, 255, 0.1) 90%);
-      background-repeat: no-repeat;
-      background-position: 50%;
-      background-size: cover;
+      background: #fff;
       position: relative;
       
       &::before {
@@ -530,7 +525,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: linear-gradient(135deg, rgba(45, 140, 240, 0.1), rgba(45, 140, 240, 0.05));
+        background: transparent;
         backdrop-filter: blur(10px);
         z-index: 0;
       }
@@ -543,7 +538,7 @@
         top: 0;
         left: 0;
         background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZGVmcz4KICA8cGF0dGVybiBpZD0icGF0dGVybiIgeD0iMCIgeT0iMCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjYwIiBwYXR0ZXJuVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBwYXR0ZXJuVHJhbnNmb3JtPSJyb3RhdGUoNDUpIj4KICAgIDxjaXJjbGUgY3g9IjMwIiBjeT0iMzAiIHI9IjEuNSIgZmlsbD0icmdiYSg0NSwgMTQwLCAyNDAsIDAuMikiIC8+CiAgPC9wYXR0ZXJuPgo8L2RlZnM+CjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjcGF0dGVybikiIC8+Cjwvc3ZnPg==');
-        opacity: 0.3;
+        opacity: 0;
         z-index: 0;
         pointer-events: none;
       }
@@ -563,6 +558,7 @@
   }
   
   .view-account-background {
+    display: none;
     position: absolute;
     width: 100%;
     height: 100%;
