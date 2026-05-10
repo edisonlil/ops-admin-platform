@@ -3,6 +3,7 @@ import { store } from '@/store';
 import {
   getAppearanceTheme,
   getEffectiveAppearanceTheme,
+  getPlatformAppearanceTheme,
   getPlatformBranding,
   publishCurrentTenantAppearanceTheme,
   updatePlatformBranding,
@@ -28,8 +29,10 @@ import type {
 
 const APPEARANCE_VERSION = 1;
 const DEFAULT_PLATFORM_NAME = 'fg-agent';
+const PLATFORM_THEME_STORAGE_KEY = 'ops-admin-platform:appearance:platform-theme';
 const BRANDING_NAME_STORAGE_KEY = 'ops-admin-platform:branding:platform-name';
 const BRANDING_LOGO_STORAGE_KEY = 'ops-admin-platform:branding:logo-url';
+const BRANDING_FONT_SIZE_STORAGE_KEY = 'ops-admin-platform:branding:platform-name-font-size';
 
 type BackendAppearancePayload = Partial<AppearanceStoragePayload> & {
   preset_id?: string;
@@ -82,6 +85,26 @@ function safeParseAppearance(payload: string): Partial<AppearanceStoragePayload>
   } catch (error) {
     return null;
   }
+}
+
+function readCachedAppearancePayload(key: string): Partial<AppearanceStoragePayload> | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    const payload = raw ? safeParseAppearance(raw) : null;
+    return payload?.version === APPEARANCE_VERSION ? payload : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function readCachedPlatformAppearance(): { appearance: EditableAppearanceState; isCached: boolean } {
+  const payload = readCachedAppearancePayload(PLATFORM_THEME_STORAGE_KEY);
+  return {
+    appearance: normalizePayload(payload || {}),
+    isCached: !!payload,
+  };
 }
 
 function normalizePayload(payload: BackendAppearancePayload = {}): EditableAppearanceState {
@@ -155,6 +178,27 @@ function readCachedPlatformName() {
   }
 }
 
+function readCachedPlatformLogoUrl() {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return window.localStorage.getItem(BRANDING_LOGO_STORAGE_KEY) || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function readCachedPlatformNameFontSize() {
+  if (typeof window === 'undefined') return 20;
+
+  try {
+    const value = Number(window.localStorage.getItem(BRANDING_FONT_SIZE_STORAGE_KEY) || 20);
+    return Number.isFinite(value) ? value : 20;
+  } catch (error) {
+    return 20;
+  }
+}
+
 function syncDocumentTitle(platformName: string) {
   if (typeof document === 'undefined') return;
 
@@ -218,36 +262,49 @@ function cacheBrandingPlatformName(platformName: string) {
   }
 }
 
+function cacheBrandingPlatformNameFontSize(platformNameFontSize: number) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(BRANDING_FONT_SIZE_STORAGE_KEY, String(platformNameFontSize || 20));
+  } catch (error) {
+    // Best effort only; the current page still uses the fetched branding.
+  }
+}
+
 export const useAppearanceStore = defineStore({
   id: 'app-appearance',
-  state: (): AppearanceState => ({
-    version: APPEARANCE_VERSION,
-    presetId: 'default',
-    tokenOverrides: {},
-    layoutOverrides: {},
-    projectOverrides: {},
-    skinClass: '',
-    loadedStorageKey: '',
-    backendThemeSource: 'local',
-    backendThemeId: null,
-    backendThemeUpdatedAt: '',
-    editingThemeId: null,
-    editingThemeName: '',
-    editingThemeStatus: '',
-    editingPresetId: 'default',
-    editingTokenOverrides: {},
-    editingLayoutOverrides: {},
-    editingProjectOverrides: {},
-    editingSkinClass: '',
-    isLoadingRemote: false,
-    isPublishing: false,
-    platformName: readCachedPlatformName(),
-    platformLogoUrl: '',
-    platformNameFontSize: 20,
-    brandingUpdatedAt: '',
-    isLoadingBranding: false,
-    isSavingBranding: false,
-  }),
+  state: (): AppearanceState => {
+    const cachedPlatformAppearance = readCachedPlatformAppearance();
+    return {
+      version: APPEARANCE_VERSION,
+      presetId: cachedPlatformAppearance.appearance.presetId,
+      tokenOverrides: cachedPlatformAppearance.appearance.tokenOverrides,
+      layoutOverrides: cachedPlatformAppearance.appearance.layoutOverrides,
+      projectOverrides: cachedPlatformAppearance.appearance.projectOverrides,
+      skinClass: cachedPlatformAppearance.appearance.skinClass,
+      loadedStorageKey: cachedPlatformAppearance.isCached ? PLATFORM_THEME_STORAGE_KEY : '',
+      backendThemeSource: cachedPlatformAppearance.isCached ? 'platform' : 'local',
+      backendThemeId: null,
+      backendThemeUpdatedAt: '',
+      editingThemeId: null,
+      editingThemeName: '',
+      editingThemeStatus: '',
+      editingPresetId: 'default',
+      editingTokenOverrides: {},
+      editingLayoutOverrides: {},
+      editingProjectOverrides: {},
+      editingSkinClass: '',
+      isLoadingRemote: false,
+      isPublishing: false,
+      platformName: readCachedPlatformName(),
+      platformLogoUrl: readCachedPlatformLogoUrl(),
+      platformNameFontSize: readCachedPlatformNameFontSize(),
+      brandingUpdatedAt: '',
+      isLoadingBranding: false,
+      isSavingBranding: false,
+    };
+  },
   getters: {
     activePreset(state) {
       return getAppearancePreset(state.presetId);
@@ -390,6 +447,34 @@ export const useAppearanceStore = defineStore({
       if (typeof window === 'undefined') return;
       writeStorage(this.tenantStorageKey, payload);
     },
+    cachePlatformPayload(payload: AppearanceStoragePayload) {
+      if (typeof window === 'undefined') return;
+      writeStorage(PLATFORM_THEME_STORAGE_KEY, payload);
+    },
+    clearPlatformPayload() {
+      if (typeof window === 'undefined') return;
+      window.localStorage.removeItem(PLATFORM_THEME_STORAGE_KEY);
+    },
+    reloadPlatformTheme() {
+      if (typeof window === 'undefined') return;
+      const raw = window.localStorage.getItem(PLATFORM_THEME_STORAGE_KEY);
+      const payload = raw ? safeParseAppearance(raw) : null;
+
+      this.loadedStorageKey = PLATFORM_THEME_STORAGE_KEY;
+      if (!payload || payload.version !== APPEARANCE_VERSION) {
+        this.version = APPEARANCE_VERSION;
+        this.applyPayload({});
+        this.backendThemeSource = 'builtin';
+        this.backendThemeId = null;
+        this.backendThemeUpdatedAt = '';
+        return;
+      }
+
+      this.applyPayload(payload);
+      this.backendThemeSource = 'platform';
+      this.backendThemeId = null;
+      this.backendThemeUpdatedAt = '';
+    },
     reloadForCurrentTenant() {
       if (typeof window === 'undefined') return;
       const key = this.storageKey;
@@ -420,6 +505,7 @@ export const useAppearanceStore = defineStore({
           this.backendThemeSource = 'builtin';
           this.backendThemeId = null;
           this.backendThemeUpdatedAt = '';
+          this.clearPlatformPayload();
           return;
         }
         this.applyPayload(response.theme);
@@ -427,6 +513,31 @@ export const useAppearanceStore = defineStore({
         this.backendThemeId = response.theme.id || null;
         this.backendThemeUpdatedAt = response.theme.update_time || '';
         this.cacheTenantPayload(toStoragePayload(this.runtimeState));
+        if (response.source === 'platform') {
+          this.cachePlatformPayload(toStoragePayload(this.runtimeState));
+        }
+      } finally {
+        this.isLoadingRemote = false;
+      }
+    },
+    async loadPlatformTheme() {
+      this.reloadPlatformTheme();
+      this.isLoadingRemote = true;
+      try {
+        const response = await getPlatformAppearanceTheme();
+        this.loadedStorageKey = PLATFORM_THEME_STORAGE_KEY;
+        if (!response?.theme) {
+          this.applyPayload({});
+          this.backendThemeSource = 'builtin';
+          this.backendThemeId = null;
+          this.backendThemeUpdatedAt = '';
+          return;
+        }
+        this.applyPayload(response.theme);
+        this.backendThemeSource = response.source === 'tenant' ? 'platform' : response.source;
+        this.backendThemeId = response.theme.id || null;
+        this.backendThemeUpdatedAt = response.theme.update_time || '';
+        this.cachePlatformPayload(toStoragePayload(this.runtimeState));
       } finally {
         this.isLoadingRemote = false;
       }
@@ -443,6 +554,7 @@ export const useAppearanceStore = defineStore({
         this.brandingUpdatedAt = branding.update_time || '';
         cacheBrandingPlatformName(this.platformName);
         cacheBrandingLogoUrl(this.platformLogoUrl);
+        cacheBrandingPlatformNameFontSize(this.platformNameFontSize);
         syncDocumentTitle(this.platformName);
         syncDocumentFavicon(this.platformLogoUrl);
       } finally {
@@ -465,6 +577,7 @@ export const useAppearanceStore = defineStore({
           this.brandingUpdatedAt = branding.update_time || '';
           cacheBrandingPlatformName(this.platformName);
           cacheBrandingLogoUrl(this.platformLogoUrl);
+          cacheBrandingPlatformNameFontSize(this.platformNameFontSize);
           syncDocumentTitle(this.platformName);
           syncDocumentFavicon(this.platformLogoUrl);
         }
@@ -476,6 +589,11 @@ export const useAppearanceStore = defineStore({
     ensureLoadedForCurrentTenant() {
       if (this.loadedStorageKey !== this.storageKey) {
         this.reloadForCurrentTenant();
+      }
+    },
+    ensurePlatformThemeLoaded() {
+      if (this.loadedStorageKey !== PLATFORM_THEME_STORAGE_KEY) {
+        this.reloadPlatformTheme();
       }
     },
     applyPreset(presetId: string) {

@@ -35,6 +35,10 @@ def get_platform_branding() -> dict[str, Any]:
     return {"branding": branding.to_dict()}
 
 
+def platform_default_theme() -> dict[str, Any]:
+    return effective_theme_for_tenant(0)
+
+
 def update_platform_branding(*, payload: dict[str, Any], actor: str) -> dict[str, Any]:
     platform_name = str(payload.get("platform_name") or payload.get("platformName") or "").strip()
     logo_url = str(payload.get("logo_url") if "logo_url" in payload else payload.get("logoUrl", "")).strip()

@@ -6,6 +6,9 @@ import App from './App.vue';
 import router, { setupRouter } from './router';
 import { setupStore } from '@/store';
 import { setupStarterModules } from './modules';
+import { useAppearanceStore } from '@/store/modules/appearance';
+import { useUserStore } from '@/store/modules/user';
+import { PageEnum } from '@/enums/pageEnum';
 
 async function bootstrap() {
   setupStarterModules();
@@ -14,6 +17,16 @@ async function bootstrap() {
 
   // 挂载状态管理
   setupStore(app);
+
+  const appearanceStore = useAppearanceStore();
+  const userStore = useUserStore();
+  const initialPath = window.location.pathname;
+  if (initialPath === PageEnum.BASE_LOGIN || !userStore.getToken) {
+    await Promise.all([
+      appearanceStore.loadPlatformBranding().catch(() => undefined),
+      appearanceStore.loadPlatformTheme().catch(() => appearanceStore.ensurePlatformThemeLoaded()),
+    ]);
+  }
 
   // 注册全局常用的 naive-ui 组件
   setupNaive(app);

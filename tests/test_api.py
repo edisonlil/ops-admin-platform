@@ -299,10 +299,15 @@ class ApiTests(unittest.TestCase):
     def test_appearance_requires_explicit_schema_initialization(self) -> None:
         uninitialized_response = self.request("GET", "/api/appearance/platform-branding")
         self.assertEqual(uninitialized_response.status_code, 503)
+        uninitialized_theme_response = self.request("GET", "/api/appearance/platform-theme", auth=False)
+        self.assertEqual(uninitialized_theme_response.status_code, 503)
 
         self.initialize_appearance_db()
         initialized_response = self.request("GET", "/api/appearance/platform-branding")
         self.assertEqual(initialized_response.status_code, 200)
+        initialized_theme_response = self.request("GET", "/api/appearance/platform-theme", auth=False)
+        self.assertEqual(initialized_theme_response.status_code, 200)
+        self.assertEqual(initialized_theme_response.json()["data"]["source"], "builtin")
 
 
 if __name__ == "__main__":

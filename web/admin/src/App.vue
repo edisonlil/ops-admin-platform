@@ -28,6 +28,7 @@
   import { useDesignSettingStore } from '@/store/modules/designSetting';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import { useUserStore } from '@/store/modules/user';
+  import { PageEnum } from '@/enums/pageEnum';
 
   const route = useRoute();
   const useScreenLock = useScreenLockStore();
@@ -43,8 +44,8 @@
 
   const syncAppearanceTheme = () => {
     appearanceStore.loadPlatformBranding().catch(() => undefined);
-    if (route.name == 'login' || !userStore.getToken) {
-      appearanceStore.ensureLoadedForCurrentTenant();
+    if (route.name === PageEnum.BASE_LOGIN_NAME || !userStore.getToken) {
+      appearanceStore.loadPlatformTheme().catch(() => appearanceStore.ensurePlatformThemeLoaded());
       return;
     }
     appearanceStore.loadEffectiveThemeForCurrentTenant().catch(() => appearanceStore.ensureLoadedForCurrentTenant());
@@ -52,7 +53,7 @@
 
   const timekeeping = () => {
     clearInterval(timer);
-    if (route.name == 'login' || isLock.value) return;
+    if (route.name === PageEnum.BASE_LOGIN_NAME || isLock.value) return;
     // 设置不锁屏
     useScreenLock.setLock(false);
     // 重置锁屏时间
@@ -74,7 +75,7 @@
   });
 
   watch(
-    () => [userStore.info?.current_tenant, userStore.info?.username, userStore.username],
+    () => [route.name, userStore.getToken, userStore.info?.current_tenant, userStore.info?.username, userStore.username],
     () => syncAppearanceTheme(),
     { deep: true }
   );

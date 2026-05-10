@@ -28,6 +28,11 @@ def platform_branding() -> dict[str, Any]:
     return ok(services.get_platform_branding())
 
 
+@router.get("/platform-theme")
+def platform_theme() -> dict[str, Any]:
+    return ok(services.platform_default_theme())
+
+
 @router.put("/platform-branding", dependencies=[Depends(auth.require_platform_admin)])
 def update_platform_branding(
     payload: PlatformBrandingRequest,

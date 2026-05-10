@@ -46,6 +46,12 @@ export function getEffectiveAppearanceTheme() {
   });
 }
 
+export function getPlatformAppearanceTheme() {
+  return Alova.Get<EffectiveAppearanceTheme>('/appearance/platform-theme', {
+    params: withNoCacheParams(),
+  });
+}
+
 export function getPlatformBranding() {
   return Alova.Get<{ branding: PlatformBranding }>('/appearance/platform-branding', {
     params: withNoCacheParams(),
