@@ -48,6 +48,10 @@
 - API wrapper functions should return unwrapped business data.
 - Components should not know the envelope format; only the request layer should.
 - Keep backend module capabilities aligned with default frontend module pages where practical.
+- List pages, table pages, and data-view pages must be modeled through `web/admin/src/page-runtime`.
+- New list/data-view shapes such as tabbed lists, split master-detail views, kanban, tree, calendar, timeline, gallery, or map views should be added as Page Runtime view types/adapters instead of hand-building equivalent page structure inside business pages.
+- Business pages may provide schemas, rows, loading state, actions, and item/detail slots, but Page Runtime owns header, filters, toolbar, collection boundaries, table tools, pagination placement, density, spacing, and visual consistency.
+- Table pagination should be rendered by Page Runtime outside the data table; do not enable `n-data-table` internal pagination to simulate page-level pagination.
 
 ## Testing
 - Run backend tests after server changes.

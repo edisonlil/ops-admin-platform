@@ -22,6 +22,22 @@ const apiKeyListPage = defineListPage<Recordable>({
 });
 ```
 
+## Runtime Ownership
+
+列表页、表格页和数据视图页必须由 Page Runtime 管理页面结构。业务页面只声明 schema、rows、loading、actions 和必要 slot 内容，不应手写页面级列表布局。
+
+后续如果出现新的列表或数据视图形态，应该先把它建模为正式的 `CollectionViewType` 或 `ListPageRuntime` 视图协议，再由 Runtime 统一渲染。不要因为页面需要 tab、分栏、主从、看板、树、图库、时间线、地图或多表格区域，就在业务页绕过 `ListPageRuntime` 自己组合 `n-tabs`、`n-data-table`、分页、工具条和标题区域。
+
+Runtime 负责保持这些跨页面能力一致：
+
+- 页面标题、说明和 header actions；
+- filter、toolbar、collection 和 pagination 的相对位置；
+- 表格工具区、刷新、高度铺满、行高密度、列宽拖拽、冻结列；
+- 空状态、loading、分页样式和容器边界；
+- 不同数据视图之间的密度、间距、圆角和主题变量接入。
+
+业务页可以提供业务动作、字段列定义、卡片 item slot 或详情抽屉，但不能复制 Runtime 的结构性职责。需要新增结构性能力时，扩展 Runtime，而不是在单个页面做局部实现。
+
 ## Table Protocol
 
 所有表格列表默认由 `ListPageRuntime` 注入统一能力：
@@ -135,6 +151,8 @@ pagination: {
 
 业务页可以继续传入 Naive UI 的 `PaginationProps` 覆盖当前页、总数等状态，但页大小选项必须保持 `20 / 50 / 100`。
 
+表格内置分页默认应关闭，分页由 `ListPageRuntime` 外置渲染。这样表格边界和分页边界在所有页面中保持一致，避免在表格内部出现额外白底、重复边框或不一致的底部留白。
+
 ### Escape Hatch
 
 `tableProps` 用于透传 Naive UI 的低频能力，但不建议绕过 Runtime 重建表格结构。
@@ -144,9 +162,36 @@ pagination: {
 当前集合视图包括：
 
 - `table`
+- `tabbed-list`
+- `basic-list`
 - `card-list`
 - `product-list`
+- `split-list`
+- `kanban`
+- `calendar`
+- `tree`
+- `timeline`
 - `gallery`
+- `map`
+
+### 多列表和多数据视图
+
+同一页面内存在多个同级列表时，使用 `tabbed-list` 或新增等价 Runtime view type。每个 tab/pane 声明自己的 `label`、`count`、`title`、`description`、`rows`、`loading`、`primaryAction`、`view` 和 `pagination`，由 `ListPageRuntime` 统一渲染 tab、pane header、CollectionView、表格工具和外置分页。
+
+不同业务数据视图也应保持同一原则：
+
+- 多 tab 表格：使用 `tabbed-list`；
+- 卡片网格：使用 `card-list` 或业务专用 card view；
+- 商品/资源图文列表：使用 `product-list` 或扩展专用 view；
+- 左右主从：使用 `split-list` 或扩展 master-detail list view；
+- 状态流转：使用 `kanban`；
+- 层级数据：使用 `tree`；
+- 日程数据：使用 `calendar`；
+- 事件流：使用 `timeline`；
+- 媒体资源：使用 `gallery`；
+- 空间资源：使用 `map`。
+
+如果现有 view type 只能显示占位，不要在业务页临时拼装完整 UI；应优先补 Runtime adapter 或新增 view type，再让业务页迁回 schema。
 
 卡片类页面仍然使用同一个 ListPage 外壳，只通过 `item` slot 定义卡片内容：
 
@@ -161,6 +206,8 @@ pagination: {
 ## Constraints
 
 - 页面必须使用 Runtime 提供的 header、filter、toolbar、collection 和 pagination 结构；
+- 新的列表、表格和数据视图形态必须扩展 Page Runtime 协议，不能在业务页绕过 Runtime 手写同类结构；
 - 表格列表默认具备多选列，除非业务明确禁用；
 - 普通列冻结由表头锁交互完成，不在业务页写死左侧冻结；
+- 表格分页由 Runtime 外置管理，业务页不要开启 `n-data-table` 内置分页来模拟页面分页；
 - 主题、CSS 变量和 Appearance System 仍由现有 Theme Runtime 管理。
