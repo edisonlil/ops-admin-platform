@@ -119,12 +119,6 @@
       <div class="layout-header-trigger layout-header-trigger-min">
         <n-dropdown trigger="hover" @select="avatarSelect" :options="avatarOptions">
           <div class="avatar">
-            <n-avatar :src="websiteConfig.logo">
-              <template #icon>
-                <UserOutlined />
-              </template>
-            </n-avatar>
-            <n-divider vertical />
             <span>{{ username }}</span>
           </div>
         </n-dropdown>
@@ -136,7 +130,6 @@
 </template>
 
 <script lang="ts">
-  import { websiteConfig } from '@/config/website.config';
   import { useProjectSetting } from '@/hooks/setting/useProjectSetting';
   import { Logo } from '@/layout/components/Logo';
   import { AsideMenu } from '@/layout/components/Menu';
@@ -381,7 +374,6 @@
         getInverted,
         getMenuLocation,
         mixMenu,
-        websiteConfig,
         handleMenuCollapsed,
         RedirectName,
       };
