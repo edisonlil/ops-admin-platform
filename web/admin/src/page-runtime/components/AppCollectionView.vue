@@ -286,9 +286,14 @@
   }
 
   function toggleColumnLock(columnKey: string | number) {
-    lockedColumnKeys.value = isColumnLocked(columnKey)
-      ? lockedColumnKeys.value.filter((key) => key !== columnKey)
-      : [...lockedColumnKeys.value, columnKey];
+    const freezableKeys = getFreezableColumnKeys(props.schema.columns || []);
+    const targetIndex = freezableKeys.findIndex((key) => key === columnKey);
+    if (targetIndex < 0) return;
+
+    const nextLockedKeys = freezableKeys.slice(0, targetIndex + 1);
+    const currentBoundaryKey = lockedColumnKeys.value[lockedColumnKeys.value.length - 1];
+
+    lockedColumnKeys.value = currentBoundaryKey === columnKey ? [] : nextLockedKeys;
   }
 
   function isColumnLocked(columnKey: string | number) {
@@ -302,6 +307,27 @@
 
   function isControlColumn(column: DataTableColumn<Row>) {
     return 'type' in column && (column.type === 'selection' || column.type === 'expand');
+  }
+
+  function getFreezableColumnKeys(columns: DataTableColumns<Row>): Array<string | number> {
+    const runtime = props.schema.columnRuntime || {};
+
+    return columns.flatMap((column) => {
+      if ('children' in column && column.children) {
+        return getFreezableColumnKeys(column.children as DataTableColumns<Row>);
+      }
+
+      if (isControlColumn(column)) return [];
+
+      const columnKey = getColumnKey(column);
+      if (columnKey === undefined) return [];
+
+      const disabledFreeze = runtime.disabledFreezeKeys?.includes(columnKey);
+      const isSystemFrozen = runtime.freeze?.left?.includes(columnKey) || runtime.freeze?.right?.includes(columnKey);
+      if (disabledFreeze || isSystemFrozen || column.fixed) return [];
+
+      return [columnKey];
+    });
   }
 
   function compactObject<T extends Record<string, unknown>>(value: T) {
