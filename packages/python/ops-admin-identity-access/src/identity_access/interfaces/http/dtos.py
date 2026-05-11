@@ -59,6 +59,7 @@ class RbacRoleCreateRequest(BaseModel):
     key: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
+    role_scope: str = Field(default="platform", max_length=20)
     menu_keys: list[str] = Field(default_factory=list)
 
     @field_validator("key")
@@ -77,6 +78,14 @@ class RbacRoleCreateRequest(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("Role name must not be blank")
+        return value
+
+    @field_validator("role_scope")
+    @classmethod
+    def role_scope_must_be_known(cls, value: str) -> str:
+        value = value.strip() or "platform"
+        if value not in {"platform", "tenant"}:
+            raise ValueError("Role scope must be platform or tenant")
         return value
 
 

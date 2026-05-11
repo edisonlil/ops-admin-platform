@@ -273,8 +273,21 @@ def list_roles() -> list[dict[str, Any]]:
     return rbac_service.list_roles()
 
 
-def create_role(*, role_key: str, name: str, description: str = "", menu_keys: list[str] | None = None) -> dict[str, Any]:
-    role = rbac_service.create_role(role_key=role_key, name=name, description=description, menu_keys=menu_keys)
+def create_role(
+    *,
+    role_key: str,
+    name: str,
+    description: str = "",
+    role_scope: str = "platform",
+    menu_keys: list[str] | None = None,
+) -> dict[str, Any]:
+    role = rbac_service.create_role(
+        role_key=role_key,
+        name=name,
+        description=description,
+        role_scope=role_scope,
+        menu_keys=menu_keys,
+    )
     publish_event(events.role_permissions_changed(int(role["id"]), correlation_id=current_request_id()))
     return role
 

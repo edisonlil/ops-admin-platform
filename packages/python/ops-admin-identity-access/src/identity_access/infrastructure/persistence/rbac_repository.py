@@ -338,8 +338,18 @@ def sync_role_access(conn: Any, role_id: int, menu_keys: list[str]) -> None:
         )
 
 
-def create_role(*, role_key: str, name: str, description: str = "", menu_keys: list[str] | None = None) -> dict[str, Any]:
+def create_role(
+    *,
+    role_key: str,
+    name: str,
+    description: str = "",
+    role_scope: str = "platform",
+    menu_keys: list[str] | None = None,
+) -> dict[str, Any]:
     normalized_key = role_key.strip()
+    normalized_scope = role_scope.strip() or "platform"
+    if normalized_scope not in {"platform", "tenant"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="role scope must be platform or tenant")
     now = now_iso()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -349,10 +359,10 @@ def create_role(*, role_key: str, name: str, description: str = "", menu_keys: l
 
         cursor = conn.execute(
             """
-            INSERT INTO roles (role_key, name, description, is_system, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO roles (role_key, name, description, is_system, role_scope, create_time, update_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (normalized_key, name.strip(), description.strip(), False, now, now),
+            (normalized_key, name.strip(), description.strip(), False, normalized_scope, now, now),
         )
         role_id = int(getattr(cursor, "lastrowid", 0) or 0)
         if not role_id:

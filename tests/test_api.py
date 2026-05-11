@@ -249,7 +249,6 @@ class ApiTests(unittest.TestCase):
                 "role_keys": ["tenant-admin"],
                 "is_active": True,
                 "is_superuser": False,
-                "is_tenant_admin": True,
             },
         )
         self.assertEqual(create_response.status_code, 200)
@@ -290,7 +289,6 @@ class ApiTests(unittest.TestCase):
                 "role_keys": ["tenant-admin"],
                 "is_active": True,
                 "is_superuser": False,
-                "is_tenant_admin": True,
             },
         )
         self.assertEqual(create_user_response.status_code, 200)
@@ -329,6 +327,40 @@ class ApiTests(unittest.TestCase):
         list_response = self.request("GET", "/api/tenant/api-keys", headers=tenant_headers, auth=False)
         self.assertEqual(list_response.status_code, 200)
         self.assertNotIn(key_id, {int(item["id"]) for item in list_response.json()["data"]["items"]})
+
+    def test_tenant_admin_flag_follows_tenant_admin_role(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "role-derived", "name": "Role Derived"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "role-owner",
+                "password": "role-owner-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+        created_user = create_user_response.json()["data"]["item"]
+        self.assertTrue(created_user["is_tenant_admin"])
+
+        update_user_response = self.request(
+            "PUT",
+            f"/api/tenants/{tenant_id}/users/{created_user['id']}",
+            json={
+                "username": "role-owner",
+                "password": "",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(update_user_response.status_code, 200)
+        self.assertFalse(update_user_response.json()["data"]["item"]["is_tenant_admin"])
 
     def test_identity_initialization_repairs_tenant_admin_llm_update_permission(self) -> None:
         from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
@@ -559,6 +591,30 @@ class ApiTests(unittest.TestCase):
         self.assertIn("reports-export", menu_keys)
         self.assertIn("reports:view", permission_codes)
         self.assertIn("reports:export", permission_codes)
+
+    def test_admin_can_create_tenant_role_with_tenant_action_permissions(self) -> None:
+        role_response = self.request(
+            "POST",
+            "/api/rbac/roles",
+            json={
+                "key": "tenant-member-operator",
+                "name": "Tenant Member Operator",
+                "description": "",
+                "role_scope": "tenant",
+                "menu_keys": ["tenant-users-create"],
+            },
+        )
+
+        self.assertEqual(role_response.status_code, 200)
+        role = role_response.json()["data"]["item"]
+        self.assertEqual(role["role_scope"], "tenant")
+        menu_keys = {item["key"] for item in role["menus"]}
+        permission_codes = {item["code"] for item in role["permissions"]}
+        self.assertIn("tenant-settings", menu_keys)
+        self.assertIn("tenant-user-management", menu_keys)
+        self.assertIn("tenant-users-create", menu_keys)
+        self.assertIn("tenant:user:manage", permission_codes)
+        self.assertIn("tenant:users:create", permission_codes)
 
     def test_llm_config_requires_explicit_schema_initialization(self) -> None:
         uninitialized_response = self.request("GET", "/api/llm/providers")

@@ -57,8 +57,21 @@ def list_roles() -> list[dict[str, Any]]:
     return repositories.list_roles()
 
 
-def create_role(*, role_key: str, name: str, description: str = "", menu_keys: list[str] | None = None) -> dict[str, Any]:
-    return repositories.create_role(role_key=role_key, name=name, description=description, menu_keys=menu_keys)
+def create_role(
+    *,
+    role_key: str,
+    name: str,
+    description: str = "",
+    role_scope: str = "platform",
+    menu_keys: list[str] | None = None,
+) -> dict[str, Any]:
+    return repositories.create_role(
+        role_key=role_key,
+        name=name,
+        description=description,
+        role_scope=role_scope,
+        menu_keys=menu_keys,
+    )
 
 
 def update_role(

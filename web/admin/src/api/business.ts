@@ -26,6 +26,7 @@ export interface RbacRoleCreatePayload {
   key: string;
   name: string;
   description?: string;
+  role_scope?: 'platform' | 'tenant';
   menu_keys?: string[];
 }
 

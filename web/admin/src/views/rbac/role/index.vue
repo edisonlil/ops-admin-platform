@@ -1,6 +1,12 @@
 <template>
   <div>
-    <ListPageRuntime :schema="roleListPage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="roleListPage" :rows="rows" :loading="loading" @refresh="reload">
+      <template #header-actions>
+        <n-button v-if="hasPermission(['system:roles:create'])" @click="handleCreate('tenant')">
+          新增租户角色
+        </n-button>
+      </template>
+    </ListPageRuntime>
 
     <n-modal v-model:show="roleModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
       <template #header>
@@ -23,6 +29,12 @@
         </n-form-item>
         <n-form-item label="角色 Key" path="key">
           <n-input v-model:value="roleForm.key" placeholder="例如 ops-reviewer" :disabled="editingSystemRole" />
+        </n-form-item>
+        <n-form-item label="角色范围" path="role_scope">
+          <n-radio-group v-model:value="roleForm.role_scope" :disabled="true">
+            <n-radio-button value="platform">平台角色</n-radio-button>
+            <n-radio-button value="tenant">租户角色</n-radio-button>
+          </n-radio-group>
         </n-form-item>
         <n-form-item label="描述" path="description">
           <n-input
@@ -140,6 +152,7 @@
     key: string;
     name: string;
     description: string;
+    role_scope: 'platform' | 'tenant';
     menu_keys: string[];
     is_system: boolean;
   }
@@ -164,19 +177,20 @@
     key: '',
     name: '',
     description: '',
+    role_scope: 'platform',
     menu_keys: [],
     is_system: false,
   });
 
   const editingSystemRole = computed(() => roleFormMode.value === 'edit' && roleForm.is_system);
-  const roleModalTitle = computed(() => (roleFormMode.value === 'create' ? '新增角色' : '编辑角色'));
-  const roleSubmitText = computed(() => (roleFormMode.value === 'create' ? '创建' : '保存'));
-  const roleFormScope = computed(() => {
-    if (roleFormMode.value === 'edit' && roleForm.id) {
-      return rows.value.find((row) => row.id === roleForm.id)?.role_scope || 'platform';
+  const roleModalTitle = computed(() => {
+    if (roleFormMode.value === 'edit') {
+      return '编辑角色';
     }
-    return 'platform';
+    return roleForm.role_scope === 'tenant' ? '新增租户角色' : '新增角色';
   });
+  const roleSubmitText = computed(() => (roleFormMode.value === 'create' ? '创建' : '保存'));
+  const roleFormScope = computed(() => roleForm.role_scope);
   const currentRoleScope = computed(() => currentRole.value?.role_scope || 'platform');
   const roleFormMenuTree = computed(() => buildScopedMenuTree(roleFormScope.value));
   const currentRoleMenuTree = computed(() => buildScopedMenuTree(currentRoleScope.value));
@@ -262,7 +276,7 @@
     },
     toolbar: {
       primaryAction: hasPermission(['system:roles:create'])
-        ? { key: 'create', label: '新增角色', type: 'primary', onClick: () => handleCreate() }
+        ? { key: 'create', label: '新增角色', type: 'primary', onClick: () => handleCreate('platform') }
         : undefined,
       rightTools: ['refresh'],
     },
@@ -366,6 +380,7 @@
     roleForm.key = '';
     roleForm.name = '';
     roleForm.description = '';
+    roleForm.role_scope = 'platform';
     roleForm.menu_keys = [];
     roleForm.is_system = false;
     roleFormRef.value?.restoreValidation();
@@ -376,6 +391,7 @@
     roleForm.key = String(row.key || '');
     roleForm.name = String(row.name || '');
     roleForm.description = String(row.description || '');
+    roleForm.role_scope = row.role_scope === 'tenant' ? 'tenant' : 'platform';
     roleForm.menu_keys = (row.menus || []).map((menu) => String(menu.key));
     roleForm.is_system = !!row.is_system;
     roleFormRef.value?.restoreValidation();
@@ -435,7 +451,7 @@
       };
 
       if (roleFormMode.value === 'create') {
-        await createRbacRole(payload);
+        await createRbacRole({ ...payload, role_scope: roleForm.role_scope });
         message.success('角色创建成功');
       } else if (roleForm.id) {
         await updateRbacRole(roleForm.id, payload);
@@ -469,10 +485,11 @@
     }
   }
 
-  async function handleCreate() {
+  async function handleCreate(roleScope: 'platform' | 'tenant' = 'platform') {
     await ensureMenusLoaded();
     roleFormMode.value = 'create';
     resetRoleForm();
+    roleForm.role_scope = roleScope;
     syncExpandedMenuKeys(roleFormMenuTree.value);
     roleModalVisible.value = true;
   }

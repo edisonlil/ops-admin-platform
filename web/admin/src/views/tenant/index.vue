@@ -129,9 +129,6 @@
         <n-form-item label="启用" path="is_active">
           <n-switch v-model:value="userForm.is_active" />
         </n-form-item>
-        <n-form-item label="租户管理员" path="is_tenant_admin">
-          <n-switch v-model:value="userForm.is_tenant_admin" />
-        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -253,7 +250,6 @@
     role_keys: [] as string[],
     is_active: true,
     is_superuser: false,
-    is_tenant_admin: false,
   });
   const keyCreateVisible = ref(false);
   const createdKeyVisible = ref(false);
@@ -352,12 +348,6 @@
       },
     },
     {
-      title: '租户管理员',
-      key: 'is_tenant_admin',
-      width: 120,
-      render: (row) => h(AppStatusTag, { statusKey: row.is_tenant_admin ? 'yes' : 'no' }),
-    },
-    {
       title: '状态',
       key: 'is_active',
       width: 90,
@@ -454,7 +444,7 @@
       type: 'table',
       columns: userColumns,
       rowKey: (row) => Number(row.id),
-      scrollX: 760,
+      scrollX: 640,
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -470,7 +460,7 @@
     type: 'table',
     columns: userColumns,
     rowKey: (row) => Number(row.id),
-    scrollX: 760,
+    scrollX: 640,
     tableProps: { size: 'small', pagination: { pageSize: 20 } },
   };
 
@@ -502,7 +492,6 @@
       role_keys: [],
       is_active: true,
       is_superuser: false,
-      is_tenant_admin: false,
     });
     userFormRef.value?.restoreValidation();
   }
@@ -652,7 +641,6 @@
       role_keys: (row.roles || []).map((role) => String(role.key)),
       is_active: !!row.is_active,
       is_superuser: !!row.is_superuser,
-      is_tenant_admin: !!row.is_tenant_admin,
     });
     userModalVisible.value = true;
   }
@@ -672,7 +660,6 @@
         role_keys: userForm.role_keys,
         is_active: userForm.is_active,
         is_superuser: userForm.is_superuser,
-        is_tenant_admin: userForm.is_tenant_admin,
       };
       if (userFormMode.value === 'create') {
         if (isPlatformTenantManagement.value) await createTenantUser(activeTenant.value.id, payload);

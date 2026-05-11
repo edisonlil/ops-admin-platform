@@ -12,6 +12,7 @@ from system.domain.tenancy import DEFAULT_TENANT_KEY
 
 
 PLATFORM_TENANT_KEY = "platform"
+TENANT_ADMIN_ROLE_KEY = "tenant-admin"
 
 
 def list_tenants(q: str | None = None) -> list[dict[str, Any]]:
@@ -82,10 +83,9 @@ def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "username": admin_username,
                 "password": admin_password,
-                "role_keys": ["tenant-admin"],
+                "role_keys": [TENANT_ADMIN_ROLE_KEY],
                 "is_active": True,
                 "is_superuser": False,
-                "is_tenant_admin": True,
             },
         )
         tenant["user_count"] = 1
@@ -247,11 +247,12 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    role_keys = list(payload.get("role_keys") or [])
     user = rbac_service.create_user(
         username=str(payload.get("username", "")),
         password=str(payload.get("password", "")),
         tenant_id=tenant_id,
-        role_keys=list(payload.get("role_keys") or []),
+        role_keys=role_keys,
         is_active=bool(payload.get("is_active", True)),
         is_superuser=False,
     )
@@ -264,12 +265,13 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             conn,
             tenant_id=tenant_id,
             user_id=int(user["id"]),
-            is_tenant_admin=bool(payload.get("is_tenant_admin", False)),
+            is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user)
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    role_keys = list(payload.get("role_keys") or [])
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
         tenant = tenant_repository.get_business_tenant_by_id(conn, tenant_id)
@@ -287,7 +289,7 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
         username=str(payload.get("username", "")),
         password=str(payload.get("password", "")),
         tenant_id=tenant_id,
-        role_keys=list(payload.get("role_keys") or []),
+        role_keys=role_keys,
         is_active=bool(payload.get("is_active", True)),
         is_superuser=False,
     )
@@ -297,7 +299,7 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             conn,
             tenant_id=tenant_id,
             user_id=user_id,
-            is_tenant_admin=bool(payload.get("is_tenant_admin", False)),
+            is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
 

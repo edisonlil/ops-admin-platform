@@ -349,6 +349,7 @@ def create_rbac_role(
         role_key=payload.key,
         name=payload.name,
         description=payload.description,
+        role_scope=payload.role_scope,
         menu_keys=payload.menu_keys,
     )})
 
