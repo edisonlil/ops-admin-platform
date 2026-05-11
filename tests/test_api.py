@@ -577,6 +577,59 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(preferences_response.status_code, 200)
         self.assertEqual(preferences_response.json()["data"]["items"][0]["message_type"], "system")
 
+    def test_admin_can_render_and_send_message_template(self) -> None:
+        self.initialize_messaging_db()
+        me_response = self.request("GET", "/api/auth/me")
+        self.assertEqual(me_response.status_code, 200)
+        user_id = int(me_response.json()["data"]["id"])
+
+        template_response = self.request(
+            "POST",
+            "/api/messaging/templates",
+            json={
+                "template_key": "release_notice",
+                "name": "发布通知",
+                "description": "版本发布消息",
+                "channels": ["in_app", "email"],
+                "title_template": "{{version}} 发布完成",
+                "content_template": "版本 {{version}} 已在 {{time}} 发布。",
+                "variables_schema": {"version": {"type": "string"}, "time": {"type": "string"}},
+                "status": "enabled",
+            },
+        )
+        self.assertEqual(template_response.status_code, 200)
+
+        render_response = self.request(
+            "POST",
+            "/api/messaging/templates/render",
+            json={"template_key": "release_notice", "variables": {"version": "v1.2.0", "time": "今晚 20:00"}},
+        )
+        self.assertEqual(render_response.status_code, 200)
+        self.assertEqual(render_response.json()["data"]["rendered"]["title"], "v1.2.0 发布完成")
+        self.assertEqual(render_response.json()["data"]["missing_variables"], [])
+
+        send_response = self.request(
+            "POST",
+            "/api/messaging/messages/send-template",
+            json={
+                "template_key": "release_notice",
+                "variables": {"version": "v1.2.0", "time": "今晚 20:00"},
+                "recipient_user_ids": [user_id],
+                "message_type": "system",
+                "priority": "high",
+            },
+        )
+        self.assertEqual(send_response.status_code, 200)
+        self.assertEqual(send_response.json()["data"]["item"]["title"], "v1.2.0 发布完成")
+        self.assertEqual(send_response.json()["data"]["channels"], ["in_app", "email"])
+
+        inbox_response = self.request("GET", "/api/messaging/inbox")
+        self.assertEqual(inbox_response.status_code, 200)
+        item = inbox_response.json()["data"]["items"][0]
+        self.assertEqual(item["title"], "v1.2.0 发布完成")
+        self.assertEqual(item["delivery_summary"]["in_app"], "sent")
+        self.assertEqual(item["delivery_summary"]["email"], "pending")
+
 
 if __name__ == "__main__":
     unittest.main()

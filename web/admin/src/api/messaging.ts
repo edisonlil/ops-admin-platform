@@ -84,6 +84,31 @@ export interface SendInAppMessagePayload {
   payload?: Record<string, unknown>;
 }
 
+export interface SendTemplateMessagePayload {
+  template_key: string;
+  variables: Record<string, unknown>;
+  recipient_user_ids: number[];
+  message_type?: string;
+  priority?: string;
+  channels?: string[];
+  payload?: Record<string, unknown>;
+}
+
+export interface RenderMessageTemplatePayload {
+  template_key: string;
+  variables: Record<string, unknown>;
+}
+
+export interface RenderMessageTemplateResult {
+  template: MessageTemplate;
+  rendered: {
+    title: string;
+    content: string;
+    missing_variables: string[];
+  };
+  missing_variables: string[];
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return {
     ...params,
@@ -121,10 +146,21 @@ export function sendInAppMessage(payload: SendInAppMessagePayload) {
   return Alova.Post<{ item: MessageIntent }>('/messaging/messages/send', payload);
 }
 
+export function sendTemplateMessage(payload: SendTemplateMessagePayload) {
+  return Alova.Post<{ item: MessageIntent; rendered: RenderMessageTemplateResult['rendered']; channels: string[] }>(
+    '/messaging/messages/send-template',
+    payload
+  );
+}
+
 export function getMessageTemplates() {
   return Alova.Get<{ items: MessageTemplate[] }>('/messaging/templates', {
     params: withNoCacheParams(),
   });
+}
+
+export function renderMessageTemplate(payload: RenderMessageTemplatePayload) {
+  return Alova.Post<RenderMessageTemplateResult>('/messaging/templates/render', payload);
 }
 
 export function saveMessageTemplate(payload: Partial<MessageTemplate>) {

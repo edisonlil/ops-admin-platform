@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import HTTPException, status
 
 from messaging.infrastructure.persistence import repositories
+
+TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 
 
 def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -36,6 +39,51 @@ def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"item": message.to_dict()}
+
+
+def send_template_message(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    recipient_user_ids = normalize_recipient_ids(payload.get("recipient_user_ids"))
+    if not recipient_user_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recipient_user_ids is required")
+    template_key = str(payload.get("template_key") or "").strip()
+    if not template_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_key is required")
+    template = get_enabled_template(tenant_id=tenant_id, template_key=template_key)
+    variables = payload.get("variables") if isinstance(payload.get("variables"), dict) else {}
+    rendered = render_template_values(
+        title_template=template.title_template,
+        content_template=template.content_template,
+        variables=variables,
+    )
+    actor = current_actor(current_user)
+    sender_user_id = current_user_id_or_none(current_user)
+    channels = normalize_channels(payload.get("channels")) or template.channels
+    business_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    business_payload = {
+        **business_payload,
+        "template_key": template.template_key,
+        "template_variables": variables,
+        "channels": channels,
+    }
+    try:
+        message = repositories.create_message(
+            tenant_id=tenant_id,
+            title=rendered["title"],
+            content=rendered["content"],
+            recipient_user_ids=recipient_user_ids,
+            message_type=str(payload.get("message_type") or "system"),
+            priority=str(payload.get("priority") or "normal"),
+            payload=business_payload,
+            sender_user_id=sender_user_id,
+            sender_name=actor,
+            actor=actor,
+            template_id=template.id,
+            channels=channels,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"item": message.to_dict(), "rendered": rendered, "channels": channels}
 
 
 def list_messages(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -111,6 +159,20 @@ def list_templates(current_user: dict[str, Any]) -> dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"items": [item.to_dict() for item in items]}
+
+
+def render_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    template_key = str(payload.get("template_key") or "").strip()
+    if not template_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_key is required")
+    template = get_enabled_template(tenant_id=current_tenant_id(current_user), template_key=template_key)
+    variables = payload.get("variables") if isinstance(payload.get("variables"), dict) else {}
+    rendered = render_template_values(
+        title_template=template.title_template,
+        content_template=template.content_template,
+        variables=variables,
+    )
+    return {"template": template.to_dict(), "rendered": rendered, "missing_variables": rendered["missing_variables"]}
 
 
 def save_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -211,6 +273,57 @@ def test_channel_account(account_id: int, current_user: dict[str, Any]) -> dict[
     if item.channel == "in_app":
         return {"ok": True, "channel": item.channel, "message": "站内信通道可用"}
     return {"ok": False, "channel": item.channel, "message": "该外部通道适配器尚未接入"}
+
+
+def get_enabled_template(*, tenant_id: int, template_key: str):
+    try:
+        template = repositories.get_template_by_key(tenant_id=tenant_id, template_key=template_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message template not found")
+    if template.status != "enabled":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message template is not enabled")
+    return template
+
+
+def render_template_values(*, title_template: str, content_template: str, variables: dict[str, Any]) -> dict[str, Any]:
+    missing: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = lookup_variable(variables, key)
+        if value is None:
+            if key not in missing:
+                missing.append(key)
+            return ""
+        return str(value)
+
+    return {
+        "title": TEMPLATE_VARIABLE_PATTERN.sub(replace, title_template),
+        "content": TEMPLATE_VARIABLE_PATTERN.sub(replace, content_template),
+        "missing_variables": missing,
+    }
+
+
+def lookup_variable(variables: dict[str, Any], key: str) -> Any:
+    current: Any = variables
+    for part in key.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def normalize_channels(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        channel = str(item or "").strip()
+        if channel and channel not in normalized:
+            normalized.append(channel)
+    return normalized
 
 
 def list_preferences(current_user: dict[str, Any]) -> dict[str, Any]:

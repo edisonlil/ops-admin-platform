@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from messaging.domain.models import (
+    DELIVERY_STATUS_PENDING,
     DELIVERY_STATUS_SENT,
     MESSAGE_STATUS_DISPATCHED,
     RECIPIENT_STATUS_READ,
@@ -40,18 +41,55 @@ def create_in_app_message(
     sender_name: str,
     actor: str,
 ) -> MessageIntent:
+    return create_message(
+        tenant_id=tenant_id,
+        title=title,
+        content=content,
+        recipient_user_ids=recipient_user_ids,
+        message_type=message_type,
+        priority=priority,
+        payload=payload,
+        sender_user_id=sender_user_id,
+        sender_name=sender_name,
+        actor=actor,
+        template_id=None,
+        channels=["in_app"],
+    )
+
+
+def create_message(
+    *,
+    tenant_id: int,
+    title: str,
+    content: str,
+    recipient_user_ids: list[int],
+    message_type: str,
+    priority: str,
+    payload: dict[str, Any],
+    sender_user_id: int | None,
+    sender_name: str,
+    actor: str,
+    template_id: int | None,
+    channels: list[str],
+) -> MessageIntent:
     timestamp = now_iso()
     target = {"user_ids": recipient_user_ids}
+    normalized_channels = normalize_channels(channels)
+    delivery_summary = {
+        channel: DELIVERY_STATUS_SENT if channel == "in_app" else DELIVERY_STATUS_PENDING
+        for channel in normalized_channels
+    }
     with connect(database_target(), readonly=False) as conn:
         require_messaging_schema(conn)
+        channel_accounts = default_channel_accounts(conn, tenant_id=tenant_id, channels=normalized_channels)
         cursor = conn.execute(
             """
             INSERT INTO message_intents (
                 tenant_id, message_type, priority, title, content, payload_json,
-                sender_user_id, sender_name, target_scope, target_json, status,
+                sender_user_id, sender_name, target_scope, target_json, status, template_id,
                 creator, creator_id, editor, editor_id, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tenant_id,
@@ -65,6 +103,7 @@ def create_in_app_message(
                 "users",
                 encode_json(target),
                 MESSAGE_STATUS_DISPATCHED,
+                template_id,
                 actor,
                 sender_user_id,
                 actor,
@@ -89,7 +128,7 @@ def create_in_app_message(
                     message_id,
                     user_id,
                     "",
-                    encode_json({"in_app": DELIVERY_STATUS_SENT}),
+                    encode_json(delivery_summary),
                     actor,
                     sender_user_id,
                     actor,
@@ -99,32 +138,35 @@ def create_in_app_message(
                 ),
             )
             recipient_id = inserted_id(conn, recipient_cursor, "message_recipients", timestamp, actor)
-            conn.execute(
-                """
-                INSERT INTO message_channel_deliveries (
-                    tenant_id, message_id, recipient_id, channel, status, sent_time,
-                    request_json, response_json, creator, creator_id, editor, editor_id,
-                    create_time, update_time
+            for channel in normalized_channels:
+                status = DELIVERY_STATUS_SENT if channel == "in_app" else DELIVERY_STATUS_PENDING
+                conn.execute(
+                    """
+                    INSERT INTO message_channel_deliveries (
+                        tenant_id, message_id, recipient_id, channel, channel_account_id,
+                        status, sent_time, request_json, response_json, creator, creator_id,
+                        editor, editor_id, create_time, update_time
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tenant_id,
+                        message_id,
+                        recipient_id,
+                        channel,
+                        channel_accounts.get(channel),
+                        status,
+                        timestamp if status == DELIVERY_STATUS_SENT else None,
+                        encode_json({"recipient_user_id": user_id, "title": title, "content": content}),
+                        encode_json(delivery_response(channel, status)),
+                        actor,
+                        sender_user_id,
+                        actor,
+                        sender_user_id,
+                        timestamp,
+                        timestamp,
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    tenant_id,
-                    message_id,
-                    recipient_id,
-                    "in_app",
-                    DELIVERY_STATUS_SENT,
-                    timestamp,
-                    encode_json({"recipient_user_id": user_id}),
-                    encode_json({"visible": True}),
-                    actor,
-                    sender_user_id,
-                    actor,
-                    sender_user_id,
-                    timestamp,
-                    timestamp,
-                ),
-            )
         row = conn.execute("SELECT * FROM message_intents WHERE id = ?", (message_id,)).fetchone()
     return row_to_message(dict(row))
 
@@ -462,6 +504,20 @@ def get_channel_account(*, tenant_id: int, account_id: int) -> MessageChannelAcc
     return row_to_channel_account(dict(row)) if row else None
 
 
+def get_template_by_key(*, tenant_id: int, template_key: str) -> MessageTemplate | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_messaging_schema(conn)
+        row = conn.execute(
+            """
+            SELECT *
+            FROM message_templates
+            WHERE tenant_id = ? AND template_key = ? AND deleted = 0
+            """,
+            (tenant_id, template_key),
+        ).fetchone()
+    return row_to_template(dict(row)) if row else None
+
+
 def list_preferences(*, tenant_id: int, user_id: int) -> list[MessageUserPreference]:
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
@@ -630,6 +686,41 @@ def row_to_preference(row: dict[str, Any]) -> MessageUserPreference:
 
 def encode_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def normalize_channels(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return ["in_app"]
+    normalized: list[str] = []
+    for item in value:
+        channel = str(item or "").strip()
+        if channel and channel not in normalized:
+            normalized.append(channel)
+    return normalized or ["in_app"]
+
+
+def default_channel_accounts(conn: Any, *, tenant_id: int, channels: list[str]) -> dict[str, int | None]:
+    channel_accounts: dict[str, int | None] = {channel: None for channel in channels}
+    for channel in channels:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM message_channel_accounts
+            WHERE tenant_id = ? AND channel = ? AND enabled = TRUE AND deleted = 0
+            ORDER BY is_default DESC, id DESC
+            LIMIT 1
+            """,
+            (tenant_id, channel),
+        ).fetchone()
+        if row:
+            channel_accounts[channel] = int(row["id"])
+    return channel_accounts
+
+
+def delivery_response(channel: str, status: str) -> dict[str, Any]:
+    if channel == "in_app":
+        return {"visible": True}
+    return {"queued": True, "message": "外部渠道适配器尚未接入，已记录待投递台账"} if status == DELIVERY_STATUS_PENDING else {}
 
 
 def encode_json_list(value: Any, *, default: list[str]) -> str:

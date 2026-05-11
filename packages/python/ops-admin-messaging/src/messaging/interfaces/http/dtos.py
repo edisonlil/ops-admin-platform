@@ -14,6 +14,21 @@ class SendInAppMessageRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class SendTemplateMessageRequest(BaseModel):
+    template_key: str = Field(min_length=1, max_length=120)
+    variables: dict[str, Any] = Field(default_factory=dict)
+    recipient_user_ids: list[int] = Field(default_factory=list)
+    message_type: str = Field(default="system", max_length=60)
+    priority: str = Field(default="normal", max_length=40)
+    channels: list[str] | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RenderMessageTemplateRequest(BaseModel):
+    template_key: str = Field(min_length=1, max_length=120)
+    variables: dict[str, Any] = Field(default_factory=dict)
+
+
 class MessageTemplateRequest(BaseModel):
     id: int | None = None
     template_key: str = Field(min_length=1, max_length=120)

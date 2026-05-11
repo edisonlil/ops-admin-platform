@@ -10,7 +10,9 @@ from messaging.interfaces.http.dtos import (
     MessageChannelAccountRequest,
     MessagePreferencesRequest,
     MessageTemplateRequest,
+    RenderMessageTemplateRequest,
     SendInAppMessageRequest,
+    SendTemplateMessageRequest,
 )
 from system.interfaces.http import ok
 
@@ -35,11 +37,27 @@ def send_message(
     return ok(services.send_in_app_message(payload.model_dump(), current_user))
 
 
+@router.post("/messages/send-template")
+def send_template_message(
+    payload: SendTemplateMessageRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:messages:send")),
+) -> dict[str, Any]:
+    return ok(services.send_template_message(payload.model_dump(), current_user))
+
+
 @router.get("/templates")
 def templates(
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:view")),
 ) -> dict[str, Any]:
     return ok(services.list_templates(current_user))
+
+
+@router.post("/templates/render")
+def render_template(
+    payload: RenderMessageTemplateRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:view")),
+) -> dict[str, Any]:
+    return ok(services.render_template(payload.model_dump(), current_user))
 
 
 @router.post("/templates")
