@@ -52,7 +52,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    gap: var(--app-table-action-gap);
+    gap: var(--app-table-action-gap, 8px);
     min-width: 0;
   }
 </style>

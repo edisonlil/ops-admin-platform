@@ -68,8 +68,11 @@
       </template>
     </n-modal>
 
-    <n-drawer v-model:show="detailVisible" :width="920" placement="right">
-      <n-drawer-content :title="activeTenant ? `${activeTenant.name} / ${activeTenant.tenant_key}` : '租户详情'">
+    <n-drawer v-model:show="detailVisible" :width="920" placement="right" to=".appearance-root">
+      <n-drawer-content
+        class="tenant-detail-drawer"
+        :title="activeTenant ? `${activeTenant.name} / ${activeTenant.tenant_key}` : '租户详情'"
+      >
         <n-tabs type="line" animated>
           <n-tab-pane name="base" tab="基础信息">
             <n-descriptions v-if="activeTenant" bordered :column="2" size="small">
@@ -84,23 +87,21 @@
           </n-tab-pane>
 
           <n-tab-pane name="users" tab="成员">
-            <div class="tenant-drawer-toolbar">
-              <n-space>
-                <n-button v-if="canCreateTenantUser" type="primary" size="small" @click="openUserCreate">新增成员</n-button>
-                <n-button size="small" :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
-              </n-space>
-            </div>
-            <AppCollectionView :schema="drawerUserView" :rows="tenantUsers" :loading="usersLoading" />
+            <ListPageRuntime
+              :schema="drawerUserListPage"
+              :rows="tenantUsers"
+              :loading="usersLoading"
+              @refresh="loadTenantUsers"
+            />
           </n-tab-pane>
 
           <n-tab-pane name="keys" tab="API Key">
-            <div class="tenant-drawer-toolbar">
-              <n-space>
-                <n-button v-if="canCreateTenantApiKey" type="primary" size="small" @click="keyCreateVisible = true">新增 Key</n-button>
-                <n-button size="small" :loading="keysLoading" @click="loadTenantKeys">刷新</n-button>
-              </n-space>
-            </div>
-            <AppCollectionView :schema="drawerKeyView" :rows="tenantKeys" :loading="keysLoading" />
+            <ListPageRuntime
+              :schema="drawerKeyListPage"
+              :rows="tenantKeys"
+              :loading="keysLoading"
+              @refresh="loadTenantKeys"
+            />
           </n-tab-pane>
 
           <n-tab-pane name="init" tab="初始化">
@@ -185,8 +186,7 @@
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
-  import { AppCollectionView, defineListPage, ListPageRuntime } from '@/page-runtime';
-  import type { CollectionViewSchema } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface TenantRow extends Recordable {
@@ -456,21 +456,51 @@
     pagination: { pageSize: 20 },
   });
 
-  const drawerUserView: CollectionViewSchema<TenantUserRow> = {
-    type: 'table',
-    columns: userColumns,
-    rowKey: (row) => Number(row.id),
-    scrollX: 640,
-    tableProps: { size: 'small', pagination: { pageSize: 20 } },
-  };
+  const drawerUserListPage = defineListPage<TenantUserRow>({
+    id: 'tenant.drawer.members',
+    title: '成员',
+    description: '管理此租户下的成员账号、角色和启用状态。',
+    embedded: true,
+    variant: 'dense-data',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns: userColumns,
+      rowKey: (row) => Number(row.id),
+      scrollX: 640,
+      tableProps: { size: 'small' },
+    },
+    toolbar: {
+      primaryAction: canCreateTenantUser.value
+        ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() }
+        : undefined,
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
 
-  const drawerKeyView: CollectionViewSchema<TenantApiKeyRow> = {
-    type: 'table',
-    columns: keyColumns,
-    rowKey: (row) => Number(row.id),
-    scrollX: 700,
-    tableProps: { size: 'small', pagination: { pageSize: 20 } },
-  };
+  const drawerKeyListPage = defineListPage<TenantApiKeyRow>({
+    id: 'tenant.drawer.api-keys',
+    title: 'API Key',
+    description: '管理此租户可用于外部集成和自动化访问的 API Key。',
+    embedded: true,
+    variant: 'dense-data',
+    density: 'compact',
+    view: {
+      type: 'table',
+      columns: keyColumns,
+      rowKey: (row) => Number(row.id),
+      scrollX: 700,
+      tableProps: { size: 'small' },
+    },
+    toolbar: {
+      primaryAction: canCreateTenantApiKey.value
+        ? { key: 'create', label: '新增 Key', type: 'primary', onClick: () => (keyCreateVisible.value = true) }
+        : undefined,
+      rightTools: ['refresh'],
+    },
+    pagination: { pageSize: 20 },
+  });
 
   function resetTenantForm() {
     tenantForm.id = 0;
@@ -728,10 +758,8 @@
 </script>
 
 <style lang="less" scoped>
-  .tenant-drawer-toolbar {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: var(--app-page-toolbar-gap);
+  .tenant-detail-drawer {
+    --app-page-embedded-section-gap: 10px;
   }
 
   .tenant-drawer-note {

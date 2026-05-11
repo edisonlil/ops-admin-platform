@@ -363,18 +363,18 @@
       padding-left: var(--app-page-table-cell-padding-inline);
       color: var(--app-text-color);
       background: color-mix(in srgb, var(--app-surface-muted-bg) 34%, var(--app-surface-bg));
-      border-color: color-mix(in srgb, var(--app-border-color) 62%, transparent);
+      border-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 62%, transparent);
     }
 
     :deep(.n-data-table-td) {
       height: var(--app-page-table-row-height);
       padding-right: var(--app-page-table-cell-padding-inline);
       padding-left: var(--app-page-table-cell-padding-inline);
-      border-color: color-mix(in srgb, var(--app-border-color) 58%, transparent);
+      border-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
     }
 
     :deep(.n-data-table-thead) {
-      background: color-mix(in srgb, var(--app-surface-muted-bg) 30%, var(--app-surface-bg));
+      background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 30%, var(--app-surface-bg, #ffffff));
     }
 
     :deep(.n-data-table-th--selection),
@@ -439,7 +439,7 @@
       top: 18%;
       bottom: 18%;
       width: 1px;
-      background-color: color-mix(in srgb, var(--app-border-color) 44%, transparent);
+      background-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 44%, transparent);
       border-radius: 999px;
       transition:
         background-color 0.16s ease,
@@ -452,7 +452,7 @@
     }
 
     :deep(.n-data-table-th:hover .n-data-table-resize-button::after) {
-      background-color: color-mix(in srgb, var(--app-border-color) 68%, transparent);
+      background-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 68%, transparent);
     }
 
     :deep(.n-data-table-resize-button--active::after) {
@@ -464,7 +464,7 @@
     gap: 0;
     overflow: hidden;
     background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color);
+    border: 1px solid var(--app-border-color, #d9e1ec);
     border-radius: var(--app-card-radius);
   }
 
@@ -476,7 +476,7 @@
     min-height: 34px;
     padding: 4px 12px;
     background: var(--app-surface-bg);
-    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color) 26%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 26%, transparent);
   }
 
   .app-collection-view__table {
@@ -488,7 +488,7 @@
   }
 
   .app-collection-view--table :deep(.n-data-table-base-table-header) {
-    border-top-color: color-mix(in srgb, var(--app-border-color) 22%, transparent);
+    border-top-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 22%, transparent);
   }
 
   .app-collection-view__table--height-fill {
@@ -511,7 +511,7 @@
     padding: var(--app-page-card-padding);
     color: var(--app-icon-color);
     background: var(--app-surface-bg);
-    border: 1px dashed var(--app-border-color);
+    border: 1px dashed var(--app-border-color, #d9e1ec);
     border-radius: var(--app-card-radius);
     place-content: center;
     text-align: center;

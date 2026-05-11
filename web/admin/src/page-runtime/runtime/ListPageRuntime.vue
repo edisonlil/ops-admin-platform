@@ -1,6 +1,6 @@
 <template>
-  <AppPage :density="schema.density" :variant="schema.variant">
-    <AppPageHeader :title="schema.title" :description="schema.description">
+  <AppPage :density="schema.density" :variant="schema.variant" :embedded="schema.embedded">
+    <AppPageHeader v-if="!schema.embedded" :title="schema.title" :description="schema.description">
       <template v-if="$slots['header-actions'] || schema.toolbar?.primaryAction || hasHeaderRefresh" #actions>
         <slot name="header-actions"></slot>
         <n-button
@@ -15,6 +15,28 @@
         <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="emit('refresh')">刷新</n-button>
       </template>
     </AppPageHeader>
+    <div
+      v-else-if="schema.title || schema.description || schema.toolbar?.primaryAction || hasHeaderRefresh"
+      class="app-list-page__embedded-header"
+    >
+      <div class="app-list-page__embedded-copy">
+        <h3 v-if="schema.title">{{ schema.title }}</h3>
+        <p v-if="schema.description">{{ schema.description }}</p>
+      </div>
+      <div v-if="schema.toolbar?.primaryAction || hasHeaderRefresh" class="app-list-page__embedded-actions">
+        <n-button
+          v-if="schema.toolbar?.primaryAction"
+          size="small"
+          :type="schema.toolbar.primaryAction.type || 'primary'"
+          :disabled="schema.toolbar.primaryAction.disabled"
+          :loading="schema.toolbar.primaryAction.loading"
+          @click="handleAction(schema.toolbar.primaryAction)"
+        >
+          {{ schema.toolbar.primaryAction.label }}
+        </n-button>
+        <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="emit('refresh')">刷新</n-button>
+      </div>
+    </div>
 
     <AppFilterBar v-if="$slots.filters || hasDeclaredFilters">
       <slot name="filters"></slot>
@@ -224,6 +246,45 @@
     min-width: 0;
   }
 
+  .app-list-page__embedded-header {
+    display: flex;
+    gap: var(--app-page-toolbar-gap);
+    align-items: flex-start;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .app-list-page__embedded-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .app-list-page__embedded-copy h3 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--app-text-color);
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.35;
+    letter-spacing: 0;
+  }
+
+  .app-list-page__embedded-copy p {
+    margin: 0;
+    color: var(--app-icon-color);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .app-list-page__embedded-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+  }
+
   .app-list-page__tabs :deep(.n-tabs-nav) {
     padding: 0 4px;
   }
@@ -263,6 +324,15 @@
   }
 
   @media (max-width: 900px) {
+    .app-list-page__embedded-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .app-list-page__embedded-actions {
+      justify-content: flex-start;
+    }
+
     .app-list-page__pane-header {
       width: 100%;
       min-width: 0;

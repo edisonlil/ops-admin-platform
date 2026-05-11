@@ -128,6 +128,7 @@ export interface ListPageSchema<Row = Record<string, unknown>, Query = Record<st
   description?: string;
   variant?: PageVariant;
   density?: PageDensity;
+  embedded?: boolean;
   filters?: FilterField<Query>[];
   toolbar?: ListToolbarSchema;
   view: CollectionViewSchema<Row>;

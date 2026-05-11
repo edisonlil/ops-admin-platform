@@ -47,43 +47,43 @@
     align-items: center;
     justify-content: center;
     min-width: 0;
-    height: var(--app-status-tag-height);
-    padding: 0 var(--app-status-tag-padding-x);
+    height: var(--app-status-tag-height, 24px);
+    padding: 0 var(--app-status-tag-padding-x, 8px);
     font-size: 12px;
-    font-weight: var(--app-status-tag-font-weight);
+    font-weight: var(--app-status-tag-font-weight, 500);
     line-height: 1;
     white-space: nowrap;
     border: 1px solid;
-    border-radius: var(--app-status-tag-radius);
+    border-radius: var(--app-status-tag-radius, 4px);
 
     &--success {
-      color: var(--app-status-success-text);
-      background: var(--app-status-success-bg);
-      border-color: var(--app-status-success-border);
+      color: var(--app-status-success-text, #047857);
+      background: var(--app-status-success-bg, #ecfdf5);
+      border-color: var(--app-status-success-border, #a7f3d0);
     }
 
     &--warning {
-      color: var(--app-status-warning-text);
-      background: var(--app-status-warning-bg);
-      border-color: var(--app-status-warning-border);
+      color: var(--app-status-warning-text, #b45309);
+      background: var(--app-status-warning-bg, #fffbeb);
+      border-color: var(--app-status-warning-border, #fde68a);
     }
 
     &--error {
-      color: var(--app-status-error-text);
-      background: var(--app-status-error-bg);
-      border-color: var(--app-status-error-border);
+      color: var(--app-status-error-text, #be123c);
+      background: var(--app-status-error-bg, #fff1f2);
+      border-color: var(--app-status-error-border, #fecdd3);
     }
 
     &--info {
-      color: var(--app-status-info-text);
-      background: var(--app-status-info-bg);
-      border-color: var(--app-status-info-border);
+      color: var(--app-status-info-text, #2563eb);
+      background: var(--app-status-info-bg, #eff6ff);
+      border-color: var(--app-status-info-border, #bfdbfe);
     }
 
     &--neutral {
-      color: var(--app-status-neutral-text);
-      background: var(--app-status-neutral-bg);
-      border-color: var(--app-status-neutral-border);
+      color: var(--app-status-neutral-text, #64748b);
+      background: var(--app-status-neutral-bg, #f8fafc);
+      border-color: var(--app-status-neutral-border, #d9e1ec);
     }
   }
 </style>

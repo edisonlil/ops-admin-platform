@@ -1,5 +1,5 @@
 <template>
-  <section class="app-page" :class="pageRuntime.cssClass">
+  <section class="app-page" :class="[pageRuntime.cssClass, { 'app-page--embedded': embedded }]">
     <slot></slot>
   </section>
 </template>
@@ -11,6 +11,7 @@
   const props = defineProps<{
     density?: PageDensity;
     variant?: PageVariant;
+    embedded?: boolean;
   }>();
 
   const { pageRuntime } = usePageRuntime({
@@ -29,5 +30,12 @@
     min-width: 0;
     padding-block: var(--app-page-content-padding-block);
     margin-inline: auto;
+  }
+
+  .app-page--embedded {
+    gap: var(--app-page-embedded-section-gap, var(--app-page-section-gap));
+    max-width: none;
+    padding-block: 0;
+    margin-inline: 0;
   }
 </style>

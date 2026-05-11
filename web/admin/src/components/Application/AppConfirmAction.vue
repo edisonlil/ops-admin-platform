@@ -110,40 +110,40 @@
     align-items: center;
     justify-content: center;
     min-width: 0;
-    height: var(--app-table-action-button-height);
-    padding: 0 var(--app-table-action-button-padding-x);
+    height: var(--app-table-action-button-height, 30px);
+    padding: 0 var(--app-table-action-button-padding-x, 12px);
     font-size: 13px;
     line-height: 1;
     white-space: nowrap;
     cursor: pointer;
     border: 1px solid;
-    border-radius: var(--app-table-action-button-radius);
+    border-radius: var(--app-table-action-button-radius, 6px);
     transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
 
     &--default {
-      color: var(--app-table-action-default-text);
-      background: var(--app-table-action-default-bg);
-      border-color: var(--app-table-action-default-border);
+      color: var(--app-table-action-default-text, #2563eb);
+      background: var(--app-table-action-default-bg, #ffffff);
+      border-color: var(--app-table-action-default-border, #d9e1ec);
     }
 
     &--primary {
-      color: var(--app-table-action-primary-text);
-      background: var(--app-table-action-primary-bg);
-      border-color: var(--app-table-action-primary-border);
+      color: var(--app-table-action-primary-text, #ffffff);
+      background: var(--app-table-action-primary-bg, #2563eb);
+      border-color: var(--app-table-action-primary-border, #2563eb);
     }
 
     &--danger {
-      color: var(--app-table-action-danger-text);
-      background: var(--app-table-action-danger-bg);
-      border-color: var(--app-table-action-danger-border);
+      color: var(--app-table-action-danger-text, #dc2626);
+      background: var(--app-table-action-danger-bg, #ffffff);
+      border-color: var(--app-table-action-danger-border, #dc2626);
     }
 
     &.is-disabled,
     &:disabled {
-      color: var(--app-table-action-disabled-text);
+      color: var(--app-table-action-disabled-text, #94a3b8);
       cursor: not-allowed;
-      background: var(--app-table-action-disabled-bg);
-      border-color: var(--app-table-action-disabled-border);
+      background: var(--app-table-action-disabled-bg, #f8fafc);
+      border-color: var(--app-table-action-disabled-border, #d9e1ec);
       opacity: 0.78;
     }
   }
@@ -154,14 +154,14 @@
     min-width: 0;
 
     strong {
-      color: var(--app-text-color);
+      color: var(--app-text-color, #1f2937);
       font-size: 13px;
       font-weight: 700;
       line-height: 18px;
     }
 
     span {
-      color: var(--app-icon-color);
+      color: var(--app-icon-color, #64748b);
       font-size: 13px;
       line-height: 18px;
     }
@@ -173,10 +173,10 @@
     box-sizing: border-box;
     width: min(calc(100vw - 40px), 236px);
     padding: 12px;
-    background: var(--app-table-action-confirm-bg);
-    border: 1px solid var(--app-table-action-confirm-border);
-    border-radius: var(--app-table-action-confirm-radius);
-    box-shadow: var(--app-table-action-confirm-shadow);
+    background: var(--app-table-action-confirm-bg, #ffffff);
+    border: 1px solid var(--app-table-action-confirm-border, #d9e1ec);
+    border-radius: var(--app-table-action-confirm-radius, 6px);
+    box-shadow: var(--app-table-action-confirm-shadow, 0 8px 24px rgb(15 23 42 / 12%));
   }
 
   .app-confirm-action__footer {
@@ -198,7 +198,7 @@
     white-space: nowrap;
     cursor: pointer;
     border: 1px solid;
-    border-radius: var(--app-table-action-button-radius);
+    border-radius: var(--app-table-action-button-radius, 6px);
     transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
 
     &:disabled {
@@ -208,20 +208,20 @@
   }
 
   .app-confirm-action__cancel {
-    color: var(--app-table-action-default-text);
-    background: var(--app-table-action-default-bg);
-    border-color: var(--app-table-action-default-border);
+    color: var(--app-table-action-default-text, #2563eb);
+    background: var(--app-table-action-default-bg, #ffffff);
+    border-color: var(--app-table-action-default-border, #d9e1ec);
   }
 
   .app-confirm-action__confirm {
-    color: var(--app-table-action-primary-text);
-    background: var(--app-table-action-primary-bg);
-    border-color: var(--app-table-action-primary-border);
+    color: var(--app-table-action-primary-text, #ffffff);
+    background: var(--app-table-action-primary-bg, #2563eb);
+    border-color: var(--app-table-action-primary-border, #2563eb);
 
     &.is-danger {
-      color: var(--app-table-action-danger-text);
-      background: color-mix(in srgb, var(--app-table-action-danger-text) 10%, var(--app-table-action-danger-bg));
-      border-color: var(--app-table-action-danger-border);
+      color: var(--app-table-action-danger-text, #dc2626);
+      background: color-mix(in srgb, var(--app-table-action-danger-text, #dc2626) 10%, var(--app-table-action-danger-bg, #ffffff));
+      border-color: var(--app-table-action-danger-border, #dc2626);
     }
   }
 </style>
