@@ -76,10 +76,11 @@
   import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
-  import { createRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
+  import { createRbacUser, disableRbacUser, enableRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
@@ -108,6 +109,7 @@
   }
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const savingUser = ref(false);
   const rolesLoading = ref(false);
@@ -207,10 +209,11 @@
       render(row) {
         return h(AppTableActions, {
           actions: [
-            { label: '编辑', onClick: () => handleEdit(row) },
+            { label: '编辑', show: hasPermission(['system:users:update']), onClick: () => handleEdit(row) },
             {
               label: row.is_active ? '停用' : '启用',
               tone: row.is_active ? 'danger' : 'primary',
+              show: hasPermission([row.is_active ? 'system:users:disable' : 'system:users:enable']),
               confirm: true,
               confirmTitle: row.is_active ? '停用用户' : '启用用户',
               confirmContent: `确认${row.is_active ? '停用' : '启用'}用户「${row.username}」？`,
@@ -242,12 +245,9 @@
       { key: 'status', type: 'select', placeholder: '用户状态', options: statusOptions },
     ],
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新增用户',
-        type: 'primary',
-        onClick: () => handleCreate(),
-      },
+      primaryAction: hasPermission(['system:users:create'])
+        ? { key: 'create', label: '新增用户', type: 'primary', onClick: () => handleCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
@@ -342,13 +342,8 @@
     const nextActive = !row.is_active;
     return (async () => {
       try {
-        await updateRbacUser(row.id, {
-          username: row.username,
-          password: '',
-          role_keys: (row.roles || []).map((role) => String(role.key)),
-          is_active: nextActive,
-          is_superuser: !!row.is_superuser,
-        });
+        if (nextActive) await enableRbacUser(row.id);
+        else await disableRbacUser(row.id);
         await reload();
         message.success(`用户已${nextActive ? '启用' : '停用'}`);
       } catch (error) {

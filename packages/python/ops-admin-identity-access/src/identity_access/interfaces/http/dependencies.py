@@ -108,6 +108,17 @@ def require_permission(permission_code: str) -> Any:
     return dependency
 
 
+def require_platform_permission(permission_code: str) -> Any:
+    async def dependency(current_user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+        if not bool(current_user.get("is_platform_admin", False)):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="platform admin required")
+        if permission_code in set(current_user.get("permissions", [])):
+            return current_user
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
+
+    return dependency
+
+
 def require_business_api_key_or_permission(permission_code: str) -> Any:
     async def dependency(
         request: Request,

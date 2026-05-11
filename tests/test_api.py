@@ -267,6 +267,10 @@ class ApiTests(unittest.TestCase):
         self.assertIn("tenant-api-keys", keys)
         self.assertIn("message-templates", keys)
         self.assertIn("message-channels", keys)
+        self.assertNotIn("message-templates-enable", keys)
+        permissions = {item["value"] for item in login_response.json()["data"]["permissions"]}
+        self.assertIn("messaging:templates:enable", permissions)
+        self.assertIn("messaging:channels:test", permissions)
         self.assertIn("llm-config", keys)
         self.assertNotIn("tenant-management", keys)
         self.assertNotIn("rbac", keys)
@@ -411,6 +415,46 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual({row["menu_key"] for row in repaired}, {"message-channels", "message-templates"})
 
+    def test_identity_initialization_repairs_tenant_admin_messaging_action_permissions(self) -> None:
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            conn.execute(
+                """
+                DELETE FROM role_permissions
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND permission_id = (SELECT id FROM permissions WHERE code = ?)
+                """,
+                ("tenant-admin", "messaging:templates:enable"),
+            )
+
+            missing = conn.execute(
+                """
+                SELECT 1
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ? AND p.code = ?
+                """,
+                ("tenant-admin", "messaging:templates:enable"),
+            ).fetchone()
+            self.assertIsNone(missing)
+
+            initialize_auth_storage(conn)
+
+            repaired = conn.execute(
+                """
+                SELECT 1
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ? AND p.code = ?
+                """,
+                ("tenant-admin", "messaging:templates:enable"),
+            ).fetchone()
+
+        self.assertIsNotNone(repaired)
+
     def test_admin_can_create_update_and_delete_menu(self) -> None:
         create_response = self.request(
             "POST",
@@ -454,6 +498,67 @@ class ApiTests(unittest.TestCase):
 
         delete_response = self.request("DELETE", f"/api/rbac/menus/{menu_id}")
         self.assertEqual(delete_response.status_code, 200)
+
+    def test_admin_can_create_action_permission_under_page(self) -> None:
+        page_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "reports",
+                "label": "Reports",
+                "menu_type": "page",
+                "path": "/reports",
+                "route_name": "reports",
+                "component": "/platform/index",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "reports:view",
+                "sort_order": 200,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(page_response.status_code, 200)
+
+        action_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "reports-export",
+                "label": "Export reports",
+                "menu_type": "action",
+                "path": "",
+                "route_name": "",
+                "component": "",
+                "icon": "",
+                "parent_key": "reports",
+                "permission_code": "reports:export",
+                "sort_order": 201,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(action_response.status_code, 200)
+        item = action_response.json()["data"]["item"]
+        self.assertEqual(item["menu_type"], "action")
+        self.assertEqual(item["permission_code"], "reports:export")
+
+        role_response = self.request(
+            "POST",
+            "/api/rbac/roles",
+            json={
+                "key": "report-exporter",
+                "name": "Report Exporter",
+                "description": "",
+                "menu_keys": ["reports-export"],
+            },
+        )
+        self.assertEqual(role_response.status_code, 200)
+        role = role_response.json()["data"]["item"]
+        menu_keys = {item["key"] for item in role["menus"]}
+        permission_codes = {item["code"] for item in role["permissions"]}
+        self.assertIn("reports", menu_keys)
+        self.assertIn("reports-export", menu_keys)
+        self.assertIn("reports:view", permission_codes)
+        self.assertIn("reports:export", permission_codes)
 
     def test_llm_config_requires_explicit_schema_initialization(self) -> None:
         uninitialized_response = self.request("GET", "/api/llm/providers")
@@ -576,6 +681,78 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(preferences_response.status_code, 200)
         self.assertEqual(preferences_response.json()["data"]["items"][0]["message_type"], "system")
+
+    def test_message_template_enable_requires_action_permission(self) -> None:
+        self.initialize_messaging_db()
+
+        template_response = self.request(
+            "POST",
+            "/api/messaging/templates",
+            json={
+                "template_key": "readonly_notice",
+                "name": "Readonly notice",
+                "description": "",
+                "channels": ["in_app"],
+                "title_template": "Notice",
+                "content_template": "Content",
+                "variables_schema": {},
+                "status": "draft",
+            },
+        )
+        self.assertEqual(template_response.status_code, 200)
+        template_id = int(template_response.json()["data"]["item"]["id"])
+
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect
+        from identity_access.infrastructure.persistence.rbac_repository import sync_role_access
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO roles (role_key, name, description, is_system, role_scope)
+                VALUES (?, ?, ?, FALSE, 'tenant')
+                """,
+                ("template-reader", "Template Reader", ""),
+            )
+            role_id = int(getattr(cursor, "lastrowid", 0) or 0)
+            sync_role_access(conn, role_id, ["message-templates"])
+
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "template-read", "name": "Template Read"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "reader",
+                "password": "reader-pass",
+                "role_keys": ["template-reader"],
+                "is_active": True,
+                "is_superuser": False,
+                "is_tenant_admin": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "template-read", "username": "reader", "password": "reader-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        list_response = self.request("GET", "/api/messaging/templates", headers=headers, auth=False)
+        self.assertEqual(list_response.status_code, 200)
+
+        enable_response = self.request(
+            "POST",
+            f"/api/messaging/templates/{template_id}/enable",
+            headers=headers,
+            auth=False,
+        )
+        self.assertEqual(enable_response.status_code, 403)
 
     def test_admin_can_render_and_send_message_template(self) -> None:
         self.initialize_messaging_db()

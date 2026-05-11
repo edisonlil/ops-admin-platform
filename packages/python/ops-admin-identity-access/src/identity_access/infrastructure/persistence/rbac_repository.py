@@ -468,13 +468,19 @@ def validate_menu_payload(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu key is required")
     if not normalized_label:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu label is required")
-    if normalized_type not in {"directory", "page"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu type must be directory or page")
+    if normalized_type not in {"directory", "page", "action"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu type must be directory, page or action")
     if normalized_type == "page":
         if not normalized_path:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="page menu path is required")
         if not normalized_component:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="page menu component is required")
+    if normalized_type == "action":
+        normalized_path = ""
+        normalized_route_name = normalized_key
+        normalized_component = ""
+        if not normalized_parent_key:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="action menu parent is required")
 
     existing = conn.execute(
         "SELECT id FROM menus WHERE menu_key = ? AND (? IS NULL OR id <> ?)",
@@ -490,7 +496,11 @@ def validate_menu_payload(
         ).fetchone()
         if not parent_row:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="parent menu not found")
-        if str(parent_row["menu_type"] or "page") != "directory":
+        parent_type = str(parent_row["menu_type"] or "page")
+        if normalized_type == "action":
+            if parent_type != "page":
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="action parent menu must be a page")
+        elif parent_type != "directory":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="parent menu must be a directory")
         if menu_id is not None and int(parent_row["id"]) == menu_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu cannot be its own parent")
@@ -501,10 +511,10 @@ def validate_menu_payload(
             if normalized_parent_key in subtree_keys:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu cannot move under its descendant")
 
-    if menu_id is not None and normalized_type == "page":
+    if menu_id is not None and normalized_type in {"page", "action"}:
         child_row = conn.execute("SELECT id FROM menus WHERE parent_key = ? LIMIT 1", (normalized_key,)).fetchone()
         if child_row:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="directory menu with children cannot become a page")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu with children cannot become a page or action")
 
     return {
         "menu_key": normalized_key,

@@ -54,6 +54,7 @@ from identity_access.infrastructure.persistence.user_repository import (
     platform_user_by_username,
     public_user,
     resolve_role_ids,
+    set_user_active,
     sync_user_roles,
     update_user,
     user_by_username,

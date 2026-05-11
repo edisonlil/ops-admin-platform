@@ -300,3 +300,20 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             is_tenant_admin=bool(payload.get("is_tenant_admin", False)),
         )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
+
+
+def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        tenant = tenant_repository.get_business_tenant_by_id(conn, tenant_id)
+        if not tenant:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
+        membership = conn.execute(
+            "SELECT 1 FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?",
+            (tenant_id, user_id),
+        ).fetchone()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant user not found")
+
+    user = rbac_service.set_user_active(user_id, is_active)
+    return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)

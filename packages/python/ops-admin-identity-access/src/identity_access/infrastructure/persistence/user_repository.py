@@ -322,3 +322,26 @@ def update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user
+
+
+def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
+    now = now_iso()
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        row = conn.execute("SELECT id, is_superuser FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+        ensure_last_superuser_survives(conn, user_id, is_active=bool(is_active), is_superuser=bool(row["is_superuser"]))
+        conn.execute(
+            """
+            UPDATE users
+            SET is_active = ?, update_time = ?
+            WHERE id = ?
+            """,
+            (bool(is_active), now, user_id),
+        )
+
+    user = next((item for item in list_users() if int(item["id"]) == user_id), None)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    return user

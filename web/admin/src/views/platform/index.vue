@@ -36,8 +36,8 @@
             />
           </n-form-item>
           <n-space justify="end">
-            <n-button @click="clearLogo">清空 Logo</n-button>
-            <n-button type="primary" :loading="appearanceStore.isSavingBranding" @click="saveBranding">
+            <n-button v-if="canUpdateBranding" @click="clearLogo">清空 Logo</n-button>
+            <n-button v-if="canUpdateBranding" type="primary" :loading="appearanceStore.isSavingBranding" @click="saveBranding">
               保存
             </n-button>
           </n-space>
@@ -50,14 +50,17 @@
 <script lang="ts" setup>
   import { computed, onMounted, reactive } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
+  import { usePermission } from '@/hooks/web/usePermission';
 
   const appearanceStore = useAppearanceStore();
+  const { hasPermission } = usePermission();
   const brandingForm = reactive({
     platformName: 'fg-agent',
     logoUrl: '',
     platformNameFontSize: 20,
   });
   const logoPreview = computed(() => brandingForm.logoUrl.trim());
+  const canUpdateBranding = computed(() => hasPermission(['platform:branding:update']));
 
   function syncForm() {
     brandingForm.platformName = appearanceStore.displayPlatformName;

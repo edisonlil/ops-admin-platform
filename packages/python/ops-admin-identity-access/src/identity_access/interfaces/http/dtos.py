@@ -132,8 +132,8 @@ class RbacMenuCreateRequest(BaseModel):
     @classmethod
     def validate_menu_type(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"directory", "page"}:
-            raise ValueError("menu_type must be directory or page")
+        if normalized not in {"directory", "page", "action"}:
+            raise ValueError("menu_type must be directory, page or action")
         return normalized
 
 

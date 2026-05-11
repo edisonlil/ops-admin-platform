@@ -217,6 +217,10 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
     return tenant_service.update_tenant_user(tenant_id, user_id, payload)
 
 
+def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
+    return tenant_service.set_tenant_user_active(tenant_id, user_id, is_active)
+
+
 def list_users() -> list[dict[str, Any]]:
     return rbac_service.list_users()
 
@@ -259,6 +263,10 @@ def update_user(
         is_active=is_active,
         is_superuser=is_superuser,
     )
+
+
+def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
+    return rbac_service.set_user_active(user_id, is_active)
 
 
 def list_roles() -> list[dict[str, Any]]:

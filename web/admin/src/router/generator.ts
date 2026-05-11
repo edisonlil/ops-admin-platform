@@ -13,7 +13,7 @@ LayoutMap.set('IFRAME', Iframe);
 interface BackendMenu {
   key: string;
   label?: string;
-  menu_type?: 'directory' | 'page';
+  menu_type?: 'directory' | 'page' | 'action';
   path?: string;
   route_name?: string;
   component?: string;
@@ -106,7 +106,7 @@ function routeMeta(menu: BackendMenu) {
 
 function visibleSortedMenus(items: BackendMenu[] = []) {
   return items
-    .filter((item) => item.is_visible !== false)
+    .filter((item) => item.is_visible !== false && item.menu_type !== 'action')
     .slice()
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
 }

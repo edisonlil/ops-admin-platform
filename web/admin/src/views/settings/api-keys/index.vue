@@ -28,11 +28,13 @@
   } from '@/api/business';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const userStore = useUserStore();
   const route = useRoute();
   const loading = ref(false);
@@ -43,6 +45,8 @@
   const newKeyName = ref('');
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const usePlatformApiKeys = computed(() => isPlatformAdmin.value && String(route.name || '') !== 'tenant-api-keys');
+  const canCreate = computed(() => hasPermission([usePlatformApiKeys.value ? 'api_keys:create' : 'tenant:api_keys:create']));
+  const canRevoke = computed(() => hasPermission([usePlatformApiKeys.value ? 'api_keys:revoke' : 'tenant:api_keys:revoke']));
 
   const columns: DataTableColumns<Recordable> = [
     { title: 'ID', key: 'id', width: 80 },
@@ -69,6 +73,7 @@
             {
               label: '吊销',
               tone: 'danger',
+              show: canRevoke.value,
               disabled: !row.is_active,
               confirm: true,
               confirmTitle: '吊销 API Key',
@@ -108,14 +113,16 @@
       },
     },
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新增 API Key',
-        type: 'primary',
-        onClick: () => {
-          showCreate.value = true;
-        },
-      },
+      primaryAction: canCreate.value
+        ? {
+            key: 'create',
+            label: '新增 API Key',
+            type: 'primary',
+            onClick: () => {
+              showCreate.value = true;
+            },
+          }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },

@@ -106,7 +106,7 @@ def revoke_api_key(key_id: int, _: dict[str, Any] = Depends(auth.require_permiss
 @router.get("/tenants")
 def tenants(
     q: str | None = None,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
     return ok({"items": services.list_tenants(q=q)})
 
@@ -114,7 +114,7 @@ def tenants(
 @router.post("/tenants")
 def create_tenant(
     payload: TenantCreateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:create")),
 ) -> dict[str, Any]:
     return ok({"item": services.create_tenant(payload.model_dump())})
 
@@ -123,23 +123,23 @@ def create_tenant(
 def update_tenant(
     tenant_id: int,
     payload: TenantUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:update")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_tenant(tenant_id, payload.model_dump())})
 
 
 @router.post("/tenants/{tenant_id}/activate")
-def activate_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def activate_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:activate"))) -> dict[str, Any]:
     return ok({"item": services.activate_tenant(tenant_id)})
 
 
 @router.post("/tenants/{tenant_id}/suspend")
-def suspend_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def suspend_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:suspend"))) -> dict[str, Any]:
     return ok({"item": services.suspend_tenant(tenant_id)})
 
 
 @router.get("/tenants/{tenant_id}/users")
-def tenant_users(tenant_id: int, _: dict[str, Any] = Depends(auth.require_tenant_admin_for_path())) -> dict[str, Any]:
+def tenant_users(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
     return ok({"items": services.list_tenant_users(tenant_id)})
 
 
@@ -147,7 +147,7 @@ def tenant_users(tenant_id: int, _: dict[str, Any] = Depends(auth.require_tenant
 def create_tenant_user(
     tenant_id: int,
     payload: TenantUserCreateRequest,
-    _: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:create")),
 ) -> dict[str, Any]:
     return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump())})
 
@@ -157,13 +157,31 @@ def update_tenant_user(
     tenant_id: int,
     user_id: int,
     payload: TenantUserUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:update")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump())})
 
 
+@router.post("/tenants/{tenant_id}/users/{user_id}/enable")
+def enable_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:enable")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_tenant_user_active(tenant_id, user_id, True)})
+
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/disable")
+def disable_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:disable")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_tenant_user_active(tenant_id, user_id, False)})
+
+
 @router.get("/tenants/{tenant_id}/api-keys")
-def tenant_api_keys(tenant_id: int, _: dict[str, Any] = Depends(auth.require_tenant_admin_for_path())) -> dict[str, Any]:
+def tenant_api_keys(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
     return ok({"items": services.list_api_keys(tenant_id=tenant_id)})
 
 
@@ -171,7 +189,7 @@ def tenant_api_keys(tenant_id: int, _: dict[str, Any] = Depends(auth.require_ten
 def create_tenant_api_key(
     tenant_id: int,
     payload: ApiKeyCreateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:api_keys:create")),
 ) -> dict[str, Any]:
     return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
 
@@ -180,7 +198,7 @@ def create_tenant_api_key(
 def revoke_tenant_api_key(
     tenant_id: int,
     key_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:api_keys:revoke")),
 ) -> dict[str, Any]:
     existing = services.get_api_key(key_id)
     if existing:
@@ -198,7 +216,7 @@ def current_tenant_users(current_user: dict[str, Any] = Depends(auth.require_per
 @router.post("/tenant/users")
 def create_current_tenant_user(
     payload: TenantUserCreateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:create")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
     return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump())})
@@ -208,10 +226,28 @@ def create_current_tenant_user(
 def update_current_tenant_user(
     user_id: int,
     payload: TenantUserUpdateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:update")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
     return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump())})
+
+
+@router.post("/tenant/users/{user_id}/enable")
+def enable_current_tenant_user(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:enable")),
+) -> dict[str, Any]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    return ok({"item": services.set_tenant_user_active(tenant_id, user_id, True)})
+
+
+@router.post("/tenant/users/{user_id}/disable")
+def disable_current_tenant_user(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:disable")),
+) -> dict[str, Any]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    return ok({"item": services.set_tenant_user_active(tenant_id, user_id, False)})
 
 
 @router.get("/tenant/roles")
@@ -228,7 +264,7 @@ def current_tenant_api_keys(current_user: dict[str, Any] = Depends(auth.require_
 @router.post("/tenant/api-keys")
 def create_current_tenant_api_key(
     payload: ApiKeyCreateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_keys:create")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
     return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
@@ -237,7 +273,7 @@ def create_current_tenant_api_key(
 @router.delete("/tenant/api-keys/{key_id}")
 def revoke_current_tenant_api_key(
     key_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_keys:revoke")),
 ) -> dict[str, Any]:
     existing = services.get_api_key(key_id)
     if existing:
@@ -247,14 +283,14 @@ def revoke_current_tenant_api_key(
 
 
 @router.get("/rbac/users")
-def rbac_users(_: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def rbac_users(_: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access"))) -> dict[str, Any]:
     return ok({"items": services.list_users()})
 
 
 @router.post("/rbac/users")
 def create_rbac_user(
     payload: RbacUserCreateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:create")),
 ) -> dict[str, Any]:
     return ok({"item": services.create_user(
         tenant_id=payload.tenant_id,
@@ -270,7 +306,7 @@ def create_rbac_user(
 def update_rbac_user(
     user_id: int,
     payload: RbacUserUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:update")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_user(
         user_id,
@@ -283,15 +319,31 @@ def update_rbac_user(
     )})
 
 
+@router.post("/rbac/users/{user_id}/enable")
+def enable_rbac_user(
+    user_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:enable")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_user_active(user_id, True)})
+
+
+@router.post("/rbac/users/{user_id}/disable")
+def disable_rbac_user(
+    user_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:disable")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_user_active(user_id, False)})
+
+
 @router.get("/rbac/roles")
-def rbac_roles(_: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def rbac_roles(_: dict[str, Any] = Depends(auth.require_platform_permission("system:role:access"))) -> dict[str, Any]:
     return ok({"items": services.list_roles()})
 
 
 @router.post("/rbac/roles")
 def create_rbac_role(
     payload: RbacRoleCreateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:roles:create")),
 ) -> dict[str, Any]:
     return ok({"item": services.create_role(
         role_key=payload.key,
@@ -305,7 +357,7 @@ def create_rbac_role(
 def update_rbac_role_menus(
     role_id: int,
     payload: RbacRoleMenusUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:roles:assign_menus")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_role_menus(role_id, payload.menu_keys)})
 
@@ -314,7 +366,7 @@ def update_rbac_role_menus(
 def update_rbac_role(
     role_id: int,
     payload: RbacRoleUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:roles:update")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_role(
         role_id,
@@ -328,25 +380,25 @@ def update_rbac_role(
 @router.delete("/rbac/roles/{role_id}")
 def delete_rbac_role(
     role_id: int,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:roles:delete")),
 ) -> dict[str, Any]:
     return ok({"item": services.delete_role(role_id)})
 
 
 @router.get("/rbac/permissions")
-def rbac_permissions(_: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def rbac_permissions(_: dict[str, Any] = Depends(auth.require_platform_permission("system:role:access"))) -> dict[str, Any]:
     return ok({"items": services.list_permissions()})
 
 
 @router.get("/rbac/menus")
-def rbac_menus(_: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+def rbac_menus(_: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access"))) -> dict[str, Any]:
     return ok({"items": services.list_menus()})
 
 
 @router.post("/rbac/menus")
 def create_rbac_menu(
     payload: RbacMenuCreateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:create")),
 ) -> dict[str, Any]:
     return ok({"item": services.create_menu(
         menu_key=payload.key,
@@ -367,7 +419,7 @@ def create_rbac_menu(
 def update_rbac_menu(
     menu_id: int,
     payload: RbacMenuUpdateRequest,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:update")),
 ) -> dict[str, Any]:
     return ok({"item": services.update_menu(
         menu_id,
@@ -388,6 +440,6 @@ def update_rbac_menu(
 @router.delete("/rbac/menus/{menu_id}")
 def delete_rbac_menu(
     menu_id: int,
-    _: dict[str, Any] = Depends(auth.require_platform_admin),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:delete")),
 ) -> dict[str, Any]:
     return ok({"item": services.delete_menu(menu_id)})

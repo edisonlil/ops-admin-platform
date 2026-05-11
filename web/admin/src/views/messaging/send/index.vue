@@ -86,7 +86,7 @@
 
           <div class="send-workbench__actions">
             <n-button @click="reset">重置</n-button>
-            <n-button type="primary" :loading="sending" @click="submit">发送消息</n-button>
+            <n-button v-if="canSendMessage" type="primary" :loading="sending" @click="submit">发送消息</n-button>
           </div>
         </n-form>
       </section>
@@ -115,6 +115,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import { AppPage } from '@/page-runtime';
   import { getCurrentTenantUsers } from '@/api/business';
+  import { usePermission } from '@/hooks/web/usePermission';
   import {
     getMessageTemplates,
     renderMessageTemplate,
@@ -130,6 +131,7 @@
   }
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const formRef = ref<FormInst | null>(null);
   const sending = ref(false);
   const usersLoading = ref(false);
@@ -139,6 +141,7 @@
   const userOptions = ref<SelectOption[]>([]);
   const missingVariables = ref<string[]>([]);
   const rendered = reactive({ title: '', content: '' });
+  const canSendMessage = computed(() => hasPermission(['messaging:messages:send']));
 
   const form = reactive({
     mode: 'direct',

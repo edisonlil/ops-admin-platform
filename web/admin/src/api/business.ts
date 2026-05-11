@@ -57,7 +57,7 @@ export interface RbacUserUpdatePayload {
 export interface RbacMenuPayload {
   key: string;
   label: string;
-  menu_type: 'directory' | 'page';
+  menu_type: 'directory' | 'page' | 'action';
   path?: string;
   route_name?: string;
   component?: string;
@@ -276,8 +276,24 @@ export function updateTenantUser(
   return Alova.Put(`/tenants/${tenantId}/users/${userId}`, payload);
 }
 
+export function enableTenantUser(tenantId: number, userId: number) {
+  return Alova.Post(`/tenants/${tenantId}/users/${userId}/enable`);
+}
+
+export function disableTenantUser(tenantId: number, userId: number) {
+  return Alova.Post(`/tenants/${tenantId}/users/${userId}/disable`);
+}
+
 export function updateCurrentTenantUser(userId: number, payload: RbacUserUpdatePayload & { is_tenant_admin?: boolean }) {
   return Alova.Put(`/tenant/users/${userId}`, payload);
+}
+
+export function enableCurrentTenantUser(userId: number) {
+  return Alova.Post(`/tenant/users/${userId}/enable`);
+}
+
+export function disableCurrentTenantUser(userId: number) {
+  return Alova.Post(`/tenant/users/${userId}/disable`);
 }
 
 export function getTenantApiKeys(tenantId: number) {
@@ -350,4 +366,12 @@ export function createRbacUser(payload: RbacUserCreatePayload) {
 
 export function updateRbacUser(userId: number, payload: RbacUserUpdatePayload) {
   return Alova.Put(`/rbac/users/${userId}`, payload);
+}
+
+export function enableRbacUser(userId: number) {
+  return Alova.Post(`/rbac/users/${userId}/enable`);
+}
+
+export function disableRbacUser(userId: number) {
+  return Alova.Post(`/rbac/users/${userId}/disable`);
 }

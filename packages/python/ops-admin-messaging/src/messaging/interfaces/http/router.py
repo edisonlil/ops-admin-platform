@@ -63,7 +63,7 @@ def render_template(
 @router.post("/templates")
 def save_template(
     payload: MessageTemplateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:create")),
 ) -> dict[str, Any]:
     return ok(services.save_template(payload.model_dump(), current_user))
 
@@ -72,7 +72,7 @@ def save_template(
 def update_template(
     template_id: int,
     payload: MessageTemplateRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:update")),
 ) -> dict[str, Any]:
     data = payload.model_dump()
     data["id"] = template_id
@@ -82,7 +82,7 @@ def update_template(
 @router.post("/templates/{template_id}/enable")
 def enable_template(
     template_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:enable")),
 ) -> dict[str, Any]:
     return ok(services.set_template_status(template_id, "enabled", current_user))
 
@@ -90,7 +90,7 @@ def enable_template(
 @router.post("/templates/{template_id}/disable")
 def disable_template(
     template_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:disable")),
 ) -> dict[str, Any]:
     return ok(services.set_template_status(template_id, "disabled", current_user))
 
@@ -105,7 +105,7 @@ def channel_accounts(
 @router.post("/channel-accounts")
 def save_channel_account(
     payload: MessageChannelAccountRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:create")),
 ) -> dict[str, Any]:
     return ok(services.save_channel_account(payload.model_dump(), current_user))
 
@@ -114,7 +114,7 @@ def save_channel_account(
 def update_channel_account(
     account_id: int,
     payload: MessageChannelAccountRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:update")),
 ) -> dict[str, Any]:
     data = payload.model_dump()
     data["id"] = account_id
@@ -124,7 +124,7 @@ def update_channel_account(
 @router.post("/channel-accounts/{account_id}/enable")
 def enable_channel_account(
     account_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:enable")),
 ) -> dict[str, Any]:
     return ok(services.set_channel_account_enabled(account_id, True, current_user))
 
@@ -132,7 +132,7 @@ def enable_channel_account(
 @router.post("/channel-accounts/{account_id}/disable")
 def disable_channel_account(
     account_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:disable")),
 ) -> dict[str, Any]:
     return ok(services.set_channel_account_enabled(account_id, False, current_user))
 
@@ -140,7 +140,7 @@ def disable_channel_account(
 @router.post("/channel-accounts/{account_id}/test")
 def test_channel_account(
     account_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:test")),
 ) -> dict[str, Any]:
     return ok(services.test_channel_account(account_id, current_user))
 

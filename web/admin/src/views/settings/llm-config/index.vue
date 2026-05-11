@@ -177,6 +177,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import type { CollectionViewSchema } from '@/page-runtime';
 
@@ -193,6 +194,7 @@
   };
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const logsLoading = ref(false);
   const saving = ref(false);
@@ -210,6 +212,10 @@
   const editingModel = ref(false);
   const editingTask = ref(false);
   const editingPolicy = ref(false);
+  const canSaveProviders = computed(() => hasPermission(['llm:providers:save']));
+  const canSaveModels = computed(() => hasPermission(['llm:models:save']));
+  const canRegisterTasks = computed(() => hasPermission(['llm:tasks:register']));
+  const canSavePolicies = computed(() => hasPermission(['llm:routing_policies:save']));
 
   const providerExtraBodyText = ref('{}');
   const modelCapabilitiesText = ref('{}');
@@ -310,7 +316,7 @@
       width: 100,
       fixed: 'right',
       render(row) {
-        return h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openProvider(row) }] });
+        return h(AppTableActions, { actions: [{ label: '编辑', show: canSaveProviders.value, onClick: () => openProvider(row) }] });
       },
     },
   ];
@@ -327,7 +333,7 @@
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openModel(row) }] }),
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', show: canSaveModels.value, onClick: () => openModel(row) }] }),
     },
   ];
 
@@ -343,7 +349,7 @@
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openTask(row) }] }),
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', show: canRegisterTasks.value, onClick: () => openTask(row) }] }),
     },
   ];
 
@@ -371,7 +377,7 @@
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', onClick: () => openPolicy(row) }] }),
+      render: (row) => h(AppTableActions, { actions: [{ label: '编辑', show: canSavePolicies.value, onClick: () => openPolicy(row) }] }),
     },
   ];
 
@@ -405,7 +411,9 @@
           rows: providers.value,
           loading: loading.value,
           refresh: reloadAll,
-          primaryAction: { key: 'create-provider', label: '新供应商', type: 'primary', onClick: () => openProvider() },
+          primaryAction: canSaveProviders.value
+            ? { key: 'create-provider', label: '新供应商', type: 'primary', onClick: () => openProvider() }
+            : undefined,
           view: createTableView(providerColumns, 940, 10),
           pagination: { pageSize: 10, pageSizes: [10, 20, 50], showSizePicker: true },
         },
@@ -418,7 +426,9 @@
           rows: models.value,
           loading: loading.value,
           refresh: reloadAll,
-          primaryAction: { key: 'create-model', label: '新增模型', type: 'primary', onClick: () => openModel() },
+          primaryAction: canSaveModels.value
+            ? { key: 'create-model', label: '新增模型', type: 'primary', onClick: () => openModel() }
+            : undefined,
           view: createTableView(modelColumns, 1040, 10),
           pagination: { pageSize: 10, pageSizes: [10, 20, 50], showSizePicker: true },
         },
@@ -431,7 +441,9 @@
           rows: tasks.value,
           loading: loading.value,
           refresh: reloadAll,
-          primaryAction: { key: 'create-task', label: '注册任务', type: 'primary', onClick: () => openTask() },
+          primaryAction: canRegisterTasks.value
+            ? { key: 'create-task', label: '注册任务', type: 'primary', onClick: () => openTask() }
+            : undefined,
           view: createTableView(taskColumns, 1120, 12),
           pagination: { pageSize: 12, pageSizes: [12, 24, 48], showSizePicker: true },
         },
@@ -444,7 +456,9 @@
           rows: policies.value,
           loading: loading.value,
           refresh: reloadAll,
-          primaryAction: { key: 'create-policy', label: '新增策略', type: 'primary', onClick: () => openPolicy() },
+          primaryAction: canSavePolicies.value
+            ? { key: 'create-policy', label: '新增策略', type: 'primary', onClick: () => openPolicy() }
+            : undefined,
           view: createTableView(policyColumns, 960, 8),
           pagination: { pageSize: 8, pageSizes: [8, 16, 32], showSizePicker: true },
         },

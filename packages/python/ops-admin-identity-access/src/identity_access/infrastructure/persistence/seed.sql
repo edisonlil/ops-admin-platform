@@ -14,8 +14,28 @@ SELECT 'llm_config:update', 'LLM config update', 'Update LLM provider configurat
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm_config:update');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'llm:providers:save', 'LLM provider save', 'Create or update LLM providers'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm:providers:save');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'llm:models:save', 'LLM model save', 'Create or update LLM models'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm:models:save');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'llm:tasks:register', 'LLM task register', 'Register or update LLM tasks'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm:tasks:register');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'llm:routing_policies:save', 'LLM routing policy save', 'Create or update LLM routing policies'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm:routing_policies:save');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'llm_debug:access', 'LLM debug access', 'Debug configured LLM models and routes'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm_debug:access');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'llm_debug:send', 'LLM debug send', 'Send LLM debug requests'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'llm_debug:send');
 
 INSERT INTO permissions (code, name, description)
 SELECT 'api_keys:access', 'API key access', 'View integration API keys'
@@ -42,6 +62,54 @@ SELECT 'system:user:access', 'User management access', 'View user and role assig
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:user:access');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'system:users:create', 'User create', 'Create platform users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:users:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:users:update', 'User update', 'Update platform users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:users:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:users:enable', 'User enable', 'Enable platform users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:users:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:users:disable', 'User disable', 'Disable platform users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:users:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:menus:create', 'Menu create', 'Create menu and action permissions'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:menus:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:menus:update', 'Menu update', 'Update menu and action permissions'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:menus:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:menus:delete', 'Menu delete', 'Delete menu and action permissions'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:menus:delete');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:roles:create', 'Role create', 'Create roles'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:roles:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:roles:update', 'Role update', 'Update roles'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:roles:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:roles:delete', 'Role delete', 'Delete roles'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:roles:delete');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'system:roles:assign_menus', 'Role menu assignment', 'Assign menu and action permissions to roles'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'system:roles:assign_menus');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'platform:branding:update', 'Platform branding update', 'Update platform branding'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'platform:branding:update');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'tenant:access', 'Tenant management access', 'View platform tenants'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:access');
 
@@ -58,8 +126,60 @@ SELECT 'tenant:suspend', 'Tenant suspend', 'Suspend or activate platform tenants
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:suspend');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'tenant:activate', 'Tenant activate', 'Activate platform tenants'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:activate');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:users:create', 'Tenant user create', 'Create tenant users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:users:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:users:update', 'Tenant user update', 'Update tenant users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:users:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:users:enable', 'Tenant user enable', 'Enable tenant users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:users:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:users:disable', 'Tenant user disable', 'Disable tenant users'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:users:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:api_keys:create', 'Tenant API key create', 'Create tenant API keys'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:api_keys:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:api_keys:revoke', 'Tenant API key revoke', 'Revoke tenant API keys'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:api_keys:revoke');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'tenant:theme:assign', 'Tenant theme assignment', 'Assign appearance theme to tenants'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:theme:assign');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'appearance:access', 'Appearance Studio access', 'Customize admin appearance presets and tokens'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:access');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'appearance:themes:create', 'Appearance theme create', 'Create appearance themes'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'appearance:themes:update', 'Appearance theme update', 'Update appearance themes'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'appearance:themes:publish', 'Appearance theme publish', 'Publish appearance themes'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:publish');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'appearance:themes:disable', 'Appearance theme disable', 'Disable appearance themes'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'appearance:themes:set_default', 'Appearance theme platform default', 'Set platform default appearance theme'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:set_default');
 
 INSERT INTO permissions (code, name, description)
 SELECT 'tenant:user:manage', 'Tenant user manage', 'Manage users inside platform tenants'
@@ -98,12 +218,48 @@ SELECT 'messaging:templates:manage', 'Messaging templates manage', 'Manage tenan
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:create', 'Messaging templates create', 'Create tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:update', 'Messaging templates update', 'Update tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:enable', 'Messaging templates enable', 'Enable tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:disable', 'Messaging templates disable', 'Disable tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:disable');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'messaging:channels:view', 'Messaging channels view', 'View tenant message channels'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:view');
 
 INSERT INTO permissions (code, name, description)
 SELECT 'messaging:channels:manage', 'Messaging channels manage', 'Manage tenant message channels'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:create', 'Messaging channels create', 'Create tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:update', 'Messaging channels update', 'Update tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:enable', 'Messaging channels enable', 'Enable tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:disable', 'Messaging channels disable', 'Disable tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:test', 'Messaging channels test', 'Test tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:test');
 
 INSERT INTO permissions (code, name, description)
 SELECT 'messaging:dispatch:manage', 'Messaging dispatch manage', 'Dispatch and retry tenant messages'
@@ -118,20 +274,76 @@ SELECT 'message-inbox', 'tenant', '站内信', 'page', '/messaging/inbox', 'mess
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-inbox');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-inbox-read', 'tenant', '标记已读', 'action', '', '', '', '', 'message-inbox', 'messaging:inbox:manage_self', 861, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-inbox-read');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-inbox-unread', 'tenant', '标记未读', 'action', '', '', '', '', 'message-inbox', 'messaging:inbox:manage_self', 862, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-inbox-unread');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-inbox-delete', 'tenant', '删除站内信', 'action', '', '', '', '', 'message-inbox', 'messaging:inbox:manage_self', 863, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-inbox-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-outbox', 'tenant', '发送记录', 'page', '/messaging/outbox', 'message-outbox', '/messaging/outbox/index', 'FileSearchOutlined', 'messaging', 'messaging:messages:view', 87, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-outbox');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-outbox-cancel', 'tenant', '取消发送', 'action', '', '', '', '', 'message-outbox', 'messaging:messages:cancel', 871, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-outbox-cancel');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-send', 'tenant', '发送消息', 'page', '/messaging/send', 'message-send', '/messaging/send/index', 'message', 'messaging', 'messaging:messages:send', 88, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-send');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-send-submit', 'tenant', '发送消息', 'action', '', '', '', '', 'message-send', 'messaging:messages:send', 881, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-send-submit');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-templates', 'tenant', '消息模板', 'page', '/messaging/templates', 'message-templates', '/messaging/templates/index', 'file-text', 'messaging', 'messaging:templates:view', 89, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-templates-create', 'tenant', '新增模板', 'action', '', '', '', '', 'message-templates', 'messaging:templates:create', 891, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-templates-update', 'tenant', '编辑模板', 'action', '', '', '', '', 'message-templates', 'messaging:templates:update', 892, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-templates-enable', 'tenant', '启用模板', 'action', '', '', '', '', 'message-templates', 'messaging:templates:enable', 893, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-templates-disable', 'tenant', '停用模板', 'action', '', '', '', '', 'message-templates', 'messaging:templates:disable', 894, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-channels', 'tenant', '渠道配置', 'page', '/messaging/channels', 'message-channels', '/messaging/channels/index', 'api', 'messaging', 'messaging:channels:view', 90, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels-create', 'tenant', '新增渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:create', 901, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels-update', 'tenant', '编辑渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:update', 902, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels-enable', 'tenant', '启用渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:enable', 903, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels-disable', 'tenant', '停用渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:disable', 904, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels-test', 'tenant', '测试渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:test', 905, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-test');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'llm', 'tenant', '大模型', 'directory', '', '', '', 'experiment', '', '', 90, TRUE
@@ -142,24 +354,96 @@ SELECT 'llm-config', 'tenant', '模型配置', 'page', '/settings/llm-config', '
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-config');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'llm-providers-save', 'tenant', '保存供应商', 'action', '', '', '', '', 'llm-config', 'llm:providers:save', 911, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-providers-save');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'llm-models-save', 'tenant', '保存模型', 'action', '', '', '', '', 'llm-config', 'llm:models:save', 912, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-models-save');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'llm-tasks-register', 'tenant', '注册任务', 'action', '', '', '', '', 'llm-config', 'llm:tasks:register', 913, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-tasks-register');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'llm-routing-policies-save', 'tenant', '保存路由策略', 'action', '', '', '', '', 'llm-config', 'llm:routing_policies:save', 914, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-routing-policies-save');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'llm-debug', 'tenant', '模型调试', 'page', '/settings/llm-debug', 'llm-debug', '/settings/llm-debug/index', 'experiment', 'llm', 'llm_debug:access', 92, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-debug');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'llm-debug-send', 'tenant', '发送调试请求', 'action', '', '', '', '', 'llm-debug', 'llm_debug:send', 921, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'llm-debug-send');
 
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'rbac', '权限管理', '', '', 'shield', '', '', 100, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'rbac');
 
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'user-management', 'platform', '用户管理', 'page', '/rbac/users', 'user-management', '/rbac/user/index', 'user', 'rbac', 'system:user:access', 100, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'user-management');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'user-management-create', 'platform', '新增用户', 'action', '', '', '', '', 'user-management', 'system:users:create', 1001, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'user-management-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'user-management-update', 'platform', '编辑用户', 'action', '', '', '', '', 'user-management', 'system:users:update', 1002, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'user-management-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'user-management-enable', 'platform', '启用用户', 'action', '', '', '', '', 'user-management', 'system:users:enable', 1003, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'user-management-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'user-management-disable', 'platform', '停用用户', 'action', '', '', '', '', 'user-management', 'system:users:disable', 1004, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'user-management-disable');
+
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'menu-management', '菜单权限', '/rbac/menus', 'menu-management', 'menu', 'rbac', 'system:menu:access', 101, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'menu-management');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'menu-management-create', 'platform', '新增菜单', 'action', '', '', '', '', 'menu-management', 'system:menus:create', 1011, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'menu-management-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'menu-management-update', 'platform', '编辑菜单', 'action', '', '', '', '', 'menu-management', 'system:menus:update', 1012, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'menu-management-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'menu-management-delete', 'platform', '删除菜单', 'action', '', '', '', '', 'menu-management', 'system:menus:delete', 1013, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'menu-management-delete');
 
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'role-management', '角色权限', '/rbac/roles', 'role-management', 'users', 'rbac', 'system:role:access', 102, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'role-management-create', 'platform', '新增角色', 'action', '', '', '', '', 'role-management', 'system:roles:create', 1021, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'role-management-update', 'platform', '编辑角色', 'action', '', '', '', '', 'role-management', 'system:roles:update', 1022, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'role-management-delete', 'platform', '删除角色', 'action', '', '', '', '', 'role-management', 'system:roles:delete', 1023, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'role-management-assign-menus', 'platform', '分配菜单权限', 'action', '', '', '', '', 'role-management', 'system:roles:assign_menus', 1024, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management-assign-menus');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'platform-management', 'platform', '平台管理', 'page', '/platform', 'platform-management', '/platform/index', 'SettingOutlined', '', '', 109, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-management');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'platform-branding-update', 'platform', '更新平台标识', 'action', '', '', '', '', 'platform-management', 'platform:branding:update', 1091, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-branding-update');
 
 UPDATE menus SET
     menu_scope = 'platform',
@@ -180,8 +464,64 @@ SELECT 'tenant-management', '租户管理', '/tenant', 'tenant-management', 'Apa
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-create', 'platform', '新增租户', 'action', '', '', '', '', 'tenant-management', 'tenant:create', 1101, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-update', 'platform', '编辑租户', 'action', '', '', '', '', 'tenant-management', 'tenant:update', 1102, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-activate', 'platform', '启用租户', 'action', '', '', '', '', 'tenant-management', 'tenant:activate', 1103, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-activate');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-suspend', 'platform', '停用租户', 'action', '', '', '', '', 'tenant-management', 'tenant:suspend', 1104, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-suspend');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-users-create', 'platform', '新增租户成员', 'action', '', '', '', '', 'tenant-management', 'tenant:users:create', 1105, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-users-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-users-update', 'platform', '编辑租户成员', 'action', '', '', '', '', 'tenant-management', 'tenant:users:update', 1106, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-users-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-api-keys-create', 'platform', '新增租户 API Key', 'action', '', '', '', '', 'tenant-management', 'tenant:api_keys:create', 1107, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-api-keys-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-api-keys-revoke', 'platform', '撤销租户 API Key', 'action', '', '', '', '', 'tenant-management', 'tenant:api_keys:revoke', 1108, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-api-keys-revoke');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-management-theme-assign', 'platform', '分配租户主题', 'action', '', '', '', '', 'tenant-management', 'tenant:theme:assign', 1109, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-management-theme-assign');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'appearance-studio', 'platform', '主题管理', 'page', '/settings/appearance-studio', 'appearance-studio', '/settings/appearance-studio/index', 'BgColorsOutlined', '', 'appearance:access', 120, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-studio');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'appearance-themes-create', 'platform', '新建主题', 'action', '', '', '', '', 'appearance-studio', 'appearance:themes:create', 1201, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-themes-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'appearance-themes-update', 'platform', '编辑主题', 'action', '', '', '', '', 'appearance-studio', 'appearance:themes:update', 1202, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-themes-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'appearance-themes-publish', 'platform', '发布主题', 'action', '', '', '', '', 'appearance-studio', 'appearance:themes:publish', 1203, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-themes-publish');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'appearance-themes-disable', 'platform', '停用主题', 'action', '', '', '', '', 'appearance-studio', 'appearance:themes:disable', 1204, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-themes-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'appearance-themes-set-default', 'platform', '设为平台默认', 'action', '', '', '', '', 'appearance-studio', 'appearance:themes:set_default', 1205, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'appearance-themes-set-default');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'tenant-settings', 'tenant', '租户设置', 'directory', '', '', 'settings', '', '', 80, TRUE
@@ -192,22 +532,46 @@ SELECT 'tenant-user-management', 'tenant', '成员管理', 'page', '/tenant', 't
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-user-management');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-users-create', 'tenant', '新增成员', 'action', '', '', '', '', 'tenant-user-management', 'tenant:users:create', 811, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-users-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-users-update', 'tenant', '编辑成员', 'action', '', '', '', '', 'tenant-user-management', 'tenant:users:update', 812, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-users-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-users-enable', 'tenant', '启用成员', 'action', '', '', '', '', 'tenant-user-management', 'tenant:users:enable', 813, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-users-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-users-disable', 'tenant', '停用成员', 'action', '', '', '', '', 'tenant-user-management', 'tenant:users:disable', 814, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-users-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'tenant-api-keys', 'tenant', 'API 密钥', 'page', '/settings/api-keys', 'tenant-api-keys', '/settings/api-keys/index', 'key', 'tenant-settings', 'tenant:api_key:manage', 82, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-api-keys');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-api-keys-create', 'tenant', '新增 API Key', 'action', '', '', '', '', 'tenant-api-keys', 'tenant:api_keys:create', 821, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-api-keys-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'tenant-api-keys-revoke', 'tenant', '撤销 API Key', 'action', '', '', '', '', 'tenant-api-keys', 'tenant:api_keys:revoke', 822, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-api-keys-revoke');
 
 DELETE FROM role_menus
 WHERE menu_id IN (
     SELECT id FROM menus
-    WHERE menu_scope = 'platform'
-      AND menu_key IN ('settings', 'api-keys', 'user-management')
+WHERE menu_scope = 'platform'
+      AND menu_key IN ('settings', 'api-keys')
 );
 
 DELETE FROM menus
 WHERE menu_scope = 'platform'
-  AND menu_key IN ('settings', 'api-keys', 'user-management');
+  AND menu_key IN ('settings', 'api-keys');
 
 UPDATE menus SET menu_scope = 'platform'
-WHERE menu_key IN ('platform-management', 'tenant-management', 'appearance-studio', 'rbac', 'menu-management', 'role-management')
+WHERE menu_key IN ('platform-management', 'tenant-management', 'appearance-studio', 'rbac', 'user-management', 'menu-management', 'role-management')
   AND (menu_scope IS NULL OR menu_scope = '');
 
 UPDATE menus SET menu_scope = 'tenant'

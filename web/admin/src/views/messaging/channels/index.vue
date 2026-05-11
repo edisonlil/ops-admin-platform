@@ -42,6 +42,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     disableMessageChannelAccount,
@@ -53,6 +54,7 @@
   } from '@/api/messaging';
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const saving = ref(false);
   const drawerVisible = ref(false);
@@ -108,11 +110,12 @@
       render(row) {
         return h(AppTableActions, {
           actions: [
-            { label: '编辑', onClick: () => openEdit(row) },
-            { label: '测试', onClick: () => testAccount(row) },
+            { label: '编辑', show: hasPermission(['messaging:channels:update']), onClick: () => openEdit(row) },
+            { label: '测试', show: hasPermission(['messaging:channels:test']), onClick: () => testAccount(row) },
             {
               label: row.enabled ? '停用' : '启用',
               tone: row.enabled ? 'danger' : 'primary',
+              show: hasPermission([row.enabled ? 'messaging:channels:disable' : 'messaging:channels:enable']),
               onClick: () => toggleEnabled(row),
             },
           ],
@@ -135,7 +138,9 @@
       tableProps: { size: 'small' },
     },
     toolbar: {
-      primaryAction: { key: 'create', label: '新增渠道', type: 'primary', onClick: () => openCreate() },
+      primaryAction: hasPermission(['messaging:channels:create'])
+        ? { key: 'create', label: '新增渠道', type: 'primary', onClick: () => openCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },

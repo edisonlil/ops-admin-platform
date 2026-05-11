@@ -25,7 +25,7 @@
 
       <template #item="{ row: theme }">
         <article class="theme-resource-card" :style="previewStyle(theme)">
-          <button class="theme-resource-card__preview" type="button" @click="editTheme(theme.id)">
+          <button class="theme-resource-card__preview" type="button" @click="canUpdateTheme && editTheme(theme.id)">
             <div class="theme-preview-shell">
               <aside class="theme-preview-shell__nav">
                 <span></span>
@@ -66,8 +66,9 @@
                 <span></span>
               </div>
               <div class="theme-resource-card__actions">
-                <n-button size="small" type="primary" secondary @click="editTheme(theme.id)">编辑</n-button>
+                <n-button v-if="canUpdateTheme" size="small" type="primary" secondary @click="editTheme(theme.id)">编辑</n-button>
                 <n-dropdown
+                  v-if="themeActionOptions(theme).length"
                   trigger="click"
                   :options="themeActionOptions(theme)"
                   @select="(key) => handleThemeAction(key, theme)"
@@ -104,8 +105,8 @@
       </div>
       <n-space class="studio-topbar__actions" align="center">
         <n-button secondary @click="appearanceStore.resetToPreset">重置当前预设</n-button>
-        <n-button type="primary" secondary :loading="appearanceStore.isPublishing" @click="saveDraft">保存草稿</n-button>
-        <n-button type="primary" :loading="publishingTheme" @click="publishEditingTheme">发布主题</n-button>
+        <n-button v-if="canUpdateTheme" type="primary" secondary :loading="appearanceStore.isPublishing" @click="saveDraft">保存草稿</n-button>
+        <n-button v-if="canPublishTheme" type="primary" :loading="publishingTheme" @click="publishEditingTheme">发布主题</n-button>
       </n-space>
     </header>
 
@@ -192,6 +193,7 @@
   import VisualTokenPanel from '@/components/AppearanceStudio/VisualTokenPanel.vue';
   import type { EffectiveAppearanceTheme } from '@/api/appearance';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { usePermission } from '@/hooks/web/usePermission';
 
   type ThemeItem = NonNullable<EffectiveAppearanceTheme['theme']>;
   type PanelKey =
@@ -236,6 +238,7 @@
   }
 
   const appearanceStore = useAppearanceStore();
+  const { hasPermission } = usePermission();
   const themes = ref<ThemeItem[]>([]);
   const themesLoading = ref(false);
   const publishingTheme = ref(false);
@@ -246,6 +249,11 @@
   const editorPane = ref<HTMLElement | null>(null);
   const previewPane = ref<HTMLElement | null>(null);
   const isEditorMode = computed(() => !!appearanceStore.editingThemeId);
+  const canCreateTheme = computed(() => hasPermission(['appearance:themes:create']));
+  const canUpdateTheme = computed(() => hasPermission(['appearance:themes:update']));
+  const canPublishTheme = computed(() => hasPermission(['appearance:themes:publish']));
+  const canDisableTheme = computed(() => hasPermission(['appearance:themes:disable']));
+  const canSetDefaultTheme = computed(() => hasPermission(['appearance:themes:set_default']));
 
   const statusFilterOptions = [
     { label: '全部', value: 'all' },
@@ -266,12 +274,9 @@
       cardMinWidth: '292px',
     },
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新建主题',
-        type: 'primary',
-        onClick: () => createTheme(),
-      },
+      primaryAction: canCreateTheme.value
+        ? { key: 'create', label: '新建主题', type: 'primary', onClick: () => createTheme() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: false,
@@ -402,19 +407,22 @@
       {
         label: '设为平台默认',
         key: 'platform-default',
+        show: canSetDefaultTheme.value,
         disabled: theme.status !== 'published' || theme.is_platform_default,
       },
       {
         label: '发布',
         key: 'publish',
+        show: canPublishTheme.value,
         disabled: theme.status === 'published',
       },
       {
         label: '停用',
         key: 'disable',
+        show: canDisableTheme.value,
         disabled: theme.status === 'disabled',
       },
-    ];
+    ].filter((option) => option.show !== false);
   }
 
   function handleThemeAction(key: string | number, theme: ThemeItem) {

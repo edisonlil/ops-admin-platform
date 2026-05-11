@@ -33,10 +33,10 @@ def platform_theme() -> dict[str, Any]:
     return ok(services.platform_default_theme())
 
 
-@router.put("/platform-branding", dependencies=[Depends(auth.require_platform_admin)])
+@router.put("/platform-branding", dependencies=[Depends(auth.require_platform_permission("platform:branding:update"))])
 def update_platform_branding(
     payload: PlatformBrandingRequest,
-    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("platform:branding:update")),
 ) -> dict[str, Any]:
     return ok(
         services.update_platform_branding(
@@ -46,29 +46,29 @@ def update_platform_branding(
     )
 
 
-@router.get("/themes", dependencies=[Depends(auth.require_platform_admin)])
+@router.get("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:access"))])
 def themes() -> dict[str, Any]:
     return ok(services.list_themes())
 
 
-@router.post("/themes", dependencies=[Depends(auth.require_platform_admin)])
+@router.post("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:themes:create"))])
 def create_theme(
     payload: TenantAppearanceThemeRequest,
-    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("appearance:themes:create")),
 ) -> dict[str, Any]:
     return ok(services.create_theme(payload=payload.model_dump(by_alias=False), actor=str(current_user.get("username", ""))))
 
 
-@router.get("/themes/{theme_id}", dependencies=[Depends(auth.require_platform_admin)])
+@router.get("/themes/{theme_id}", dependencies=[Depends(auth.require_platform_permission("appearance:access"))])
 def theme(theme_id: int) -> dict[str, Any]:
     return ok(services.get_theme(theme_id))
 
 
-@router.put("/themes/{theme_id}", dependencies=[Depends(auth.require_platform_admin)])
+@router.put("/themes/{theme_id}", dependencies=[Depends(auth.require_platform_permission("appearance:themes:update"))])
 def update_theme(
     theme_id: int,
     payload: TenantAppearanceThemeRequest,
-    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("appearance:themes:update")),
 ) -> dict[str, Any]:
     return ok(
         services.update_theme(
@@ -79,34 +79,34 @@ def update_theme(
     )
 
 
-@router.post("/themes/{theme_id}/publish", dependencies=[Depends(auth.require_platform_admin)])
-def publish_theme(theme_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+@router.post("/themes/{theme_id}/publish", dependencies=[Depends(auth.require_platform_permission("appearance:themes:publish"))])
+def publish_theme(theme_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_permission("appearance:themes:publish"))) -> dict[str, Any]:
     return ok(services.publish_theme(theme_id=theme_id, actor=str(current_user.get("username", ""))))
 
 
-@router.post("/themes/{theme_id}/disable", dependencies=[Depends(auth.require_platform_admin)])
-def disable_theme(theme_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_admin)) -> dict[str, Any]:
+@router.post("/themes/{theme_id}/disable", dependencies=[Depends(auth.require_platform_permission("appearance:themes:disable"))])
+def disable_theme(theme_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_permission("appearance:themes:disable"))) -> dict[str, Any]:
     return ok(services.disable_theme(theme_id=theme_id, actor=str(current_user.get("username", ""))))
 
 
-@router.post("/themes/{theme_id}/platform-default", dependencies=[Depends(auth.require_platform_admin)])
+@router.post("/themes/{theme_id}/platform-default", dependencies=[Depends(auth.require_platform_permission("appearance:themes:set_default"))])
 def set_platform_default_theme(
     theme_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("appearance:themes:set_default")),
 ) -> dict[str, Any]:
     return ok(services.set_platform_default_theme(theme_id=theme_id, actor=str(current_user.get("username", ""))))
 
 
-@router.get("/tenants/{tenant_id}/theme", dependencies=[Depends(auth.require_tenant_admin_for_path())])
+@router.get("/tenants/{tenant_id}/theme", dependencies=[Depends(auth.require_platform_permission("tenant:access"))])
 def tenant_theme(tenant_id: int) -> dict[str, Any]:
     return ok(services.tenant_theme_assignment(tenant_id))
 
 
-@router.put("/tenants/{tenant_id}/theme", dependencies=[Depends(auth.require_tenant_admin_for_path())])
+@router.put("/tenants/{tenant_id}/theme", dependencies=[Depends(auth.require_platform_permission("tenant:theme:assign"))])
 def assign_tenant_theme(
     tenant_id: int,
     payload: TenantThemeAssignmentRequest,
-    current_user: dict[str, Any] = Depends(auth.require_tenant_admin_for_path()),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:theme:assign")),
 ) -> dict[str, Any]:
     return ok(
         services.assign_tenant_theme(

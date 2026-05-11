@@ -46,6 +46,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     disableMessageTemplate,
@@ -56,6 +57,7 @@
   } from '@/api/messaging';
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const saving = ref(false);
   const drawerVisible = ref(false);
@@ -117,10 +119,11 @@
       render(row) {
         return h(AppTableActions, {
           actions: [
-            { label: '编辑', onClick: () => openEdit(row) },
+            { label: '编辑', show: hasPermission(['messaging:templates:update']), onClick: () => openEdit(row) },
             {
               label: row.status === 'enabled' ? '停用' : '启用',
               tone: row.status === 'enabled' ? 'danger' : 'primary',
+              show: hasPermission([row.status === 'enabled' ? 'messaging:templates:disable' : 'messaging:templates:enable']),
               onClick: () => toggleStatus(row),
             },
           ],
@@ -143,7 +146,9 @@
       tableProps: { size: 'small' },
     },
     toolbar: {
-      primaryAction: { key: 'create', label: '新增模板', type: 'primary', onClick: () => openCreate() },
+      primaryAction: hasPermission(['messaging:templates:create'])
+        ? { key: 'create', label: '新增模板', type: 'primary', onClick: () => openCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },

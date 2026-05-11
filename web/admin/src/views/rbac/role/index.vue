@@ -37,7 +37,6 @@
             <n-spin :show="menusLoading">
               <n-tree
                 block-line
-                cascade
                 checkable
                 :data="roleFormMenuTree"
                 :checked-keys="roleForm.menu_keys"
@@ -72,7 +71,6 @@
         <n-spin :show="menusLoading">
           <n-tree
             block-line
-            cascade
             checkable
             :data="currentRoleMenuTree"
             :checked-keys="checkedMenuKeys"
@@ -111,6 +109,7 @@
   } from '@/api/business';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
@@ -118,6 +117,7 @@
     key: string;
     label: string;
     parent_key?: string;
+    menu_type?: 'directory' | 'page' | 'action' | string;
     menu_scope?: 'platform' | 'tenant' | string;
     sort_order?: number;
     children?: MenuRow[];
@@ -145,6 +145,7 @@
   }
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const menusLoading = ref(false);
   const savingMenus = ref(false);
@@ -225,11 +226,12 @@
       render(row) {
         return h(AppTableActions, {
           actions: [
-            { label: '菜单权限', tone: 'primary', onClick: () => openMenuPermission(row) },
-            { label: '编辑', onClick: () => handleEdit(row) },
+            { label: '菜单权限', tone: 'primary', show: hasPermission(['system:roles:assign_menus']), onClick: () => openMenuPermission(row) },
+            { label: '编辑', show: hasPermission(['system:roles:update']), onClick: () => handleEdit(row) },
             {
               label: '删除',
               tone: 'danger',
+              show: hasPermission(['system:roles:delete']),
               disabled: !!row.is_system,
               confirm: true,
               confirmTitle: '删除角色',
@@ -259,12 +261,9 @@
       },
     },
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新增角色',
-        type: 'primary',
-        onClick: () => handleCreate(),
-      },
+      primaryAction: hasPermission(['system:roles:create'])
+        ? { key: 'create', label: '新增角色', type: 'primary', onClick: () => handleCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
@@ -292,7 +291,7 @@
     const normalize = (nodes: MenuRow[]): TreeOption[] =>
       nodes.sort(sortByOrder).map((node) => ({
         key: node.key,
-        label: node.label || node.key,
+        label: node.menu_type === 'action' ? `操作：${node.label || node.key}` : node.label || node.key,
         children: node.children?.length ? normalize(node.children) : undefined,
       }));
 
@@ -330,6 +329,19 @@
     };
     visit(nodes);
     return keys;
+  }
+
+  function withAncestorMenuKeys(keys: Array<string | number>) {
+    const selected = new Set(keys.map((key) => String(key)));
+    const byKey = new Map(menuRows.value.map((menu) => [String(menu.key), menu]));
+    Array.from(selected).forEach((key) => {
+      let parentKey = String(byKey.get(key)?.parent_key || '');
+      while (parentKey) {
+        selected.add(parentKey);
+        parentKey = String(byKey.get(parentKey)?.parent_key || '');
+      }
+    });
+    return Array.from(selected);
   }
 
   async function ensureMenusLoaded() {
@@ -381,7 +393,7 @@
   }
 
   function handleCheckedMenuKeys(keys: Array<string | number>) {
-    checkedMenuKeys.value = keys.map((key) => String(key));
+    checkedMenuKeys.value = withAncestorMenuKeys(keys);
   }
 
   function handleExpandedMenuKeys(keys: Array<string | number>) {
@@ -402,7 +414,7 @@
   }
 
   function handleRoleMenuKeys(keys: Array<string | number>) {
-    roleForm.menu_keys = keys.map((key) => String(key));
+    roleForm.menu_keys = withAncestorMenuKeys(keys);
   }
 
   async function submitRoleForm() {

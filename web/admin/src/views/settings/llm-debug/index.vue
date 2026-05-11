@@ -9,7 +9,7 @@
         </div>
         <n-space align="center">
           <n-button secondary :loading="loadingModels" @click="loadModels">刷新模型</n-button>
-          <n-button type="primary" :loading="submitting" @click="submitDebug">发送</n-button>
+          <n-button v-if="canSendDebug" type="primary" :loading="submitting" @click="submitDebug">发送</n-button>
         </n-space>
       </div>
     </n-card>
@@ -98,13 +98,16 @@
     type OpenAIChatCompletionPayload,
   } from '@/api/business';
   import { useGlobSetting } from '@/hooks/setting';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { useUser } from '@/store/modules/user';
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const userStore = useUser();
   const { apiUrl, urlPrefix } = useGlobSetting();
   const loadingModels = ref(false);
   const submitting = ref(false);
+  const canSendDebug = computed(() => hasPermission(['llm_debug:send']));
   const modelRows = ref<Recordable[]>([]);
   const answerText = ref('');
   const thinkText = ref('');

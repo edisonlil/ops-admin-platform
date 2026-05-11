@@ -41,7 +41,7 @@
         <n-form-item label="备注" path="remark">
           <n-input v-model:value="tenantForm.remark" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" />
         </n-form-item>
-        <n-form-item v-if="tenantFormMode === 'edit'" label="外观主题">
+        <n-form-item v-if="tenantFormMode === 'edit' && canAssignTenantTheme" label="外观主题">
           <n-select
             v-model:value="tenantForm.theme_id"
             clearable
@@ -86,7 +86,7 @@
           <n-tab-pane name="users" tab="成员">
             <div class="tenant-drawer-toolbar">
               <n-space>
-                <n-button type="primary" size="small" @click="openUserCreate">新增成员</n-button>
+                <n-button v-if="canCreateTenantUser" type="primary" size="small" @click="openUserCreate">新增成员</n-button>
                 <n-button size="small" :loading="usersLoading" @click="loadTenantUsers">刷新</n-button>
               </n-space>
             </div>
@@ -96,7 +96,7 @@
           <n-tab-pane name="keys" tab="API Key">
             <div class="tenant-drawer-toolbar">
               <n-space>
-                <n-button type="primary" size="small" @click="keyCreateVisible = true">新增 Key</n-button>
+                <n-button v-if="canCreateTenantApiKey" type="primary" size="small" @click="keyCreateVisible = true">新增 Key</n-button>
                 <n-button size="small" :loading="keysLoading" @click="loadTenantKeys">刷新</n-button>
               </n-space>
             </div>
@@ -164,6 +164,10 @@
     createTenant,
     createTenantApiKey,
     createTenantUser,
+    disableCurrentTenantUser,
+    disableTenantUser,
+    enableCurrentTenantUser,
+    enableTenantUser,
     getCurrentTenantApiKeys,
     getCurrentTenantRoles,
     getCurrentTenantUsers,
@@ -182,6 +186,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
   import { AppCollectionView, defineListPage, ListPageRuntime } from '@/page-runtime';
   import type { CollectionViewSchema } from '@/page-runtime';
@@ -216,6 +221,7 @@
   }
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const userStore = useUserStore();
   const route = useRoute();
   const query = ref('');
@@ -257,6 +263,16 @@
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const isTenantUserManagement = computed(() => String(route.name || '') === 'tenant-user-management');
   const isPlatformTenantManagement = computed(() => isPlatformAdmin.value && !isTenantUserManagement.value);
+  const canCreateTenant = computed(() => hasPermission(['tenant:create']));
+  const canUpdateTenant = computed(() => hasPermission(['tenant:update']));
+  const canActivateTenant = computed(() => hasPermission(['tenant:activate']));
+  const canSuspendTenant = computed(() => hasPermission(['tenant:suspend']));
+  const canAssignTenantTheme = computed(() => hasPermission(['tenant:theme:assign']));
+  const canCreateTenantUser = computed(() => hasPermission(['tenant:users:create']));
+  const canUpdateTenantUser = computed(() => hasPermission(['tenant:users:update']));
+  const canToggleTenantUser = (active: boolean) => hasPermission([active ? 'tenant:users:disable' : 'tenant:users:enable']);
+  const canCreateTenantApiKey = computed(() => hasPermission(['tenant:api_keys:create']));
+  const canRevokeTenantApiKey = computed(() => hasPermission(['tenant:api_keys:revoke']));
 
   const statusOptions = [
     { label: '启用', value: 'active' },
@@ -300,10 +316,11 @@
         return h(AppTableActions, {
           actions: [
             { label: '详情', onClick: () => openDetail(row) },
-            { label: '编辑', onClick: () => openEdit(row) },
+            { label: '编辑', show: canUpdateTenant.value, onClick: () => openEdit(row) },
             {
               label: row.status === 'active' ? '停用' : '启用',
               tone: row.status === 'active' ? 'danger' : 'primary',
+              show: row.status === 'active' ? canSuspendTenant.value : canActivateTenant.value,
               confirm: true,
               confirmTitle: row.status === 'active' ? '停用租户' : '启用租户',
               confirmContent: `确认${row.status === 'active' ? '停用' : '启用'}租户 ${row.name}？`,
@@ -354,7 +371,18 @@
       width: 110,
       render: (row) =>
         h(AppTableActions, {
-          actions: [{ label: '编辑', onClick: () => openUserEdit(row) }],
+          actions: [
+            { label: '编辑', show: canUpdateTenantUser.value, onClick: () => openUserEdit(row) },
+            {
+              label: row.is_active ? '停用' : '启用',
+              tone: row.is_active ? 'danger' : 'primary',
+              show: canToggleTenantUser(!!row.is_active),
+              confirm: true,
+              confirmTitle: row.is_active ? '停用成员' : '启用成员',
+              confirmContent: `确认${row.is_active ? '停用' : '启用'}成员 ${row.username}？`,
+              onConfirm: () => toggleUser(row),
+            },
+          ],
         }),
     },
   ];
@@ -381,6 +409,7 @@
             {
               label: '撤销',
               tone: 'danger',
+              show: canRevokeTenantApiKey.value,
               disabled: !row.is_active,
               confirm: true,
               confirmTitle: '撤销 API Key',
@@ -407,12 +436,9 @@
       tableProps: { size: 'small' },
     },
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新增租户',
-        type: 'primary',
-        onClick: () => openCreate(),
-      },
+      primaryAction: canCreateTenant.value
+        ? { key: 'create', label: '新增租户', type: 'primary', onClick: () => openCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
@@ -432,12 +458,9 @@
       tableProps: { size: 'small' },
     },
     toolbar: {
-      primaryAction: {
-        key: 'create',
-        label: '新增成员',
-        type: 'primary',
-        onClick: () => openUserCreate(),
-      },
+      primaryAction: canCreateTenantUser.value
+        ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
@@ -541,7 +564,9 @@
         await createTenant(payload);
       } else {
         await updateTenant(tenantForm.id, payload);
-        await assignTenantAppearanceTheme(tenantForm.id, tenantForm.theme_id || null);
+        if (canAssignTenantTheme.value) {
+          await assignTenantAppearanceTheme(tenantForm.id, tenantForm.theme_id || null);
+        }
       }
       tenantModalVisible.value = false;
       await reload();
@@ -557,6 +582,20 @@
       if (nextActive) await activateTenant(row.id);
       else await suspendTenant(row.id);
       await reload();
+    })();
+  }
+
+  function toggleUser(row: TenantUserRow) {
+    const nextActive = !row.is_active;
+    return (async () => {
+      if (!activeTenant.value) return;
+      if (isPlatformTenantManagement.value) {
+        if (nextActive) await enableTenantUser(activeTenant.value.id, row.id);
+        else await disableTenantUser(activeTenant.value.id, row.id);
+      } else if (nextActive) await enableCurrentTenantUser(row.id);
+      else await disableCurrentTenantUser(row.id);
+      await loadTenantUsers();
+      message.success(`成员已${nextActive ? '启用' : '停用'}`);
     })();
   }
 

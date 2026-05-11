@@ -36,12 +36,12 @@ def llm_providers() -> dict[str, Any]:
     return ok(services.list_providers())
 
 
-@router.post("/llm/providers", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.post("/llm/providers", dependencies=[Depends(auth.require_permission("llm:providers:save"))])
 def save_llm_provider(payload: LLMProviderRequest) -> dict[str, Any]:
     return ok(services.save_provider(payload.model_dump()))
 
 
-@router.put("/llm/providers/{provider_key}", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.put("/llm/providers/{provider_key}", dependencies=[Depends(auth.require_permission("llm:providers:save"))])
 def update_llm_provider(provider_key: str, payload: LLMProviderRequest) -> dict[str, Any]:
     data = payload.model_dump()
     data["provider_key"] = provider_key
@@ -53,12 +53,12 @@ def llm_models() -> dict[str, Any]:
     return ok(services.list_models())
 
 
-@router.post("/llm/models", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.post("/llm/models", dependencies=[Depends(auth.require_permission("llm:models:save"))])
 def save_llm_model(payload: LLMModelRequest) -> dict[str, Any]:
     return ok(services.save_model(payload.model_dump()))
 
 
-@router.put("/llm/models/{model_key}", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.put("/llm/models/{model_key}", dependencies=[Depends(auth.require_permission("llm:models:save"))])
 def update_llm_model(model_key: str, payload: LLMModelRequest) -> dict[str, Any]:
     data = payload.model_dump()
     data["model_key"] = model_key
@@ -70,7 +70,7 @@ def llm_tasks() -> dict[str, Any]:
     return ok(services.list_tasks())
 
 
-@router.post("/llm/tasks/register", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.post("/llm/tasks/register", dependencies=[Depends(auth.require_permission("llm:tasks:register"))])
 def register_llm_task(payload: LLMTaskRequest) -> dict[str, Any]:
     return ok(services.register_task(payload.model_dump()))
 
@@ -80,12 +80,12 @@ def llm_routing_policies() -> dict[str, Any]:
     return ok(services.list_routing_policies())
 
 
-@router.post("/llm/routing-policies", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.post("/llm/routing-policies", dependencies=[Depends(auth.require_permission("llm:routing_policies:save"))])
 def save_llm_routing_policy(payload: LLMRoutingPolicyRequest) -> dict[str, Any]:
     return ok(services.save_routing_policy(payload.model_dump()))
 
 
-@router.put("/llm/routing-policies/{route_key}", dependencies=[Depends(auth.require_permission("llm_config:update"))])
+@router.put("/llm/routing-policies/{route_key}", dependencies=[Depends(auth.require_permission("llm:routing_policies:save"))])
 def update_llm_routing_policy(route_key: str, payload: LLMRoutingPolicyRequest) -> dict[str, Any]:
     data = payload.model_dump()
     data["route_key"] = route_key
@@ -102,7 +102,7 @@ def openai_models() -> dict[str, Any]:
     return services.list_openai_models()
 
 
-@router.post("/llm/openai/v1/chat/completions", dependencies=[Depends(auth.require_auth)])
+@router.post("/llm/openai/v1/chat/completions", dependencies=[Depends(auth.require_business_api_key_or_permission("llm_debug:send"))])
 def openai_chat_completions(payload: OpenAIChatCompletionRequest) -> dict[str, Any]:
     data = payload.model_dump()
     if data.get("stream", False):

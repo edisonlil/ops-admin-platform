@@ -30,6 +30,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -40,6 +41,7 @@
   } from '@/api/messaging';
 
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const rows = ref<MessageRecipient[]>([]);
   const detailVisible = ref(false);
@@ -72,6 +74,7 @@
             { label: '查看', onClick: () => openMessage(row) },
             {
               label: '标为已读',
+              show: hasPermission(['messaging:inbox:manage_self']),
               disabled: row.read_status !== 'unread',
               onClick: () => markRead(row),
             },
@@ -95,12 +98,9 @@
       tableProps: { size: 'small' },
     },
     toolbar: {
-      primaryAction: {
-        key: 'read-all',
-        label: '全部已读',
-        type: 'default',
-        onClick: markAllRead,
-      },
+      primaryAction: hasPermission(['messaging:inbox:manage_self'])
+        ? { key: 'read-all', label: '全部已读', type: 'default', onClick: markAllRead }
+        : undefined,
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
@@ -119,7 +119,7 @@
   async function openMessage(row: MessageRecipient) {
     activeMessage.value = row;
     detailVisible.value = true;
-    if (row.read_status === 'unread') {
+    if (row.read_status === 'unread' && hasPermission(['messaging:inbox:manage_self'])) {
       await markRead(row, false);
     }
   }

@@ -86,6 +86,7 @@
                     <n-space>
                       <n-radio value="directory">目录</n-radio>
                       <n-radio value="page">页面</n-radio>
+                      <n-radio value="action">按钮/操作</n-radio>
                     </n-space>
                   </n-radio-group>
                 </n-form-item>
@@ -104,20 +105,20 @@
                     :disabled="structureLockedByRoles"
                   />
                 </n-form-item>
-                <n-form-item label="路径" path="path">
+                <n-form-item v-if="formParams.menu_type !== 'action'" label="路径" path="path">
                   <n-input
                     v-model:value="formParams.path"
                     placeholder="目录可填 /settings，页面例如 /recommend"
                     :disabled="structureLockedByRoles"
                   />
                 </n-form-item>
-                <n-form-item label="路由名称" path="route_name">
+                <n-form-item v-if="formParams.menu_type !== 'action'" label="路由名称" path="route_name">
                   <n-input v-model:value="formParams.route_name" placeholder="页面路由名称 Key" />
                 </n-form-item>
                 <n-form-item v-if="formParams.menu_type === 'page'" label="组件路径" path="component">
                   <n-input v-model:value="formParams.component" placeholder="例如 /recommend/index" />
                 </n-form-item>
-                <n-form-item label="图标" path="icon">
+                <n-form-item v-if="formParams.menu_type !== 'action'" label="图标" path="icon">
                   <div class="menu-icon-field">
                     <button class="menu-icon-trigger" type="button" @click="openIconPicker">
                       <span class="menu-icon-trigger__preview">
@@ -147,11 +148,20 @@
                 </n-form-item>
                 <n-form-item class="menu-form-actions">
                   <n-space>
-                    <n-button type="primary" :loading="saving" @click="handleSave">
+                    <n-button
+                      v-if="formMode === 'create' ? hasPermission(['system:menus:create']) : hasPermission(['system:menus:update'])"
+                      type="primary"
+                      :loading="saving"
+                      @click="handleSave"
+                    >
                       {{ formMode === 'create' ? '创建菜单' : '保存修改' }}
                     </n-button>
                     <n-button @click="handleReset">重置</n-button>
-                    <n-button v-if="formMode === 'edit'" :disabled="menuLockedByRoles" @click="handleDelete">
+                    <n-button
+                      v-if="formMode === 'edit' && hasPermission(['system:menus:delete'])"
+                      :disabled="menuLockedByRoles"
+                      @click="handleDelete"
+                    >
                       删除
                     </n-button>
                   </n-space>
@@ -259,6 +269,7 @@
   import { createRbacMenu, deleteRbacMenu, getRbacMenus, updateRbacMenu } from '@/api/business';
   import { useAsyncRouteStore } from '@/store/modules/asyncRoute';
   import { useUserStore } from '@/store/modules/user';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
 
   interface BoundRole extends Recordable {
@@ -271,7 +282,7 @@
     id: number;
     key: string;
     label: string;
-    menu_type: 'directory' | 'page';
+    menu_type: 'directory' | 'page' | 'action';
     path?: string;
     route_name?: string;
     component?: string;
@@ -288,7 +299,7 @@
     id: number | null;
     key: string;
     label: string;
-    menu_type: 'directory' | 'page';
+    menu_type: 'directory' | 'page' | 'action';
     path: string;
     route_name: string;
     component: string;
@@ -304,6 +315,7 @@
   const dialog = useDialog();
   const asyncRouteStore = useAsyncRouteStore();
   const userStore = useUserStore();
+  const { hasPermission } = usePermission();
   const formRef = ref<FormInst | null>(null);
   const loading = ref(false);
   const saving = ref(false);
@@ -379,11 +391,11 @@
   const menuLockedByRoles = computed(() => formMode.value === 'edit' && (formParams.bound_roles || []).length > 0);
   const structureLockedByRoles = computed(() => menuLockedByRoles.value);
   const addMenuOptions = computed<DropdownOption[]>(() => [
-    { label: '新增根菜单', key: 'root' },
+    { label: '新增根菜单', key: 'root', disabled: !hasPermission(['system:menus:create']) },
     {
       label: '新增子菜单',
       key: 'child',
-      disabled: !selectedMenuKey.value || selectedMenuRow.value?.menu_type !== 'directory',
+      disabled: !hasPermission(['system:menus:create']) || !selectedMenuKey.value || selectedMenuRow.value?.menu_type === 'action',
     },
   ]);
 
@@ -453,7 +465,7 @@
       blocked.add(formParams.key);
     }
     return rows.value
-      .filter((item) => item.menu_type === 'directory' && !blocked.has(item.key))
+      .filter((item) => item.menu_type !== 'action' && !blocked.has(item.key))
       .map((item) => ({
         label: item.label,
         value: item.key,
@@ -474,7 +486,7 @@
     const normalize = (nodes: MenuRow[]): TreeOption[] =>
       nodes.sort(sortByOrder).map((node) => ({
         key: node.key,
-        label: node.label,
+        label: node.menu_type === 'action' ? `操作：${node.label}` : node.label,
         children: node.children?.length ? normalize(node.children) : undefined,
       }));
     return normalize(roots);
@@ -560,7 +572,8 @@
     selectedKeys.value = [];
     resetForm();
     formParams.parent_key = parentKey;
-    formParams.menu_type = parentKey ? 'page' : 'directory';
+    const parent = parentKey ? findMenuByKey(rows.value, parentKey) : null;
+    formParams.menu_type = parent?.menu_type === 'page' ? 'action' : parentKey ? 'page' : 'directory';
   }
 
   function handleSelectMenu(keys: string[]) {
@@ -606,8 +619,8 @@
       message.warning('请先选择一个父级菜单');
       return;
     }
-    if (menu.menu_type !== 'directory') {
-      message.warning('只有目录菜单可以新增子菜单');
+    if (menu.menu_type === 'action') {
+      message.warning('按钮/操作权限不能新增子节点');
       return;
     }
     startCreate(menu.key);
@@ -626,10 +639,10 @@
         key: formParams.key.trim(),
         label: formParams.label.trim(),
         menu_type: formParams.menu_type,
-        path: formParams.path.trim(),
-        route_name: formParams.route_name.trim(),
-        component: formParams.component.trim(),
-        icon: formParams.icon.trim(),
+        path: formParams.menu_type === 'action' ? '' : formParams.path.trim(),
+        route_name: formParams.menu_type === 'action' ? '' : formParams.route_name.trim(),
+        component: formParams.menu_type === 'action' ? '' : formParams.component.trim(),
+        icon: formParams.menu_type === 'action' ? '' : formParams.icon.trim(),
         parent_key: formParams.parent_key.trim(),
         permission_code: formParams.permission_code.trim(),
         sort_order: Number(formParams.sort_order || 0),

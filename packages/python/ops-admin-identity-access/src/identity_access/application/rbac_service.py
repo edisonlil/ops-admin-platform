@@ -49,6 +49,10 @@ def update_user(
     )
 
 
+def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
+    return repositories.set_user_active(user_id, is_active)
+
+
 def list_roles() -> list[dict[str, Any]]:
     return repositories.list_roles()
 
