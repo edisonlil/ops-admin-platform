@@ -12,8 +12,19 @@
             <n-form-item-gi label="标题" path="title">
               <n-input v-model:value="form.title" placeholder="例如：系统维护通知" />
             </n-form-item-gi>
-            <n-form-item-gi label="接收用户 ID" path="recipientText">
-              <n-input v-model:value="form.recipientText" placeholder="例如：1, 2, 3" />
+            <n-form-item-gi label="接收用户" path="recipient_user_ids">
+              <n-select
+                v-model:value="form.recipient_user_ids"
+                multiple
+                filterable
+                remote
+                clearable
+                :options="userOptions"
+                :loading="usersLoading"
+                placeholder="搜索并选择接收用户"
+                @search="handleUserSearch"
+                @focus="loadUsers"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="消息类型" path="message_type">
               <n-select v-model:value="form.message_type" :options="typeOptions" />
@@ -45,7 +56,7 @@
         <h3>{{ form.title || '未填写标题' }}</h3>
         <p>{{ form.content || '消息内容预览会显示在这里。' }}</p>
         <div class="preview-foot">
-          <span>{{ parsedRecipientIds.length }} 个接收人</span>
+          <span>{{ form.recipient_user_ids.length }} 个接收人</span>
           <span>in_app</span>
         </div>
       </aside>
@@ -56,18 +67,28 @@
 <script lang="ts" setup>
   import { computed, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
-  import type { FormInst, FormRules } from 'naive-ui';
+  import type { FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import { AppPage } from '@/page-runtime';
+  import { getCurrentTenantUsers } from '@/api/business';
   import { sendInAppMessage } from '@/api/messaging';
+
+  interface TenantUser {
+    id: number;
+    username: string;
+    is_active?: boolean;
+  }
 
   const message = useMessage();
   const formRef = ref<FormInst | null>(null);
   const sending = ref(false);
+  const usersLoading = ref(false);
+  const allUsers = ref<TenantUser[]>([]);
+  const userOptions = ref<SelectOption[]>([]);
   const form = reactive({
     title: '',
     content: '',
-    recipientText: '',
+    recipient_user_ids: [] as number[],
     message_type: 'system',
     priority: 'normal',
   });
@@ -86,31 +107,61 @@
     { label: '紧急', value: 'urgent' },
   ];
 
-  const parsedRecipientIds = computed(() =>
-    form.recipientText
-      .split(',')
-      .map((item) => Number(item.trim()))
-      .filter((item, index, list) => Number.isInteger(item) && item > 0 && list.indexOf(item) === index)
-  );
-
   const rules: FormRules = {
     title: [{ required: true, message: '请填写标题', trigger: ['blur', 'input'] }],
     content: [{ required: true, message: '请填写内容', trigger: ['blur', 'input'] }],
-    recipientText: [
+    recipient_user_ids: [
       {
         validator() {
-          return parsedRecipientIds.value.length > 0;
+          return form.recipient_user_ids.length > 0;
         },
-        message: '请填写至少一个数字用户 ID',
-        trigger: ['blur', 'input'],
+        message: '请选择至少一个接收用户',
+        trigger: ['change', 'blur'],
       },
     ],
   };
 
+  function toUserOptions(users: TenantUser[], keyword = '') {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    return users
+      .filter((user) => {
+        const username = String(user.username || '');
+        return !normalizedKeyword || username.toLowerCase().includes(normalizedKeyword) || String(user.id).includes(normalizedKeyword);
+      })
+      .map((user) => ({
+        label: user.username,
+        value: user.id,
+        disabled: user.is_active === false,
+      }));
+  }
+
+  async function loadUsers() {
+    if (allUsers.value.length || usersLoading.value) {
+      return;
+    }
+    usersLoading.value = true;
+    try {
+      const payload = await getCurrentTenantUsers();
+      allUsers.value = payload.items || [];
+      userOptions.value = toUserOptions(allUsers.value);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '用户列表加载失败');
+    } finally {
+      usersLoading.value = false;
+    }
+  }
+
+  async function handleUserSearch(keyword: string) {
+    if (!allUsers.value.length) {
+      await loadUsers();
+    }
+    userOptions.value = toUserOptions(allUsers.value, keyword);
+  }
+
   function reset() {
     form.title = '';
     form.content = '';
-    form.recipientText = '';
+    form.recipient_user_ids = [];
     form.message_type = 'system';
     form.priority = 'normal';
     formRef.value?.restoreValidation();
@@ -127,7 +178,7 @@
       await sendInAppMessage({
         title: form.title.trim(),
         content: form.content.trim(),
-        recipient_user_ids: parsedRecipientIds.value,
+        recipient_user_ids: form.recipient_user_ids,
         message_type: form.message_type,
         priority: form.priority,
       });
@@ -137,6 +188,8 @@
       sending.value = false;
     }
   }
+
+  loadUsers();
 </script>
 
 <style lang="less" scoped>

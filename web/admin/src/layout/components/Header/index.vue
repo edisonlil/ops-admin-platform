@@ -119,9 +119,9 @@
       <div class="layout-header-trigger layout-header-trigger-min message-entry" @click="openInbox">
         <n-tooltip placement="bottom">
           <template #trigger>
-            <n-badge :value="unreadCount" :max="99" :show="unreadCount > 0">
+            <n-badge class="message-badge" :value="unreadCount" :max="99" :show="unreadCount > 0">
               <n-icon size="18">
-                <MessageOutlined />
+                <BellOutlined />
               </n-icon>
             </n-badge>
           </template>
@@ -513,7 +513,27 @@
       }
 
       .message-entry {
+        display: inline-flex;
+        align-items: center;
+
+        :deep(.message-badge) {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+        }
+
+        :deep(.n-icon) {
+          align-items: center;
+          justify-content: center;
+          height: 32px;
+          line-height: 32px;
+        }
+
         :deep(.n-badge-sup) {
+          top: 4px;
+          right: 4px;
           min-width: 16px;
           height: 16px;
           padding: 0 5px;
