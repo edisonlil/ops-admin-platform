@@ -33,6 +33,7 @@ class PackageEntrypointTests(unittest.TestCase):
 
         entrypoints = [
             FakeEntryPoint("appearance", "appearance.entrypoints:router", fake_router("appearance")),
+            FakeEntryPoint("cron", "cron.entrypoints:router", fake_router("cron")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
             FakeEntryPoint("llm_runtime", "llm_runtime.entrypoints:router", fake_router("llm_runtime")),
             FakeEntryPoint("messaging", "messaging.entrypoints:router", fake_router("messaging")),
@@ -42,13 +43,18 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 5)
-        self.assertEqual(loaded, ["system", "identity_access", "messaging", "llm_runtime", "appearance"])
+        self.assertEqual(len(routers), 6)
+        self.assertEqual(loaded, ["system", "cron", "identity_access", "messaging", "llm_runtime", "appearance"])
 
     def test_module_registry_composes_init_tasks(self) -> None:
         from api import module_registry
 
         entrypoints = [
+            FakeEntryPoint(
+                "cron",
+                "cron.entrypoints:init_tasks",
+                lambda: (lambda: {"cron": lambda conn: None}),
+            ),
             FakeEntryPoint(
                 "identity_access",
                 "identity_access.entrypoints:init_tasks",
@@ -69,7 +75,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             tasks = module_registry.module_init_tasks()
 
-        self.assertEqual(set(tasks), {"identity_access", "appearance", "messaging", "llm_runtime"})
+        self.assertEqual(set(tasks), {"cron", "identity_access", "appearance", "messaging", "llm_runtime"})
 
 
 if __name__ == "__main__":

@@ -115,6 +115,17 @@ class ApiTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def initialize_cron_db(self) -> None:
+        from cron.infrastructure.persistence.bootstrap import ensure_cron_schema
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            ensure_cron_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_database_url_can_come_from_config_file(self) -> None:
         from api.config import resolve_database_url
 
@@ -642,6 +653,77 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(uninitialized_response.status_code, 503)
         self.assertIn("messaging storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_cron_requires_explicit_schema_initialization(self) -> None:
+        uninitialized_response = self.request("GET", "/api/cron/tasks")
+
+        self.assertEqual(uninitialized_response.status_code, 503)
+        self.assertEqual(uninitialized_response.json()["code"], "CRON_STORAGE_NOT_READY")
+        self.assertIn("cron storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_admin_can_manage_cron_task_and_trigger_run(self) -> None:
+        self.initialize_cron_db()
+
+        create_response = self.request(
+            "POST",
+            "/api/cron/tasks",
+            json={
+                "task_key": "system.health_snapshot",
+                "name": "System health snapshot",
+                "description": "Capture system health on a schedule",
+                "status": "draft",
+                "execution_target": "system.health.snapshot",
+                "default_payload": {"scope": "platform"},
+                "concurrency_policy": "forbid",
+                "timeout_seconds": 120,
+                "max_attempts": 2,
+                "retry_delay_seconds": 30,
+                "retry_backoff_multiplier": 2,
+                "misfire_policy": "catch_up_once",
+                "schedule": {
+                    "trigger_type": "cron",
+                    "trigger_expression": "*/5 * * * *",
+                    "timezone": "UTC",
+                },
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        task = create_response.json()["data"]["item"]
+        task_id = int(task["id"])
+        self.assertEqual(task["task_key"], "system.health_snapshot")
+        self.assertEqual(task["schedule"]["trigger_expression"], "*/5 * * * *")
+
+        enable_response = self.request("POST", f"/api/cron/tasks/{task_id}/enable")
+        self.assertEqual(enable_response.status_code, 200)
+        self.assertEqual(enable_response.json()["data"]["item"]["status"], "enabled")
+
+        trigger_response = self.request(
+            "POST",
+            f"/api/cron/tasks/{task_id}/trigger",
+            json={"payload": {"requested_by": "test"}, "idempotency_key": "manual:test-run"},
+        )
+        self.assertEqual(trigger_response.status_code, 200)
+        run = trigger_response.json()["data"]["item"]
+        self.assertEqual(run["task_id"], task_id)
+        self.assertEqual(run["status"], "pending")
+        self.assertEqual(run["payload"]["scope"], "platform")
+        self.assertEqual(run["payload"]["requested_by"], "test")
+
+        duplicate_trigger_response = self.request(
+            "POST",
+            f"/api/cron/tasks/{task_id}/trigger",
+            json={"payload": {"requested_by": "test"}, "idempotency_key": "manual:test-run"},
+        )
+        self.assertEqual(duplicate_trigger_response.status_code, 200)
+        self.assertEqual(duplicate_trigger_response.json()["data"]["item"]["id"], run["id"])
+
+        list_response = self.request("GET", "/api/cron/tasks")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["data"]["pagination"]["total"], 1)
+
+        runs_response = self.request("GET", f"/api/cron/tasks/{task_id}/runs")
+        self.assertEqual(runs_response.status_code, 200)
+        self.assertEqual(runs_response.json()["data"]["pagination"]["total"], 1)
 
     def test_admin_can_send_and_read_in_app_message(self) -> None:
         self.initialize_messaging_db()

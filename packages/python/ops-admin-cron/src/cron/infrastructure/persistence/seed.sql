@@ -1,0 +1,1 @@
+-- Cron has no default seed data.

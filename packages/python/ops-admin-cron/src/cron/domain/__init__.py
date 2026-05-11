@@ -1,0 +1,1 @@
+"""Cron domain model."""

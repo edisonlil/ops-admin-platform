@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_IMPORT_PATHS = (
     ROOT,
     ROOT / "packages" / "python" / "ops-admin-system" / "src",
+    ROOT / "packages" / "python" / "ops-admin-cron" / "src",
     ROOT / "packages" / "python" / "ops-admin-identity-access" / "src",
     ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     ROOT / "packages" / "python" / "ops-admin-appearance" / "src",

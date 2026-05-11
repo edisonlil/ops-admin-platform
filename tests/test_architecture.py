@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_PACKAGES_ROOT = ROOT / "packages" / "python"
 BOUNDED_CONTEXTS = {
     "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
+    "cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron" / "src" / "cron",
     "identity_access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access" / "src" / "identity_access",
     "llm_runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime" / "src" / "llm_runtime",
     "messaging": PYTHON_PACKAGES_ROOT / "ops-admin-messaging" / "src" / "messaging",
@@ -17,6 +18,7 @@ BOUNDED_CONTEXTS = {
 }
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
+    "ops-admin-cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron",
     "ops-admin-identity-access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access",
     "ops-admin-llm-runtime": PYTHON_PACKAGES_ROOT / "ops-admin-llm-runtime",
     "ops-admin-messaging": PYTHON_PACKAGES_ROOT / "ops-admin-messaging",
@@ -213,8 +215,11 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         ROOT / "scripts" / "init_identity_access.py",
         ROOT / "scripts" / "init_llm_runtime.py",
         ROOT / "scripts" / "init_appearance.py",
+        ROOT / "scripts" / "init_cron.py",
         BOUNDED_CONTEXTS["appearance"] / "entrypoints.py",
         BOUNDED_CONTEXTS["appearance"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["cron"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["cron"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["identity_access"] / "entrypoints.py",
         BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "common.py",
         BOUNDED_CONTEXTS["identity_access"] / "infrastructure" / "persistence" / "bootstrap.py",
@@ -231,6 +236,7 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         "ensure_llm_schema",
         "_ensure_tenant_schema",
         "ensure_appearance_schema",
+        "ensure_cron_schema",
     }
     package_paths = [*BOUNDED_CONTEXTS.values(), ROOT / "api"]
     for package_path in package_paths:
@@ -274,6 +280,7 @@ def test_llm_core_stays_business_agnostic() -> None:
 def test_python_packages_have_required_metadata_and_entrypoints() -> None:
     expected = {
         "ops-admin-system": ("system", "system.entrypoints:router", "system.entrypoints:init_tasks"),
+        "ops-admin-cron": ("cron", "cron.entrypoints:router", "cron.entrypoints:init_tasks"),
         "ops-admin-identity-access": (
             "identity_access",
             "identity_access.entrypoints:router",
