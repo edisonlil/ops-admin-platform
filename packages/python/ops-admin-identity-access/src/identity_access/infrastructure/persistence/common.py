@@ -36,6 +36,8 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "message-inbox": {"menu_type": "page", "component": "/messaging/inbox/index", "menu_scope": "tenant"},
     "message-outbox": {"menu_type": "page", "component": "/messaging/outbox/index", "menu_scope": "tenant"},
     "message-send": {"menu_type": "page", "component": "/messaging/send/index", "menu_scope": "tenant"},
+    "message-templates": {"menu_type": "page", "component": "/messaging/templates/index", "menu_scope": "tenant"},
+    "message-channels": {"menu_type": "page", "component": "/messaging/channels/index", "menu_scope": "tenant"},
     "llm": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "llm-config": {"menu_type": "page", "component": "/settings/llm-config/index", "menu_scope": "tenant"},
     "llm-debug": {"menu_type": "page", "component": "/settings/llm-debug/index", "menu_scope": "tenant"},
@@ -50,7 +52,14 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "role-management": {"menu_type": "page", "component": "/rbac/role/index", "menu_scope": "platform"},
 }
 
-TENANT_MESSAGING_MENU_KEYS = ["messaging", "message-inbox", "message-outbox", "message-send"]
+TENANT_MESSAGING_MENU_KEYS = [
+    "messaging",
+    "message-inbox",
+    "message-outbox",
+    "message-send",
+    "message-templates",
+    "message-channels",
+]
 TENANT_LLM_MENU_KEYS = ["llm", "llm-config", "llm-debug"]
 TENANT_ADMIN_MENU_KEYS = (
     ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
@@ -65,6 +74,12 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "messaging:inbox:manage_self",
     "messaging:messages:view",
     "messaging:messages:send",
+    "messaging:messages:cancel",
+    "messaging:templates:view",
+    "messaging:templates:manage",
+    "messaging:channels:view",
+    "messaging:channels:manage",
+    "messaging:dispatch:manage",
 ]
 
 
@@ -806,6 +821,26 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             88,
         ),
         (
+            "message-templates",
+            "消息模板",
+            "/messaging/templates",
+            "message-templates",
+            "file-text",
+            "messaging",
+            "messaging:templates:view",
+            89,
+        ),
+        (
+            "message-channels",
+            "渠道配置",
+            "/messaging/channels",
+            "message-channels",
+            "api",
+            "messaging",
+            "messaging:channels:view",
+            90,
+        ),
+        (
             "llm-config",
             "模型配置",
             "/settings/llm-config",
@@ -1044,6 +1079,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
         if is_new_role:
             ensure_role_access_by_key(conn, role_key, menu_keys)
         if role_key == "tenant-admin":
+            ensure_role_menus_by_key(conn, role_key, TENANT_MESSAGING_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 

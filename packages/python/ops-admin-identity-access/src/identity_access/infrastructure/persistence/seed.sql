@@ -90,8 +90,24 @@ SELECT 'messaging:messages:cancel', 'Messaging messages cancel', 'Cancel queued 
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:messages:cancel');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:view', 'Messaging templates view', 'View tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:templates:manage', 'Messaging templates manage', 'Manage tenant message templates'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:templates:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:channels:view', 'Messaging channels view', 'View tenant message channels'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:view');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'messaging:channels:manage', 'Messaging channels manage', 'Manage tenant message channels'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:dispatch:manage', 'Messaging dispatch manage', 'Dispatch and retry tenant messages'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:dispatch:manage');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'messaging', 'tenant', '消息系统', 'directory', '', '', '', 'message', '', '', 85, TRUE
@@ -108,6 +124,14 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-outbox');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-send', 'tenant', '发送消息', 'page', '/messaging/send', 'message-send', '/messaging/send/index', 'message', 'messaging', 'messaging:messages:send', 88, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-send');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-templates', 'tenant', '消息模板', 'page', '/messaging/templates', 'message-templates', '/messaging/templates/index', 'file-text', 'messaging', 'messaging:templates:view', 89, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-templates');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-channels', 'tenant', '渠道配置', 'page', '/messaging/channels', 'message-channels', '/messaging/channels/index', 'api', 'messaging', 'messaging:channels:view', 90, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'llm', 'tenant', '大模型', 'directory', '', '', '', 'experiment', '', '', 90, TRUE

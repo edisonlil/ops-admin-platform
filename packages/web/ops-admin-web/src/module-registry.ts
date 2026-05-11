@@ -33,7 +33,7 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
   ],
   appearance: ['appearance-studio'],
   llm_runtime: ['llm-config', 'llm-debug'],
-  messaging: ['messaging', 'message-inbox', 'message-outbox', 'message-send'],
+  messaging: ['messaging', 'message-inbox', 'message-outbox', 'message-send', 'message-templates', 'message-channels'],
 };
 
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();

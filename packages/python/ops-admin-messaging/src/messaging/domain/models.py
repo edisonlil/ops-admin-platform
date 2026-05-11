@@ -85,3 +85,89 @@ class MessageRecipient:
             "create_time": self.create_time,
             "update_time": self.update_time,
         }
+
+
+@dataclass(frozen=True)
+class MessageTemplate:
+    id: int
+    tenant_id: int
+    template_key: str
+    name: str
+    description: str
+    channels: list[str]
+    title_template: str
+    content_template: str
+    variables_schema: dict[str, Any]
+    status: str
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "template_key": self.template_key,
+            "name": self.name,
+            "description": self.description,
+            "channels": self.channels,
+            "title_template": self.title_template,
+            "content_template": self.content_template,
+            "variables_schema": self.variables_schema,
+            "status": self.status,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
+class MessageChannelAccount:
+    id: int
+    tenant_id: int
+    channel: str
+    name: str
+    config: dict[str, Any]
+    secret_ref: str
+    enabled: bool
+    is_default: bool
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "channel": self.channel,
+            "name": self.name,
+            "config": self.config,
+            "secret_ref": self.secret_ref,
+            "enabled": self.enabled,
+            "is_default": self.is_default,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
+class MessageUserPreference:
+    id: int
+    tenant_id: int
+    user_id: int
+    message_type: str
+    channels: list[str]
+    quiet_hours: dict[str, Any]
+    enabled: bool
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "user_id": self.user_id,
+            "message_type": self.message_type,
+            "channels": self.channels,
+            "quiet_hours": self.quiet_hours,
+            "enabled": self.enabled,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }

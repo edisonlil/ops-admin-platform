@@ -105,10 +105,156 @@ def mark_all_read(current_user: dict[str, Any]) -> dict[str, Any]:
     return {"updated": count}
 
 
+def list_templates(current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        items = repositories.list_templates(tenant_id=current_tenant_id(current_user))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    template_key = str(payload.get("template_key") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    title_template = str(payload.get("title_template") or "").strip()
+    content_template = str(payload.get("content_template") or "").strip()
+    if not template_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_key is required")
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
+    if not title_template:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="title_template is required")
+    if not content_template:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="content_template is required")
+    actor = current_actor(current_user)
+    try:
+        item = repositories.save_template(
+            tenant_id=current_tenant_id(current_user),
+            payload=payload,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"item": item.to_dict()}
+
+
+def set_template_status(template_id: int, next_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    actor = current_actor(current_user)
+    try:
+        item = repositories.set_template_status(
+            tenant_id=current_tenant_id(current_user),
+            template_id=template_id,
+            status=next_status,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message template not found")
+    return {"item": item.to_dict()}
+
+
+def list_channel_accounts(current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        items = repositories.list_channel_accounts(tenant_id=current_tenant_id(current_user))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_channel_account(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    channel = str(payload.get("channel") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    if not channel:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="channel is required")
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
+    actor = current_actor(current_user)
+    try:
+        item = repositories.save_channel_account(
+            tenant_id=current_tenant_id(current_user),
+            payload=payload,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"item": item.to_dict()}
+
+
+def set_channel_account_enabled(account_id: int, enabled: bool, current_user: dict[str, Any]) -> dict[str, Any]:
+    actor = current_actor(current_user)
+    try:
+        item = repositories.set_channel_account_enabled(
+            tenant_id=current_tenant_id(current_user),
+            account_id=account_id,
+            enabled=enabled,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message channel account not found")
+    return {"item": item.to_dict()}
+
+
+def test_channel_account(account_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        item = repositories.get_channel_account(tenant_id=current_tenant_id(current_user), account_id=account_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message channel account not found")
+    if item.channel == "in_app":
+        return {"ok": True, "channel": item.channel, "message": "站内信通道可用"}
+    return {"ok": False, "channel": item.channel, "message": "该外部通道适配器尚未接入"}
+
+
+def list_preferences(current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        items = repositories.list_preferences(
+            tenant_id=current_tenant_id(current_user),
+            user_id=current_user_id(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_preferences(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    preferences = payload.get("items")
+    if not isinstance(preferences, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="items is required")
+    actor = current_actor(current_user)
+    try:
+        items = repositories.save_preferences(
+            tenant_id=current_tenant_id(current_user),
+            user_id=current_user_id(current_user),
+            preferences=preferences,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
 def current_tenant_id(current_user: dict[str, Any]) -> int:
     current_tenant = current_user.get("current_tenant") or {}
     tenant_id = current_tenant.get("id") or current_user.get("tenant_id") or 1
     return int(tenant_id)
+
+
+def current_actor(current_user: dict[str, Any]) -> str:
+    return str(current_user.get("username") or current_user.get("name") or "system")
+
+
+def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
+    user_id = int(current_user.get("id", 0) or 0)
+    return user_id or None
 
 
 def current_user_id(current_user: dict[str, Any]) -> int:

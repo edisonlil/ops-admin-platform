@@ -265,6 +265,8 @@ class ApiTests(unittest.TestCase):
         keys = self.menu_keys(login_response.json()["data"]["menus"])
         self.assertIn("tenant-settings", keys)
         self.assertIn("tenant-api-keys", keys)
+        self.assertIn("message-templates", keys)
+        self.assertIn("message-channels", keys)
         self.assertIn("llm-config", keys)
         self.assertNotIn("tenant-management", keys)
         self.assertNotIn("rbac", keys)
@@ -363,6 +365,51 @@ class ApiTests(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNotNone(repaired)
+
+    def test_identity_initialization_repairs_tenant_admin_messaging_menus(self) -> None:
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            conn.execute(
+                """
+                DELETE FROM role_menus
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND menu_id IN (
+                      SELECT id FROM menus WHERE menu_key IN (?, ?)
+                  )
+                """,
+                ("tenant-admin", "message-templates", "message-channels"),
+            )
+
+            missing = conn.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM role_menus rm
+                JOIN roles r ON r.id = rm.role_id
+                JOIN menus m ON m.id = rm.menu_id
+                WHERE r.role_key = ?
+                  AND m.menu_key IN (?, ?)
+                """,
+                ("tenant-admin", "message-templates", "message-channels"),
+            ).fetchone()
+            self.assertEqual(int(missing["total"]), 0)
+
+            initialize_auth_storage(conn)
+
+            repaired = conn.execute(
+                """
+                SELECT m.menu_key
+                FROM role_menus rm
+                JOIN roles r ON r.id = rm.role_id
+                JOIN menus m ON m.id = rm.menu_id
+                WHERE r.role_key = ?
+                  AND m.menu_key IN (?, ?)
+                ORDER BY m.menu_key
+                """,
+                ("tenant-admin", "message-templates", "message-channels"),
+            ).fetchall()
+
+        self.assertEqual({row["menu_key"] for row in repaired}, {"message-channels", "message-templates"})
 
     def test_admin_can_create_update_and_delete_menu(self) -> None:
         create_response = self.request(
@@ -473,6 +520,62 @@ class ApiTests(unittest.TestCase):
         unread_after_response = self.request("GET", "/api/messaging/inbox/unread-count")
         self.assertEqual(unread_after_response.status_code, 200)
         self.assertEqual(unread_after_response.json()["data"]["count"], 0)
+
+    def test_admin_can_manage_message_templates_and_channels(self) -> None:
+        self.initialize_messaging_db()
+
+        template_response = self.request(
+            "POST",
+            "/api/messaging/templates",
+            json={
+                "template_key": "maintenance_notice",
+                "name": "Maintenance notice",
+                "description": "Planned maintenance notification",
+                "channels": ["in_app"],
+                "title_template": "Maintenance: {{window}}",
+                "content_template": "The platform will be updated at {{window}}.",
+                "variables_schema": {"window": {"type": "string"}},
+                "status": "draft",
+            },
+        )
+        self.assertEqual(template_response.status_code, 200)
+        template = template_response.json()["data"]["item"]
+        self.assertEqual(template["template_key"], "maintenance_notice")
+
+        enable_response = self.request("POST", f"/api/messaging/templates/{template['id']}/enable")
+        self.assertEqual(enable_response.status_code, 200)
+        self.assertEqual(enable_response.json()["data"]["item"]["status"], "enabled")
+
+        templates_response = self.request("GET", "/api/messaging/templates")
+        self.assertEqual(templates_response.status_code, 200)
+        self.assertEqual(len(templates_response.json()["data"]["items"]), 1)
+
+        account_response = self.request(
+            "POST",
+            "/api/messaging/channel-accounts",
+            json={
+                "channel": "in_app",
+                "name": "Default in-app channel",
+                "config": {"visible": True},
+                "enabled": True,
+                "is_default": True,
+            },
+        )
+        self.assertEqual(account_response.status_code, 200)
+        account = account_response.json()["data"]["item"]
+        self.assertEqual(account["channel"], "in_app")
+
+        test_response = self.request("POST", f"/api/messaging/channel-accounts/{account['id']}/test")
+        self.assertEqual(test_response.status_code, 200)
+        self.assertTrue(test_response.json()["data"]["ok"])
+
+        preferences_response = self.request(
+            "PUT",
+            "/api/messaging/preferences",
+            json={"items": [{"message_type": "system", "channels": ["in_app"], "enabled": True}]},
+        )
+        self.assertEqual(preferences_response.status_code, 200)
+        self.assertEqual(preferences_response.json()["data"]["items"][0]["message_type"], "system")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,28 @@ CREATE TABLE IF NOT EXISTS message_intents (
     editor_id BIGINT DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS message_templates (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    template_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    channels_json JSONB NOT NULL DEFAULT '["in_app"]'::jsonb,
+    title_template TEXT NOT NULL,
+    content_template TEXT NOT NULL,
+    variables_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'draft',
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, template_key)
+);
+
 CREATE TABLE IF NOT EXISTS message_recipients (
     id BIGSERIAL PRIMARY KEY,
     tenant_id BIGINT NOT NULL DEFAULT 1,
@@ -43,6 +65,25 @@ CREATE TABLE IF NOT EXISTS message_recipients (
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
     UNIQUE (tenant_id, message_id, recipient_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS message_channel_accounts (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    channel TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    secret_ref TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS message_channel_deliveries (
@@ -71,9 +112,31 @@ CREATE TABLE IF NOT EXISTS message_channel_deliveries (
     editor_id BIGINT DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS message_user_preferences (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    user_id BIGINT NOT NULL,
+    message_type TEXT NOT NULL DEFAULT 'system',
+    channels_json JSONB NOT NULL DEFAULT '["in_app"]'::jsonb,
+    quiet_hours_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, user_id, message_type)
+);
+
 CREATE INDEX IF NOT EXISTS idx_message_intents_tenant ON message_intents(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_message_intents_status ON message_intents(status);
+CREATE INDEX IF NOT EXISTS idx_message_templates_tenant ON message_templates(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_message_recipients_user ON message_recipients(tenant_id, recipient_user_id, read_status);
 CREATE INDEX IF NOT EXISTS idx_message_recipients_message ON message_recipients(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_channel_accounts_tenant ON message_channel_accounts(tenant_id, channel);
 CREATE INDEX IF NOT EXISTS idx_message_deliveries_message ON message_channel_deliveries(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_deliveries_recipient ON message_channel_deliveries(recipient_id);
+CREATE INDEX IF NOT EXISTS idx_message_preferences_user ON message_user_preferences(tenant_id, user_id);

@@ -15,8 +15,11 @@ def ensure_messaging_schema(conn: Any) -> None:
 def require_messaging_schema(conn: Any) -> None:
     required_tables = (
         "message_intents",
+        "message_templates",
         "message_recipients",
+        "message_channel_accounts",
         "message_channel_deliveries",
+        "message_user_preferences",
     )
     missing = [table_name for table_name in required_tables if not table_exists(conn, table_name)]
     if missing:

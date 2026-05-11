@@ -47,6 +47,34 @@ export interface MessageListData<TItem> {
   pagination: MessagingPagination;
 }
 
+export interface MessageTemplate {
+  id: number;
+  tenant_id: number;
+  template_key: string;
+  name: string;
+  description: string;
+  channels: string[];
+  title_template: string;
+  content_template: string;
+  variables_schema?: Record<string, unknown>;
+  status: string;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface MessageChannelAccount {
+  id: number;
+  tenant_id: number;
+  channel: string;
+  name: string;
+  config?: Record<string, unknown>;
+  secret_ref?: string;
+  enabled: boolean;
+  is_default: boolean;
+  create_time?: string;
+  update_time?: string;
+}
+
 export interface SendInAppMessagePayload {
   title: string;
   content: string;
@@ -91,4 +119,50 @@ export function getMessagingMessages(params: { page?: number; page_size?: number
 
 export function sendInAppMessage(payload: SendInAppMessagePayload) {
   return Alova.Post<{ item: MessageIntent }>('/messaging/messages/send', payload);
+}
+
+export function getMessageTemplates() {
+  return Alova.Get<{ items: MessageTemplate[] }>('/messaging/templates', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveMessageTemplate(payload: Partial<MessageTemplate>) {
+  if (payload.id) {
+    return Alova.Put<{ item: MessageTemplate }>(`/messaging/templates/${payload.id}`, payload);
+  }
+  return Alova.Post<{ item: MessageTemplate }>('/messaging/templates', payload);
+}
+
+export function enableMessageTemplate(templateId: number) {
+  return Alova.Post<{ item: MessageTemplate }>(`/messaging/templates/${templateId}/enable`);
+}
+
+export function disableMessageTemplate(templateId: number) {
+  return Alova.Post<{ item: MessageTemplate }>(`/messaging/templates/${templateId}/disable`);
+}
+
+export function getMessageChannelAccounts() {
+  return Alova.Get<{ items: MessageChannelAccount[] }>('/messaging/channel-accounts', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveMessageChannelAccount(payload: Partial<MessageChannelAccount>) {
+  if (payload.id) {
+    return Alova.Put<{ item: MessageChannelAccount }>(`/messaging/channel-accounts/${payload.id}`, payload);
+  }
+  return Alova.Post<{ item: MessageChannelAccount }>('/messaging/channel-accounts', payload);
+}
+
+export function enableMessageChannelAccount(accountId: number) {
+  return Alova.Post<{ item: MessageChannelAccount }>(`/messaging/channel-accounts/${accountId}/enable`);
+}
+
+export function disableMessageChannelAccount(accountId: number) {
+  return Alova.Post<{ item: MessageChannelAccount }>(`/messaging/channel-accounts/${accountId}/disable`);
+}
+
+export function testMessageChannelAccount(accountId: number) {
+  return Alova.Post<{ ok: boolean; channel: string; message: string }>(`/messaging/channel-accounts/${accountId}/test`);
 }
