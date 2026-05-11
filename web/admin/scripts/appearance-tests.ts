@@ -55,6 +55,8 @@ function testValidators() {
   const tokens = cloneTokens(defaultPreset.tokens);
   tokens.semantic.primaryColor = 'not-a-color';
   tokens.component.Button.height = '36';
+  tokens.component.Dialog.padding = '28px 32px';
+  tokens.component.Alert.padding = '12px 16px';
   tokens.layout.density = 'dense' as AppearanceTokens['layout']['density'];
   tokens.layout.menuWidth = -1;
 

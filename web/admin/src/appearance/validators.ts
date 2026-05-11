@@ -14,6 +14,11 @@ function isSizePath(path: string) {
   return SIZE_KEYS.test(path) && !/color/i.test(path);
 }
 
+function isCssSizeShorthand(value: string) {
+  const parts = value.trim().split(/\s+/);
+  return parts.length >= 1 && parts.length <= 4 && parts.every((part) => CSS_SIZE_PATTERN.test(part));
+}
+
 function visit(value: unknown, path: string, errors: TokenValidationError[]) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
@@ -45,7 +50,7 @@ function visit(value: unknown, path: string, errors: TokenValidationError[]) {
     value !== 'none' &&
     value !== 'auto' &&
     !CSS_NUMBER_PATTERN.test(value) &&
-    !CSS_SIZE_PATTERN.test(value)
+    !isCssSizeShorthand(value)
   ) {
     errors.push({
       path,
