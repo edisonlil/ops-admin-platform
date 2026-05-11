@@ -38,6 +38,7 @@ interface BackendRoute {
 }
 
 const LEGACY_ICON_BY_KEY_OR_ALIAS: Record<string, string> = {
+  api: 'ApiOutlined',
   key: 'ApiOutlined',
   menu: 'MenuOutlined',
   settings: 'SettingOutlined',

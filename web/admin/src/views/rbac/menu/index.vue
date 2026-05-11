@@ -118,7 +118,20 @@
                   <n-input v-model:value="formParams.component" placeholder="例如 /recommend/index" />
                 </n-form-item>
                 <n-form-item label="图标" path="icon">
-                  <n-input v-model:value="formParams.icon" placeholder="例如 FileSearchOutlined" />
+                  <div class="menu-icon-field">
+                    <button class="menu-icon-trigger" type="button" @click="openIconPicker">
+                      <span class="menu-icon-trigger__preview">
+                        <n-icon v-if="selectedIconOption" size="18">
+                          <component :is="selectedIconOption.iconComponent" />
+                        </n-icon>
+                      </span>
+                      <span class="menu-icon-trigger__text">
+                        <span class="menu-icon-trigger__label">{{ selectedIconOption?.label || '选择菜单图标' }}</span>
+                        <span v-if="formParams.icon" class="menu-icon-trigger__key">{{ formParams.icon }}</span>
+                      </span>
+                    </button>
+                    <n-button v-if="formParams.icon" quaternary size="small" @click="clearIcon">清除</n-button>
+                  </div>
                 </n-form-item>
                 <n-form-item label="权限码" path="permission_code">
                   <n-input v-model:value="formParams.permission_code" placeholder="例如 recommendation:access" />
@@ -151,6 +164,40 @@
         </n-grid>
       </template>
     </ListPageRuntime>
+
+    <n-modal v-model:show="iconPickerVisible" preset="card" title="图标选择器" class="menu-icon-picker">
+      <n-input v-model:value="iconSearch" clearable placeholder="搜索图标名称或 key">
+        <template #prefix>
+          <n-icon size="16">
+            <SearchOutlined />
+          </n-icon>
+        </template>
+      </n-input>
+      <div class="menu-icon-grid" role="listbox">
+        <button
+          v-for="option in filteredIconOptions"
+          :key="option.value"
+          class="menu-icon-cell"
+          :class="{ 'is-selected': formParams.icon === option.value }"
+          type="button"
+          :title="`${option.label} ${option.value}`"
+          role="option"
+          :aria-selected="formParams.icon === option.value"
+          @click="selectIcon(option.value)"
+        >
+          <n-icon size="22">
+            <component :is="option.iconComponent" />
+          </n-icon>
+          <span>{{ option.label }}</span>
+        </button>
+      </div>
+      <template #footer>
+        <n-space justify="space-between" align="center">
+          <span class="menu-icon-picker__hint">{{ filteredIconOptions.length }} 个可选图标</span>
+          <n-button @click="iconPickerVisible = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -158,7 +205,57 @@
   import { computed, reactive, ref } from 'vue';
   import { useDialog, useMessage } from 'naive-ui';
   import type { DropdownOption, FormInst, FormRules, SelectOption, TreeOption } from 'naive-ui';
-  import { AlignLeftOutlined, DownOutlined, FormOutlined, SearchOutlined } from '@vicons/antd';
+  import {
+    ApiOutlined,
+    ApartmentOutlined,
+    AppstoreOutlined,
+    BgColorsOutlined,
+    BellOutlined,
+    BookOutlined,
+    BugOutlined,
+    BuildOutlined,
+    CalendarOutlined,
+    CloudOutlined,
+    CodeOutlined,
+    ControlOutlined,
+    DashboardOutlined,
+    DatabaseOutlined,
+    DeploymentUnitOutlined,
+    DesktopOutlined,
+    EditOutlined,
+    ExperimentOutlined,
+    FileDoneOutlined,
+    FileSearchOutlined,
+    FileTextOutlined,
+    FolderOutlined,
+    HomeOutlined,
+    InboxOutlined,
+    KeyOutlined,
+    LockOutlined,
+    MailOutlined,
+    MenuOutlined,
+    MessageOutlined,
+    NotificationOutlined,
+    PartitionOutlined,
+    PieChartOutlined,
+    ProfileOutlined,
+    ProjectOutlined,
+    ReadOutlined,
+    SafetyCertificateOutlined,
+    ScheduleOutlined,
+    SettingOutlined,
+    ShopOutlined,
+    SlidersOutlined,
+    SolutionOutlined,
+    TeamOutlined,
+    ToolOutlined,
+    UserOutlined,
+    UsergroupAddOutlined,
+    AlignLeftOutlined,
+    DownOutlined,
+    FormOutlined,
+    SearchOutlined,
+  } from '@vicons/antd';
   import { createRbacMenu, deleteRbacMenu, getRbacMenus, updateRbacMenu } from '@/api/business';
   import { useAsyncRouteStore } from '@/store/modules/asyncRoute';
   import { useUserStore } from '@/store/modules/user';
@@ -216,6 +313,8 @@
   const expandedKeys = ref<string[]>([]);
   const selectedMenuKey = ref('');
   const formMode = ref<'create' | 'edit'>('edit');
+  const iconPickerVisible = ref(false);
+  const iconSearch = ref('');
 
   const formParams = reactive<MenuFormState>({
     id: null,
@@ -287,6 +386,63 @@
       disabled: !selectedMenuKey.value || selectedMenuRow.value?.menu_type !== 'directory',
     },
   ]);
+
+  const iconOptions = [
+    { label: '接口', value: 'ApiOutlined', iconComponent: ApiOutlined },
+    { label: '租户', value: 'ApartmentOutlined', iconComponent: ApartmentOutlined },
+    { label: '应用', value: 'AppstoreOutlined', iconComponent: AppstoreOutlined },
+    { label: '主题', value: 'BgColorsOutlined', iconComponent: BgColorsOutlined },
+    { label: '通知', value: 'BellOutlined', iconComponent: BellOutlined },
+    { label: '文册', value: 'BookOutlined', iconComponent: BookOutlined },
+    { label: '问题', value: 'BugOutlined', iconComponent: BugOutlined },
+    { label: '构建', value: 'BuildOutlined', iconComponent: BuildOutlined },
+    { label: '日历', value: 'CalendarOutlined', iconComponent: CalendarOutlined },
+    { label: '云端', value: 'CloudOutlined', iconComponent: CloudOutlined },
+    { label: '代码', value: 'CodeOutlined', iconComponent: CodeOutlined },
+    { label: '控制', value: 'ControlOutlined', iconComponent: ControlOutlined },
+    { label: '看板', value: 'DashboardOutlined', iconComponent: DashboardOutlined },
+    { label: '数据', value: 'DatabaseOutlined', iconComponent: DatabaseOutlined },
+    { label: '部署', value: 'DeploymentUnitOutlined', iconComponent: DeploymentUnitOutlined },
+    { label: '桌面', value: 'DesktopOutlined', iconComponent: DesktopOutlined },
+    { label: '编辑', value: 'EditOutlined', iconComponent: EditOutlined },
+    { label: '实验', value: 'ExperimentOutlined', iconComponent: ExperimentOutlined },
+    { label: '完成', value: 'FileDoneOutlined', iconComponent: FileDoneOutlined },
+    { label: '记录', value: 'FileSearchOutlined', iconComponent: FileSearchOutlined },
+    { label: '文档', value: 'FileTextOutlined', iconComponent: FileTextOutlined },
+    { label: '文件夹', value: 'FolderOutlined', iconComponent: FolderOutlined },
+    { label: '首页', value: 'HomeOutlined', iconComponent: HomeOutlined },
+    { label: '收件', value: 'InboxOutlined', iconComponent: InboxOutlined },
+    { label: '密钥', value: 'KeyOutlined', iconComponent: KeyOutlined },
+    { label: '锁定', value: 'LockOutlined', iconComponent: LockOutlined },
+    { label: '邮件', value: 'MailOutlined', iconComponent: MailOutlined },
+    { label: '菜单', value: 'MenuOutlined', iconComponent: MenuOutlined },
+    { label: '消息', value: 'MessageOutlined', iconComponent: MessageOutlined },
+    { label: '公告', value: 'NotificationOutlined', iconComponent: NotificationOutlined },
+    { label: '分区', value: 'PartitionOutlined', iconComponent: PartitionOutlined },
+    { label: '图表', value: 'PieChartOutlined', iconComponent: PieChartOutlined },
+    { label: '档案', value: 'ProfileOutlined', iconComponent: ProfileOutlined },
+    { label: '项目', value: 'ProjectOutlined', iconComponent: ProjectOutlined },
+    { label: '阅读', value: 'ReadOutlined', iconComponent: ReadOutlined },
+    { label: '权限', value: 'SafetyCertificateOutlined', iconComponent: SafetyCertificateOutlined },
+    { label: '计划', value: 'ScheduleOutlined', iconComponent: ScheduleOutlined },
+    { label: '设置', value: 'SettingOutlined', iconComponent: SettingOutlined },
+    { label: '商店', value: 'ShopOutlined', iconComponent: ShopOutlined },
+    { label: '滑块', value: 'SlidersOutlined', iconComponent: SlidersOutlined },
+    { label: '方案', value: 'SolutionOutlined', iconComponent: SolutionOutlined },
+    { label: '角色', value: 'TeamOutlined', iconComponent: TeamOutlined },
+    { label: '工具', value: 'ToolOutlined', iconComponent: ToolOutlined },
+    { label: '用户', value: 'UserOutlined', iconComponent: UserOutlined },
+    { label: '用户组', value: 'UsergroupAddOutlined', iconComponent: UsergroupAddOutlined },
+  ];
+
+  const selectedIconOption = computed(() => iconOptions.find((option) => option.value === formParams.icon));
+  const filteredIconOptions = computed(() => {
+    const keyword = iconSearch.value.trim().toLowerCase();
+    if (!keyword) return iconOptions;
+    return iconOptions.filter((option) =>
+      [option.label, option.value].some((item) => String(item || '').toLowerCase().includes(keyword))
+    );
+  });
 
   const selectedMenuRow = computed(() => findMenuByKey(rows.value, selectedMenuKey.value));
   const parentMenuOptions = computed<SelectOption[]>(() => {
@@ -424,6 +580,20 @@
 
   function toggleExpanded() {
     expandedKeys.value = expandedKeys.value.length ? [] : collectExpandedKeys(rows.value);
+  }
+
+  function openIconPicker() {
+    iconSearch.value = '';
+    iconPickerVisible.value = true;
+  }
+
+  function selectIcon(icon: string) {
+    formParams.icon = icon;
+    iconPickerVisible.value = false;
+  }
+
+  function clearIcon() {
+    formParams.icon = '';
   }
 
   function handleAddMenu(key: string) {
@@ -586,7 +756,115 @@
     overflow: auto;
   }
 
+  .menu-icon-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .menu-icon-trigger {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    padding: 0 12px;
+    color: var(--app-text-color-base);
+    text-align: left;
+    cursor: pointer;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-input-radius, 4px);
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .menu-icon-trigger:hover,
+  .menu-icon-trigger:focus-visible {
+    border-color: var(--app-primary-color);
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-primary-color) 12%, transparent);
+  }
+
+  .menu-icon-trigger__preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--app-icon-color);
+  }
+
+  .menu-icon-trigger__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+  }
+
+  .menu-icon-trigger__label,
+  .menu-icon-trigger__key {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .menu-icon-trigger__key,
+  .menu-icon-picker__hint {
+    color: var(--app-text-color-secondary);
+    font-size: 12px;
+  }
+
+  .menu-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px;
+    max-height: min(440px, 58vh);
+    padding: 14px 2px 2px;
+    overflow: auto;
+  }
+
+  .menu-icon-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 0;
+    height: 66px;
+    color: var(--app-text-color-secondary);
+    cursor: pointer;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+    transition: color 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+
+    span {
+      max-width: 100%;
+      overflow: hidden;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &:hover,
+    &:focus-visible,
+    &.is-selected {
+      color: var(--app-primary-color);
+      background: var(--app-primary-soft-bg);
+      border-color: var(--app-primary-color);
+      outline: none;
+    }
+  }
+
   .menu-form-actions {
     margin-left: var(--app-page-detail-label-width, 110px);
+  }
+
+  :deep(.menu-icon-picker) {
+    width: min(760px, calc(100vw - 32px));
   }
 </style>
