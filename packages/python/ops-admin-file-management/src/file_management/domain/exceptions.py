@@ -16,6 +16,21 @@ class FileLibraryNotEmpty(FileManagementError):
     status_code = 409
 
 
+class FileFolderNotFound(FileManagementError):
+    code = "FILE_FOLDER_NOT_FOUND"
+    status_code = 404
+
+
+class FileFolderNotEmpty(FileManagementError):
+    code = "FILE_FOLDER_NOT_EMPTY"
+    status_code = 409
+
+
+class FileFolderConflict(FileManagementError):
+    code = "FILE_FOLDER_CONFLICT"
+    status_code = 409
+
+
 class ManagedFileNotFound(FileManagementError):
     code = "FILE_NOT_FOUND"
     status_code = 404

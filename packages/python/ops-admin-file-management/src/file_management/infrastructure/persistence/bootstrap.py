@@ -9,12 +9,14 @@ PERSISTENCE_DIR = Path(__file__).resolve().parent
 
 def ensure_file_management_schema(conn: Any) -> None:
     filename = "ddl.postgres.sql" if getattr(conn, "backend", "sqlite") == "postgres" else "ddl.sqlite.sql"
+    ensure_file_management_columns(conn)
     apply_sql_script(conn, PERSISTENCE_DIR / filename)
 
 
 def require_file_management_schema(conn: Any) -> None:
     required_tables = (
         "file_libraries",
+        "file_folders",
         "file_objects",
         "tenant_file_storage_quotas",
         "file_storage_profiles",
@@ -64,3 +66,26 @@ def table_exists(conn: Any, table_name: str) -> bool:
             (table_name,),
         ).fetchone()
     return bool(row)
+
+
+def ensure_file_management_columns(conn: Any) -> None:
+    if not table_exists(conn, "file_objects"):
+        return
+    if column_exists(conn, "file_objects", "folder_id"):
+        return
+    conn.execute("ALTER TABLE file_objects ADD COLUMN folder_id INTEGER DEFAULT NULL")
+
+
+def column_exists(conn: Any, table_name: str, column_name: str) -> bool:
+    if getattr(conn, "backend", "sqlite") == "postgres":
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
+            """,
+            (table_name, column_name),
+        ).fetchone()
+        return bool(row)
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(str(row["name"] if hasattr(row, "keys") else row[1]) == column_name for row in rows)

@@ -9,6 +9,7 @@ from file_management.domain.models import (
     FILE_STATUS_AVAILABLE,
     FILE_STATUS_DELETED,
     FileAccessLog,
+    FileFolder,
     FileLibrary,
     FileSearchIndexJob,
     ManagedFile,
@@ -142,6 +143,20 @@ def library_file_count(*, tenant_id: int, library_id: int) -> int:
     return int(row["total"] if row else 0)
 
 
+def library_folder_count(*, tenant_id: int, library_id: int) -> int:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM file_folders
+            WHERE tenant_id = ? AND library_id = ? AND deleted = 0
+            """,
+            (tenant_id, library_id),
+        ).fetchone()
+    return int(row["total"] if row else 0)
+
+
 def delete_library(*, tenant_id: int, library_id: int, actor: str, actor_id: int | None) -> bool:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
@@ -157,12 +172,139 @@ def delete_library(*, tenant_id: int, library_id: int, actor: str, actor_id: int
     return int(getattr(cursor, "rowcount", 0) or 0) > 0
 
 
+def list_folders(*, tenant_id: int, library_id: int, parent_id: int | None = None) -> list[FileFolder]:
+    filters = ["tenant_id = ?", "library_id = ?", "deleted = 0"]
+    params: list[Any] = [tenant_id, library_id]
+    if parent_id is None:
+        filters.append("parent_id IS NULL")
+    else:
+        filters.append("parent_id = ?")
+        params.append(parent_id)
+    where_sql = " AND ".join(filters)
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM file_folders
+            WHERE {where_sql}
+            ORDER BY name ASC, id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [row_to_folder(dict(row)) for row in rows]
+
+
+def list_all_folders(*, tenant_id: int, library_id: int) -> list[FileFolder]:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM file_folders
+            WHERE tenant_id = ? AND library_id = ? AND deleted = 0
+            ORDER BY parent_id ASC, name ASC, id ASC
+            """,
+            (tenant_id, library_id),
+        ).fetchall()
+    return [row_to_folder(dict(row)) for row in rows]
+
+
+def get_folder(*, tenant_id: int, folder_id: int) -> FileFolder | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM file_folders WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (folder_id, tenant_id),
+        ).fetchone()
+    return row_to_folder(dict(row)) if row else None
+
+
+def save_folder(
+    *, tenant_id: int, folder_id: int | None, payload: dict[str, Any], actor: str, actor_id: int | None
+) -> FileFolder | None:
+    timestamp = now_iso()
+    library_id = int(payload["library_id"])
+    parent_id = int(payload["parent_id"]) if payload.get("parent_id") is not None else None
+    values = (
+        library_id,
+        parent_id,
+        str(payload["name"]),
+        str(payload.get("description") or ""),
+        str(payload.get("status") or "active"),
+        actor,
+        actor_id,
+        timestamp,
+    )
+    with connect(database_target(), readonly=False) as conn:
+        require_file_management_schema(conn)
+        if folder_id:
+            conn.execute(
+                """
+                UPDATE file_folders
+                SET library_id = ?, parent_id = ?, name = ?, description = ?, status = ?,
+                    editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+                WHERE id = ? AND tenant_id = ? AND deleted = 0
+                """,
+                (*values, folder_id, tenant_id),
+            )
+            saved_id = folder_id
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO file_folders (
+                    tenant_id, library_id, parent_id, name, description, status,
+                    creator, creator_id, editor, editor_id, create_time, update_time
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tenant_id, *values[:5], actor, actor_id, actor, actor_id, timestamp, timestamp),
+            )
+            saved_id = inserted_id(conn, cursor, "file_folders", timestamp, actor)
+        row = conn.execute(
+            "SELECT * FROM file_folders WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (saved_id, tenant_id),
+        ).fetchone()
+    return row_to_folder(dict(row)) if row else None
+
+
+def folder_child_count(*, tenant_id: int, folder_id: int) -> int:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        folder_count = conn.execute(
+            "SELECT COUNT(*) AS total FROM file_folders WHERE tenant_id = ? AND parent_id = ? AND deleted = 0",
+            (tenant_id, folder_id),
+        ).fetchone()
+        file_count = conn.execute(
+            "SELECT COUNT(*) AS total FROM file_objects WHERE tenant_id = ? AND folder_id = ? AND deleted = 0",
+            (tenant_id, folder_id),
+        ).fetchone()
+    return int(folder_count["total"] if folder_count else 0) + int(file_count["total"] if file_count else 0)
+
+
+def delete_folder(*, tenant_id: int, folder_id: int, actor: str, actor_id: int | None) -> bool:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_file_management_schema(conn)
+        cursor = conn.execute(
+            """
+            UPDATE file_folders
+            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (actor, actor_id, timestamp, folder_id, tenant_id),
+        )
+    return int(getattr(cursor, "rowcount", 0) or 0) > 0
+
+
 def list_files(
     *,
     tenant_id: int,
     page: int,
     page_size: int,
     library_id: int | None = None,
+    folder_id: int | None = None,
+    current_folder_only: bool = False,
     keyword: str = "",
     mime_type: str = "",
     status: str = "",
@@ -173,6 +315,12 @@ def list_files(
     if library_id is not None:
         filters.append("library_id = ?")
         params.append(library_id)
+    if current_folder_only:
+        if folder_id is None:
+            filters.append("folder_id IS NULL")
+        else:
+            filters.append("folder_id = ?")
+            params.append(folder_id)
     if keyword:
         filters.append("(original_name LIKE ? OR display_name LIKE ?)")
         like = f"%{keyword}%"
@@ -219,6 +367,7 @@ def create_file(
     file_id: int,
     tenant_id: int,
     library_id: int | None,
+    folder_id: int | None,
     original_name: str,
     display_name: str,
     extension: str,
@@ -239,16 +388,17 @@ def create_file(
         conn.execute(
             """
             INSERT INTO file_objects (
-                id, tenant_id, library_id, original_name, display_name, extension, mime_type,
+                id, tenant_id, library_id, folder_id, original_name, display_name, extension, mime_type,
                 size_bytes, sha256, storage_provider, storage_bucket, storage_key, status,
                 visibility, metadata_json, creator, creator_id, editor, editor_id, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 file_id,
                 tenant_id,
                 library_id,
+                folder_id,
                 original_name,
                 display_name,
                 extension,
@@ -740,11 +890,26 @@ def row_to_library(row: dict[str, Any]) -> FileLibrary:
     )
 
 
+def row_to_folder(row: dict[str, Any]) -> FileFolder:
+    return FileFolder(
+        id=int(row["id"]),
+        tenant_id=int(row["tenant_id"]),
+        library_id=int(row["library_id"]),
+        parent_id=int(row["parent_id"]) if row.get("parent_id") is not None else None,
+        name=str(row.get("name") or ""),
+        description=str(row.get("description") or ""),
+        status=str(row.get("status") or "active"),
+        create_time=str(row.get("create_time") or ""),
+        update_time=str(row.get("update_time") or ""),
+    )
+
+
 def row_to_file(row: dict[str, Any]) -> ManagedFile:
     return ManagedFile(
         id=int(row["id"]),
         tenant_id=int(row["tenant_id"]),
         library_id=int(row["library_id"]) if row.get("library_id") is not None else None,
+        folder_id=int(row["folder_id"]) if row.get("folder_id") is not None else None,
         original_name=str(row.get("original_name") or ""),
         display_name=str(row.get("display_name") or ""),
         extension=str(row.get("extension") or ""),

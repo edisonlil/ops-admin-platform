@@ -9,6 +9,9 @@ from fastapi import HTTPException, status
 
 from file_management.application.ports import DownloadObject, FileIndexerPort, StoragePort
 from file_management.domain.exceptions import (
+    FileFolderConflict,
+    FileFolderNotEmpty,
+    FileFolderNotFound,
     FileLibraryNotEmpty,
     FileLibraryNotFound,
     FileManagementError,
@@ -26,6 +29,7 @@ from file_management.domain.models import (
     ACCESS_RESULT_FAILED,
     ACCESS_RESULT_SUCCESS,
     FILE_STATUS_AVAILABLE,
+    FileFolder,
     INDEX_JOB_STATUS_FAILED,
     INDEX_JOB_STATUS_SUCCEEDED,
     STORAGE_PROVIDER_MINIO,
@@ -97,6 +101,8 @@ def delete_library(library_id: int, current_user: dict[str, Any]) -> dict[str, A
     try:
         if repositories.library_file_count(tenant_id=tenant_id, library_id=library_id) > 0:
             raise FileLibraryNotEmpty("file library is not empty")
+        if repositories.library_folder_count(tenant_id=tenant_id, library_id=library_id) > 0:
+            raise FileLibraryNotEmpty("file library is not empty")
         deleted = repositories.delete_library(
             tenant_id=tenant_id,
             library_id=library_id,
@@ -118,6 +124,8 @@ def list_files(
     page_size: int,
     current_user: dict[str, Any],
     library_id: int | None = None,
+    folder_id: int | None = None,
+    current_folder_only: bool = False,
     keyword: str = "",
     mime_type: str = "",
     status_filter: str = "",
@@ -129,6 +137,8 @@ def list_files(
             page=page,
             page_size=page_size,
             library_id=library_id,
+            folder_id=folder_id,
+            current_folder_only=current_folder_only,
             keyword=keyword,
             mime_type=mime_type,
             status=status_filter,
@@ -139,6 +149,142 @@ def list_files(
         "items": [item.to_dict() for item in items],
         "pagination": {"page": page, "page_size": page_size, "total": total},
     }
+
+
+def list_workspace(
+    *,
+    current_user: dict[str, Any],
+    library_id: int | None = None,
+    folder_id: int | None = None,
+    keyword: str = "",
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        libraries, _ = repositories.list_libraries(tenant_id=tenant_id, page=1, page_size=200)
+        selected_library_id = library_id or (libraries[0].id if libraries else None)
+        selected_library = (
+            repositories.get_library(tenant_id=tenant_id, library_id=selected_library_id)
+            if selected_library_id is not None
+            else None
+        )
+        if selected_library_id is not None and not selected_library:
+            raise FileLibraryNotFound("file library not found")
+        selected_folder = None
+        if folder_id is not None:
+            selected_folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            if not selected_folder or selected_folder.library_id != selected_library_id:
+                raise FileFolderNotFound("file folder not found")
+        folders = (
+            repositories.list_folders(tenant_id=tenant_id, library_id=int(selected_library_id), parent_id=folder_id)
+            if selected_library_id is not None and not keyword.strip()
+            else []
+        )
+        files, _ = repositories.list_files(
+            tenant_id=tenant_id,
+            page=1,
+            page_size=500,
+            library_id=selected_library_id,
+            folder_id=folder_id,
+            current_folder_only=not bool(keyword.strip()),
+            keyword=keyword.strip(),
+        )
+        usage = repositories.storage_usage(tenant_id=tenant_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    return {
+        "libraries": [item.to_dict() for item in libraries],
+        "current_library": selected_library.to_dict() if selected_library else None,
+        "current_folder": selected_folder.to_dict() if selected_folder else None,
+        "breadcrumbs": [item.to_dict() for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
+        "folders": [item.to_dict() for item in folders],
+        "files": [item.to_dict() for item in files],
+        "usage": usage.to_dict(),
+    }
+
+
+def folder_tree(*, library_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        library = repositories.get_library(tenant_id=tenant_id, library_id=library_id)
+        if not library:
+            raise FileLibraryNotFound("file library not found")
+        folders = repositories.list_all_folders(tenant_id=tenant_id, library_id=library_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    return {"library": library.to_dict(), "items": [item.to_dict() for item in folders]}
+
+
+def save_folder(payload: dict[str, Any], current_user: dict[str, Any], folder_id: int | None = None) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    name = str(payload.get("name") or "").strip()
+    library_id = int(payload.get("library_id") or 0)
+    parent_id = int(payload["parent_id"]) if payload.get("parent_id") is not None else None
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
+    if not library_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="library_id is required")
+    try:
+        if not repositories.get_library(tenant_id=tenant_id, library_id=library_id):
+            raise FileLibraryNotFound("file library not found")
+        if parent_id is not None:
+            parent = repositories.get_folder(tenant_id=tenant_id, folder_id=parent_id)
+            if not parent or parent.library_id != library_id:
+                raise FileFolderNotFound("parent folder not found")
+        if folder_id:
+            current = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            if not current:
+                raise FileFolderNotFound("file folder not found")
+            if parent_id == folder_id:
+                raise FileFolderConflict("folder cannot be its own parent")
+        item = repositories.save_folder(
+            tenant_id=tenant_id,
+            folder_id=folder_id,
+            payload={
+                "library_id": library_id,
+                "parent_id": parent_id,
+                "name": name,
+                "description": str(payload.get("description") or "").strip(),
+                "status": str(payload.get("status") or "active").strip() or "active",
+            },
+            actor=actor,
+            actor_id=actor_id,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    if not item:
+        raise domain_http_error(FileFolderNotFound("file folder not found"))
+    return {"item": item.to_dict()}
+
+
+def delete_folder(folder_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+        if not folder:
+            raise FileFolderNotFound("file folder not found")
+        if repositories.folder_child_count(tenant_id=tenant_id, folder_id=folder_id) > 0:
+            raise FileFolderNotEmpty("file folder is not empty")
+        deleted = repositories.delete_folder(
+            tenant_id=tenant_id,
+            folder_id=folder_id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    if not deleted:
+        raise domain_http_error(FileFolderNotFound("file folder not found"))
+    return {"id": folder_id, "deleted": True}
 
 
 def search_files(*, page: int, page_size: int, keyword: str, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -167,6 +313,7 @@ def upload_file(
     library_id: int | None,
     visibility: str,
     metadata: dict[str, Any],
+    folder_id: int | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     actor = current_actor(current_user)
@@ -179,6 +326,14 @@ def upload_file(
         profile = default_storage_profile()
         if library_id is not None and not repositories.get_library(tenant_id=tenant_id, library_id=library_id):
             raise FileLibraryNotFound("file library not found")
+        if folder_id is not None:
+            folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            if not folder:
+                raise FileFolderNotFound("file folder not found")
+            if library_id is None:
+                library_id = folder.library_id
+            elif folder.library_id != library_id:
+                raise FileFolderNotFound("file folder not found")
         quota = repositories.get_quota(tenant_id=tenant_id)
         usage = repositories.storage_usage(tenant_id=tenant_id)
         staged = stage_upload(stream)
@@ -210,6 +365,7 @@ def upload_file(
             file_id=file_id,
             tenant_id=tenant_id,
             library_id=library_id,
+            folder_id=folder_id,
             original_name=original_name,
             display_name=display_name,
             extension=extension,
@@ -465,6 +621,22 @@ def load_tenant_file(*, file_id: int, current_user: dict[str, Any]) -> ManagedFi
     if not item:
         raise domain_http_error(ManagedFileNotFound("file not found"))
     return item
+
+
+def folder_breadcrumbs(folder: FileFolder | None, *, tenant_id: int) -> list[FileFolder]:
+    if not folder:
+        return []
+    folders = [folder]
+    visited = {folder.id}
+    parent_id = folder.parent_id
+    while parent_id is not None:
+        parent = repositories.get_folder(tenant_id=tenant_id, folder_id=parent_id)
+        if not parent or parent.id in visited:
+            break
+        folders.append(parent)
+        visited.add(parent.id)
+        parent_id = parent.parent_id
+    return list(reversed(folders))
 
 
 def default_storage_profile() -> StorageProfile:

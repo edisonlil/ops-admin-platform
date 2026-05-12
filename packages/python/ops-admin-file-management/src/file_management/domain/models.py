@@ -78,10 +78,37 @@ class FileLibrary:
 
 
 @dataclass(frozen=True)
+class FileFolder:
+    id: int
+    tenant_id: int
+    library_id: int
+    parent_id: int | None
+    name: str
+    description: str
+    status: str
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "library_id": self.library_id,
+            "parent_id": self.parent_id,
+            "name": self.name,
+            "description": self.description,
+            "status": self.status,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
 class ManagedFile:
     id: int
     tenant_id: int
     library_id: int | None
+    folder_id: int | None
     original_name: str
     display_name: str
     extension: str
@@ -103,6 +130,7 @@ class ManagedFile:
             "id": self.id,
             "tenant_id": self.tenant_id,
             "library_id": self.library_id,
+            "folder_id": self.folder_id,
             "original_name": self.original_name,
             "display_name": self.display_name,
             "extension": self.extension,

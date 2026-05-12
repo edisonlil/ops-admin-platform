@@ -11,7 +11,7 @@
       <n-drawer-content :title="form.id ? '编辑文件库' : '新建文件库'">
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
           <n-form-item label="名称" path="name">
-            <n-input v-model:value="form.name" placeholder="如：合同归档" />
+            <n-input v-model:value="form.name" placeholder="例如：合同归档" />
           </n-form-item>
           <n-grid :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="类型" path="library_type">
@@ -123,7 +123,7 @@
   const libraryPage = defineListPage<FileLibrary>({
     id: 'files.libraries',
     title: '文件库',
-    description: '按租户维护业务文件分组，上传文件时可选择归属文件库。',
+    description: '按租户维护业务文件分组，文件库会作为文件树的根节点。',
     variant: 'dense-data',
     density: 'compact',
     view: {

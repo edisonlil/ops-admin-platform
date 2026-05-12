@@ -127,6 +127,10 @@ class FileManagementTests(unittest.TestCase):
     def test_upload_download_search_and_delete_file(self) -> None:
         self.create_default_profile()
         library = services.save_library({"name": "Contracts"}, self.current_user)["item"]
+        folder = services.save_folder(
+            {"library_id": int(library["id"]), "name": "2026 Contracts"},
+            self.current_user,
+        )["item"]
         services.save_quota(
             7,
             {
@@ -145,17 +149,34 @@ class FileManagementTests(unittest.TestCase):
             content_type="text/plain",
             stream=io.BytesIO(b"hello"),
             library_id=int(library["id"]),
+            folder_id=int(folder["id"]),
             visibility="tenant",
             metadata={"source": "test"},
         )["item"]
 
         self.assertEqual(upload["original_name"], "contract.txt")
+        self.assertEqual(upload["folder_id"], int(folder["id"]))
         self.assertEqual(upload["size_bytes"], 5)
         self.assertNotIn("storage_key", upload)
         self.assertEqual(services.list_index_jobs(page=1, page_size=20, current_user=self.current_user)["pagination"]["total"], 1)
 
-        files = services.list_files(page=1, page_size=20, current_user=self.current_user)
+        files = services.list_files(
+            page=1,
+            page_size=20,
+            current_user=self.current_user,
+            library_id=int(library["id"]),
+            folder_id=int(folder["id"]),
+            current_folder_only=True,
+        )
         self.assertEqual(files["pagination"]["total"], 1)
+        workspace = services.list_workspace(
+            current_user=self.current_user,
+            library_id=int(library["id"]),
+            folder_id=int(folder["id"]),
+        )
+        self.assertEqual(len(workspace["breadcrumbs"]), 1)
+        self.assertEqual(workspace["breadcrumbs"][0]["name"], "2026 Contracts")
+        self.assertEqual(len(workspace["files"]), 1)
 
         search = services.search_files(page=1, page_size=20, keyword="contract", current_user=self.current_user)
         self.assertEqual(search["pagination"]["total"], 1)
@@ -175,6 +196,35 @@ class FileManagementTests(unittest.TestCase):
         after = services.list_files(page=1, page_size=20, current_user=self.current_user)
         self.assertEqual(after["pagination"]["total"], 0)
         self.assertEqual(services.list_index_jobs(page=1, page_size=20, current_user=self.current_user)["pagination"]["total"], 3)
+        deleted_folder = services.delete_folder(int(folder["id"]), self.current_user)
+        self.assertTrue(deleted_folder["deleted"])
+
+    def test_folder_rejects_cross_tenant_and_non_empty_delete(self) -> None:
+        library = services.save_library({"name": "Tenant Docs"}, self.current_user)["item"]
+        folder = services.save_folder(
+            {"library_id": int(library["id"]), "name": "Reports"},
+            self.current_user,
+        )["item"]
+
+        with self.assertRaises(Exception) as caught:
+            services.delete_library(int(library["id"]), self.current_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+        other_user = {
+            "id": 11,
+            "username": "other",
+            "current_tenant": {"id": 8, "tenant_key": "tenant-b", "name": "Tenant B"},
+            "tenant_id": 8,
+        }
+        with self.assertRaises(Exception) as folder_caught:
+            services.list_workspace(
+                current_user=other_user,
+                library_id=int(library["id"]),
+                folder_id=int(folder["id"]),
+            )
+
+        self.assertEqual(getattr(folder_caught.exception, "status_code", None), 404)
 
     def test_provider_options_expose_reserved_providers(self) -> None:
         options = services.storage_provider_options()["items"]

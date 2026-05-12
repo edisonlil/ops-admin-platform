@@ -25,10 +25,23 @@ export interface FileLibrary {
   update_time?: string;
 }
 
+export interface FileFolder {
+  id: number;
+  tenant_id: number;
+  library_id: number;
+  parent_id?: number | null;
+  name: string;
+  description: string;
+  status: string;
+  create_time?: string;
+  update_time?: string;
+}
+
 export interface ManagedFile {
   id: number;
   tenant_id: number;
   library_id?: number | null;
+  folder_id?: number | null;
   original_name: string;
   display_name: string;
   extension: string;
@@ -126,6 +139,25 @@ export interface FileLibraryPayload {
   status?: string;
 }
 
+export interface FileFolderPayload {
+  id?: number;
+  library_id: number;
+  parent_id?: number | null;
+  name: string;
+  description?: string;
+  status?: string;
+}
+
+export interface FileWorkspaceData {
+  libraries: FileLibrary[];
+  current_library: FileLibrary | null;
+  current_folder: FileFolder | null;
+  breadcrumbs: FileFolder[];
+  folders: FileFolder[];
+  files: ManagedFile[];
+  usage: StorageUsage;
+}
+
 export interface StorageProfilePayload {
   id?: number;
   provider: string;
@@ -181,10 +213,42 @@ export function deleteFileLibrary(libraryId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/files/libraries/${libraryId}`);
 }
 
+export function getFileWorkspace(params: { library_id?: number; folder_id?: number; keyword?: string } = {}) {
+  return Alova.Get<FileWorkspaceData>('/files/workspace', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getFileLibraryTree(libraryId: number) {
+  return Alova.Get<{ library: FileLibrary; items: FileFolder[] }>(`/files/libraries/${libraryId}/tree`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveFileFolder(payload: FileFolderPayload) {
+  const body = {
+    library_id: payload.library_id,
+    parent_id: payload.parent_id ?? null,
+    name: String(payload.name || '').trim(),
+    description: payload.description || '',
+    status: payload.status || 'active',
+  };
+  if (payload.id) {
+    return Alova.Put<{ item: FileFolder }>(`/files/folders/${payload.id}`, body);
+  }
+  return Alova.Post<{ item: FileFolder }>('/files/folders', body);
+}
+
+export function deleteFileFolder(folderId: number) {
+  return Alova.Delete<{ id: number; deleted: boolean }>(`/files/folders/${folderId}`);
+}
+
 export function getFiles(params: {
   page?: number;
   page_size?: number;
   library_id?: number;
+  folder_id?: number;
+  current_folder_only?: boolean;
   keyword?: string;
   mime_type?: string;
   status?: string;
@@ -200,11 +264,14 @@ export function searchFiles(params: { keyword?: string; page?: number; page_size
   });
 }
 
-export function uploadManagedFile(payload: { file: File; library_id?: number | null; visibility?: string }) {
+export function uploadManagedFile(payload: { file: File; library_id?: number | null; folder_id?: number | null; visibility?: string }) {
   const form = new FormData();
   form.append('upload', payload.file);
   if (payload.library_id) {
     form.append('library_id', String(payload.library_id));
+  }
+  if (payload.folder_id) {
+    form.append('folder_id', String(payload.folder_id));
   }
   form.append('visibility', payload.visibility || 'tenant');
   return Alova.Post<{ item: ManagedFile }>('/files/upload', form);

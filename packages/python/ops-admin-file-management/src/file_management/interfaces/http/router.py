@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from file_management.application import services
-from file_management.interfaces.http.dtos import FileLibraryRequest, StorageProfileRequest, TenantStorageQuotaRequest
+from file_management.interfaces.http.dtos import FileFolderRequest, FileLibraryRequest, StorageProfileRequest, TenantStorageQuotaRequest
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import ok
 
@@ -49,11 +49,56 @@ def delete_library(
     return ok(services.delete_library(library_id, current_user))
 
 
+@router.get("/workspace")
+def workspace(
+    library_id: int | None = None,
+    folder_id: int | None = None,
+    keyword: str = "",
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
+) -> dict[str, Any]:
+    return ok(services.list_workspace(current_user=current_user, library_id=library_id, folder_id=folder_id, keyword=keyword))
+
+
+@router.get("/libraries/{library_id}/tree")
+def library_tree(
+    library_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
+) -> dict[str, Any]:
+    return ok(services.folder_tree(library_id=library_id, current_user=current_user))
+
+
+@router.post("/folders")
+def create_folder(
+    payload: FileFolderRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
+) -> dict[str, Any]:
+    return ok(services.save_folder(payload.model_dump(), current_user))
+
+
+@router.put("/folders/{folder_id}")
+def update_folder(
+    folder_id: int,
+    payload: FileFolderRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
+) -> dict[str, Any]:
+    return ok(services.save_folder(payload.model_dump(), current_user, folder_id=folder_id))
+
+
+@router.delete("/folders/{folder_id}")
+def delete_folder(
+    folder_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
+) -> dict[str, Any]:
+    return ok(services.delete_folder(folder_id, current_user))
+
+
 @router.get("")
 def files(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     library_id: int | None = None,
+    folder_id: int | None = None,
+    current_folder_only: bool = False,
     keyword: str = "",
     mime_type: str = "",
     status_filter: str = Query(default="", alias="status"),
@@ -65,6 +110,8 @@ def files(
             page_size=page_size,
             current_user=current_user,
             library_id=library_id,
+            folder_id=folder_id,
+            current_folder_only=current_folder_only,
             keyword=keyword,
             mime_type=mime_type,
             status_filter=status_filter,
@@ -124,6 +171,7 @@ def index_jobs(
 def upload_file(
     upload: UploadFile = File(...),
     library_id: int | None = Form(default=None),
+    folder_id: int | None = Form(default=None),
     visibility: str = Form(default="tenant"),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:upload")),
 ) -> dict[str, Any]:
@@ -134,6 +182,7 @@ def upload_file(
             content_type=upload.content_type or "application/octet-stream",
             stream=upload.file,
             library_id=library_id,
+            folder_id=folder_id,
             visibility=visibility,
             metadata={},
         )

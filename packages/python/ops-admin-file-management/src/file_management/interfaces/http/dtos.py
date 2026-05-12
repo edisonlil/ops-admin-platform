@@ -13,6 +13,14 @@ class FileLibraryRequest(BaseModel):
     status: str = Field(default="active", max_length=60)
 
 
+class FileFolderRequest(BaseModel):
+    library_id: int = Field(gt=0)
+    parent_id: int | None = None
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=800)
+    status: str = Field(default="active", max_length=60)
+
+
 class TenantStorageQuotaRequest(BaseModel):
     quota_bytes: int = Field(default=0, ge=0)
     max_file_size_bytes: int = Field(default=0, ge=0)

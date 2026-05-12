@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS file_objects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL,
     library_id INTEGER DEFAULT NULL,
+    folder_id INTEGER DEFAULT NULL,
     original_name TEXT NOT NULL,
     display_name TEXT NOT NULL,
     extension TEXT NOT NULL DEFAULT '',
@@ -42,6 +43,25 @@ CREATE TABLE IF NOT EXISTS file_objects (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id INTEGER DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS file_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    library_id INTEGER NOT NULL,
+    parent_id INTEGER DEFAULT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE (tenant_id, library_id, parent_id, name, deleted)
 );
 
 CREATE TABLE IF NOT EXISTS tenant_file_storage_quotas (
@@ -132,9 +152,11 @@ CREATE TABLE IF NOT EXISTS file_search_index_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_file_libraries_tenant ON file_libraries(tenant_id, status, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_library ON file_objects(tenant_id, library_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_folder ON file_objects(tenant_id, library_id, folder_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_name ON file_objects(tenant_id, original_name);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_hash ON file_objects(tenant_id, sha256);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_update ON file_objects(tenant_id, update_time);
+CREATE INDEX IF NOT EXISTS idx_file_folders_tenant_parent ON file_folders(tenant_id, library_id, parent_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_storage_profiles_default ON file_storage_profiles(provider, is_default, enabled, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_access_logs_tenant_file ON file_access_logs(tenant_id, file_id, create_time);
 CREATE INDEX IF NOT EXISTS idx_file_index_jobs_tenant_status ON file_search_index_jobs(tenant_id, status, create_time);
