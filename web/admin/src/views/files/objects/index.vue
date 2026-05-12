@@ -532,6 +532,8 @@
   }
 
   .file-browser {
+    --file-browser-title-size: var(--app-font-size-lg, 16px);
+
     display: grid;
     gap: 12px;
     min-width: 0;
@@ -565,7 +567,7 @@
     margin: 0;
     overflow: hidden;
     color: var(--app-text-color);
-    font-size: 20px;
+    font-size: var(--file-browser-title-size);
     font-weight: 700;
     line-height: 1.3;
     text-overflow: ellipsis;
