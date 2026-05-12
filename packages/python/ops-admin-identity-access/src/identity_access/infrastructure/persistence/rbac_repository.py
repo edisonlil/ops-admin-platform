@@ -521,10 +521,10 @@ def validate_menu_payload(
             if normalized_parent_key in subtree_keys:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu cannot move under its descendant")
 
-    if menu_id is not None and normalized_type in {"page", "action"}:
+    if menu_id is not None and normalized_type == "action":
         child_row = conn.execute("SELECT id FROM menus WHERE parent_key = ? LIMIT 1", (normalized_key,)).fetchone()
         if child_row:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu with children cannot become a page or action")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="action menu cannot have children")
 
     return {
         "menu_key": normalized_key,

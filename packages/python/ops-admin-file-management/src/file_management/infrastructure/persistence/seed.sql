@@ -1,0 +1,3 @@
+-- File management menu and permission seed data belongs to identity_access.
+-- File libraries, files, quotas, and storage profiles are tenant or platform
+-- configuration data and should be created explicitly by administrators.

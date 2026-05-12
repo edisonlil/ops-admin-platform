@@ -52,6 +52,18 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "message-channels-enable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "message-channels-disable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "message-channels-test": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-management": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "file-libraries": {"menu_type": "page", "component": "/files/libraries/index", "menu_scope": "tenant"},
+    "file-libraries-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-libraries-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-libraries-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-objects": {"menu_type": "page", "component": "/files/objects/index", "menu_scope": "tenant"},
+    "file-objects-upload": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-objects-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "file-storage-profiles": {"menu_type": "page", "component": "/files/storage-profiles/index", "menu_scope": "platform"},
+    "file-storage-profiles-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "file-tenant-quotas": {"menu_type": "page", "component": "/files/tenant-quotas/index", "menu_scope": "platform"},
+    "file-tenant-quotas-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "cron": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "cron-tasks": {"menu_type": "page", "component": "/cron/tasks/index", "menu_scope": "tenant"},
     "cron-tasks-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -143,6 +155,21 @@ TENANT_MESSAGING_NAV_MENU_KEYS = [
     "message-templates",
     "message-channels",
 ]
+TENANT_FILE_MENU_KEYS = [
+    "file-management",
+    "file-libraries",
+    "file-libraries-create",
+    "file-libraries-update",
+    "file-libraries-delete",
+    "file-objects",
+    "file-objects-upload",
+    "file-objects-delete",
+]
+TENANT_FILE_NAV_MENU_KEYS = [
+    "file-management",
+    "file-libraries",
+    "file-objects",
+]
 TENANT_LLM_MENU_KEYS = [
     "llm",
     "llm-config",
@@ -177,6 +204,7 @@ TENANT_ADMIN_MENU_KEYS = (
         "tenant-api-keys-revoke",
     ]
     + TENANT_MESSAGING_MENU_KEYS
+    + TENANT_FILE_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + TENANT_CRON_MENU_KEYS
 )
@@ -184,6 +212,7 @@ TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
     + TENANT_MESSAGING_NAV_MENU_KEYS
+    + TENANT_FILE_NAV_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + ["cron", "cron-tasks", "cron-runs"]
 )
@@ -217,6 +246,10 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "messaging:channels:disable",
     "messaging:channels:test",
     "messaging:dispatch:manage",
+    "file:library:manage",
+    "file:object:read",
+    "file:object:upload",
+    "file:object:delete",
     "cron:tasks:view",
     "cron:tasks:create",
     "cron:tasks:update",
@@ -723,6 +756,7 @@ def ensure_default_admin_membership(conn: Any) -> None:
 def ensure_default_rbac(conn: Any) -> None:
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
     ensure_identity_seed(conn)
+    ensure_file_management_permissions(conn)
     ensure_platform_default_menus(conn)
     backfill_default_menu_metadata(conn)
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
@@ -744,6 +778,30 @@ def ensure_default_rbac(conn: Any) -> None:
     ensure_tenant_default_roles(conn)
     repair_tenant_rbac_boundaries(conn)
     ensure_all_tenant_menu_defaults(conn)
+
+
+def ensure_file_management_permissions(conn: Any) -> None:
+    permission_rows = [
+        ("file:library:manage", "Manage file libraries", "Create, update, and delete tenant file libraries"),
+        ("file:object:read", "Read files", "List, search, and download tenant files"),
+        ("file:object:upload", "Upload files", "Upload files to tenant file libraries"),
+        ("file:object:delete", "Delete files", "Delete tenant files"),
+        ("file:quota:manage", "Manage file quotas", "Configure tenant file storage quotas"),
+        (
+            "file:storage_profiles:manage",
+            "Manage file storage profiles",
+            "Configure object storage profiles for file management",
+        ),
+    ]
+    for code, name, description in permission_rows:
+        conn.execute(
+            """
+            INSERT INTO permissions (code, name, description)
+            SELECT ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = ?)
+            """,
+            (code, name, description, code),
+        )
 
 
 def backfill_default_menu_metadata(conn: Any) -> None:
@@ -853,6 +911,10 @@ def ensure_platform_default_menus(conn: Any) -> None:
     platform_menu_rows = [
         ("platform-management", "平台管理", "/platform", "platform-management", "SettingOutlined", "", "", 109),
         ("platform-branding-update", "更新平台标识", "", "", "", "platform-management", "platform:branding:update", 1091),
+        ("file-storage-profiles", "文件存储", "/files/storage-profiles", "file-storage-profiles", "database", "platform-management", "file:storage_profiles:manage", 1092),
+        ("file-storage-profiles-manage", "管理文件存储", "", "", "", "file-storage-profiles", "file:storage_profiles:manage", 10921),
+        ("file-tenant-quotas", "文件配额", "/files/tenant-quotas", "file-tenant-quotas", "hdd", "platform-management", "file:quota:manage", 1093),
+        ("file-tenant-quotas-manage", "管理文件配额", "", "", "", "file-tenant-quotas", "file:quota:manage", 10931),
         ("rbac", "权限管理", "", "", "shield", "", "", 100),
         ("user-management", "用户管理", "/rbac/users", "user-management", "user", "rbac", "system:user:access", 100),
         ("user-management-create", "新增用户", "", "", "", "user-management", "system:users:create", 1001),
@@ -1003,6 +1065,86 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "tenant-api-keys",
             "tenant:api_keys:revoke",
             822,
+        ),
+        (
+            "file-management",
+            "文件管理",
+            "",
+            "",
+            "folder",
+            "",
+            "",
+            83,
+        ),
+        (
+            "file-libraries",
+            "文件库",
+            "/files/libraries",
+            "file-libraries",
+            "folder-open",
+            "file-management",
+            "file:object:read",
+            831,
+        ),
+        (
+            "file-libraries-create",
+            "新建文件库",
+            "",
+            "",
+            "",
+            "file-libraries",
+            "file:library:manage",
+            8311,
+        ),
+        (
+            "file-libraries-update",
+            "编辑文件库",
+            "",
+            "",
+            "",
+            "file-libraries",
+            "file:library:manage",
+            8312,
+        ),
+        (
+            "file-libraries-delete",
+            "删除文件库",
+            "",
+            "",
+            "",
+            "file-libraries",
+            "file:library:manage",
+            8313,
+        ),
+        (
+            "file-objects",
+            "文件",
+            "/files/objects",
+            "file-objects",
+            "file",
+            "file-management",
+            "file:object:read",
+            832,
+        ),
+        (
+            "file-objects-upload",
+            "上传文件",
+            "",
+            "",
+            "",
+            "file-objects",
+            "file:object:upload",
+            8321,
+        ),
+        (
+            "file-objects-delete",
+            "删除文件",
+            "",
+            "",
+            "",
+            "file-objects",
+            "file:object:delete",
+            8322,
         ),
         (
             "llm",
@@ -1509,6 +1651,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             ensure_role_menus_by_key(conn, role_key, TENANT_MESSAGING_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()

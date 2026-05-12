@@ -182,6 +182,30 @@ SELECT 'appearance:themes:set_default', 'Appearance theme platform default', 'Se
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'appearance:themes:set_default');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'file:library:manage', 'Manage file libraries', 'Create, update, and delete tenant file libraries'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:library:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'file:object:read', 'Read files', 'List, search, and download tenant files'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:object:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'file:object:upload', 'Upload files', 'Upload files to tenant file libraries'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:object:upload');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'file:object:delete', 'Delete files', 'Delete tenant files'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:object:delete');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'file:quota:manage', 'Manage file quotas', 'Configure tenant file storage quotas'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:quota:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'file:storage_profiles:manage', 'Manage file storage profiles', 'Configure object storage profiles for file management'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:storage_profiles:manage');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'tenant:user:manage', 'Tenant user manage', 'Manage users inside platform tenants'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:user:manage');
 
@@ -543,6 +567,22 @@ INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, com
 SELECT 'platform-branding-update', 'platform', '更新平台标识', 'action', '', '', '', '', 'platform-management', 'platform:branding:update', 1091, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-branding-update');
 
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-storage-profiles', 'platform', '文件存储', 'page', '/files/storage-profiles', 'file-storage-profiles', '/files/storage-profiles/index', 'database', 'platform-management', 'file:storage_profiles:manage', 1092, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-storage-profiles');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-storage-profiles-manage', 'platform', '管理文件存储', 'action', '', '', '', '', 'file-storage-profiles', 'file:storage_profiles:manage', 10921, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-storage-profiles-manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-tenant-quotas', 'platform', '文件配额', 'page', '/files/tenant-quotas', 'file-tenant-quotas', '/files/tenant-quotas/index', 'hdd', 'platform-management', 'file:quota:manage', 1093, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-tenant-quotas');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-tenant-quotas-manage', 'platform', '管理文件配额', 'action', '', '', '', '', 'file-tenant-quotas', 'file:quota:manage', 10931, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-tenant-quotas-manage');
+
 UPDATE menus SET
     menu_scope = 'platform',
     menu_type = 'page',
@@ -656,6 +696,38 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-api-keys-create')
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'tenant-api-keys-revoke', 'tenant', '撤销 API Key', 'action', '', '', '', '', 'tenant-api-keys', 'tenant:api_keys:revoke', 822, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'tenant-api-keys-revoke');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-management', 'tenant', '文件管理', 'directory', '', '', '', 'folder', '', '', 83, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-management');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-libraries', 'tenant', '文件库', 'page', '/files/libraries', 'file-libraries', '/files/libraries/index', 'folder-open', 'file-management', 'file:object:read', 831, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-libraries');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-libraries-create', 'tenant', '新建文件库', 'action', '', '', '', '', 'file-libraries', 'file:library:manage', 8311, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-libraries-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-libraries-update', 'tenant', '编辑文件库', 'action', '', '', '', '', 'file-libraries', 'file:library:manage', 8312, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-libraries-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-libraries-delete', 'tenant', '删除文件库', 'action', '', '', '', '', 'file-libraries', 'file:library:manage', 8313, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-libraries-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-objects', 'tenant', '文件', 'page', '/files/objects', 'file-objects', '/files/objects/index', 'file', 'file-management', 'file:object:read', 832, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-objects-upload', 'tenant', '上传文件', 'action', '', '', '', '', 'file-objects', 'file:object:upload', 8321, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-upload');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'file-objects-delete', 'tenant', '删除文件', 'action', '', '', '', '', 'file-objects', 'file:object:delete', 8322, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-delete');
 
 DELETE FROM role_menus
 WHERE menu_id IN (

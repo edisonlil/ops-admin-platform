@@ -2,6 +2,7 @@ import {
   clearOpsAdminModules,
   registerCronModule,
   registerAppearanceModule,
+  registerFileManagementModule,
   registerIdentityAccessModule,
   registerLlmRuntimeModule,
   registerMessagingModule,
@@ -17,6 +18,10 @@ export function setupStarterModules() {
 
   if (import.meta.env.VITE_ENABLE_CRON !== 'false') {
     registerCronModule();
+  }
+
+  if (import.meta.env.VITE_ENABLE_FILE_MANAGEMENT !== 'false') {
+    registerFileManagementModule();
   }
 
   if (import.meta.env.VITE_ENABLE_LLM_RUNTIME !== 'false') {

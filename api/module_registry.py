@@ -11,12 +11,13 @@ from fastapi import APIRouter
 
 ROUTER_GROUP = "ops_admin.routers"
 INIT_TASK_GROUP = "ops_admin.init_tasks"
-MODULE_ORDER = ("system", "cron", "identity_access", "messaging", "llm_runtime", "appearance")
+MODULE_ORDER = ("system", "cron", "identity_access", "file_management", "messaging", "llm_runtime", "appearance")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_PACKAGE_SRC = {
     "system": REPO_ROOT / "packages" / "python" / "ops-admin-system" / "src",
     "cron": REPO_ROOT / "packages" / "python" / "ops-admin-cron" / "src",
     "identity_access": REPO_ROOT / "packages" / "python" / "ops-admin-identity-access" / "src",
+    "file_management": REPO_ROOT / "packages" / "python" / "ops-admin-file-management" / "src",
     "messaging": REPO_ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     "llm_runtime": REPO_ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
     "appearance": REPO_ROOT / "packages" / "python" / "ops-admin-appearance" / "src",
@@ -26,6 +27,7 @@ LOCAL_ENTRYPOINTS = {
         "system": "system.entrypoints:router",
         "cron": "cron.entrypoints:router",
         "identity_access": "identity_access.entrypoints:router",
+        "file_management": "file_management.entrypoints:router",
         "messaging": "messaging.entrypoints:router",
         "llm_runtime": "llm_runtime.entrypoints:router",
         "appearance": "appearance.entrypoints:router",
@@ -34,6 +36,7 @@ LOCAL_ENTRYPOINTS = {
         "system": "system.entrypoints:init_tasks",
         "cron": "cron.entrypoints:init_tasks",
         "identity_access": "identity_access.entrypoints:init_tasks",
+        "file_management": "file_management.entrypoints:init_tasks",
         "messaging": "messaging.entrypoints:init_tasks",
         "llm_runtime": "llm_runtime.entrypoints:init_tasks",
         "appearance": "appearance.entrypoints:init_tasks",

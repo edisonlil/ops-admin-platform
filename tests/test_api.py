@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import json
 import sqlite3
 import tempfile
@@ -9,6 +11,37 @@ from pathlib import Path
 from unittest import mock
 
 import httpx
+
+from file_management.application.ports import DownloadObject, StoredObject
+from file_management.domain.models import STORAGE_PROVIDER_MINIO, StorageProfile
+
+
+class MemoryFileStorage:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def save(self, *, profile: StorageProfile, key: str, content: io.BytesIO, content_type: str) -> StoredObject:
+        data = content.read()
+        self.objects[key] = data
+        return StoredObject(
+            provider=STORAGE_PROVIDER_MINIO,
+            bucket=profile.bucket,
+            key=key,
+            size_bytes=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+        )
+
+    def open_for_read(self, *, profile: StorageProfile, key: str) -> DownloadObject:
+        return DownloadObject(stream=io.BytesIO(self.objects[key]), size_bytes=len(self.objects[key]))
+
+    def delete(self, *, profile: StorageProfile, key: str) -> None:
+        self.objects.pop(key, None)
+
+    def exists(self, *, profile: StorageProfile, key: str) -> bool:
+        return key in self.objects
+
+    def test_connection(self, *, profile: StorageProfile) -> dict[str, object]:
+        return {"ok": True, "provider": profile.provider, "bucket": profile.bucket}
 
 
 class ApiTests(unittest.TestCase):
@@ -126,6 +159,17 @@ class ApiTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def initialize_file_management_db(self) -> None:
+        from file_management.infrastructure.persistence.bootstrap import ensure_file_management_schema
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            ensure_file_management_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_database_url_can_come_from_config_file(self) -> None:
         from api.config import resolve_database_url
 
@@ -239,12 +283,16 @@ class ApiTests(unittest.TestCase):
         menu_keys = {item["key"] for item in menu_response.json()["data"]["items"]}
         self.assertIn("tenant-management", menu_keys)
         self.assertIn("appearance-studio", menu_keys)
+        self.assertIn("file-storage-profiles", menu_keys)
+        self.assertIn("file-tenant-quotas", menu_keys)
         self.assertIn("llm-debug", menu_keys)
         self.assertNotIn("recommend", menu_keys)
         self.assertNotIn("function-points", menu_keys)
 
         self.assertTrue(any(item["key"] == "admin" for item in role_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "file:quota:manage" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "file:storage_profiles:manage" for item in permission_response.json()["data"]["items"]))
 
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})
@@ -283,8 +331,13 @@ class ApiTests(unittest.TestCase):
         self.assertIn("messaging:channels:test", permissions)
         self.assertIn("cron:tasks:view", permissions)
         self.assertIn("cron:tasks:trigger", permissions)
+        self.assertIn("file:object:upload", permissions)
+        self.assertIn("file:library:manage", permissions)
         self.assertIn("llm-config", keys)
         self.assertIn("cron-tasks", keys)
+        self.assertIn("file-libraries", keys)
+        self.assertIn("file-management", keys)
+        self.assertIn("file-objects", keys)
         self.assertIn("cron-runs", keys)
         self.assertNotIn("tenant-management", keys)
         self.assertNotIn("rbac", keys)
@@ -607,6 +660,67 @@ class ApiTests(unittest.TestCase):
         self.assertIn("reports:view", permission_codes)
         self.assertIn("reports:export", permission_codes)
 
+    def test_admin_can_update_page_icon_when_page_has_action_children(self) -> None:
+        page_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "report-center",
+                "label": "Report Center",
+                "menu_type": "page",
+                "path": "/report-center",
+                "route_name": "report-center",
+                "component": "/platform/index",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "report-center:view",
+                "sort_order": 210,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(page_response.status_code, 200)
+        menu_id = int(page_response.json()["data"]["item"]["id"])
+
+        child_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "report-center-export",
+                "label": "Export report center",
+                "menu_type": "action",
+                "path": "",
+                "route_name": "",
+                "component": "",
+                "icon": "",
+                "parent_key": "report-center",
+                "permission_code": "report-center:export",
+                "sort_order": 211,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(child_response.status_code, 200)
+
+        update_response = self.request(
+            "PUT",
+            f"/api/rbac/menus/{menu_id}",
+            json={
+                "key": "report-center",
+                "label": "Report Center",
+                "menu_type": "page",
+                "path": "/report-center",
+                "route_name": "report-center",
+                "component": "/platform/index",
+                "icon": "BookOutlined",
+                "parent_key": "",
+                "permission_code": "report-center:view",
+                "sort_order": 210,
+                "is_visible": True,
+            },
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["data"]["item"]["icon"], "BookOutlined")
+
     def test_admin_can_create_tenant_role_with_tenant_action_permissions(self) -> None:
         role_response = self.request(
             "POST",
@@ -664,6 +778,83 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(uninitialized_response.status_code, 503)
         self.assertEqual(uninitialized_response.json()["code"], "CRON_STORAGE_NOT_READY")
         self.assertIn("cron storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_file_management_requires_explicit_schema_initialization(self) -> None:
+        uninitialized_response = self.request("GET", "/api/files/libraries")
+
+        self.assertEqual(uninitialized_response.status_code, 503)
+        self.assertIn("file management storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_admin_can_configure_minio_profile_and_user_can_upload_download_file(self) -> None:
+        self.initialize_file_management_db()
+
+        from file_management.application import services as file_services
+
+        memory_storage = MemoryFileStorage()
+        file_services.configure_storage(memory_storage)
+
+        profile_response = self.request(
+            "POST",
+            "/api/files/admin/storage-profiles",
+            json={
+                "provider": "minio",
+                "name": "Default MinIO",
+                "endpoint": "http://localhost:9000",
+                "bucket": "ops-files",
+                "access_key_id": "minio",
+                "secret_access_key": "miniopass",
+                "is_default": True,
+                "enabled": True,
+            },
+        )
+        self.assertEqual(profile_response.status_code, 200)
+        profile = profile_response.json()["data"]["item"]
+        self.assertTrue(profile["secret_configured"])
+        self.assertNotIn("secret_access_key", profile)
+
+        quota_response = self.request(
+            "PUT",
+            "/api/files/admin/tenants/1/quota",
+            json={
+                "quota_bytes": 1000,
+                "max_file_size_bytes": 100,
+                "allowed_mime_types": ["text/plain"],
+                "blocked_extensions": ["exe"],
+                "enabled": True,
+            },
+        )
+        self.assertEqual(quota_response.status_code, 200)
+
+        library_response = self.request("POST", "/api/files/libraries", json={"name": "Contracts"})
+        self.assertEqual(library_response.status_code, 200)
+        library_id = int(library_response.json()["data"]["item"]["id"])
+
+        upload_response = self.request(
+            "POST",
+            "/api/files/upload",
+            files={"upload": ("contract.txt", b"hello", "text/plain")},
+            data={"library_id": str(library_id), "visibility": "tenant"},
+        )
+        self.assertEqual(upload_response.status_code, 200)
+        uploaded = upload_response.json()["data"]["item"]
+        self.assertEqual(uploaded["original_name"], "contract.txt")
+        self.assertNotIn("storage_key", uploaded)
+
+        list_response = self.request("GET", "/api/files")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["data"]["pagination"]["total"], 1)
+
+        search_response = self.request("GET", "/api/files/search?keyword=contract")
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(search_response.json()["data"]["pagination"]["total"], 1)
+
+        download_response = self.request("GET", f"/api/files/{uploaded['id']}/download")
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response.content, b"hello")
+
+        delete_response = self.request("DELETE", f"/api/files/{uploaded['id']}")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertTrue(delete_response.json()["data"]["deleted"])
 
     def test_admin_can_manage_cron_task_and_trigger_run(self) -> None:
         self.initialize_cron_db()

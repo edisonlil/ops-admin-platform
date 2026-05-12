@@ -1,0 +1,306 @@
+import { Alova } from '@/utils/http/alova/index';
+import { useGlobSetting } from '@/hooks/setting';
+import { useUser } from '@/store/modules/user';
+
+export interface FilePagination {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface FileListData<TItem> {
+  items: TItem[];
+  pagination: FilePagination;
+}
+
+export interface FileLibrary {
+  id: number;
+  tenant_id: number;
+  name: string;
+  description: string;
+  library_type: string;
+  visibility: string;
+  status: string;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface ManagedFile {
+  id: number;
+  tenant_id: number;
+  library_id?: number | null;
+  original_name: string;
+  display_name: string;
+  extension: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  storage_provider: string;
+  storage_bucket: string;
+  status: string;
+  visibility: string;
+  metadata: Record<string, unknown>;
+  indexed_at?: string | null;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface TenantStorageQuota {
+  id: number;
+  tenant_id: number;
+  quota_bytes: number;
+  max_file_size_bytes: number;
+  allowed_mime_types: string[];
+  blocked_extensions: string[];
+  enabled: boolean;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface StorageUsage {
+  tenant_id: number;
+  used_bytes: number;
+  file_count: number;
+}
+
+export interface StorageProfile {
+  id: number;
+  tenant_id: number;
+  provider: string;
+  name: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  access_key_id: string;
+  path_style_enabled: boolean;
+  tls_enabled: boolean;
+  is_default: boolean;
+  enabled: boolean;
+  extra_config: Record<string, unknown>;
+  secret_configured: boolean;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface StorageProviderOption {
+  provider: string;
+  label: string;
+  supported: boolean;
+  config_schema: Record<string, unknown>;
+}
+
+export interface FileAccessLog {
+  id: number;
+  tenant_id: number;
+  file_id?: number | null;
+  action: string;
+  actor_user_id?: number | null;
+  actor_name: string;
+  client_ip: string;
+  user_agent: string;
+  result: string;
+  detail: Record<string, unknown>;
+  create_time?: string;
+}
+
+export interface FileSearchIndexJob {
+  id: number;
+  tenant_id: number;
+  file_id?: number | null;
+  job_type: string;
+  status: string;
+  attempts: number;
+  last_error: string;
+  scheduled_time: string;
+  finished_time?: string | null;
+  payload: Record<string, unknown>;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface FileLibraryPayload {
+  name: string;
+  description?: string;
+  library_type?: string;
+  visibility?: string;
+  status?: string;
+}
+
+export interface StorageProfilePayload {
+  id?: number;
+  provider: string;
+  name: string;
+  endpoint: string;
+  region?: string;
+  bucket: string;
+  access_key_id?: string;
+  secret_access_key?: string;
+  path_style_enabled?: boolean;
+  tls_enabled?: boolean;
+  is_default?: boolean;
+  enabled?: boolean;
+  extra_config?: Record<string, unknown>;
+}
+
+export interface TenantQuotaPayload {
+  quota_bytes: number;
+  max_file_size_bytes: number;
+  allowed_mime_types: string[];
+  blocked_extensions: string[];
+  enabled: boolean;
+}
+
+function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
+  return {
+    ...params,
+    _t: Date.now(),
+  };
+}
+
+export function getFileLibraries(params: { page?: number; page_size?: number } = {}) {
+  return Alova.Get<FileListData<FileLibrary>>('/files/libraries', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function saveFileLibrary(payload: Partial<FileLibraryPayload> & { id?: number }) {
+  const body: FileLibraryPayload = {
+    name: String(payload.name || '').trim(),
+    description: payload.description || '',
+    library_type: payload.library_type || 'general',
+    visibility: payload.visibility || 'tenant',
+    status: payload.status || 'active',
+  };
+  if (payload.id) {
+    return Alova.Put<{ item: FileLibrary }>(`/files/libraries/${payload.id}`, body);
+  }
+  return Alova.Post<{ item: FileLibrary }>('/files/libraries', body);
+}
+
+export function deleteFileLibrary(libraryId: number) {
+  return Alova.Delete<{ id: number; deleted: boolean }>(`/files/libraries/${libraryId}`);
+}
+
+export function getFiles(params: {
+  page?: number;
+  page_size?: number;
+  library_id?: number;
+  keyword?: string;
+  mime_type?: string;
+  status?: string;
+} = {}) {
+  return Alova.Get<FileListData<ManagedFile>>('/files', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function searchFiles(params: { keyword?: string; page?: number; page_size?: number } = {}) {
+  return Alova.Get<FileListData<ManagedFile>>('/files/search', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function uploadManagedFile(payload: { file: File; library_id?: number | null; visibility?: string }) {
+  const form = new FormData();
+  form.append('upload', payload.file);
+  if (payload.library_id) {
+    form.append('library_id', String(payload.library_id));
+  }
+  form.append('visibility', payload.visibility || 'tenant');
+  return Alova.Post<{ item: ManagedFile }>('/files/upload', form);
+}
+
+export function deleteManagedFile(fileId: number) {
+  return Alova.Delete<{ id: number; deleted: boolean }>(`/files/${fileId}`);
+}
+
+export function reindexManagedFile(fileId: number) {
+  return Alova.Post<{ item: FileSearchIndexJob }>(`/files/${fileId}/reindex`);
+}
+
+export function getAccessLogs(params: { page?: number; page_size?: number; file_id?: number; action?: string } = {}) {
+  return Alova.Get<FileListData<FileAccessLog>>('/files/access-logs', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getIndexJobs(params: { page?: number; page_size?: number; file_id?: number; status?: string } = {}) {
+  return Alova.Get<FileListData<FileSearchIndexJob>>('/files/index-jobs', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getStorageProfiles() {
+  return Alova.Get<{ items: StorageProfile[] }>('/files/admin/storage-profiles', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function getStorageProviderOptions() {
+  return Alova.Get<{ items: StorageProviderOption[] }>('/files/admin/storage-provider-options', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveStorageProfile(payload: StorageProfilePayload) {
+  if (payload.id) {
+    return Alova.Put<{ item: StorageProfile }>(`/files/admin/storage-profiles/${payload.id}`, payload);
+  }
+  return Alova.Post<{ item: StorageProfile }>('/files/admin/storage-profiles', payload);
+}
+
+export function testStorageProfile(profileId: number) {
+  return Alova.Post<{ ok: boolean; provider: string; message?: string; bucket?: string }>(
+    `/files/admin/storage-profiles/${profileId}/test`
+  );
+}
+
+export function setDefaultStorageProfile(profileId: number) {
+  return Alova.Post<{ item: StorageProfile }>(`/files/admin/storage-profiles/${profileId}/default`);
+}
+
+export function getTenantFileQuota(tenantId: number) {
+  return Alova.Get<{ quota: TenantStorageQuota | null; usage: StorageUsage }>(`/files/admin/tenants/${tenantId}/quota`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveTenantFileQuota(tenantId: number, payload: TenantQuotaPayload) {
+  return Alova.Put<{ quota: TenantStorageQuota; usage: StorageUsage }>(`/files/admin/tenants/${tenantId}/quota`, payload);
+}
+
+export async function downloadManagedFile(file: ManagedFile) {
+  const response = await fetch(apiUrl(`/files/${file.id}/download`), {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(response.statusText || 'Download failed');
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = file.original_name || file.display_name || `file-${file.id}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function authHeaders() {
+  const token = useUser().getToken;
+  return token
+    ? {
+        token,
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+function apiUrl(path: string) {
+  const { apiUrl: baseUrl, urlPrefix } = useGlobSetting();
+  const prefix = `${baseUrl || ''}${urlPrefix || ''}`;
+  return `${prefix}${path}`;
+}

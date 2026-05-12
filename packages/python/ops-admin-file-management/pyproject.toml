@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-admin-file-management"
+version = "0.1.0"
+description = "File management bounded context for ops-admin-platform."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "python-multipart",
+    "ops-admin-system",
+    "ops-admin-identity-access",
+]
+
+[project.optional-dependencies]
+minio = ["minio>=7.2,<8"]
+
+[project.entry-points."ops_admin.routers"]
+file_management = "file_management.entrypoints:router"
+
+[project.entry-points."ops_admin.init_tasks"]
+file_management = "file_management.entrypoints:init_tasks"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+file_management = ["infrastructure/persistence/*.sql"]

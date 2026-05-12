@@ -1,7 +1,7 @@
 import type { App } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 
-export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | string;
+export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'file_management' | string;
 
 export interface OpsAdminWebModule {
   key: OpsAdminModuleKey;
@@ -108,6 +108,20 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'cron-tasks-trigger',
     'cron-runs',
   ],
+  file_management: [
+    'file-management',
+    'file-libraries',
+    'file-libraries-create',
+    'file-libraries-update',
+    'file-libraries-delete',
+    'file-objects',
+    'file-objects-upload',
+    'file-objects-delete',
+    'file-storage-profiles',
+    'file-storage-profiles-manage',
+    'file-tenant-quotas',
+    'file-tenant-quotas-manage',
+  ],
 };
 
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();
@@ -190,6 +204,16 @@ export function registerMessagingModule(options: OpsAdminModuleOptions = {}) {
     key: 'messaging',
     label: options.label || '消息系统',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.messaging,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerFileManagementModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'file_management',
+    label: options.label || '文件管理',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.file_management,
     routes: options.routes,
     install: options.install,
   });

@@ -1,0 +1,601 @@
+from __future__ import annotations
+
+import hashlib
+import io
+from pathlib import Path
+from typing import Any, BinaryIO
+
+from fastapi import HTTPException, status
+
+from file_management.application.ports import DownloadObject, FileIndexerPort, StoragePort
+from file_management.domain.exceptions import (
+    FileLibraryNotEmpty,
+    FileLibraryNotFound,
+    FileManagementError,
+    ManagedFileNotFound,
+    QuotaExceeded,
+    StorageNotConfigured,
+    StorageOperationFailed,
+    StorageProviderUnsupported,
+    UnsupportedFileType,
+)
+from file_management.domain.models import (
+    ACCESS_ACTION_DELETE,
+    ACCESS_ACTION_DOWNLOAD,
+    ACCESS_ACTION_UPLOAD,
+    ACCESS_RESULT_FAILED,
+    ACCESS_RESULT_SUCCESS,
+    FILE_STATUS_AVAILABLE,
+    INDEX_JOB_STATUS_FAILED,
+    INDEX_JOB_STATUS_SUCCEEDED,
+    STORAGE_PROVIDER_MINIO,
+    STORAGE_PROVIDER_OPTIONS,
+    SUPPORTED_STORAGE_PROVIDERS,
+    ManagedFile,
+    StorageProfile,
+)
+from file_management.infrastructure.persistence import repositories
+from file_management.infrastructure.search.database_search import DatabaseFileSearch
+from file_management.infrastructure.search.elasticsearch_placeholder import NoopFileIndexer
+from file_management.infrastructure.storage.minio_storage import MinioObjectStorage
+
+
+_storage: StoragePort = MinioObjectStorage()
+_indexer: FileIndexerPort = NoopFileIndexer()
+
+
+def configure_storage(storage: StoragePort) -> None:
+    global _storage
+    _storage = storage
+
+
+def configure_indexer(indexer: FileIndexerPort) -> None:
+    global _indexer
+    _indexer = indexer
+
+
+def list_libraries(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = repositories.list_libraries(tenant_id=tenant_id, page=page, page_size=page_size)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def save_library(payload: dict[str, Any], current_user: dict[str, Any], library_id: int | None = None) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
+    try:
+        item = repositories.save_library(
+            tenant_id=tenant_id,
+            library_id=library_id,
+            payload={
+                "name": name,
+                "description": str(payload.get("description") or "").strip(),
+                "library_type": str(payload.get("library_type") or "general").strip() or "general",
+                "visibility": str(payload.get("visibility") or "tenant").strip() or "tenant",
+                "status": str(payload.get("status") or "active").strip() or "active",
+            },
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(FileLibraryNotFound("file library not found"))
+    return {"item": item.to_dict()}
+
+
+def delete_library(library_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        if repositories.library_file_count(tenant_id=tenant_id, library_id=library_id) > 0:
+            raise FileLibraryNotEmpty("file library is not empty")
+        deleted = repositories.delete_library(
+            tenant_id=tenant_id,
+            library_id=library_id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    if not deleted:
+        raise domain_http_error(FileLibraryNotFound("file library not found"))
+    return {"id": library_id, "deleted": True}
+
+
+def list_files(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    library_id: int | None = None,
+    keyword: str = "",
+    mime_type: str = "",
+    status_filter: str = "",
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = repositories.list_files(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            library_id=library_id,
+            keyword=keyword,
+            mime_type=mime_type,
+            status=status_filter,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def search_files(*, page: int, page_size: int, keyword: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = DatabaseFileSearch().search(tenant_id=tenant_id, keyword=keyword, page=page, page_size=page_size)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def get_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    return {"item": item.to_dict()}
+
+
+def upload_file(
+    *,
+    current_user: dict[str, Any],
+    filename: str,
+    content_type: str,
+    stream: BinaryIO,
+    library_id: int | None,
+    visibility: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    original_name = Path(filename or "upload.bin").name or "upload.bin"
+    display_name = original_name
+    extension = normalize_extension(original_name)
+    content_type = (content_type or "application/octet-stream").strip() or "application/octet-stream"
+    try:
+        profile = default_storage_profile()
+        if library_id is not None and not repositories.get_library(tenant_id=tenant_id, library_id=library_id):
+            raise FileLibraryNotFound("file library not found")
+        quota = repositories.get_quota(tenant_id=tenant_id)
+        usage = repositories.storage_usage(tenant_id=tenant_id)
+        staged = stage_upload(stream)
+        validate_upload(
+            quota_enabled=bool(quota.enabled) if quota else True,
+            quota_bytes=int(quota.quota_bytes) if quota else 0,
+            max_file_size_bytes=int(quota.max_file_size_bytes) if quota else 0,
+            allowed_mime_types=quota.allowed_mime_types if quota else [],
+            blocked_extensions=quota.blocked_extensions if quota else [],
+            used_bytes=usage.used_bytes,
+            size_bytes=staged["size_bytes"],
+            extension=extension,
+            mime_type=content_type,
+        )
+        file_id = repositories.next_file_id()
+        storage_key = storage_key_for(
+            tenant_id=tenant_id,
+            file_id=file_id,
+            sha256=str(staged["sha256"]),
+            extension=extension,
+        )
+        stored = _storage.save(
+            profile=profile,
+            key=storage_key,
+            content=staged["stream"],
+            content_type=content_type,
+        )
+        item = repositories.create_file(
+            file_id=file_id,
+            tenant_id=tenant_id,
+            library_id=library_id,
+            original_name=original_name,
+            display_name=display_name,
+            extension=extension,
+            mime_type=content_type,
+            size_bytes=int(stored.size_bytes),
+            sha256=str(stored.sha256),
+            storage_provider=stored.provider,
+            storage_bucket=stored.bucket,
+            storage_key=stored.key,
+            visibility=visibility or "tenant",
+            metadata=metadata,
+            actor=actor,
+            actor_id=actor_id,
+        )
+        create_index_job_for_file(item, "upsert", current_user)
+        repositories.record_access_log(
+            tenant_id=tenant_id,
+            file_id=item.id,
+            action=ACCESS_ACTION_UPLOAD,
+            result=ACCESS_RESULT_SUCCESS,
+            actor=actor,
+            actor_id=actor_id,
+            detail={"original_name": item.original_name, "size_bytes": item.size_bytes},
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    except Exception as exc:
+        raise domain_http_error(StorageOperationFailed(str(exc))) from exc
+    return {"item": item.to_dict()}
+
+
+def download_file(
+    file_id: int,
+    current_user: dict[str, Any],
+    *,
+    client_ip: str = "",
+    user_agent: str = "",
+) -> tuple[ManagedFile, DownloadObject]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    try:
+        profile = storage_profile_for_file(item)
+        download = _storage.open_for_read(profile=profile, key=item.storage_key)
+        repositories.record_access_log(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            action=ACCESS_ACTION_DOWNLOAD,
+            result=ACCESS_RESULT_SUCCESS,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+            client_ip=client_ip,
+            user_agent=user_agent,
+            detail={"original_name": item.original_name, "size_bytes": item.size_bytes},
+        )
+        return item, download
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    except Exception as exc:
+        raise domain_http_error(StorageOperationFailed(str(exc))) from exc
+
+
+def delete_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    try:
+        profile = storage_profile_for_file(item)
+        _storage.delete(profile=profile, key=item.storage_key)
+        repositories.delete_file(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+        create_index_job_for_file(item, "delete", current_user)
+        repositories.record_access_log(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            action=ACCESS_ACTION_DELETE,
+            result=ACCESS_RESULT_SUCCESS,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+            detail={"original_name": item.original_name},
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    except Exception as exc:
+        raise domain_http_error(StorageOperationFailed(str(exc))) from exc
+    return {"id": file_id, "deleted": True}
+
+
+def quota_for_tenant(tenant_id: int) -> dict[str, Any]:
+    try:
+        quota = repositories.get_quota(tenant_id=tenant_id)
+        usage = repositories.storage_usage(tenant_id=tenant_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"quota": quota.to_dict() if quota else None, "usage": usage.to_dict()}
+
+
+def save_quota(tenant_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        quota = repositories.save_quota(
+            tenant_id=tenant_id,
+            quota_bytes=int(payload.get("quota_bytes") or 0),
+            max_file_size_bytes=int(payload.get("max_file_size_bytes") or 0),
+            allowed_mime_types=normalize_string_list(payload.get("allowed_mime_types")),
+            blocked_extensions=[normalize_extension(value) for value in normalize_string_list(payload.get("blocked_extensions"))],
+            enabled=bool(payload.get("enabled", True)),
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"quota": quota.to_dict(), "usage": repositories.storage_usage(tenant_id=tenant_id).to_dict()}
+
+
+def list_storage_profiles() -> dict[str, Any]:
+    try:
+        items = repositories.list_storage_profiles()
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_storage_profile(payload: dict[str, Any], current_user: dict[str, Any], profile_id: int | None = None) -> dict[str, Any]:
+    provider = str(payload.get("provider") or STORAGE_PROVIDER_MINIO).strip()
+    if provider not in SUPPORTED_STORAGE_PROVIDERS:
+        raise domain_http_error(StorageProviderUnsupported(f"storage provider is not supported: {provider}"))
+    try:
+        item = repositories.save_storage_profile(
+            profile_id=profile_id,
+            payload={
+                "provider": provider,
+                "name": str(payload.get("name") or "").strip(),
+                "endpoint": str(payload.get("endpoint") or "").strip(),
+                "region": str(payload.get("region") or "").strip(),
+                "bucket": str(payload.get("bucket") or "").strip(),
+                "access_key_id": str(payload.get("access_key_id") or "").strip(),
+                "secret_access_key": str(payload.get("secret_access_key") or "").strip(),
+                "path_style_enabled": bool(payload.get("path_style_enabled", True)),
+                "tls_enabled": bool(payload.get("tls_enabled", True)),
+                "enabled": bool(payload.get("enabled", True)),
+                "is_default": bool(payload.get("is_default", False)),
+                "extra_config": payload.get("extra_config") if isinstance(payload.get("extra_config"), dict) else {},
+            },
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"item": item.to_dict()}
+
+
+def set_default_storage_profile(profile_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        item = repositories.set_default_storage_profile(
+            profile_id=profile_id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="storage profile not found")
+    return {"item": item.to_dict()}
+
+
+def test_storage_profile(profile_id: int) -> dict[str, Any]:
+    try:
+        profile = repositories.get_storage_profile(profile_id=profile_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="storage profile not found")
+    if profile.provider not in SUPPORTED_STORAGE_PROVIDERS:
+        raise domain_http_error(StorageProviderUnsupported(f"storage provider is not supported: {profile.provider}"))
+    try:
+        return _storage.test_connection(profile=profile)
+    except Exception as exc:
+        return {"ok": False, "provider": profile.provider, "message": str(exc)}
+
+
+def storage_provider_options() -> dict[str, Any]:
+    return {"items": [dict(item) for item in STORAGE_PROVIDER_OPTIONS]}
+
+
+def list_access_logs(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    file_id: int | None = None,
+    action: str = "",
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = repositories.list_access_logs(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            file_id=file_id,
+            action=action,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def list_index_jobs(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    file_id: int | None = None,
+    status_filter: str = "",
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = repositories.list_index_jobs(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            file_id=file_id,
+            status=status_filter,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def reindex_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    job = create_index_job_for_file(item, "manual_reindex", current_user)
+    return {"item": job.to_dict()}
+
+
+def load_tenant_file(*, file_id: int, current_user: dict[str, Any]) -> ManagedFile:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        item = repositories.get_file(tenant_id=tenant_id, file_id=file_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(ManagedFileNotFound("file not found"))
+    return item
+
+
+def default_storage_profile() -> StorageProfile:
+    profile = repositories.get_default_storage_profile()
+    if not profile:
+        raise StorageNotConfigured("default MinIO storage profile is not configured")
+    if profile.provider != STORAGE_PROVIDER_MINIO:
+        raise StorageProviderUnsupported(f"storage provider is not supported: {profile.provider}")
+    if not profile.enabled:
+        raise StorageNotConfigured("default MinIO storage profile is disabled")
+    return profile
+
+
+def storage_profile_for_file(item: ManagedFile) -> StorageProfile:
+    profile = repositories.get_default_storage_profile(provider=item.storage_provider)
+    if not profile:
+        raise StorageNotConfigured(f"storage profile is not configured for provider: {item.storage_provider}")
+    return profile
+
+
+def create_index_job_for_file(item: ManagedFile, job_type: str, current_user: dict[str, Any]):
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    try:
+        if job_type == "delete":
+            _indexer.remove_file(item.id)
+        else:
+            _indexer.index_file(item.id)
+            repositories.mark_file_indexed(tenant_id=item.tenant_id, file_id=item.id)
+        return repositories.create_index_job(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            job_type=job_type,
+            status=INDEX_JOB_STATUS_SUCCEEDED,
+            payload={"provider": "database", "reserved_for": "elasticsearch"},
+            actor=actor,
+            actor_id=actor_id,
+        )
+    except Exception as exc:
+        return repositories.create_index_job(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            job_type=job_type,
+            status=INDEX_JOB_STATUS_FAILED,
+            payload={"provider": "database", "reserved_for": "elasticsearch"},
+            actor=actor,
+            actor_id=actor_id,
+            last_error=str(exc),
+        )
+
+
+def stage_upload(stream: BinaryIO) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    size_bytes = 0
+    buffer = io.BytesIO()
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            break
+        size_bytes += len(chunk)
+        digest.update(chunk)
+        buffer.write(chunk)
+    buffer.seek(0)
+    return {"stream": buffer, "size_bytes": size_bytes, "sha256": digest.hexdigest()}
+
+
+def validate_upload(
+    *,
+    quota_enabled: bool,
+    quota_bytes: int,
+    max_file_size_bytes: int,
+    allowed_mime_types: list[str],
+    blocked_extensions: list[str],
+    used_bytes: int,
+    size_bytes: int,
+    extension: str,
+    mime_type: str,
+) -> None:
+    if not quota_enabled:
+        raise QuotaExceeded("tenant file storage is disabled")
+    if max_file_size_bytes > 0 and size_bytes > max_file_size_bytes:
+        raise QuotaExceeded("file exceeds max_file_size_bytes")
+    if quota_bytes > 0 and used_bytes + size_bytes > quota_bytes:
+        raise QuotaExceeded("tenant file storage quota exceeded")
+    if allowed_mime_types and mime_type not in allowed_mime_types:
+        raise UnsupportedFileType("mime type is not allowed")
+    if extension and extension in blocked_extensions:
+        raise UnsupportedFileType("file extension is blocked")
+
+
+def storage_key_for(*, tenant_id: int, file_id: int, sha256: str, extension: str) -> str:
+    suffix = f".{extension}" if extension else ""
+    return f"tenants/{tenant_id}/files/{file_id}-{sha256[:12]}{suffix}"
+
+
+def normalize_extension(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.lstrip(".")
+
+
+def normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def current_tenant_id(current_user: dict[str, Any]) -> int:
+    current = current_user.get("current_tenant") or {}
+    tenant_id = current.get("id") or current_user.get("tenant_id") or 0
+    return int(tenant_id)
+
+
+def current_actor(current_user: dict[str, Any]) -> str:
+    return str(current_user.get("username") or current_user.get("name") or "system")
+
+
+def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
+    user_id = int(current_user.get("id", 0) or 0)
+    return user_id or None
+
+
+def storage_unavailable(exc: RuntimeError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+
+
+def domain_http_error(exc: FileManagementError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=str(exc))
