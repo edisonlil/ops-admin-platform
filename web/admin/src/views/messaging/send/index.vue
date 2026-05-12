@@ -38,15 +38,54 @@
             </n-form-item-gi>
           </n-grid>
 
-          <n-form-item v-if="form.mode === 'template'" label="模板变量 JSON" path="variables_text">
-            <n-input
-              v-model:value="form.variables_text"
-              type="textarea"
-              placeholder='例如：{"window":"今晚 22:00","version":"v1.2.0"}'
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              @blur="renderSelectedTemplate"
-            />
-          </n-form-item>
+          <div v-if="form.mode === 'template'" class="template-variables">
+            <div class="template-variables__header">
+              <span>模板变量</span>
+              <n-button size="tiny" text :disabled="!form.template_key" @click="renderSelectedTemplate">刷新预览</n-button>
+            </div>
+            <n-empty v-if="!form.template_key" size="small" description="选择模板后填写变量" />
+            <n-empty v-else-if="!templateVariableFields.length" size="small" description="当前模板无需变量" />
+            <n-grid v-else :cols="2" :x-gap="16" responsive="screen">
+              <n-form-item-gi v-for="field in templateVariableFields" :key="field.key" :show-require-mark="field.required">
+                <template #label>
+                  <span class="template-variable-label">
+                    <span>{{ field.label }}</span>
+                    <span v-if="field.label !== field.key" class="template-variable-key">{{ field.key }}</span>
+                  </span>
+                </template>
+                <n-select
+                  v-if="field.options?.length"
+                  v-model:value="templateVariableValues[field.key]"
+                  clearable
+                  :options="field.options"
+                  :placeholder="field.placeholder"
+                  @update:value="scheduleRenderSelectedTemplate"
+                />
+                <n-switch
+                  v-else-if="field.type === 'boolean'"
+                  v-model:value="templateVariableValues[field.key]"
+                  @update:value="scheduleRenderSelectedTemplate"
+                />
+                <n-input-number
+                  v-else-if="field.type === 'number'"
+                  v-model:value="templateVariableValues[field.key]"
+                  clearable
+                  :placeholder="field.placeholder"
+                  class="template-variable-number"
+                  @update:value="scheduleRenderSelectedTemplate"
+                />
+                <n-input
+                  v-else
+                  v-model:value="templateVariableValues[field.key]"
+                  clearable
+                  :placeholder="field.placeholder"
+                  @blur="renderSelectedTemplate"
+                  @update:value="scheduleRenderSelectedTemplate"
+                />
+                <div v-if="field.description" class="template-variable-description">{{ field.description }}</div>
+              </n-form-item-gi>
+            </n-grid>
+          </div>
 
           <n-grid :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="标题" path="title">
@@ -109,7 +148,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, reactive, ref } from 'vue';
+  import { computed, onBeforeUnmount, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
@@ -130,6 +169,20 @@
     is_active?: boolean;
   }
 
+  interface TemplateVariableField {
+    key: string;
+    label: string;
+    placeholder: string;
+    description: string;
+    type: 'text' | 'number' | 'boolean';
+    required: boolean;
+    options?: SelectOption[];
+  }
+
+  type SchemaRecord = Record<string, unknown>;
+
+  const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+  const RESERVED_SCHEMA_KEYS = new Set(['type', 'title', 'label', 'description', 'properties', 'required', 'default', 'example']);
   const message = useMessage();
   const { hasPermission } = usePermission();
   const formRef = ref<FormInst | null>(null);
@@ -140,15 +193,16 @@
   const templates = ref<MessageTemplate[]>([]);
   const userOptions = ref<SelectOption[]>([]);
   const missingVariables = ref<string[]>([]);
+  const templateVariableValues = reactive<Record<string, string | number | boolean | null>>({});
   const rendered = reactive({ title: '', content: '' });
   const canSendMessage = computed(() => hasPermission(['messaging:messages:send']));
+  let renderTimer: ReturnType<typeof setTimeout> | undefined;
 
   const form = reactive({
     mode: 'direct',
     title: '',
     content: '',
     template_key: null as string | null,
-    variables_text: '{}',
     channels: ['in_app'] as string[],
     recipient_user_ids: [] as number[],
     message_type: 'system',
@@ -190,6 +244,8 @@
   const previewTitle = computed(() => (form.mode === 'template' ? rendered.title : form.title) || '未填写标题');
   const previewContent = computed(() => (form.mode === 'template' ? rendered.content : form.content) || '消息内容预览会显示在这里。');
   const previewChannels = computed(() => form.channels.map((value) => channelOptions.find((item) => item.value === value)?.label || value).join(' / '));
+  const selectedTemplate = computed(() => templates.value.find((item) => item.template_key === form.template_key));
+  const templateVariableFields = computed<TemplateVariableField[]>(() => buildTemplateVariableFields(selectedTemplate.value));
 
   const rules: FormRules = {
     title: [
@@ -219,20 +275,6 @@
         trigger: ['change', 'blur'],
       },
     ],
-    variables_text: [
-      {
-        validator() {
-          try {
-            JSON.parse(form.variables_text || '{}');
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        message: '模板变量必须是合法 JSON',
-        trigger: ['blur'],
-      },
-    ],
     recipient_user_ids: [
       {
         validator() {
@@ -258,9 +300,166 @@
       }));
   }
 
-  function parseVariables() {
-    const parsed = JSON.parse(form.variables_text || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  function asSchemaRecord(value: unknown): SchemaRecord | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as SchemaRecord) : null;
+  }
+
+  function extractTemplateVariableKeys(template?: MessageTemplate): string[] {
+    if (!template) {
+      return [];
+    }
+    const keys = new Set<string>();
+    const source = `${template.title_template || ''}\n${template.content_template || ''}`;
+    for (const match of source.matchAll(TEMPLATE_VARIABLE_PATTERN)) {
+      keys.add(match[1]);
+    }
+    return [...keys];
+  }
+
+  function collectSchemaEntries(schema?: SchemaRecord): {
+    entries: Map<string, unknown>;
+    requiredKeys: Set<string>;
+  } {
+    const entries = new Map<string, unknown>();
+    const requiredKeys = new Set<string>();
+    if (!schema) {
+      return { entries, requiredKeys };
+    }
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    required.forEach((key) => {
+      if (typeof key === 'string') {
+        requiredKeys.add(key);
+      }
+    });
+
+    const properties = asSchemaRecord(schema.properties);
+    if (properties) {
+      Object.entries(properties).forEach(([key, value]) => entries.set(key, value));
+      return { entries, requiredKeys };
+    }
+
+    const variables = Array.isArray(schema.variables) ? schema.variables : [];
+    variables.forEach((item) => {
+      if (typeof item === 'string') {
+        entries.set(item, {});
+      } else {
+        const record = asSchemaRecord(item);
+        const key = record && typeof record.key === 'string' ? record.key : record && typeof record.name === 'string' ? record.name : '';
+        if (key) {
+          entries.set(key, record);
+        }
+      }
+    });
+
+    Object.entries(schema).forEach(([key, value]) => {
+      if (!RESERVED_SCHEMA_KEYS.has(key) && !entries.has(key)) {
+        entries.set(key, value);
+      }
+    });
+    return { entries, requiredKeys };
+  }
+
+  function buildTemplateVariableFields(template?: MessageTemplate): TemplateVariableField[] {
+    if (!template) {
+      return [];
+    }
+    const tokenKeys = new Set(extractTemplateVariableKeys(template));
+    const schema = asSchemaRecord(template.variables_schema);
+    const { entries, requiredKeys } = collectSchemaEntries(schema || undefined);
+    const keys = [...new Set([...entries.keys(), ...tokenKeys])];
+
+    return keys.map((key) => {
+      const raw = entries.get(key);
+      const node = asSchemaRecord(raw);
+      const rawLabel = typeof raw === 'string' ? raw : undefined;
+      const label = String(node?.label || node?.title || node?.name || rawLabel || key);
+      const description = String(node?.description || node?.help || '');
+      const typeValue = String(node?.type || '').toLowerCase();
+      const options = buildVariableOptions(node);
+      const fieldType: TemplateVariableField['type'] =
+        typeValue === 'boolean' ? 'boolean' : typeValue === 'number' || typeValue === 'integer' ? 'number' : 'text';
+
+      return {
+        key,
+        label,
+        description,
+        type: fieldType,
+        required: tokenKeys.has(key) || requiredKeys.has(key) || node?.required === true,
+        placeholder: String(node?.placeholder || node?.example || `请输入${label}`),
+        options,
+      };
+    });
+  }
+
+  function buildVariableOptions(node: SchemaRecord | null): SelectOption[] | undefined {
+    const enumValues = Array.isArray(node?.enum) ? node?.enum : Array.isArray(node?.options) ? node?.options : [];
+    const options = enumValues
+      .map((item) => {
+        const record = asSchemaRecord(item);
+        if (record) {
+          const value = record.value;
+          if (typeof value !== 'string' && typeof value !== 'number') {
+            return null;
+          }
+          return { label: String(record.label || value), value };
+        }
+        if (typeof item !== 'string' && typeof item !== 'number') {
+          return null;
+        }
+        return { label: String(item), value: item };
+      })
+      .filter(Boolean) as SelectOption[];
+    return options.length ? options : undefined;
+  }
+
+  function syncTemplateVariableValues() {
+    const activeKeys = new Set(templateVariableFields.value.map((field) => field.key));
+    Object.keys(templateVariableValues).forEach((key) => {
+      if (!activeKeys.has(key)) {
+        delete templateVariableValues[key];
+      }
+    });
+    templateVariableFields.value.forEach((field) => {
+      if (typeof templateVariableValues[field.key] === 'undefined') {
+        templateVariableValues[field.key] = field.type === 'boolean' ? false : null;
+      }
+    });
+  }
+
+  function buildVariables() {
+    const variables: Record<string, unknown> = {};
+    templateVariableFields.value.forEach((field) => {
+      const value = templateVariableValues[field.key];
+      if (value === null || typeof value === 'undefined' || value === '') {
+        return;
+      }
+      assignVariableValue(variables, field.key, value);
+    });
+    return variables;
+  }
+
+  function assignVariableValue(target: Record<string, unknown>, key: string, value: unknown) {
+    const parts = key.split('.').filter(Boolean);
+    let current = target;
+    parts.forEach((part, index) => {
+      if (index === parts.length - 1) {
+        current[part] = value;
+        return;
+      }
+      const next = asSchemaRecord(current[part]) || {};
+      current[part] = next;
+      current = next;
+    });
+  }
+
+  function findUnfilledRequiredVariables() {
+    return templateVariableFields.value
+      .filter((field) => field.required)
+      .filter((field) => {
+        const value = templateVariableValues[field.key];
+        return value === null || typeof value === 'undefined' || (typeof value === 'string' && !value.trim());
+      })
+      .map((field) => field.label);
   }
 
   async function loadUsers() {
@@ -310,9 +509,20 @@
   }
 
   async function handleTemplateChange() {
-    const template = templates.value.find((item) => item.template_key === form.template_key);
+    const template = selectedTemplate.value;
     form.channels = template?.channels?.length ? [...template.channels] : ['in_app'];
+    syncTemplateVariableValues();
     await renderSelectedTemplate();
+  }
+
+  function scheduleRenderSelectedTemplate() {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+    }
+    renderTimer = setTimeout(() => {
+      renderTimer = undefined;
+      renderSelectedTemplate();
+    }, 350);
   }
 
   async function renderSelectedTemplate() {
@@ -323,7 +533,8 @@
       return;
     }
     try {
-      const payload = await renderMessageTemplate({ template_key: form.template_key, variables: parseVariables() });
+      syncTemplateVariableValues();
+      const payload = await renderMessageTemplate({ template_key: form.template_key, variables: buildVariables() });
       rendered.title = payload.rendered.title;
       rendered.content = payload.rendered.content;
       missingVariables.value = payload.missing_variables || [];
@@ -336,7 +547,6 @@
     form.title = '';
     form.content = '';
     form.template_key = null;
-    form.variables_text = '{}';
     form.channels = ['in_app'];
     form.recipient_user_ids = [];
     form.message_type = 'system';
@@ -344,6 +554,7 @@
     rendered.title = '';
     rendered.content = '';
     missingVariables.value = [];
+    Object.keys(templateVariableValues).forEach((key) => delete templateVariableValues[key]);
     formRef.value?.restoreValidation();
   }
 
@@ -351,6 +562,11 @@
     try {
       await formRef.value?.validate();
       if (form.mode === 'template') {
+        const missingRequired = findUnfilledRequiredVariables();
+        if (missingRequired.length) {
+          message.error(`请填写模板变量：${missingRequired.join('、')}`);
+          return;
+        }
         await renderSelectedTemplate();
       }
     } catch {
@@ -361,7 +577,7 @@
       if (form.mode === 'template') {
         await sendTemplateMessage({
           template_key: String(form.template_key),
-          variables: parseVariables(),
+          variables: buildVariables(),
           recipient_user_ids: form.recipient_user_ids,
           message_type: form.message_type,
           priority: form.priority,
@@ -385,6 +601,12 @@
 
   loadUsers();
   loadTemplates();
+
+  onBeforeUnmount(() => {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+    }
+  });
 </script>
 
 <style lang="less" scoped>
@@ -426,6 +648,52 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  .template-variables {
+    margin-bottom: 18px;
+    padding: 14px 14px 2px;
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+    background: var(--app-bg-color);
+  }
+
+  .template-variables__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    color: var(--app-text-color-1);
+    font-weight: 650;
+  }
+
+  .template-variable-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+  }
+
+  .template-variable-key {
+    overflow: hidden;
+    max-width: 180px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .template-variable-description {
+    margin-top: 6px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .template-variable-number {
+    width: 100%;
   }
 
   .send-workbench__preview {
