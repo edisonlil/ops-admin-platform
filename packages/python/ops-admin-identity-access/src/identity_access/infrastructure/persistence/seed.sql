@@ -265,6 +265,47 @@ INSERT INTO permissions (code, name, description)
 SELECT 'messaging:dispatch:manage', 'Messaging dispatch manage', 'Dispatch and retry tenant messages'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:dispatch:manage');
 
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:view', '查看定时任务', '查看定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:create', '新增定时任务', '新增定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:update', '编辑定时任务', '编辑定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:enable', '启用定时任务', '启用定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:disable', '停用定时任务', '停用定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:delete', '删除定时任务', '删除定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:delete');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:tasks:trigger', '手动触发定时任务', '手动触发定时任务'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:tasks:trigger');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:runs:view', '查看运行记录', '查看定时任务运行记录'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:runs:view');
+
+UPDATE permissions SET name = '查看定时任务', description = '查看定时任务' WHERE code = 'cron:tasks:view';
+UPDATE permissions SET name = '新增定时任务', description = '新增定时任务' WHERE code = 'cron:tasks:create';
+UPDATE permissions SET name = '编辑定时任务', description = '编辑定时任务' WHERE code = 'cron:tasks:update';
+UPDATE permissions SET name = '启用定时任务', description = '启用定时任务' WHERE code = 'cron:tasks:enable';
+UPDATE permissions SET name = '停用定时任务', description = '停用定时任务' WHERE code = 'cron:tasks:disable';
+UPDATE permissions SET name = '删除定时任务', description = '删除定时任务' WHERE code = 'cron:tasks:delete';
+UPDATE permissions SET name = '手动触发定时任务', description = '手动触发定时任务' WHERE code = 'cron:tasks:trigger';
+UPDATE permissions SET name = '查看运行记录', description = '查看定时任务运行记录' WHERE code = 'cron:runs:view';
+
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'messaging', 'tenant', '消息系统', 'directory', '', '', '', 'message', '', '', 85, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'messaging');
@@ -344,6 +385,63 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-disable
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-channels-test', 'tenant', '测试渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:test', 905, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-test');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron', 'tenant', '定时任务', 'directory', '', '', '', 'ScheduleOutlined', '', '', 93, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks', 'tenant', '任务管理', 'page', '/cron/tasks', 'cron-tasks', '/cron/tasks/index', 'ScheduleOutlined', 'cron', 'cron:tasks:view', 931, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-create', 'tenant', '新增定时任务', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:create', 9311, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-update', 'tenant', '编辑定时任务', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:update', 9312, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-enable', 'tenant', '启用定时任务', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:enable', 9313, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-disable', 'tenant', '停用定时任务', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:disable', 9314, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-delete', 'tenant', '删除定时任务', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:delete', 9315, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-tasks-trigger', 'tenant', '手动触发', 'action', '', '', '', '', 'cron-tasks', 'cron:tasks:trigger', 9316, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-trigger');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-runs', 'tenant', '运行记录', 'page', '/cron/runs', 'cron-runs', '/cron/runs/index', 'FileSearchOutlined', 'cron', 'cron:runs:view', 932, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-runs');
+
+UPDATE menus SET label = '定时任务' WHERE menu_key = 'cron';
+UPDATE menus SET label = '任务管理' WHERE menu_key = 'cron-tasks';
+UPDATE menus SET label = '新增定时任务' WHERE menu_key = 'cron-tasks-create';
+UPDATE menus SET label = '编辑定时任务' WHERE menu_key = 'cron-tasks-update';
+UPDATE menus SET label = '启用定时任务' WHERE menu_key = 'cron-tasks-enable';
+UPDATE menus SET label = '停用定时任务' WHERE menu_key = 'cron-tasks-disable';
+UPDATE menus SET label = '删除定时任务' WHERE menu_key = 'cron-tasks-delete';
+UPDATE menus SET label = '手动触发' WHERE menu_key = 'cron-tasks-trigger';
+UPDATE menus
+SET label = '运行记录',
+    menu_type = 'page',
+    path = '/cron/runs',
+    route_name = 'cron-runs',
+    component = '/cron/runs/index',
+    icon = 'FileSearchOutlined',
+    parent_key = 'cron',
+    permission_code = 'cron:runs:view',
+    sort_order = 932,
+    is_visible = TRUE
+WHERE menu_key = 'cron-runs';
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'llm', 'tenant', '大模型', 'directory', '', '', '', 'experiment', '', '', 90, TRUE

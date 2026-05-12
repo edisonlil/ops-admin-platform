@@ -281,7 +281,11 @@ class ApiTests(unittest.TestCase):
         permissions = {item["value"] for item in login_response.json()["data"]["permissions"]}
         self.assertIn("messaging:templates:enable", permissions)
         self.assertIn("messaging:channels:test", permissions)
+        self.assertIn("cron:tasks:view", permissions)
+        self.assertIn("cron:tasks:trigger", permissions)
         self.assertIn("llm-config", keys)
+        self.assertIn("cron-tasks", keys)
+        self.assertIn("cron-runs", keys)
         self.assertNotIn("tenant-management", keys)
         self.assertNotIn("rbac", keys)
         self.assertNotIn("function-points", keys)
@@ -669,8 +673,8 @@ class ApiTests(unittest.TestCase):
             "/api/cron/tasks",
             json={
                 "task_key": "system.health_snapshot",
-                "name": "System health snapshot",
-                "description": "Capture system health on a schedule",
+                "name": "系统健康快照",
+                "description": "按计划采集系统健康状态",
                 "status": "draft",
                 "execution_target": "system.health.snapshot",
                 "default_payload": {"scope": "platform"},
@@ -705,9 +709,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(trigger_response.status_code, 200)
         run = trigger_response.json()["data"]["item"]
         self.assertEqual(run["task_id"], task_id)
-        self.assertEqual(run["status"], "pending")
+        self.assertEqual(run["status"], "succeeded")
         self.assertEqual(run["payload"]["scope"], "platform")
         self.assertEqual(run["payload"]["requested_by"], "test")
+        self.assertEqual(run["result"]["command"], "system.health.snapshot")
 
         duplicate_trigger_response = self.request(
             "POST",
@@ -717,6 +722,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(duplicate_trigger_response.status_code, 200)
         self.assertEqual(duplicate_trigger_response.json()["data"]["item"]["id"], run["id"])
 
+        update_enabled_response = self.request(
+            "PUT",
+            f"/api/cron/tasks/{task_id}",
+            json={
+                "task_key": "system.health_snapshot",
+                "name": "should fail",
+                "status": "enabled",
+                "execution_target": "system.health.snapshot",
+                "schedule": {
+                    "trigger_type": "cron",
+                    "trigger_expression": "*/5 * * * *",
+                    "timezone": "UTC",
+                },
+            },
+        )
+        self.assertEqual(update_enabled_response.status_code, 400)
+        self.assertIn("disable the task first", update_enabled_response.json()["message"])
+
         list_response = self.request("GET", "/api/cron/tasks")
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(list_response.json()["data"]["pagination"]["total"], 1)
@@ -724,6 +747,51 @@ class ApiTests(unittest.TestCase):
         runs_response = self.request("GET", f"/api/cron/tasks/{task_id}/runs")
         self.assertEqual(runs_response.status_code, 200)
         self.assertEqual(runs_response.json()["data"]["pagination"]["total"], 1)
+
+        run_detail_response = self.request("GET", f"/api/cron/runs/{run['id']}")
+        self.assertEqual(run_detail_response.status_code, 200)
+        self.assertEqual(run_detail_response.json()["data"]["item"]["result"]["command"], "system.health.snapshot")
+
+    def test_cron_executor_persists_default_command_result(self) -> None:
+        self.initialize_cron_db()
+        from cron.application.executor import CronTaskExecutor
+        from cron.infrastructure.commands.registry import build_default_dispatcher
+        from cron.infrastructure.persistence import repositories as cron_repositories
+
+        created = cron_repositories.save_task(
+            tenant_id=1,
+            actor="test",
+            actor_id=None,
+            payload={
+                "task_key": "system.health_snapshot",
+                "name": "系统健康快照",
+                "status": "enabled",
+                "execution_target": "system.health.snapshot",
+                "default_payload": {"scope": "platform"},
+                "schedule": {
+                    "trigger_type": "interval",
+                    "trigger_expression": "60",
+                    "timezone": "UTC",
+                },
+            },
+        )
+        executor = CronTaskExecutor(
+            repository=cron_repositories,
+            dispatcher=build_default_dispatcher(),
+            worker_id="test-worker",
+        )
+        result = executor.execute_scheduled_task(created)
+
+        self.assertTrue(result["ok"])
+        run_id = int(result["run"]["id"])
+        run_response = self.request("GET", f"/api/cron/runs/{run_id}")
+        self.assertEqual(run_response.status_code, 200)
+        run = run_response.json()["data"]["item"]
+        self.assertEqual(run["status"], "succeeded")
+        self.assertEqual(run["result"]["command"], "system.health.snapshot")
+        self.assertEqual(run["result"]["input"], {"scope": "platform"})
+        self.assertIn("health", run["result"])
+        self.assertEqual(len(run_response.json()["data"]["attempts"]), 1)
 
     def test_admin_can_send_and_read_in_app_message(self) -> None:
         self.initialize_messaging_db()

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from cron.domain.models import CronRun, CronTaskDetail, CronSchedule, CronTask, ExternalScheduleBinding
+from cron.domain.models import CronAttempt, CronRun, CronTaskDetail, CronSchedule, CronTask, ExternalScheduleBinding
 
 
 class Clock(Protocol):
@@ -103,4 +103,51 @@ class CronRepository(Protocol):
         ...
 
     def list_attempts(self, *, tenant_id: int, run_id: int) -> list[Any]:
+        ...
+
+    def list_enabled_task_details(self) -> list[CronTaskDetail]:
+        ...
+
+    def create_scheduled_run(
+        self,
+        *,
+        tenant_id: int,
+        task_id: int,
+        schedule_id: int,
+        fire_time: str,
+        payload: dict[str, Any],
+        idempotency_key: str,
+        actor: str,
+    ) -> CronRun:
+        ...
+
+    def start_attempt(self, *, tenant_id: int, run_id: int, worker_id: str, actor: str) -> CronAttempt:
+        ...
+
+    def mark_run_running(self, *, tenant_id: int, run_id: int, actor: str) -> CronRun | None:
+        ...
+
+    def complete_attempt(
+        self,
+        *,
+        tenant_id: int,
+        attempt_id: int,
+        status: str,
+        error_code: str,
+        error_message: str,
+        actor: str,
+    ) -> CronAttempt | None:
+        ...
+
+    def complete_run(
+        self,
+        *,
+        tenant_id: int,
+        run_id: int,
+        status: str,
+        result: dict[str, Any] | None = None,
+        failure_code: str,
+        failure_message: str,
+        actor: str,
+    ) -> CronRun | None:
         ...

@@ -12,8 +12,13 @@ from cron.domain.models import (
     CronTask,
     CronTaskDetail,
     ExternalScheduleBinding,
+    ATTEMPT_STATUS_RUNNING,
+    RUN_STATUS_FAILED,
     RUN_STATUS_PENDING,
+    RUN_STATUS_RUNNING,
+    RUN_STATUS_SUCCEEDED,
     TASK_STATUS_DISABLED,
+    TASK_STATUS_ENABLED,
 )
 from cron.infrastructure.persistence.bootstrap import require_cron_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
@@ -197,6 +202,21 @@ def list_tasks(*, tenant_id: int, page: int, page_size: int, status: str | None 
     return details, int(total_row["total"] if total_row else 0)
 
 
+def list_enabled_task_details() -> list[CronTaskDetail]:
+    with connect(database_target(), readonly=True) as conn:
+        require_cron_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM cron_tasks
+            WHERE status = ? AND deleted = 0
+            ORDER BY tenant_id ASC, id ASC
+            """,
+            (TASK_STATUS_ENABLED,),
+        ).fetchall()
+        return [row_to_task_detail(conn, dict(row)) for row in rows]
+
+
 def get_task_detail(*, tenant_id: int, task_id: int) -> CronTaskDetail | None:
     with connect(database_target(), readonly=True) as conn:
         require_cron_schema(conn)
@@ -322,6 +342,184 @@ def create_manual_run(
     return row_to_run(dict(row))
 
 
+def create_scheduled_run(
+    *,
+    tenant_id: int,
+    task_id: int,
+    schedule_id: int,
+    fire_time: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    actor: str,
+) -> CronRun:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        existing = conn.execute(
+            """
+            SELECT *
+            FROM cron_runs
+            WHERE tenant_id = ? AND task_id = ? AND idempotency_key = ? AND deleted = 0
+            """,
+            (tenant_id, task_id, idempotency_key),
+        ).fetchone()
+        if existing:
+            return row_to_run(dict(existing))
+        cursor = conn.execute(
+            """
+            INSERT INTO cron_runs (
+                tenant_id, task_id, schedule_id, fire_time, status, trigger_source,
+                idempotency_key, payload_json, creator, editor, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tenant_id,
+                task_id,
+                schedule_id,
+                fire_time,
+                RUN_STATUS_PENDING,
+                "schedule",
+                idempotency_key,
+                encode_json(payload),
+                actor,
+                actor,
+                timestamp,
+                timestamp,
+            ),
+        )
+        run_id = inserted_id(conn, cursor, "cron_runs", timestamp, actor)
+        row = conn.execute("SELECT * FROM cron_runs WHERE id = ?", (run_id,)).fetchone()
+    return row_to_run(dict(row))
+
+
+def mark_run_running(*, tenant_id: int, run_id: int, actor: str) -> CronRun | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET status = ?, started_time = COALESCE(started_time, ?),
+                editor = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (RUN_STATUS_RUNNING, timestamp, actor, timestamp, run_id, tenant_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM cron_runs WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (run_id, tenant_id),
+        ).fetchone()
+    return row_to_run(dict(row)) if row else None
+
+
+def start_attempt(*, tenant_id: int, run_id: int, worker_id: str, actor: str) -> CronAttempt:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_attempt
+            FROM cron_attempts
+            WHERE tenant_id = ? AND run_id = ? AND deleted = 0
+            """,
+            (tenant_id, run_id),
+        ).fetchone()
+        attempt_number = int(row["next_attempt"] if row else 1)
+        cursor = conn.execute(
+            """
+            INSERT INTO cron_attempts (
+                tenant_id, run_id, attempt_number, status, worker_id, started_time,
+                creator, editor, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tenant_id,
+                run_id,
+                attempt_number,
+                ATTEMPT_STATUS_RUNNING,
+                worker_id,
+                timestamp,
+                actor,
+                actor,
+                timestamp,
+                timestamp,
+            ),
+        )
+        attempt_id = inserted_id(conn, cursor, "cron_attempts", timestamp, actor)
+        attempt = conn.execute("SELECT * FROM cron_attempts WHERE id = ?", (attempt_id,)).fetchone()
+    return row_to_attempt(dict(attempt))
+
+
+def complete_attempt(
+    *,
+    tenant_id: int,
+    attempt_id: int,
+    status: str,
+    error_code: str,
+    error_message: str,
+    actor: str,
+) -> CronAttempt | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        conn.execute(
+            """
+            UPDATE cron_attempts
+            SET status = ?, finished_time = ?, error_code = ?, error_message = ?,
+                editor = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (status, timestamp, error_code, error_message, actor, timestamp, attempt_id, tenant_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM cron_attempts WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (attempt_id, tenant_id),
+        ).fetchone()
+    return row_to_attempt(dict(row)) if row else None
+
+
+def complete_run(
+    *,
+    tenant_id: int,
+    run_id: int,
+    status: str,
+    result: dict[str, Any] | None = None,
+    failure_code: str,
+    failure_message: str,
+    actor: str,
+) -> CronRun | None:
+    timestamp = now_iso()
+    normalized_status = status if status in {RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED} else RUN_STATUS_FAILED
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET status = ?, finished_time = ?, result_json = ?, failure_code = ?, failure_message = ?,
+                editor = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (
+                normalized_status,
+                timestamp,
+                encode_json(result if isinstance(result, dict) else {}),
+                failure_code,
+                failure_message,
+                actor,
+                timestamp,
+                run_id,
+                tenant_id,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM cron_runs WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (run_id, tenant_id),
+        ).fetchone()
+    return row_to_run(dict(row)) if row else None
+
+
 def list_runs(*, tenant_id: int, task_id: int | None, page: int, page_size: int) -> tuple[list[CronRun], int]:
     offset = (page - 1) * page_size
     params: list[Any] = [tenant_id]
@@ -433,6 +631,7 @@ def row_to_run(row: dict[str, Any]) -> CronRun:
         trigger_source=str(row.get("trigger_source") or "manual"),
         idempotency_key=str(row.get("idempotency_key") or ""),
         payload=decode_json(row.get("payload_json")),
+        result=decode_json(row.get("result_json")),
         started_time=none_or_str(row.get("started_time")),
         finished_time=none_or_str(row.get("finished_time")),
         failure_code=str(row.get("failure_code") or ""),

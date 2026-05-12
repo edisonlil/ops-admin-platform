@@ -3,17 +3,24 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from cron.application.ports import CronRepository
+from cron.application.executor import CronTaskExecutor
+from cron.application.ports import CronRepository, NoopTaskDispatcher, TaskDispatcher
 from cron.domain.exceptions import CronDomainError, CronNotFoundError, CronStorageNotReadyError
 from cron.domain.models import TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
 
 
 repository: CronRepository | None = None
+dispatcher: TaskDispatcher = NoopTaskDispatcher()
 
 
 def configure_repository(cron_repository: CronRepository) -> None:
     global repository
     repository = cron_repository
+
+
+def configure_dispatcher(task_dispatcher: TaskDispatcher) -> None:
+    global dispatcher
+    dispatcher = task_dispatcher
 
 
 def repo() -> CronRepository:
@@ -52,6 +59,16 @@ def save_task(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str
     tenant_id = current_tenant_id(current_user)
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
+    task_id = int(payload.get("id") or 0)
+    if task_id:
+        try:
+            existing = repo().get_task_detail(tenant_id=tenant_id, task_id=task_id)
+        except RuntimeError as exc:
+            raise CronStorageNotReadyError(str(exc)) from exc
+        if not existing:
+            raise CronNotFoundError("cron task not found")
+        if existing.task.status == TASK_STATUS_ENABLED:
+            raise CronDomainError("enabled cron tasks cannot be edited; disable the task first")
     task = build_task_for_validation(tenant_id=tenant_id, payload=payload)
     task.validate()
     schedule_payload = payload.get("schedule") if isinstance(payload.get("schedule"), dict) else None
@@ -117,9 +134,14 @@ def trigger_task(*, task_id: int, payload: dict[str, Any], current_user: dict[st
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
         )
+        result = CronTaskExecutor(
+            repository=repo(),
+            dispatcher=dispatcher,
+            worker_id="api-manual-trigger",
+        ).execute_manual_run(task_detail, run)
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
-    return {"item": run.to_dict()}
+    return {"item": result["run"], "attempt": result.get("attempt"), "ok": bool(result.get("ok", False))}
 
 
 def list_runs(

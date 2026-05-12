@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from cron.application.ports import CronRepository, NoopTaskDispatcher, TaskDispatcher
+from cron.domain.models import (
+    ATTEMPT_STATUS_FAILED,
+    ATTEMPT_STATUS_SUCCEEDED,
+    RUN_STATUS_FAILED,
+    RUN_STATUS_PENDING,
+    RUN_STATUS_SUCCEEDED,
+    CronTaskDetail,
+    CronRun,
+)
+
+
+class CronTaskExecutor:
+    def __init__(
+        self,
+        *,
+        repository: CronRepository,
+        dispatcher: TaskDispatcher | None = None,
+        worker_id: str = "cron-worker",
+    ) -> None:
+        self.repository = repository
+        self.dispatcher = dispatcher or NoopTaskDispatcher()
+        self.worker_id = worker_id
+
+    def execute_scheduled_task(
+        self,
+        detail: CronTaskDetail,
+        *,
+        scheduled_fire_time: datetime | None = None,
+    ) -> dict[str, Any]:
+        if detail.schedule is None:
+            raise ValueError("cron task has no schedule")
+        fire_time = scheduled_fire_time or datetime.now(timezone.utc)
+        fire_time_text = fire_time.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        idempotency_key = f"schedule:{detail.schedule.id}:{fire_time_text}"
+        run = self.repository.create_scheduled_run(
+            tenant_id=detail.task.tenant_id,
+            task_id=detail.task.id,
+            schedule_id=detail.schedule.id,
+            fire_time=fire_time_text,
+            payload=detail.task.default_payload,
+            idempotency_key=idempotency_key,
+            actor=self.worker_id,
+        )
+        self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
+        try:
+            result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
+        except Exception as exc:
+            error_message = str(exc)
+            self.repository.complete_attempt(
+                tenant_id=run.tenant_id,
+                attempt_id=attempt.id,
+                status=ATTEMPT_STATUS_FAILED,
+                error_code=exc.__class__.__name__,
+                error_message=error_message,
+                actor=self.worker_id,
+            )
+            failed_run = self.repository.complete_run(
+                tenant_id=run.tenant_id,
+                run_id=run.id,
+                status=RUN_STATUS_FAILED,
+                result={},
+                failure_code=exc.__class__.__name__,
+                failure_message=error_message,
+                actor=self.worker_id,
+            )
+            return {"run": failed_run.to_dict() if failed_run else run.to_dict(), "attempt": attempt.to_dict(), "ok": False}
+        self.repository.complete_attempt(
+            tenant_id=run.tenant_id,
+            attempt_id=attempt.id,
+            status=ATTEMPT_STATUS_SUCCEEDED,
+            error_code="",
+            error_message="",
+            actor=self.worker_id,
+        )
+        succeeded_run = self.repository.complete_run(
+            tenant_id=run.tenant_id,
+            run_id=run.id,
+            status=RUN_STATUS_SUCCEEDED,
+            result=result if isinstance(result, dict) else {"value": result},
+            failure_code="",
+            failure_message="",
+            actor=self.worker_id,
+        )
+        return {
+            "run": succeeded_run.to_dict() if succeeded_run else run.to_dict(),
+            "attempt": attempt.to_dict(),
+            "result": result,
+            "ok": True,
+        }
+
+    def execute_manual_run(self, detail: CronTaskDetail, run: CronRun) -> dict[str, Any]:
+        if run.status != RUN_STATUS_PENDING:
+            return {"run": run.to_dict(), "attempt": None, "ok": True, "skipped": True}
+        self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
+        try:
+            result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
+        except Exception as exc:
+            error_message = str(exc)
+            self.repository.complete_attempt(
+                tenant_id=run.tenant_id,
+                attempt_id=attempt.id,
+                status=ATTEMPT_STATUS_FAILED,
+                error_code=exc.__class__.__name__,
+                error_message=error_message,
+                actor=self.worker_id,
+            )
+            failed_run = self.repository.complete_run(
+                tenant_id=run.tenant_id,
+                run_id=run.id,
+                status=RUN_STATUS_FAILED,
+                result={},
+                failure_code=exc.__class__.__name__,
+                failure_message=error_message,
+                actor=self.worker_id,
+            )
+            return {"run": failed_run.to_dict() if failed_run else run.to_dict(), "attempt": attempt.to_dict(), "ok": False}
+        self.repository.complete_attempt(
+            tenant_id=run.tenant_id,
+            attempt_id=attempt.id,
+            status=ATTEMPT_STATUS_SUCCEEDED,
+            error_code="",
+            error_message="",
+            actor=self.worker_id,
+        )
+        succeeded_run = self.repository.complete_run(
+            tenant_id=run.tenant_id,
+            run_id=run.id,
+            status=RUN_STATUS_SUCCEEDED,
+            result=result if isinstance(result, dict) else {"value": result},
+            failure_code="",
+            failure_message="",
+            actor=self.worker_id,
+        )
+        return {
+            "run": succeeded_run.to_dict() if succeeded_run else run.to_dict(),
+            "attempt": attempt.to_dict(),
+            "result": result,
+            "ok": True,
+        }

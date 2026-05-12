@@ -97,6 +97,17 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'message-channels-disable',
     'message-channels-test',
   ],
+  cron: [
+    'cron',
+    'cron-tasks',
+    'cron-tasks-create',
+    'cron-tasks-update',
+    'cron-tasks-enable',
+    'cron-tasks-disable',
+    'cron-tasks-delete',
+    'cron-tasks-trigger',
+    'cron-runs',
+  ],
 };
 
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();
@@ -109,6 +120,16 @@ export function registerOpsAdminModule(module: OpsAdminWebModule) {
   modules.set(module.key, {
     ...module,
     menuKeys: [...module.menuKeys],
+  });
+}
+
+export function registerCronModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'cron',
+    label: options.label || '定时任务',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.cron,
+    routes: options.routes,
+    install: options.install,
   });
 }
 

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Cron bounded context for ops-admin-platform."
 requires-python = ">=3.11"
 dependencies = [
+    "APScheduler>=3.10,<4",
     "fastapi",
     "ops-admin-system",
     "ops-admin-identity-access",

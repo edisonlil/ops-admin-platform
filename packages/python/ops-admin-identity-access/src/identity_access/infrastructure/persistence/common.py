@@ -52,6 +52,15 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "message-channels-enable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "message-channels-disable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "message-channels-test": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "cron-tasks": {"menu_type": "page", "component": "/cron/tasks/index", "menu_scope": "tenant"},
+    "cron-tasks-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-tasks-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-tasks-enable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-tasks-disable": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-tasks-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-tasks-trigger": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-runs": {"menu_type": "page", "component": "/cron/runs/index", "menu_scope": "tenant"},
     "llm": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "llm-config": {"menu_type": "page", "component": "/settings/llm-config/index", "menu_scope": "tenant"},
     "llm-providers-save": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -144,6 +153,17 @@ TENANT_LLM_MENU_KEYS = [
     "llm-debug",
     "llm-debug-send",
 ]
+TENANT_CRON_MENU_KEYS = [
+    "cron",
+    "cron-tasks",
+    "cron-tasks-create",
+    "cron-tasks-update",
+    "cron-tasks-enable",
+    "cron-tasks-disable",
+    "cron-tasks-delete",
+    "cron-tasks-trigger",
+    "cron-runs",
+]
 TENANT_ADMIN_MENU_KEYS = (
     [
         "tenant-settings",
@@ -158,12 +178,14 @@ TENANT_ADMIN_MENU_KEYS = (
     ]
     + TENANT_MESSAGING_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
+    + TENANT_CRON_MENU_KEYS
 )
 TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
     + TENANT_MESSAGING_NAV_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
+    + ["cron", "cron-tasks", "cron-runs"]
 )
 TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "llm_config:update",
@@ -195,6 +217,14 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "messaging:channels:disable",
     "messaging:channels:test",
     "messaging:dispatch:manage",
+    "cron:tasks:view",
+    "cron:tasks:create",
+    "cron:tasks:update",
+    "cron:tasks:enable",
+    "cron:tasks:disable",
+    "cron:tasks:delete",
+    "cron:tasks:trigger",
+    "cron:runs:view",
 ]
 
 
@@ -1478,6 +1508,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
         if role_key == "tenant-admin":
             ensure_role_menus_by_key(conn, role_key, TENANT_MESSAGING_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()

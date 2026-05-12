@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS cron_runs (
     trigger_source TEXT NOT NULL DEFAULT 'manual',
     idempotency_key TEXT NOT NULL,
     payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     started_time TEXT DEFAULT NULL,
     finished_time TEXT DEFAULT NULL,
     failure_code TEXT NOT NULL DEFAULT '',

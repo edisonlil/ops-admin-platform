@@ -197,6 +197,7 @@ class CronRun:
     trigger_source: str
     idempotency_key: str
     payload: dict[str, Any]
+    result: dict[str, Any]
     started_time: str | None
     finished_time: str | None
     failure_code: str
@@ -215,6 +216,7 @@ class CronRun:
             "trigger_source": self.trigger_source,
             "idempotency_key": self.idempotency_key,
             "payload": self.payload,
+            "result": self.result,
             "started_time": self.started_time,
             "finished_time": self.finished_time,
             "failure_code": self.failure_code,
