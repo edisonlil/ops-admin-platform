@@ -147,6 +147,7 @@
             :data="currentItems"
             :row-key="(row: WorkspaceItem) => row.key"
             size="small"
+            :max-height="fileBodyMaxHeight"
             :pagination="false"
           />
         </section>
@@ -249,6 +250,7 @@
   const uploadVisible = ref(false);
   const folderDrawerVisible = ref(false);
   const viewMode = ref<ViewMode>('grid');
+  const fileBodyMaxHeight = 'calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 290px)';
   const keyword = ref('');
   const selectedLibraryId = ref<number | null>(null);
   const selectedFolderId = ref<number | null>(null);
@@ -533,6 +535,7 @@
 
   .file-browser {
     --file-browser-title-size: var(--app-font-size-lg, 16px);
+    --file-browser-body-max-height: calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 290px);
 
     display: grid;
     gap: 12px;
@@ -600,6 +603,10 @@
     gap: 12px 16px;
     align-items: start;
     justify-content: start;
+    max-height: max(260px, var(--file-browser-body-max-height));
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .file-tile {
