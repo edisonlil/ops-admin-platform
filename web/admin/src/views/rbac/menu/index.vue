@@ -3,8 +3,8 @@
     <ListPageRuntime :schema="menuListPage" :rows="rows" :loading="loading" @refresh="reload">
       <template #collection>
         <n-grid cols="1 s:1 m:1 l:3 xl:3 2xl:3" responsive="screen" :x-gap="12" :y-gap="12">
-          <n-gi span="1">
-            <n-card :segmented="{ content: true }" :bordered="false" size="small">
+          <n-gi span="1" class="menu-tree-column">
+            <n-card class="menu-tree-card" :segmented="{ content: true }" :bordered="false" size="small">
               <template #header>
                 <n-space>
                   <n-dropdown trigger="hover" :options="addMenuOptions" @select="handleAddMenu">
@@ -42,6 +42,8 @@
                     block-line
                     :data="treeRows"
                     :pattern="pattern"
+                    virtual-scroll
+                    :scrollbar-props="{ style: { height: '100%' } }"
                     :selected-keys="selectedKeys"
                     :expanded-keys="expandedKeys"
                     class="menu-tree"
@@ -764,9 +766,64 @@
     }
   }
 
+  .menu-tree-column {
+    min-height: 0;
+  }
+
+  .menu-tree-card {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .menu-tree-card :deep(.n-card__content) {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .menu-tree-panel {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .menu-list {
+    box-sizing: border-box;
+    display: flex;
+    height: min(560px, calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 220px));
+    min-height: 360px;
+    overflow: hidden;
+  }
+
   .menu-tree {
-    max-height: min(650px, calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 260px));
-    overflow: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .menu-tree :deep(.n-scrollbar),
+  .menu-tree :deep(.n-scrollbar-container),
+  .menu-tree :deep(.n-scrollbar-content) {
+    height: 100%;
+  }
+
+  @media (min-width: 1024px) {
+    .menu-tree-column {
+      min-height: min(760px, calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 140px));
+      position: relative;
+    }
+
+    .menu-tree-card {
+      position: absolute;
+      inset: 0;
+    }
+
+    .menu-list {
+      flex: 1 1 auto;
+      height: auto;
+      min-height: 0;
+    }
   }
 
   .menu-icon-field {
