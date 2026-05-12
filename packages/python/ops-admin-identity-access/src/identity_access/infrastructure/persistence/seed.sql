@@ -560,11 +560,15 @@ SELECT 'role-management-assign-menus', 'platform', '分配菜单权限', 'action
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'role-management-assign-menus');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'platform-management', 'platform', '平台管理', 'page', '/platform', 'platform-management', '/platform/index', 'SettingOutlined', '', '', 109, TRUE
+SELECT 'platform-management', 'platform', '平台管理', 'directory', '/platform', 'platform-management', '', 'SettingOutlined', '', '', 109, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-management');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'platform-branding-update', 'platform', '更新平台标识', 'action', '', '', '', '', 'platform-management', 'platform:branding:update', 1091, TRUE
+SELECT 'platform-branding', 'platform', '平台信息', 'page', '/platform/branding', 'platform-branding', '/platform/index', 'SettingOutlined', 'platform-management', '', 1091, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-branding');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'platform-branding-update', 'platform', '更新平台标识', 'action', '', '', '', '', 'platform-branding', 'platform:branding:update', 10911, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'platform-branding-update');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
@@ -585,17 +589,36 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-tenant-quotas-manag
 
 UPDATE menus SET
     menu_scope = 'platform',
-    menu_type = 'page',
+    menu_type = 'directory',
     label = '平台管理',
     path = '/platform',
     route_name = 'platform-management',
-    component = '/platform/index',
+    component = '',
     icon = 'SettingOutlined',
     parent_key = '',
     permission_code = '',
     sort_order = 109,
     is_visible = TRUE
 WHERE menu_key = 'platform-management';
+
+UPDATE menus SET
+    menu_scope = 'platform',
+    menu_type = 'page',
+    label = '平台信息',
+    path = '/platform/branding',
+    route_name = 'platform-branding',
+    component = '/platform/index',
+    icon = 'SettingOutlined',
+    parent_key = 'platform-management',
+    permission_code = '',
+    sort_order = 1091,
+    is_visible = TRUE
+WHERE menu_key = 'platform-branding';
+
+UPDATE menus SET
+    parent_key = 'platform-branding',
+    sort_order = 10911
+WHERE menu_key = 'platform-branding-update';
 
 INSERT INTO menus (menu_key, label, path, route_name, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'tenant-management', '租户管理', '/tenant', 'tenant-management', 'ApartmentOutlined', '', 'tenant:access', 110, TRUE
@@ -759,3 +782,14 @@ UPDATE menus SET
     menu_type = 'page',
     parent_key = 'llm'
 WHERE menu_key IN ('llm-config', 'llm-debug');
+
+INSERT INTO role_menus (role_id, menu_id)
+SELECT r.id, m.id
+FROM roles r
+JOIN menus m ON m.menu_scope = 'platform'
+WHERE r.role_key = 'admin'
+  AND m.menu_key IN ('platform-management', 'platform-branding', 'platform-branding-update')
+  AND NOT EXISTS (
+      SELECT 1 FROM role_menus rm
+      WHERE rm.role_id = r.id AND rm.menu_id = m.id
+  );

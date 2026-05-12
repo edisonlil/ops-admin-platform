@@ -62,6 +62,7 @@ const LEGACY_ICON_BY_KEY_OR_ALIAS: Record<string, string> = {
   'tenant-api-keys': 'ApiOutlined',
   'tenant-management': 'ApartmentOutlined',
   'platform-management': 'SettingOutlined',
+  'platform-branding': 'SettingOutlined',
   'appearance-studio': 'BgColorsOutlined',
   rbac: 'SafetyCertificateOutlined',
   'menu-management': 'MenuOutlined',

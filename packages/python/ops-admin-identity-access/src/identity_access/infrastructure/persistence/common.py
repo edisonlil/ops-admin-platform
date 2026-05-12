@@ -90,7 +90,8 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "tenant-api-keys": {"menu_type": "page", "component": "/settings/api-keys/index", "menu_scope": "tenant"},
     "tenant-api-keys-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "tenant-api-keys-revoke": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
-    "platform-management": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
+    "platform-management": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
+    "platform-branding": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
     "platform-branding-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "tenant-management": {"menu_type": "page", "component": "/tenant/index", "menu_scope": "platform"},
     "tenant-management-create": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -776,6 +777,7 @@ def ensure_default_rbac(conn: Any) -> None:
     ensure_default_admin_membership(conn)
     ensure_tenant_default_menus(conn)
     ensure_tenant_default_roles(conn)
+    ensure_role_menus_by_key(conn, DEFAULT_ROLE_KEY, ["platform-management", "platform-branding", "platform-branding-update"])
     repair_tenant_rbac_boundaries(conn)
     ensure_all_tenant_menu_defaults(conn)
 
@@ -812,6 +814,7 @@ def backfill_default_menu_metadata(conn: Any) -> None:
         "role-management",
         "user-management",
         "platform-management",
+        "platform-branding",
         "tenant-management",
         "appearance-studio",
     }
@@ -869,10 +872,10 @@ def backfill_default_menu_metadata(conn: Any) -> None:
         """
         UPDATE menus
         SET label = '平台管理',
-            menu_type = 'page',
+            menu_type = 'directory',
             path = '/platform',
             route_name = 'platform-management',
-            component = '/platform/index',
+            component = '',
             icon = 'SettingOutlined',
             parent_key = '',
             permission_code = '',
@@ -910,7 +913,8 @@ def retire_platform_menu_keys(conn: Any, menu_keys: list[str]) -> None:
 def ensure_platform_default_menus(conn: Any) -> None:
     platform_menu_rows = [
         ("platform-management", "平台管理", "/platform", "platform-management", "SettingOutlined", "", "", 109),
-        ("platform-branding-update", "更新平台标识", "", "", "", "platform-management", "platform:branding:update", 1091),
+        ("platform-branding", "平台信息", "/platform/branding", "platform-branding", "SettingOutlined", "platform-management", "", 1091),
+        ("platform-branding-update", "更新平台标识", "", "", "", "platform-branding", "platform:branding:update", 10911),
         ("file-storage-profiles", "文件存储", "/files/storage-profiles", "file-storage-profiles", "database", "platform-management", "file:storage_profiles:manage", 1092),
         ("file-storage-profiles-manage", "管理文件存储", "", "", "", "file-storage-profiles", "file:storage_profiles:manage", 10921),
         ("file-tenant-quotas", "文件配额", "/files/tenant-quotas", "file-tenant-quotas", "hdd", "platform-management", "file:quota:manage", 1093),

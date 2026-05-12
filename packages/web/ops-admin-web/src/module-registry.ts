@@ -21,6 +21,7 @@ export interface OpsAdminModuleOptions {
 const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
   identity_access: [
     'platform-management',
+    'platform-branding',
     'platform-branding-update',
     'tenant-management',
     'tenant-management-create',

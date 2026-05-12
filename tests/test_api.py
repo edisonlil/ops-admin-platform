@@ -282,6 +282,7 @@ class ApiTests(unittest.TestCase):
 
         menu_keys = {item["key"] for item in menu_response.json()["data"]["items"]}
         self.assertIn("tenant-management", menu_keys)
+        self.assertIn("platform-branding", menu_keys)
         self.assertIn("appearance-studio", menu_keys)
         self.assertIn("file-storage-profiles", menu_keys)
         self.assertIn("file-tenant-quotas", menu_keys)
@@ -293,6 +294,11 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:quota:manage" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:storage_profiles:manage" for item in permission_response.json()["data"]["items"]))
+
+        menus_by_key = {item["key"]: item for item in menu_response.json()["data"]["items"]}
+        self.assertEqual(menus_by_key["platform-management"]["menu_type"], "directory")
+        self.assertEqual(menus_by_key["platform-branding"]["parent_key"], "platform-management")
+        self.assertEqual(menus_by_key["platform-branding"]["component"], "/platform/index")
 
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})
