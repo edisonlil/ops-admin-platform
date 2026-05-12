@@ -120,13 +120,13 @@
               @dblclick="openItem(item)"
             >
               <span class="file-tile__icon" :class="`file-tile__icon--${item.kind}`">
-                <n-icon size="54">
+                <n-icon size="42">
                   <FolderFilled v-if="item.kind === 'folder'" />
                   <FileTextFilled v-else />
                 </n-icon>
               </span>
               <span class="file-tile__name" :title="item.name">{{ item.name }}</span>
-              <span class="file-tile__meta">{{ item.kind === 'folder' ? '目录' : formatBytes(item.size_bytes || 0) }}</span>
+              <span v-if="item.kind === 'file'" class="file-tile__meta">{{ formatBytes(item.size_bytes || 0) }}</span>
               <span class="file-tile__actions">
                 <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="download(item.file!)">下载</n-button>
                 <n-button
@@ -533,9 +533,9 @@
 
   .file-browser {
     display: grid;
-    gap: 18px;
+    gap: 12px;
     min-width: 0;
-    padding: 4px 2px 10px;
+    padding: 2px 2px 8px;
   }
 
   .file-browser__header {
@@ -544,7 +544,7 @@
     align-items: flex-start;
     justify-content: space-between;
     min-width: 0;
-    padding: 0 4px 12px;
+    padding: 0 4px 8px;
     border-bottom: 1px solid var(--app-border-color);
   }
 
@@ -565,7 +565,7 @@
     margin: 0;
     overflow: hidden;
     color: var(--app-text-color);
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 700;
     line-height: 1.3;
     text-overflow: ellipsis;
@@ -594,17 +594,20 @@
 
   .file-browser__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-    gap: 22px 24px;
+    grid-template-columns: repeat(auto-fill, 112px);
+    gap: 12px 16px;
     align-items: start;
+    justify-content: start;
   }
 
   .file-tile {
     display: grid;
-    gap: 8px;
+    gap: 5px;
     justify-items: center;
     min-width: 0;
-    padding: 14px 10px 12px;
+    width: 112px;
+    min-height: 118px;
+    padding: 8px 6px 6px;
     color: var(--app-text-color);
     text-align: center;
     cursor: pointer;
@@ -620,8 +623,8 @@
 
   .file-tile__icon {
     display: inline-grid;
-    width: 72px;
-    height: 64px;
+    width: 52px;
+    height: 44px;
     place-items: center;
   }
 
@@ -636,17 +639,17 @@
   .file-tile__name {
     display: -webkit-box;
     width: 100%;
-    min-height: 42px;
+    min-height: 36px;
     overflow: hidden;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.38;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow-wrap: anywhere;
   }
 
   .file-tile__meta {
-    min-height: 18px;
+    min-height: 16px;
     color: var(--app-text-color-2);
     font-size: 12px;
   }
@@ -654,7 +657,11 @@
   .file-tile__actions {
     display: inline-flex;
     gap: 8px;
-    min-height: 22px;
+    min-height: 0;
+  }
+
+  .file-tile__actions:empty {
+    display: none;
   }
 
   :deep(.file-list-name) {
@@ -694,8 +701,12 @@
     }
 
     .file-browser__grid {
-      grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, 104px);
+      gap: 10px 12px;
+    }
+
+    .file-tile {
+      width: 104px;
     }
   }
 </style>
