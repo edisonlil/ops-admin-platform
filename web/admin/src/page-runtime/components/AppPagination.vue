@@ -1,6 +1,10 @@
 <template>
   <footer v-if="pagination !== false" class="app-pagination">
-    <n-pagination v-bind="resolvedPagination" />
+    <n-pagination
+      v-bind="resolvedPagination"
+      @update:page="handlePageUpdate"
+      @update:page-size="handlePageSizeUpdate"
+    />
   </footer>
 </template>
 
@@ -10,6 +14,12 @@
 
   const props = defineProps<{
     pagination?: false | PaginationProps;
+    itemCount?: number;
+  }>();
+
+  const emit = defineEmits<{
+    'update:page': [page: number];
+    'update:page-size': [pageSize: number];
   }>();
 
   const resolvedPagination = computed<PaginationProps>(() => ({
@@ -17,8 +27,17 @@
     pageSize: 20,
     pageSizes: [20, 50, 100],
     showSizePicker: true,
+    itemCount: props.itemCount,
     ...(props.pagination || {}),
   }));
+
+  function handlePageUpdate(page: number) {
+    emit('update:page', page);
+  }
+
+  function handlePageSizeUpdate(pageSize: number) {
+    emit('update:page-size', pageSize);
+  }
 </script>
 
 <style lang="less" scoped>

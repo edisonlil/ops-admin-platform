@@ -103,8 +103,9 @@
     const rowHeight = tableLayout.rowHeight;
     const heightMode = tableLayout.heightMode || 'natural';
     const fillHeight = tableLayout.fillHeight || 'clamp(320px, calc(100vh - 440px), 560px)';
+    const naturalMaxHeight = tableLayout.maxHeight || 'calc(100vh - 300px)';
     const runtimeProps = {
-      maxHeight: heightMode === 'fill' ? undefined : tableLayout.maxHeight,
+      maxHeight: heightMode === 'fill' ? undefined : naturalMaxHeight,
       flexHeight: heightMode === 'fill' ? true : tableLayout.flexHeight,
       headerHeight: tableLayout.headerHeight,
       minRowHeight: tableLayout.minRowHeight,

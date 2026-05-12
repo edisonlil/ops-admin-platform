@@ -85,7 +85,11 @@
                 {{ pane.primaryAction.label }}
               </n-button>
             </div>
-            <AppCollectionView :schema="resolveTableViewSchema(pane.view)" :rows="pane.rows || []" :loading="pane.loading || false">
+            <AppCollectionView
+              :schema="resolveTableViewSchema(pane.view)"
+              :rows="getPagedPaneRows(pane)"
+              :loading="pane.loading || false"
+            >
               <template v-if="pane.view.type === 'table'" #table-tools>
                 <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="pane.loading" @click="handlePaneRefresh(pane)">
                   刷新
@@ -96,12 +100,17 @@
                 />
               </template>
             </AppCollectionView>
-            <AppPagination :pagination="pane.pagination" />
+            <AppPagination
+              :pagination="getPanePagination(pane)"
+              :item-count="pane.rows?.length || 0"
+              @update:page="(page) => updatePanePage(pane.name, page)"
+              @update:page-size="(pageSize) => updatePanePageSize(pane.name, pageSize)"
+            />
           </section>
         </n-tab-pane>
       </n-tabs>
     </section>
-    <AppCollectionView v-else :schema="resolvedViewSchema" :rows="rows" :loading="loading">
+    <AppCollectionView v-else :schema="resolvedViewSchema" :rows="pagedRows" :loading="loading">
       <template v-if="hasRuntimeTableTools" #table-tools>
         <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="emit('refresh')">刷新</n-button>
         <AppTableRuntimeControls
@@ -114,12 +123,19 @@
       </template>
     </AppCollectionView>
 
-    <AppPagination v-if="!isTabbedListView" :pagination="schema.pagination" />
+    <AppPagination
+      v-if="!isTabbedListView"
+      :pagination="resolvedPagination"
+      :item-count="rows.length"
+      @update:page="updatePage"
+      @update:page-size="updatePageSize"
+    />
   </AppPage>
 </template>
 
 <script lang="ts" setup generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>">
   import { computed, ref, watch, useSlots } from 'vue';
+  import type { PaginationProps } from 'naive-ui';
   import AppCollectionView from '../components/AppCollectionView.vue';
   import AppFilterBar from '../components/AppFilterBar.vue';
   import AppPage from '../components/AppPage.vue';
@@ -134,6 +150,14 @@
     medium: 48,
     compact: 40,
   };
+  const DEFAULT_PAGE = 1;
+  const DEFAULT_PAGE_SIZE = 20;
+  const DEFAULT_PAGE_SIZES = [20, 50, 100];
+
+  interface RuntimePaginationState {
+    page: number;
+    pageSize: number;
+  }
 
   const props = withDefaults(
     defineProps<{
@@ -154,6 +178,11 @@
   const runtimeTableFillHeight = ref(props.schema.view.tableLayout?.heightMode === 'fill');
   const runtimeTableRowDensity = ref<TableRowDensity>(props.schema.view.tableLayout?.rowDensity || 'default');
   const activeTab = ref(props.schema.view.tabs?.[0]?.name || '');
+  const paginationState = ref<RuntimePaginationState>({
+    page: getInitialPage(props.schema.pagination),
+    pageSize: getInitialPageSize(props.schema.pagination),
+  });
+  const panePaginationState = ref<Record<string, RuntimePaginationState>>({});
 
   const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
@@ -187,6 +216,12 @@
     density: props.schema.density || 'comfortable',
     variant: props.schema.variant || 'enterprise',
   }));
+  const resolvedPagination = computed(() => {
+    return resolvePagination(props.schema.pagination, props.rows.length, paginationState.value);
+  });
+  const pagedRows = computed(() => {
+    return sliceRows(props.rows, props.schema.pagination, paginationState.value);
+  });
 
   function handleAction(action: PageAction) {
     return action.onClick?.(context.value);
@@ -217,6 +252,103 @@
     return typeof pane.count === 'number' ? `${pane.label} (${pane.count})` : pane.label;
   }
 
+  function getPanePagination(pane: TabbedListPaneSchema<Row>) {
+    return resolvePagination(pane.pagination, pane.rows?.length || 0, getPanePaginationState(pane));
+  }
+
+  function getPagedPaneRows(pane: TabbedListPaneSchema<Row>) {
+    return sliceRows(pane.rows || [], pane.pagination, getPanePaginationState(pane));
+  }
+
+  function getPanePaginationState(pane: TabbedListPaneSchema<Row>) {
+    return panePaginationState.value[pane.name] || {
+      page: getInitialPage(pane.pagination),
+      pageSize: getInitialPageSize(pane.pagination),
+    };
+  }
+
+  function updatePage(page: number) {
+    paginationState.value = {
+      ...paginationState.value,
+      page: clampPage(page, props.rows.length, paginationState.value.pageSize),
+    };
+  }
+
+  function updatePageSize(pageSize: number) {
+    paginationState.value = {
+      page: DEFAULT_PAGE,
+      pageSize,
+    };
+  }
+
+  function updatePanePage(name: string, page: number) {
+    const pane = tabbedPanes.value.find((entry) => entry.name === name);
+    const current = pane ? getPanePaginationState(pane) : {
+      page: DEFAULT_PAGE,
+      pageSize: DEFAULT_PAGE_SIZE,
+    };
+    panePaginationState.value = {
+      ...panePaginationState.value,
+      [name]: {
+        ...current,
+        page: clampPage(page, pane?.rows?.length || 0, current.pageSize),
+      },
+    };
+  }
+
+  function updatePanePageSize(name: string, pageSize: number) {
+    const pane = tabbedPanes.value.find((entry) => entry.name === name);
+    const current = pane ? getPanePaginationState(pane) : {
+      page: DEFAULT_PAGE,
+      pageSize: DEFAULT_PAGE_SIZE,
+    };
+    panePaginationState.value = {
+      ...panePaginationState.value,
+      [name]: {
+        ...current,
+        page: DEFAULT_PAGE,
+        pageSize,
+      },
+    };
+  }
+
+  function resolvePagination(
+    pagination: false | PaginationProps | undefined,
+    itemCount: number,
+    state: RuntimePaginationState
+  ): false | PaginationProps {
+    if (pagination === false) return false;
+    return {
+      pageSizes: DEFAULT_PAGE_SIZES,
+      showSizePicker: true,
+      ...(pagination || {}),
+      itemCount,
+      page: state.page,
+      pageSize: state.pageSize,
+    };
+  }
+
+  function sliceRows(items: Row[], pagination: false | PaginationProps | undefined, state: RuntimePaginationState) {
+    if (pagination === false) return items;
+    const pageSize = Math.max(1, state.pageSize);
+    const page = clampPage(state.page, items.length, pageSize);
+    const start = (page - 1) * pageSize;
+    return items.slice(start, start + pageSize);
+  }
+
+  function getInitialPage(pagination: false | PaginationProps | undefined) {
+    return pagination === false ? DEFAULT_PAGE : pagination?.page || pagination?.defaultPage || DEFAULT_PAGE;
+  }
+
+  function getInitialPageSize(pagination: false | PaginationProps | undefined) {
+    return pagination === false ? DEFAULT_PAGE_SIZE : pagination?.pageSize || pagination?.defaultPageSize || DEFAULT_PAGE_SIZE;
+  }
+
+  function clampPage(page: number, itemCount: number, pageSize: number) {
+    const pageCount = Math.max(1, Math.ceil(itemCount / Math.max(1, pageSize)));
+    return Math.min(Math.max(1, page), pageCount);
+  }
+
   async function handlePaneRefresh(pane: TabbedListPaneSchema<Row>) {
     if (pane.refresh) {
       await pane.refresh();
@@ -232,6 +364,42 @@
       if (!panes.some((pane) => pane.name === activeTab.value)) {
         activeTab.value = panes[0].name;
       }
+    },
+    { immediate: true }
+  );
+  watch(
+    () => [props.schema.id, props.schema.pagination] as const,
+    () => {
+      paginationState.value = {
+        page: getInitialPage(props.schema.pagination),
+        pageSize: getInitialPageSize(props.schema.pagination),
+      };
+    }
+  );
+  watch(
+    () => props.rows.length,
+    (itemCount) => {
+      paginationState.value = {
+        ...paginationState.value,
+        page: clampPage(paginationState.value.page, itemCount, paginationState.value.pageSize),
+      };
+    }
+  );
+  watch(
+    tabbedPanes,
+    (panes) => {
+      const nextState: Record<string, RuntimePaginationState> = {};
+      panes.forEach((pane) => {
+        const current = panePaginationState.value[pane.name] || {
+          page: getInitialPage(pane.pagination),
+          pageSize: getInitialPageSize(pane.pagination),
+        };
+        nextState[pane.name] = {
+          ...current,
+          page: clampPage(current.page, pane.rows?.length || 0, current.pageSize),
+        };
+      });
+      panePaginationState.value = nextState;
     },
     { immediate: true }
   );
