@@ -1,14 +1,20 @@
 <template>
   <div class="tenant-quota-page">
-    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" @refresh="loadCurrentTenant">
+    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" @refresh="reload">
       <template #filters>
-        <n-input-number v-model:value="tenantId" :min="1" placeholder="租户 ID" class="tenant-quota-page__tenant" />
-        <n-button type="primary" @click="loadCurrentTenant">读取配额</n-button>
+        <n-input
+          v-model:value="query"
+          clearable
+          placeholder="搜索租户 Key / 名称"
+          class="tenant-quota-page__search"
+          @keyup.enter="reload"
+        />
+        <n-button type="primary" @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
 
     <n-drawer v-model:show="drawerVisible" width="620">
-      <n-drawer-content title="配置租户文件配额">
+      <n-drawer-content :title="activeRow ? `配置 ${activeRow.tenant_name} 文件配额` : '配置租户文件配额'">
         <n-form label-placement="top">
           <n-grid :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="总容量（MB）">
@@ -46,6 +52,7 @@
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
+  import { getTenants } from '@/api/business';
   import {
     getTenantFileQuota,
     saveTenantFileQuota,
@@ -53,8 +60,19 @@
     type TenantStorageQuota,
   } from '@/api/fileManagement';
 
+  interface TenantRow {
+    id: number;
+    tenant_key: string;
+    name: string;
+    status: string;
+    update_time?: string;
+  }
+
   interface QuotaRow {
     tenant_id: number;
+    tenant_key: string;
+    tenant_name: string;
+    tenant_status: string;
     quota: TenantStorageQuota | null;
     usage: StorageUsage;
   }
@@ -65,7 +83,8 @@
   const loading = ref(false);
   const saving = ref(false);
   const drawerVisible = ref(false);
-  const tenantId = ref<number | null>(1);
+  const query = ref('');
+  const activeRow = ref<QuotaRow | null>(null);
   const rows = ref<QuotaRow[]>([]);
   const quotaForm = reactive({
     quota_mb: 0,
@@ -76,21 +95,38 @@
   });
 
   const columns: DataTableColumns<QuotaRow> = [
-    { title: '租户 ID', key: 'tenant_id', width: 120 },
+    { title: '租户名称', key: 'tenant_name', minWidth: 180 },
+    { title: '租户 Key', key: 'tenant_key', minWidth: 160 },
+    { title: '租户 ID', key: 'tenant_id', width: 100 },
     {
-      title: '状态',
+      title: '租户状态',
+      key: 'tenant_status',
+      width: 110,
+      render(row) {
+        const active = row.tenant_status === 'active';
+        return h(AppStatusTag, { tone: active ? 'success' : 'warning', label: active ? '启用' : '停用' });
+      },
+    },
+    {
+      title: '文件存储',
       key: 'enabled',
       width: 110,
       render(row) {
         const enabled = row.quota?.enabled ?? true;
-        return h(AppStatusTag, { tone: enabled ? 'success' : 'neutral', label: enabled ? '启用' : '停用' });
+        const label = row.quota ? (enabled ? '启用' : '停用') : '默认启用';
+        return h(AppStatusTag, { tone: enabled ? 'success' : 'neutral', label });
       },
     },
     { title: '已用容量', key: 'used_bytes', width: 140, render: (row) => formatBytes(row.usage.used_bytes) },
     { title: '文件数', key: 'file_count', width: 120, render: (row) => row.usage.file_count },
     { title: '总容量', key: 'quota_bytes', width: 140, render: (row) => formatBytes(row.quota?.quota_bytes || 0) },
     { title: '单文件上限', key: 'max_file_size_bytes', width: 150, render: (row) => formatBytes(row.quota?.max_file_size_bytes || 0) },
-    { title: '更新时间', key: 'update_time', width: 180, render: (row) => formatToDateTime(row.quota?.update_time || '') },
+    {
+      title: '配额更新时间',
+      key: 'update_time',
+      width: 180,
+      render: (row) => (row.quota?.update_time ? formatToDateTime(row.quota.update_time) : '-'),
+    },
     {
       title: '操作',
       key: 'actions',
@@ -116,7 +152,7 @@
       type: 'table',
       columns,
       rowKey: (row) => row.tenant_id,
-      scrollX: 1100,
+      scrollX: 1360,
       tableProps: { size: 'small' },
     },
     toolbar: { rightTools: ['refresh'] },
@@ -124,6 +160,7 @@
   });
 
   function openEdit(row: QuotaRow) {
+    activeRow.value = row;
     quotaForm.quota_mb = bytesToMb(row.quota?.quota_bytes || 0);
     quotaForm.max_file_size_mb = bytesToMb(row.quota?.max_file_size_bytes || 0);
     quotaForm.allowed_mime_types = [...(row.quota?.allowed_mime_types || [])];
@@ -133,9 +170,9 @@
   }
 
   async function submit() {
-    const id = Number(tenantId.value || rows.value[0]?.tenant_id || 0);
+    const id = Number(activeRow.value?.tenant_id || 0);
     if (!id) {
-      message.warning('请先输入租户 ID');
+      message.warning('请先选择租户');
       return;
     }
     saving.value = true;
@@ -149,29 +186,59 @@
       });
       message.success('租户文件配额已保存');
       drawerVisible.value = false;
-      await loadTenant(id);
+      await refreshTenantQuota(id);
     } finally {
       saving.value = false;
     }
   }
 
-  async function loadCurrentTenant() {
-    const id = Number(tenantId.value || 0);
-    if (!id) {
-      message.warning('请输入租户 ID');
-      return;
-    }
-    await loadTenant(id);
-  }
-
-  async function loadTenant(id: number) {
+  async function reload() {
     loading.value = true;
     try {
-      const payload = await getTenantFileQuota(id);
-      rows.value = [{ tenant_id: id, quota: payload.quota, usage: payload.usage }];
+      const payload = await getTenants({ q: query.value || undefined });
+      const tenants = ((payload as { items?: TenantRow[] }).items || []).map(normalizeTenant);
+      rows.value = await Promise.all(tenants.map(loadTenantQuotaRow));
     } finally {
       loading.value = false;
     }
+  }
+
+  async function refreshTenantQuota(tenantId: number) {
+    const current = rows.value.find((row) => row.tenant_id === tenantId);
+    if (!current) {
+      await reload();
+      return;
+    }
+    const updated = await loadTenantQuotaRow({
+      id: current.tenant_id,
+      tenant_key: current.tenant_key,
+      name: current.tenant_name,
+      status: current.tenant_status,
+    });
+    rows.value = rows.value.map((row) => (row.tenant_id === tenantId ? updated : row));
+    activeRow.value = updated;
+  }
+
+  async function loadTenantQuotaRow(tenant: TenantRow): Promise<QuotaRow> {
+    const payload = await getTenantFileQuota(tenant.id);
+    return {
+      tenant_id: tenant.id,
+      tenant_key: tenant.tenant_key,
+      tenant_name: tenant.name,
+      tenant_status: tenant.status,
+      quota: payload.quota,
+      usage: payload.usage,
+    };
+  }
+
+  function normalizeTenant(tenant: TenantRow): TenantRow {
+    return {
+      id: Number(tenant.id),
+      tenant_key: String(tenant.tenant_key || ''),
+      name: String(tenant.name || ''),
+      status: String(tenant.status || 'active'),
+      update_time: tenant.update_time,
+    };
   }
 
   function mbToBytes(value: number | null) {
@@ -190,7 +257,7 @@
     return `${(value / 1024 / MB).toFixed(1)} GB`;
   }
 
-  loadCurrentTenant();
+  reload();
 </script>
 
 <style lang="less" scoped>
@@ -198,8 +265,8 @@
     min-width: 0;
   }
 
-  .tenant-quota-page__tenant {
-    width: 180px;
+  .tenant-quota-page__search {
+    width: 260px;
   }
 
   .tenant-quota-page__number {
