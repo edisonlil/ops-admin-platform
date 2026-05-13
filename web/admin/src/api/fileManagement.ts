@@ -58,6 +58,18 @@ export interface ManagedFile {
   update_time?: string;
 }
 
+export type FilePreviewMode = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'unsupported';
+
+export interface FilePreviewMetadata {
+  previewable: boolean;
+  engine: string;
+  mode: FilePreviewMode;
+  mime_type: string;
+  reason: string;
+  url: string;
+  max_inline_bytes?: number;
+}
+
 export interface TenantStorageQuota {
   id: number;
   tenant_id: number;
@@ -285,6 +297,12 @@ export function reindexManagedFile(fileId: number) {
   return Alova.Post<{ item: FileSearchIndexJob }>(`/files/${fileId}/reindex`);
 }
 
+export function getFilePreviewMetadata(fileId: number) {
+  return Alova.Get<{ item: ManagedFile; preview: FilePreviewMetadata }>(`/files/${fileId}/preview-metadata`, {
+    params: withNoCacheParams(),
+  });
+}
+
 export function getAccessLogs(params: { page?: number; page_size?: number; file_id?: number; action?: string } = {}) {
   return Alova.Get<FileListData<FileAccessLog>>('/files/access-logs', {
     params: withNoCacheParams(params),
@@ -354,6 +372,30 @@ export async function downloadManagedFile(file: ManagedFile) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+export async function fetchFilePreviewBlob(fileId: number) {
+  const response = await fetch(apiUrl(`/files/${fileId}/preview`), {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(response.statusText || 'Preview failed');
+  }
+  return response.blob();
+}
+
+export async function fetchFilePreviewText(fileId: number) {
+  const response = await fetch(apiUrl(`/files/${fileId}/preview`), {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(response.statusText || 'Preview failed');
+  }
+  return response.text();
 }
 
 function authHeaders() {

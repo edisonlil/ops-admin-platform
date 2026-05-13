@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import BinaryIO, Protocol
+from typing import BinaryIO, Literal, Protocol
 
-from file_management.domain.models import StorageProfile
+from file_management.domain.models import ManagedFile, StorageProfile
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,33 @@ class DownloadObject:
     stream: BinaryIO
     size_bytes: int | None = None
     content_type: str | None = None
+
+
+PreviewMode = Literal["image", "pdf", "text", "audio", "video", "unsupported"]
+
+
+@dataclass(frozen=True)
+class FilePreview:
+    previewable: bool
+    engine: str
+    mode: PreviewMode
+    mime_type: str
+    reason: str = ""
+    url: str = ""
+    max_inline_bytes: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "previewable": self.previewable,
+            "engine": self.engine,
+            "mode": self.mode,
+            "mime_type": self.mime_type,
+            "reason": self.reason,
+            "url": self.url,
+        }
+        if self.max_inline_bytes is not None:
+            payload["max_inline_bytes"] = self.max_inline_bytes
+        return payload
 
 
 class StoragePort(Protocol):
@@ -44,4 +71,11 @@ class FileIndexerPort(Protocol):
         ...
 
     def remove_file(self, file_id: int) -> None:
+        ...
+
+
+class PreviewProviderPort(Protocol):
+    engine: str
+
+    def metadata_for(self, file: ManagedFile) -> FilePreview:
         ...

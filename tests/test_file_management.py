@@ -16,10 +16,12 @@ from file_management.domain.models import STORAGE_PROVIDER_MINIO, StorageProfile
 class MemoryStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.content_types: dict[str, str] = {}
 
     def save(self, *, profile: StorageProfile, key: str, content: io.BytesIO, content_type: str) -> StoredObject:
         data = content.read()
         self.objects[key] = data
+        self.content_types[key] = content_type
         return StoredObject(
             provider=STORAGE_PROVIDER_MINIO,
             bucket=profile.bucket,
@@ -29,7 +31,11 @@ class MemoryStorage:
         )
 
     def open_for_read(self, *, profile: StorageProfile, key: str) -> DownloadObject:
-        return DownloadObject(stream=io.BytesIO(self.objects[key]), size_bytes=len(self.objects[key]))
+        return DownloadObject(
+            stream=io.BytesIO(self.objects[key]),
+            size_bytes=len(self.objects[key]),
+            content_type=self.content_types.get(key),
+        )
 
     def delete(self, *, profile: StorageProfile, key: str) -> None:
         self.objects.pop(key, None)
@@ -184,8 +190,18 @@ class FileManagementTests(unittest.TestCase):
         item, download = services.download_file(int(upload["id"]), self.current_user)
         self.assertEqual(item.original_name, "contract.txt")
         self.assertEqual(download.stream.read(), b"hello")
+        preview_metadata = services.get_file_preview_metadata(int(upload["id"]), self.current_user)
+        self.assertTrue(preview_metadata["preview"]["previewable"])
+        self.assertEqual(preview_metadata["preview"]["engine"], "native")
+        self.assertEqual(preview_metadata["preview"]["mode"], "text")
+        preview_item, preview_download, preview = services.preview_file(int(upload["id"]), self.current_user)
+        self.assertEqual(preview_item.original_name, "contract.txt")
+        self.assertEqual(preview_download.stream.read(), b"hello")
+        self.assertEqual(preview["mode"], "text")
         logs = services.list_access_logs(page=1, page_size=20, current_user=self.current_user)
-        self.assertEqual(logs["pagination"]["total"], 2)
+        self.assertEqual(logs["pagination"]["total"], 3)
+        preview_logs = services.list_access_logs(page=1, page_size=20, current_user=self.current_user, action="preview")
+        self.assertEqual(preview_logs["pagination"]["total"], 1)
 
         reindex = services.reindex_file(int(upload["id"]), self.current_user)["item"]
         self.assertEqual(reindex["job_type"], "manual_reindex")
@@ -198,6 +214,27 @@ class FileManagementTests(unittest.TestCase):
         self.assertEqual(services.list_index_jobs(page=1, page_size=20, current_user=self.current_user)["pagination"]["total"], 3)
         deleted_folder = services.delete_folder(int(folder["id"]), self.current_user)
         self.assertTrue(deleted_folder["deleted"])
+
+    def test_native_preview_rejects_unsupported_file_type(self) -> None:
+        self.create_default_profile()
+        upload = services.upload_file(
+            current_user=self.current_user,
+            filename="archive.zip",
+            content_type="application/zip",
+            stream=io.BytesIO(b"zip"),
+            library_id=None,
+            visibility="tenant",
+            metadata={},
+        )["item"]
+
+        metadata = services.get_file_preview_metadata(int(upload["id"]), self.current_user)
+
+        self.assertFalse(metadata["preview"]["previewable"])
+        self.assertEqual(metadata["preview"]["mode"], "unsupported")
+        self.assertEqual(metadata["preview"]["reason"], "unsupported_mime_type")
+        with self.assertRaises(Exception) as caught:
+            services.preview_file(int(upload["id"]), self.current_user)
+        self.assertEqual(getattr(caught.exception, "status_code", None), 415)
 
     def test_folder_rejects_cross_tenant_and_non_empty_delete(self) -> None:
         library = services.save_library({"name": "Tenant Docs"}, self.current_user)["item"]

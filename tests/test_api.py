@@ -19,10 +19,12 @@ from file_management.domain.models import STORAGE_PROVIDER_MINIO, StorageProfile
 class MemoryFileStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.content_types: dict[str, str] = {}
 
     def save(self, *, profile: StorageProfile, key: str, content: io.BytesIO, content_type: str) -> StoredObject:
         data = content.read()
         self.objects[key] = data
+        self.content_types[key] = content_type
         return StoredObject(
             provider=STORAGE_PROVIDER_MINIO,
             bucket=profile.bucket,
@@ -32,7 +34,11 @@ class MemoryFileStorage:
         )
 
     def open_for_read(self, *, profile: StorageProfile, key: str) -> DownloadObject:
-        return DownloadObject(stream=io.BytesIO(self.objects[key]), size_bytes=len(self.objects[key]))
+        return DownloadObject(
+            stream=io.BytesIO(self.objects[key]),
+            size_bytes=len(self.objects[key]),
+            content_type=self.content_types.get(key),
+        )
 
     def delete(self, *, profile: StorageProfile, key: str) -> None:
         self.objects.pop(key, None)
@@ -923,6 +929,20 @@ class ApiTests(unittest.TestCase):
         download_response = self.request("GET", f"/api/files/{uploaded['id']}/download")
         self.assertEqual(download_response.status_code, 200)
         self.assertEqual(download_response.content, b"hello")
+        self.assertIn("attachment", download_response.headers.get("content-disposition", ""))
+
+        preview_metadata_response = self.request("GET", f"/api/files/{uploaded['id']}/preview-metadata")
+        self.assertEqual(preview_metadata_response.status_code, 200)
+        preview = preview_metadata_response.json()["data"]["preview"]
+        self.assertTrue(preview["previewable"])
+        self.assertEqual(preview["engine"], "native")
+        self.assertEqual(preview["mode"], "text")
+
+        preview_response = self.request("GET", f"/api/files/{uploaded['id']}/preview")
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(preview_response.content, b"hello")
+        self.assertIn("inline", preview_response.headers.get("content-disposition", ""))
+        self.assertEqual(preview_response.headers.get("x-content-type-options"), "nosniff")
 
         delete_response = self.request("DELETE", f"/api/files/{uploaded['id']}")
         self.assertEqual(delete_response.status_code, 200)

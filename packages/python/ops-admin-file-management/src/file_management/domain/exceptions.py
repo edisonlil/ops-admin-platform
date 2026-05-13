@@ -46,6 +46,11 @@ class UnsupportedFileType(FileManagementError):
     status_code = 400
 
 
+class FilePreviewUnsupported(FileManagementError):
+    code = "FILE_PREVIEW_UNSUPPORTED"
+    status_code = 415
+
+
 class StorageProviderUnsupported(FileManagementError):
     code = "FILE_STORAGE_PROVIDER_UNSUPPORTED"
     status_code = 400

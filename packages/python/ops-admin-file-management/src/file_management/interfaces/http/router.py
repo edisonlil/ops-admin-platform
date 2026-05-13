@@ -253,12 +253,37 @@ def set_default_storage_profile(
     return ok(services.set_default_storage_profile(profile_id, current_user))
 
 
-@router.get("/{file_id}")
-def file_detail(
+@router.get("/{file_id}/preview-metadata")
+def file_preview_metadata(
     file_id: int,
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
-    return ok(services.get_file(file_id, current_user))
+    return ok(services.get_file_preview_metadata(file_id, current_user))
+
+
+@router.get("/{file_id}/preview")
+def preview_file(
+    request: Request,
+    file_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
+) -> StreamingResponse:
+    item, download, preview = services.preview_file(
+        file_id,
+        current_user,
+        client_ip=request.client.host if request.client else "",
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    filename = urllib.parse.quote(item.original_name)
+    mime_type = str(preview.get("mime_type") or download.content_type or item.mime_type)
+    return StreamingResponse(
+        download.stream,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/{file_id}/download")
@@ -295,3 +320,11 @@ def delete_file(
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:delete")),
 ) -> dict[str, Any]:
     return ok(services.delete_file(file_id, current_user))
+
+
+@router.get("/{file_id}")
+def file_detail(
+    file_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
+) -> dict[str, Any]:
+    return ok(services.get_file(file_id, current_user))

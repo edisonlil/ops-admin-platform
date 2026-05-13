@@ -128,6 +128,7 @@
               <span class="file-tile__name" :title="item.name">{{ item.name }}</span>
               <span v-if="item.kind === 'file'" class="file-tile__meta">{{ formatBytes(item.size_bytes || 0) }}</span>
               <span class="file-tile__actions">
+                <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="preview(item.file!)">预览</n-button>
                 <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="download(item.file!)">下载</n-button>
                 <n-button
                   v-if="item.kind === 'file' && hasPermission(['file:object:delete'])"
@@ -195,11 +196,56 @@
         </template>
       </n-drawer-content>
     </n-drawer>
+
+    <n-drawer v-model:show="previewVisible" :width="previewDrawerWidth" @after-leave="clearPreview">
+      <n-drawer-content :title="previewTitle">
+        <div class="file-preview">
+          <div v-if="previewLoading" class="file-preview__state">
+            <n-spin size="small" />
+          </div>
+          <n-empty v-else-if="previewError" :description="previewError" class="file-preview__state">
+            <template #extra>
+              <n-button v-if="previewFile" size="small" @click="download(previewFile)">下载</n-button>
+            </template>
+          </n-empty>
+          <img
+            v-else-if="previewMode === 'image' && previewBlobUrl"
+            class="file-preview__image"
+            :src="previewBlobUrl"
+            :alt="previewTitle"
+          />
+          <iframe
+            v-else-if="previewMode === 'pdf' && previewBlobUrl"
+            class="file-preview__frame"
+            :src="previewBlobUrl"
+            title="文件预览"
+          />
+          <pre v-else-if="previewMode === 'text'" class="file-preview__text">{{ previewText }}</pre>
+          <audio
+            v-else-if="previewMode === 'audio' && previewBlobUrl"
+            class="file-preview__media"
+            :src="previewBlobUrl"
+            controls
+          />
+          <video
+            v-else-if="previewMode === 'video' && previewBlobUrl"
+            class="file-preview__video"
+            :src="previewBlobUrl"
+            controls
+          />
+          <n-empty v-else description="暂不支持预览" class="file-preview__state">
+            <template #extra>
+              <n-button v-if="previewFile" size="small" @click="download(previewFile)">下载</n-button>
+            </template>
+          </n-empty>
+        </div>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref } from 'vue';
+  import { computed, h, onBeforeUnmount, reactive, ref } from 'vue';
   import { NButton, NIcon, NSpace, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption, UploadFileInfo } from 'naive-ui';
   import {
@@ -219,9 +265,13 @@
   import {
     deleteManagedFile,
     downloadManagedFile,
+    fetchFilePreviewBlob,
+    fetchFilePreviewText,
+    getFilePreviewMetadata,
     getFileWorkspace,
     saveFileFolder,
     uploadManagedFile,
+    type FilePreviewMode,
     type FileFolder,
     type FileLibrary,
     type ManagedFile,
@@ -249,6 +299,13 @@
   const savingFolder = ref(false);
   const uploadVisible = ref(false);
   const folderDrawerVisible = ref(false);
+  const previewVisible = ref(false);
+  const previewLoading = ref(false);
+  const previewError = ref('');
+  const previewFile = ref<ManagedFile | null>(null);
+  const previewMode = ref<FilePreviewMode>('unsupported');
+  const previewText = ref('');
+  const previewBlobUrl = ref('');
   const viewMode = ref<ViewMode>('grid');
   const fileBodyMaxHeight = 'calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 290px)';
   const keyword = ref('');
@@ -303,6 +360,8 @@
     const paths = [currentLibrary.value.name, ...breadcrumbs.value.map((item) => item.name)];
     return paths.join(' / ');
   });
+  const previewTitle = computed(() => previewFile.value?.display_name || previewFile.value?.original_name || '文件预览');
+  const previewDrawerWidth = computed(() => (previewMode.value === 'text' ? 'min(760px, 100vw)' : 'min(920px, 100vw)'));
 
   const columns: DataTableColumns<WorkspaceItem> = [
     {
@@ -334,25 +393,30 @@
     {
       title: '操作',
       key: 'actions',
-      width: 190,
+      width: 240,
       render(row) {
         if (row.kind === 'folder') {
-          return h(NButton, { size: 'small', quaternary: true, onClick: () => openItem(row) }, { default: () => '打开' });
+          return h(NButton, { size: 'small', text: true, onClick: () => openItem(row) }, { default: () => '打开' });
         }
         return h(
           NSpace,
-          { size: 8 },
+          { size: 8, wrap: false, class: 'file-list-actions' },
           {
             default: () => [
               h(
                 NButton,
-                { size: 'small', quaternary: true, onClick: () => download(row.file!) },
+                { size: 'small', text: true, onClick: () => preview(row.file!) },
+                { default: () => '预览' }
+              ),
+              h(
+                NButton,
+                { size: 'small', text: true, onClick: () => download(row.file!) },
                 { icon: () => h(NIcon, null, { default: () => h(DownloadOutlined) }), default: () => '下载' }
               ),
               hasPermission(['file:object:delete'])
                 ? h(
                     NButton,
-                    { size: 'small', quaternary: true, type: 'error', onClick: () => removeFile(row.file!) },
+                    { size: 'small', text: true, type: 'error', onClick: () => removeFile(row.file!) },
                     { default: () => '删除' }
                   )
                 : null,
@@ -405,6 +469,10 @@
   function openItem(item: WorkspaceItem) {
     if (item.kind === 'folder' && item.folder) {
       openFolder(item.folder);
+      return;
+    }
+    if (item.kind === 'file' && item.file) {
+      preview(item.file);
     }
   }
 
@@ -475,6 +543,55 @@
     await downloadManagedFile(row);
   }
 
+  async function preview(row: ManagedFile) {
+    revokePreviewBlob();
+    previewFile.value = row;
+    previewMode.value = 'unsupported';
+    previewText.value = '';
+    previewError.value = '';
+    previewVisible.value = true;
+    previewLoading.value = true;
+    try {
+      const { preview: metadata } = await getFilePreviewMetadata(row.id);
+      previewMode.value = metadata.mode;
+      if (!metadata.previewable) {
+        previewError.value = previewUnsupportedText(metadata.reason);
+        return;
+      }
+      if (metadata.mode === 'text') {
+        previewText.value = await fetchFilePreviewText(row.id);
+        return;
+      }
+      const blob = await fetchFilePreviewBlob(row.id);
+      previewBlobUrl.value = URL.createObjectURL(blob);
+    } catch (error) {
+      previewError.value = error instanceof Error ? error.message : '预览失败';
+    } finally {
+      previewLoading.value = false;
+    }
+  }
+
+  function clearPreview() {
+    revokePreviewBlob();
+    previewLoading.value = false;
+    previewError.value = '';
+    previewText.value = '';
+    previewFile.value = null;
+    previewMode.value = 'unsupported';
+  }
+
+  function revokePreviewBlob() {
+    if (previewBlobUrl.value) {
+      URL.revokeObjectURL(previewBlobUrl.value);
+      previewBlobUrl.value = '';
+    }
+  }
+
+  function previewUnsupportedText(reason: string) {
+    if (reason === 'text_file_too_large') return '文本文件过大，请下载后查看';
+    return '该文件类型暂不支持在线预览';
+  }
+
   async function removeFile(row: ManagedFile) {
     await deleteManagedFile(row.id);
     message.success('文件已删除');
@@ -512,6 +629,7 @@
   }
 
   reload();
+  onBeforeUnmount(revokePreviewBlob);
 </script>
 
 <style lang="less" scoped>
@@ -700,6 +818,65 @@
     color: #7c3aed;
   }
 
+  :deep(.file-list-actions) {
+    flex-wrap: nowrap;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  :deep(.file-list-actions .n-button) {
+    --n-padding: 0;
+  }
+
+  .file-preview {
+    display: grid;
+    min-height: min(680px, calc(100vh - 170px));
+  }
+
+  .file-preview__state {
+    display: grid;
+    min-height: 360px;
+    place-items: center;
+  }
+
+  .file-preview__image {
+    display: block;
+    max-width: 100%;
+    max-height: min(680px, calc(100vh - 180px));
+    margin: auto;
+    object-fit: contain;
+  }
+
+  .file-preview__frame {
+    width: 100%;
+    height: min(720px, calc(100vh - 170px));
+    background: var(--app-fill-color-lighter);
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+  }
+
+  .file-preview__text {
+    max-height: min(680px, calc(100vh - 170px));
+    min-height: 360px;
+    padding: 14px;
+    overflow: auto;
+    color: var(--app-text-color);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--app-fill-color-lighter);
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+  }
+
+  .file-preview__media,
+  .file-preview__video {
+    align-self: center;
+    width: 100%;
+    max-height: min(680px, calc(100vh - 180px));
+  }
+
   @media (max-width: 760px) {
     .file-browser__header {
       flex-direction: column;
@@ -716,6 +893,11 @@
 
     .file-tile {
       width: 104px;
+    }
+
+    .file-preview,
+    .file-preview__state {
+      min-height: 320px;
     }
   }
 </style>

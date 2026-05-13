@@ -7,8 +7,10 @@ from typing import Any, BinaryIO
 
 from fastapi import HTTPException, status
 
-from file_management.application.ports import DownloadObject, FileIndexerPort, StoragePort
+from file_management.application.ports import DownloadObject, FileIndexerPort, PreviewProviderPort, StoragePort
+from file_management.application.preview import NativePreviewProvider
 from file_management.domain.exceptions import (
+    FilePreviewUnsupported,
     FileFolderConflict,
     FileFolderNotEmpty,
     FileFolderNotFound,
@@ -25,6 +27,7 @@ from file_management.domain.exceptions import (
 from file_management.domain.models import (
     ACCESS_ACTION_DELETE,
     ACCESS_ACTION_DOWNLOAD,
+    ACCESS_ACTION_PREVIEW,
     ACCESS_ACTION_UPLOAD,
     ACCESS_RESULT_FAILED,
     ACCESS_RESULT_SUCCESS,
@@ -46,6 +49,7 @@ from file_management.infrastructure.storage.minio_storage import MinioObjectStor
 
 _storage: StoragePort = MinioObjectStorage()
 _indexer: FileIndexerPort = NoopFileIndexer()
+_preview_provider: PreviewProviderPort = NativePreviewProvider()
 
 
 def configure_storage(storage: StoragePort) -> None:
@@ -56,6 +60,11 @@ def configure_storage(storage: StoragePort) -> None:
 def configure_indexer(indexer: FileIndexerPort) -> None:
     global _indexer
     _indexer = indexer
+
+
+def configure_preview_provider(preview_provider: PreviewProviderPort) -> None:
+    global _preview_provider
+    _preview_provider = preview_provider
 
 
 def list_libraries(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -304,6 +313,12 @@ def get_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     return {"item": item.to_dict()}
 
 
+def get_file_preview_metadata(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    preview = _preview_provider.metadata_for(item)
+    return {"item": item.to_dict(), "preview": preview.to_dict()}
+
+
 def upload_file(
     *,
     current_user: dict[str, Any],
@@ -422,6 +437,40 @@ def download_file(
             detail={"original_name": item.original_name, "size_bytes": item.size_bytes},
         )
         return item, download
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    except Exception as exc:
+        raise domain_http_error(StorageOperationFailed(str(exc))) from exc
+
+
+def preview_file(
+    file_id: int,
+    current_user: dict[str, Any],
+    *,
+    client_ip: str = "",
+    user_agent: str = "",
+) -> tuple[ManagedFile, DownloadObject, dict[str, object]]:
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    preview = _preview_provider.metadata_for(item)
+    if not preview.previewable:
+        raise domain_http_error(FilePreviewUnsupported(preview.reason or "file preview is not supported"))
+    try:
+        profile = storage_profile_for_file(item)
+        download = _storage.open_for_read(profile=profile, key=item.storage_key)
+        repositories.record_access_log(
+            tenant_id=item.tenant_id,
+            file_id=item.id,
+            action=ACCESS_ACTION_PREVIEW,
+            result=ACCESS_RESULT_SUCCESS,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+            client_ip=client_ip,
+            user_agent=user_agent,
+            detail={"original_name": item.original_name, "size_bytes": item.size_bytes, "mode": preview.mode},
+        )
+        return item, download, preview.to_dict()
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
