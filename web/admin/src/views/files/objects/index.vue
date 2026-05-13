@@ -98,7 +98,7 @@
             </div>
             <div class="file-browser__meta">
               <span>{{ currentItems.length }} 个项目</span>
-              <span>{{ formatBytes(usage?.used_bytes || 0) }} 已用</span>
+              <span>{{ formatBytes(currentUsage?.used_bytes || 0) }} 已用</span>
             </div>
           </header>
 
@@ -126,7 +126,7 @@
                 </n-icon>
               </span>
               <span class="file-tile__name" :title="item.name">{{ item.name }}</span>
-              <span v-if="item.kind === 'file'" class="file-tile__meta">{{ formatBytes(item.size_bytes || 0) }}</span>
+              <span class="file-tile__meta">{{ formatBytes(item.size_bytes || 0) }}</span>
               <span class="file-tile__actions">
                 <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="preview(item.file!)">预览</n-button>
                 <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="download(item.file!)">下载</n-button>
@@ -332,7 +332,7 @@
   const breadcrumbs = ref<FileFolder[]>([]);
   const folders = ref<FileFolder[]>([]);
   const files = ref<ManagedFile[]>([]);
-  const usage = ref<StorageUsage | null>(null);
+  const currentUsage = ref<StorageUsage | null>(null);
   const folderFormRef = ref<FormInst | null>(null);
   const workspaceRows = ref<WorkspaceItem[]>([]);
 
@@ -357,6 +357,7 @@
       kind: 'folder' as const,
       id: item.id,
       name: item.name,
+      size_bytes: item.size_bytes || 0,
       update_time: item.update_time,
       folder: item,
     })),
@@ -405,7 +406,7 @@
       },
     },
     { title: '类型', key: 'kind', width: 120, render: (row) => (row.kind === 'folder' ? '目录' : '文件') },
-    { title: '大小', key: 'size_bytes', width: 140, render: (row) => (row.kind === 'folder' ? '-' : formatBytes(row.size_bytes || 0)) },
+    { title: '大小', key: 'size_bytes', width: 140, render: (row) => formatBytes(row.size_bytes || 0) },
     { title: '更新时间', key: 'update_time', width: 190, render: (row) => formatToDateTime(row.update_time || '') },
     {
       title: '操作',
@@ -641,7 +642,7 @@
       breadcrumbs.value = payload.breadcrumbs || [];
       folders.value = payload.folders || [];
       files.value = payload.files || [];
-      usage.value = payload.usage || null;
+      currentUsage.value = payload.current_usage || payload.usage || null;
       selectedLibraryId.value = currentLibrary.value?.id || null;
       selectedFolderId.value = currentFolder.value?.id || selectedFolderId.value || null;
       workspaceRows.value = currentItems.value;

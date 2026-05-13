@@ -283,6 +283,68 @@ def folder_child_count(*, tenant_id: int, folder_id: int) -> int:
     return int(folder_count["total"] if folder_count else 0) + int(file_count["total"] if file_count else 0)
 
 
+def folder_storage_usages(*, tenant_id: int, library_id: int, folder_ids: list[int]) -> dict[int, StorageUsage]:
+    if not folder_ids:
+        return {}
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        folder_rows = conn.execute(
+            """
+            SELECT id, parent_id
+            FROM file_folders
+            WHERE tenant_id = ? AND library_id = ? AND deleted = 0
+            """,
+            (tenant_id, library_id),
+        ).fetchall()
+        file_rows = conn.execute(
+            """
+            SELECT folder_id, COALESCE(SUM(size_bytes), 0) AS used_bytes, COUNT(*) AS file_count
+            FROM file_objects
+            WHERE tenant_id = ? AND library_id = ? AND deleted = 0 AND status = ? AND folder_id IS NOT NULL
+            GROUP BY folder_id
+            """,
+            (tenant_id, library_id, FILE_STATUS_AVAILABLE),
+        ).fetchall()
+
+    child_ids_by_parent: dict[int, list[int]] = {}
+    for row in folder_rows:
+        if row["parent_id"] is None:
+            continue
+        child_ids_by_parent.setdefault(int(row["parent_id"]), []).append(int(row["id"]))
+
+    direct_usage: dict[int, tuple[int, int]] = {}
+    for row in file_rows:
+        folder_id = int(row["folder_id"])
+        direct_usage[folder_id] = (int(row["used_bytes"] or 0), int(row["file_count"] or 0))
+
+    usage_cache: dict[int, tuple[int, int]] = {}
+
+    def sum_folder(folder_id: int) -> tuple[int, int]:
+        cached = usage_cache.get(folder_id)
+        if cached is not None:
+            return cached
+        used_bytes, file_count = direct_usage.get(folder_id, (0, 0))
+        for child_id in child_ids_by_parent.get(folder_id, []):
+            child_used_bytes, child_file_count = sum_folder(child_id)
+            used_bytes += child_used_bytes
+            file_count += child_file_count
+        usage_cache[folder_id] = (used_bytes, file_count)
+        return usage_cache[folder_id]
+
+    usages: dict[int, StorageUsage] = {}
+    for folder_id in folder_ids:
+        used_bytes, file_count = sum_folder(folder_id)
+        usages[folder_id] = StorageUsage(tenant_id=tenant_id, used_bytes=used_bytes, file_count=file_count)
+    return usages
+
+
+def folder_storage_usage(*, tenant_id: int, library_id: int, folder_id: int) -> StorageUsage:
+    return folder_storage_usages(tenant_id=tenant_id, library_id=library_id, folder_ids=[folder_id]).get(
+        folder_id,
+        StorageUsage(tenant_id=tenant_id, used_bytes=0, file_count=0),
+    )
+
+
 def delete_folder(*, tenant_id: int, folder_id: int, actor: str, actor_id: int | None) -> bool:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
@@ -463,16 +525,39 @@ def mark_file_indexed(*, tenant_id: int, file_id: int) -> None:
         )
 
 
-def storage_usage(*, tenant_id: int) -> StorageUsage:
+def storage_usage(
+    *,
+    tenant_id: int,
+    library_id: int | None = None,
+    folder_id: int | None = None,
+    current_folder_only: bool = False,
+    keyword: str = "",
+) -> StorageUsage:
+    filters = ["tenant_id = ?", "deleted = 0", "status = ?"]
+    params: list[Any] = [tenant_id, FILE_STATUS_AVAILABLE]
+    if library_id is not None:
+        filters.append("library_id = ?")
+        params.append(library_id)
+    if current_folder_only:
+        if folder_id is None:
+            filters.append("folder_id IS NULL")
+        else:
+            filters.append("folder_id = ?")
+            params.append(folder_id)
+    if keyword:
+        filters.append("(original_name LIKE ? OR display_name LIKE ?)")
+        like = f"%{keyword}%"
+        params.extend([like, like])
+    where_sql = " AND ".join(filters)
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         row = conn.execute(
-            """
+            f"""
             SELECT COALESCE(SUM(size_bytes), 0) AS used_bytes, COUNT(*) AS file_count
             FROM file_objects
-            WHERE tenant_id = ? AND deleted = 0 AND status = ?
+            WHERE {where_sql}
             """,
-            (tenant_id, FILE_STATUS_AVAILABLE),
+            tuple(params),
         ).fetchone()
     return StorageUsage(
         tenant_id=tenant_id,

@@ -216,6 +216,16 @@ def list_workspace(
             keyword=keyword.strip(),
         )
         usage = repositories.storage_usage(tenant_id=tenant_id)
+        folder_usages = (
+            repositories.folder_storage_usages(
+                tenant_id=tenant_id,
+                library_id=int(selected_library_id),
+                folder_ids=[item.id for item in folders],
+            )
+            if selected_library_id is not None and folders
+            else {}
+        )
+        current_usage = workspace_usage_from_items(tenant_id=tenant_id, folders=folders, folder_usages=folder_usages, files=files)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
@@ -225,9 +235,10 @@ def list_workspace(
         "current_library": selected_library.to_dict() if selected_library else None,
         "current_folder": selected_folder.to_dict() if selected_folder else None,
         "breadcrumbs": [item.to_dict() for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
-        "folders": [item.to_dict() for item in folders],
+        "folders": [folder_to_workspace_dict(item, folder_usages) for item in folders],
         "files": [item.to_dict() for item in files],
         "usage": usage.to_dict(),
+        "current_usage": current_usage,
     }
 
 
@@ -852,6 +863,32 @@ def folder_breadcrumbs(folder: FileFolder | None, *, tenant_id: int) -> list[Fil
         visited.add(parent.id)
         parent_id = parent.parent_id
     return list(reversed(folders))
+
+
+def folder_to_workspace_dict(item: FileFolder, folder_usages: dict[int, Any]) -> dict[str, Any]:
+    payload = item.to_dict()
+    usage = folder_usages.get(item.id)
+    payload["size_bytes"] = int(usage.used_bytes) if usage else 0
+    payload["file_count"] = int(usage.file_count) if usage else 0
+    return payload
+
+
+def workspace_usage_from_items(
+    *,
+    tenant_id: int,
+    folders: list[FileFolder],
+    folder_usages: dict[int, Any],
+    files: list[ManagedFile],
+) -> dict[str, Any]:
+    used_bytes = sum(int(file.size_bytes) for file in files)
+    file_count = len(files)
+    for folder in folders:
+        usage = folder_usages.get(folder.id)
+        if not usage:
+            continue
+        used_bytes += int(usage.used_bytes)
+        file_count += int(usage.file_count)
+    return {"tenant_id": tenant_id, "used_bytes": used_bytes, "file_count": file_count}
 
 
 def default_storage_profile() -> StorageProfile:

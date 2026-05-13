@@ -33,6 +33,8 @@ export interface FileFolder {
   name: string;
   description: string;
   status: string;
+  size_bytes?: number;
+  file_count?: number;
   create_time?: string;
   update_time?: string;
 }
@@ -189,6 +191,7 @@ export interface FileWorkspaceData {
   folders: FileFolder[];
   files: ManagedFile[];
   usage: StorageUsage;
+  current_usage?: StorageUsage;
 }
 
 export interface StorageProfilePayload {

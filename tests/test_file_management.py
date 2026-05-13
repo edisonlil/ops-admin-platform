@@ -187,6 +187,7 @@ class FileManagementTests(unittest.TestCase):
         self.assertEqual(len(workspace["breadcrumbs"]), 1)
         self.assertEqual(workspace["breadcrumbs"][0]["name"], "2026 Contracts")
         self.assertEqual(len(workspace["files"]), 1)
+        self.assertEqual(workspace["current_usage"]["used_bytes"], 5)
 
         search = services.search_files(page=1, page_size=20, keyword="contract", current_user=self.current_user)
         self.assertEqual(search["pagination"]["total"], 1)
@@ -215,6 +216,15 @@ class FileManagementTests(unittest.TestCase):
         self.assertTrue(delete["deleted"])
         after = services.list_files(page=1, page_size=20, current_user=self.current_user)
         self.assertEqual(after["pagination"]["total"], 0)
+        quota_after_delete = services.quota_for_tenant(7)
+        self.assertEqual(quota_after_delete["usage"]["used_bytes"], 0)
+        self.assertEqual(quota_after_delete["usage"]["file_count"], 0)
+        workspace_after_delete = services.list_workspace(
+            current_user=self.current_user,
+            library_id=int(library["id"]),
+            folder_id=int(folder["id"]),
+        )
+        self.assertEqual(workspace_after_delete["current_usage"]["used_bytes"], 0)
         self.assertEqual(services.list_index_jobs(page=1, page_size=20, current_user=self.current_user)["pagination"]["total"], 3)
         deleted_folder = services.delete_folder(int(folder["id"]), self.current_user)
         self.assertTrue(deleted_folder["deleted"])
@@ -312,6 +322,54 @@ class FileManagementTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(folder_caught.exception, "status_code", None), 404)
+
+    def test_workspace_reports_recursive_folder_size(self) -> None:
+        self.create_default_profile()
+        library = services.save_library({"name": "Knowledge"}, self.current_user)["item"]
+        parent = services.save_folder(
+            {"library_id": int(library["id"]), "name": "Parent"},
+            self.current_user,
+        )["item"]
+        child = services.save_folder(
+            {"library_id": int(library["id"]), "parent_id": int(parent["id"]), "name": "Child"},
+            self.current_user,
+        )["item"]
+        services.upload_file(
+            current_user=self.current_user,
+            filename="root.txt",
+            content_type="text/plain",
+            stream=io.BytesIO(b"root"),
+            library_id=int(library["id"]),
+            folder_id=int(parent["id"]),
+            visibility="tenant",
+            metadata={},
+        )
+        services.upload_file(
+            current_user=self.current_user,
+            filename="child.txt",
+            content_type="text/plain",
+            stream=io.BytesIO(b"child-file"),
+            library_id=int(library["id"]),
+            folder_id=int(child["id"]),
+            visibility="tenant",
+            metadata={},
+        )
+
+        root_workspace = services.list_workspace(current_user=self.current_user, library_id=int(library["id"]))
+        parent_row = next(item for item in root_workspace["folders"] if item["id"] == int(parent["id"]))
+        self.assertEqual(parent_row["size_bytes"], 14)
+        self.assertEqual(parent_row["file_count"], 2)
+        self.assertEqual(root_workspace["current_usage"]["used_bytes"], 14)
+
+        parent_workspace = services.list_workspace(
+            current_user=self.current_user,
+            library_id=int(library["id"]),
+            folder_id=int(parent["id"]),
+        )
+        child_row = next(item for item in parent_workspace["folders"] if item["id"] == int(child["id"]))
+        self.assertEqual(child_row["size_bytes"], 10)
+        self.assertEqual(child_row["file_count"], 1)
+        self.assertEqual(parent_workspace["current_usage"]["used_bytes"], 14)
 
     def test_provider_options_expose_reserved_providers(self) -> None:
         options = services.storage_provider_options()["items"]
