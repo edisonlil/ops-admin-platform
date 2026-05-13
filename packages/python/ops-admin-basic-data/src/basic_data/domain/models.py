@@ -59,7 +59,6 @@ class DictionaryItem:
     type_code: str
     code: str
     value: str
-    label: str
     color: str
     description: str
     extra: dict[str, Any]
@@ -77,8 +76,6 @@ class DictionaryItem:
             raise BasicDataDomainError("dictionary item code is required")
         if not self.value.strip():
             raise BasicDataDomainError("dictionary item value is required")
-        if not self.label.strip():
-            raise BasicDataDomainError("dictionary item label is required")
         if self.status not in STATUSES:
             raise BasicDataDomainError(f"unsupported dictionary item status: {self.status}")
 
@@ -90,7 +87,6 @@ class DictionaryItem:
             "type_code": self.type_code,
             "code": self.code,
             "value": self.value,
-            "label": self.label,
             "color": self.color,
             "description": self.description,
             "extra": self.extra,

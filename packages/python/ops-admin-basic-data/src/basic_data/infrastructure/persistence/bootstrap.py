@@ -32,6 +32,8 @@ def require_basic_data_schema(conn: Any) -> None:
 def ensure_basic_data_columns(conn: Any) -> None:
     if table_exists(conn, "business_dictionary_types") and not column_exists(conn, "business_dictionary_types", "parent_id"):
         conn.execute("ALTER TABLE business_dictionary_types ADD COLUMN parent_id BIGINT DEFAULT NULL")
+    if table_exists(conn, "business_dictionary_items") and column_exists(conn, "business_dictionary_items", "label"):
+        conn.execute("ALTER TABLE business_dictionary_items DROP COLUMN label")
 
 
 def apply_sql_script(conn: Any, path: Path) -> None:

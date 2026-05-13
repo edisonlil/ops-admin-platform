@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS business_dictionary_items (
     type_id BIGINT NOT NULL,
     code VARCHAR(120) NOT NULL,
     value VARCHAR(300) NOT NULL,
-    label VARCHAR(300) NOT NULL,
     color VARCHAR(80) NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     extra_json TEXT NOT NULL DEFAULT '{}',

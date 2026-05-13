@@ -71,9 +71,6 @@
             <n-form-item-gi label="值" path="value">
               <n-input v-model:value="itemForm.value" placeholder="G" />
             </n-form-item-gi>
-            <n-form-item-gi label="显示标签" path="label">
-              <n-input v-model:value="itemForm.label" placeholder="金牌" />
-            </n-form-item-gi>
             <n-form-item-gi label="状态" path="status">
               <n-select v-model:value="itemForm.status" :options="statusOptions" />
             </n-form-item-gi>
@@ -162,7 +159,6 @@
   const itemForm = reactive<Partial<DictionaryItem>>({
     code: '',
     value: '',
-    label: '',
     color: '',
     description: '',
     extra: {},
@@ -201,7 +197,6 @@
   const itemRules: FormRules = {
     code: [{ required: true, message: '请输入字典项编码', trigger: ['blur', 'input'] }],
     value: [{ required: true, message: '请输入字典项值', trigger: ['blur', 'input'] }],
-    label: [{ required: true, message: '请输入显示标签', trigger: ['blur', 'input'] }],
   };
 
   const typeTree = computed<TreeOption[]>(() => buildTypeTree(typeRows.value));
@@ -219,8 +214,7 @@
 
   const itemColumns: DataTableColumns<DictionaryItem> = [
     { title: '编码', key: 'code', width: 160 },
-    { title: '值', key: 'value', width: 120 },
-    { title: '显示标签', key: 'label', minWidth: 180 },
+    { title: '值', key: 'value', minWidth: 180 },
     {
       title: '状态',
       key: 'status',
@@ -364,7 +358,6 @@
       id: undefined,
       code: '',
       value: '',
-      label: '',
       color: '',
       description: '',
       extra: {},

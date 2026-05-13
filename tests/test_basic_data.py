@@ -127,7 +127,6 @@ class BasicDataTests(unittest.TestCase):
             {
                 "code": "gold",
                 "value": "G",
-                "label": "金牌",
                 "color": "success",
                 "extra": {"score": 90},
                 "sort_order": 1,
@@ -139,7 +138,6 @@ class BasicDataTests(unittest.TestCase):
             {
                 "code": "silver",
                 "value": "S",
-                "label": "银牌",
                 "status": "disabled",
                 "sort_order": 2,
             },
@@ -164,7 +162,6 @@ class BasicDataTests(unittest.TestCase):
             {
                 "code": "silver",
                 "value": "S2",
-                "label": "银牌复建",
                 "sort_order": 3,
             },
             self.current_user,
@@ -174,7 +171,7 @@ class BasicDataTests(unittest.TestCase):
 
         services.save_dictionary_item(
             int(child_type["id"]),
-            {"code": "child", "value": "C", "label": "子分类项"},
+            {"code": "child", "value": "C"},
             self.current_user,
         )
         deleted_type = services.delete_dictionary_type(type_id=int(saved_type["id"]), current_user=self.current_user)

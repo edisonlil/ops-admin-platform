@@ -32,7 +32,6 @@ export interface DictionaryItem {
   type_code: string;
   code: string;
   value: string;
-  label: string;
   color: string;
   description: string;
   extra: Record<string, unknown>;
@@ -57,7 +56,6 @@ export interface DictionaryItemPayload {
   id?: number;
   code: string;
   value: string;
-  label: string;
   color?: string;
   description?: string;
   extra?: Record<string, unknown>;
@@ -116,7 +114,6 @@ export function saveDictionaryItem(typeId: number, payload: Partial<DictionaryIt
   const body: DictionaryItemPayload = {
     code: String(payload.code || '').trim(),
     value: String(payload.value || '').trim(),
-    label: String(payload.label || '').trim(),
     color: payload.color || '',
     description: payload.description || '',
     extra: payload.extra || {},

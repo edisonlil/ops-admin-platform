@@ -230,7 +230,6 @@ def normalize_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "id": int(payload.get("id") or 0),
         "code": str(payload.get("code") or "").strip(),
         "value": str(payload.get("value") or "").strip(),
-        "label": str(payload.get("label") or "").strip(),
         "color": str(payload.get("color") or "").strip(),
         "description": str(payload.get("description") or "").strip(),
         "extra": payload.get("extra") if isinstance(payload.get("extra"), dict) else {},
@@ -255,7 +254,6 @@ def normalized_item_fields(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "code": str(payload.get("code") or ""),
         "value": str(payload.get("value") or ""),
-        "label": str(payload.get("label") or ""),
         "color": str(payload.get("color") or ""),
         "description": str(payload.get("description") or ""),
         "extra": payload.get("extra") if isinstance(payload.get("extra"), dict) else {},

@@ -207,9 +207,9 @@ def list_dictionary_items(
     where = ["i.tenant_id = ?", "i.type_id = ?", "i.deleted = 0"]
     params: list[Any] = [tenant_id, type_id]
     if keyword.strip():
-        where.append("(i.code LIKE ? OR i.value LIKE ? OR i.label LIKE ? OR i.description LIKE ?)")
+        where.append("(i.code LIKE ? OR i.value LIKE ? OR i.description LIKE ?)")
         text = f"%{keyword.strip()}%"
-        params.extend([text, text, text, text])
+        params.extend([text, text, text])
     normalized_status = status_filter(status)
     if normalized_status:
         where.append("i.status = ?")
@@ -263,7 +263,6 @@ def save_dictionary_item(
     values = (
         str(payload.get("code") or "").strip(),
         str(payload.get("value") or "").strip(),
-        str(payload.get("label") or "").strip(),
         str(payload.get("color") or "").strip(),
         str(payload.get("description") or "").strip(),
         encode_json(payload.get("extra") if isinstance(payload.get("extra"), dict) else {}),
@@ -280,7 +279,7 @@ def save_dictionary_item(
                 conn.execute(
                     """
                     UPDATE business_dictionary_items
-                    SET code = ?, value = ?, label = ?, color = ?, description = ?,
+                    SET code = ?, value = ?, color = ?, description = ?,
                         extra_json = ?, status = ?, sort_order = ?, editor = ?,
                         editor_id = ?, update_time = ?, lock_version = lock_version + 1
                     WHERE id = ? AND tenant_id = ? AND deleted = 0
@@ -292,16 +291,16 @@ def save_dictionary_item(
                 cursor = conn.execute(
                     """
                     INSERT INTO business_dictionary_items (
-                        tenant_id, type_id, code, value, label, color, description,
+                        tenant_id, type_id, code, value, color, description,
                         extra_json, status, sort_order, creator, creator_id, editor,
                         editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         tenant_id,
                         type_id,
-                        *values[:8],
+                        *values[:7],
                         actor,
                         actor_id,
                         actor,
@@ -392,7 +391,6 @@ def row_to_dictionary_item(row: dict[str, Any]) -> DictionaryItem:
         type_code=str(row.get("type_code") or ""),
         code=str(row.get("code") or ""),
         value=str(row.get("value") or ""),
-        label=str(row.get("label") or ""),
         color=str(row.get("color") or ""),
         description=str(row.get("description") or ""),
         extra=decode_json(row.get("extra_json")),
