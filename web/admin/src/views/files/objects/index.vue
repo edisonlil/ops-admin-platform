@@ -220,6 +220,7 @@
             :src="previewBlobUrl"
             title="文件预览"
           />
+          <div v-else-if="isMarkdownPreview" class="file-preview__markdown" v-html="markdownHtml"></div>
           <pre v-else-if="previewMode === 'text'" class="file-preview__text">{{ previewText }}</pre>
           <audio
             v-else-if="previewMode === 'audio' && previewBlobUrl"
@@ -248,6 +249,7 @@
   import { computed, h, onBeforeUnmount, reactive, ref } from 'vue';
   import { NButton, NIcon, NSpace, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption, UploadFileInfo } from 'naive-ui';
+  import MarkdownIt from 'markdown-it';
   import {
     AppstoreOutlined,
     ArrowLeftOutlined,
@@ -280,6 +282,12 @@
 
   type ViewMode = 'grid' | 'list';
   type WorkspaceItemKind = 'folder' | 'file';
+
+  const markdownRenderer = new MarkdownIt({
+    html: false,
+    linkify: true,
+    breaks: true,
+  });
 
   interface WorkspaceItem {
     key: string;
@@ -362,6 +370,8 @@
   });
   const previewTitle = computed(() => previewFile.value?.display_name || previewFile.value?.original_name || '文件预览');
   const previewDrawerWidth = computed(() => (previewMode.value === 'text' ? 'min(760px, 100vw)' : 'min(920px, 100vw)'));
+  const isMarkdownPreview = computed(() => previewMode.value === 'text' && isMarkdownFile(previewFile.value));
+  const markdownHtml = computed(() => markdownRenderer.render(previewText.value || ''));
 
   const columns: DataTableColumns<WorkspaceItem> = [
     {
@@ -590,6 +600,12 @@
   function previewUnsupportedText(reason: string) {
     if (reason === 'text_file_too_large') return '文本文件过大，请下载后查看';
     return '该文件类型暂不支持在线预览';
+  }
+
+  function isMarkdownFile(file: ManagedFile | null) {
+    const extension = String(file?.extension || '').toLowerCase();
+    const mimeType = String(file?.mime_type || '').toLowerCase();
+    return extension === 'md' || extension === 'markdown' || mimeType === 'text/markdown';
   }
 
   async function removeFile(row: ManagedFile) {
@@ -868,6 +884,97 @@
     background: var(--app-fill-color-lighter);
     border: 1px solid var(--app-border-color);
     border-radius: 6px;
+  }
+
+  :deep(.file-preview__markdown) {
+    max-height: min(680px, calc(100vh - 170px));
+    min-height: 360px;
+    padding: 18px 22px;
+    overflow: auto;
+    color: var(--app-text-color);
+    font-size: 14px;
+    line-height: 1.75;
+    background: var(--app-fill-color-lighter);
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+  }
+
+  :deep(.file-preview__markdown h1),
+  :deep(.file-preview__markdown h2),
+  :deep(.file-preview__markdown h3),
+  :deep(.file-preview__markdown h4) {
+    margin: 1.1em 0 0.55em;
+    color: var(--app-text-color);
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  :deep(.file-preview__markdown h1:first-child),
+  :deep(.file-preview__markdown h2:first-child),
+  :deep(.file-preview__markdown h3:first-child),
+  :deep(.file-preview__markdown h4:first-child) {
+    margin-top: 0;
+  }
+
+  :deep(.file-preview__markdown h1) {
+    font-size: 24px;
+  }
+
+  :deep(.file-preview__markdown h2) {
+    font-size: 20px;
+  }
+
+  :deep(.file-preview__markdown h3) {
+    font-size: 17px;
+  }
+
+  :deep(.file-preview__markdown p),
+  :deep(.file-preview__markdown ul),
+  :deep(.file-preview__markdown ol),
+  :deep(.file-preview__markdown blockquote),
+  :deep(.file-preview__markdown pre) {
+    margin: 0.7em 0;
+  }
+
+  :deep(.file-preview__markdown ul),
+  :deep(.file-preview__markdown ol) {
+    padding-left: 1.5em;
+  }
+
+  :deep(.file-preview__markdown code) {
+    padding: 2px 5px;
+    font-size: 13px;
+    background: var(--app-fill-color);
+    border-radius: 4px;
+  }
+
+  :deep(.file-preview__markdown pre) {
+    padding: 12px;
+    overflow: auto;
+    background: var(--app-fill-color);
+    border-radius: 6px;
+  }
+
+  :deep(.file-preview__markdown pre code) {
+    padding: 0;
+    background: transparent;
+  }
+
+  :deep(.file-preview__markdown blockquote) {
+    padding-left: 12px;
+    color: var(--app-text-color-2);
+    border-left: 3px solid var(--app-border-color);
+  }
+
+  :deep(.file-preview__markdown table) {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  :deep(.file-preview__markdown th),
+  :deep(.file-preview__markdown td) {
+    padding: 6px 8px;
+    border: 1px solid var(--app-border-color);
   }
 
   .file-preview__media,
