@@ -206,6 +206,14 @@ SELECT 'file:storage_profiles:manage', 'Manage file storage profiles', 'Configur
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:storage_profiles:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:dictionary:read', 'Read business dictionaries', 'View and consume tenant business dictionaries'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:dictionary:manage', 'Manage business dictionaries', 'Create, update, disable, and delete tenant business dictionaries'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:manage');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'tenant:user:manage', 'Tenant user manage', 'Manage users inside platform tenants'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:user:manage');
 
@@ -751,6 +759,38 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-upload');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'file-objects-delete', 'tenant', '删除文件', 'action', '', '', '', '', 'file-objects', 'file:object:delete', 8322, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data', 'tenant', '基础数据', 'directory', '', '', '', 'database', '', '', 84, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-dictionaries', 'tenant', '业务字典', 'page', '/basic-data/dictionaries', 'basic-data-dictionaries', '/basic-data/dictionaries/index', 'database', 'basic-data', 'basic-data:dictionary:read', 841, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-dictionaries');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-dictionaries-create', 'tenant', '新建业务字典', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8411, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-dictionaries-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-dictionaries-update', 'tenant', '编辑业务字典', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8412, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-dictionaries-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-dictionaries-delete', 'tenant', '删除业务字典', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8413, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-dictionaries-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-items-create', 'tenant', '新建字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8414, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-items-update', 'tenant', '编辑字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8415, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-items-delete', 'tenant', '删除字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8416, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-delete');
 
 DELETE FROM role_menus
 WHERE menu_id IN (

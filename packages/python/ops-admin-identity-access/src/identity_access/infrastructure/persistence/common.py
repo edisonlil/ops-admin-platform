@@ -64,6 +64,14 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "file-storage-profiles-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "file-tenant-quotas": {"menu_type": "page", "component": "/files/tenant-quotas/index", "menu_scope": "platform"},
     "file-tenant-quotas-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "basic-data": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "basic-data-dictionaries": {"menu_type": "page", "component": "/basic-data/dictionaries/index", "menu_scope": "tenant"},
+    "basic-data-dictionaries-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "basic-data-dictionaries-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "basic-data-dictionaries-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "basic-data-items-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "basic-data-items-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "basic-data-items-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "cron": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "cron-tasks": {"menu_type": "page", "component": "/cron/tasks/index", "menu_scope": "tenant"},
     "cron-tasks-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -171,6 +179,20 @@ TENANT_FILE_NAV_MENU_KEYS = [
     "file-libraries",
     "file-objects",
 ]
+TENANT_BASIC_DATA_MENU_KEYS = [
+    "basic-data",
+    "basic-data-dictionaries",
+    "basic-data-dictionaries-create",
+    "basic-data-dictionaries-update",
+    "basic-data-dictionaries-delete",
+    "basic-data-items-create",
+    "basic-data-items-update",
+    "basic-data-items-delete",
+]
+TENANT_BASIC_DATA_NAV_MENU_KEYS = [
+    "basic-data",
+    "basic-data-dictionaries",
+]
 TENANT_LLM_MENU_KEYS = [
     "llm",
     "llm-config",
@@ -206,6 +228,7 @@ TENANT_ADMIN_MENU_KEYS = (
     ]
     + TENANT_MESSAGING_MENU_KEYS
     + TENANT_FILE_MENU_KEYS
+    + TENANT_BASIC_DATA_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + TENANT_CRON_MENU_KEYS
 )
@@ -214,6 +237,7 @@ DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
     + TENANT_MESSAGING_NAV_MENU_KEYS
     + TENANT_FILE_NAV_MENU_KEYS
+    + TENANT_BASIC_DATA_NAV_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + ["cron", "cron-tasks", "cron-runs"]
 )
@@ -251,6 +275,8 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "file:object:read",
     "file:object:upload",
     "file:object:delete",
+    "basic-data:dictionary:read",
+    "basic-data:dictionary:manage",
     "cron:tasks:view",
     "cron:tasks:create",
     "cron:tasks:update",
@@ -794,6 +820,16 @@ def ensure_file_management_permissions(conn: Any) -> None:
             "Manage file storage profiles",
             "Configure object storage profiles for file management",
         ),
+        (
+            "basic-data:dictionary:read",
+            "Read business dictionaries",
+            "View and consume tenant business dictionaries",
+        ),
+        (
+            "basic-data:dictionary:manage",
+            "Manage business dictionaries",
+            "Create, update, disable, and delete tenant business dictionaries",
+        ),
     ]
     for code, name, description in permission_rows:
         conn.execute(
@@ -868,6 +904,12 @@ def backfill_default_menu_metadata(conn: Any) -> None:
     ]
     for menu_key, label in label_rows:
         conn.execute("UPDATE menus SET label = ? WHERE menu_key = ? AND (label IS NULL OR label = '')", (label, menu_key))
+    basic_data_label_rows = [
+        ("basic-data", "基础数据"),
+        ("basic-data-dictionaries", "业务字典"),
+    ]
+    for menu_key, label in basic_data_label_rows:
+        conn.execute("UPDATE menus SET label = ? WHERE menu_key = ?", (label, menu_key))
     conn.execute(
         """
         UPDATE menus
@@ -1149,6 +1191,86 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "file-objects",
             "file:object:delete",
             8322,
+        ),
+        (
+            "basic-data",
+            "基础数据",
+            "",
+            "",
+            "database",
+            "",
+            "",
+            84,
+        ),
+        (
+            "basic-data-dictionaries",
+            "业务字典",
+            "/basic-data/dictionaries",
+            "basic-data-dictionaries",
+            "database",
+            "basic-data",
+            "basic-data:dictionary:read",
+            841,
+        ),
+        (
+            "basic-data-dictionaries-create",
+            "新建业务字典",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8411,
+        ),
+        (
+            "basic-data-dictionaries-update",
+            "编辑业务字典",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8412,
+        ),
+        (
+            "basic-data-dictionaries-delete",
+            "删除业务字典",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8413,
+        ),
+        (
+            "basic-data-items-create",
+            "新建字典项",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8414,
+        ),
+        (
+            "basic-data-items-update",
+            "编辑字典项",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8415,
+        ),
+        (
+            "basic-data-items-delete",
+            "删除字典项",
+            "",
+            "",
+            "",
+            "basic-data-dictionaries",
+            "basic-data:dictionary:manage",
+            8416,
         ),
         (
             "llm",
@@ -1656,6 +1778,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()

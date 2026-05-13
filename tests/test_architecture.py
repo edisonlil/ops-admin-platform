@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_PACKAGES_ROOT = ROOT / "packages" / "python"
 BOUNDED_CONTEXTS = {
     "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
+    "basic_data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data" / "src" / "basic_data",
     "cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron" / "src" / "cron",
     "file_management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management" / "src" / "file_management",
     "identity_access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access" / "src" / "identity_access",
@@ -19,6 +20,7 @@ BOUNDED_CONTEXTS = {
 }
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
+    "ops-admin-basic-data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data",
     "ops-admin-cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron",
     "ops-admin-file-management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management",
     "ops-admin-identity-access": PYTHON_PACKAGES_ROOT / "ops-admin-identity-access",
@@ -215,12 +217,15 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
     violations: list[str] = []
     allowed_files = {
         ROOT / "scripts" / "init_identity_access.py",
+        ROOT / "scripts" / "init_basic_data.py",
         ROOT / "scripts" / "init_llm_runtime.py",
         ROOT / "scripts" / "init_appearance.py",
         ROOT / "scripts" / "init_cron.py",
         ROOT / "scripts" / "init_file_management.py",
         BOUNDED_CONTEXTS["appearance"] / "entrypoints.py",
         BOUNDED_CONTEXTS["appearance"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["basic_data"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["basic_data"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["cron"] / "entrypoints.py",
         BOUNDED_CONTEXTS["cron"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["file_management"] / "entrypoints.py",
@@ -241,6 +246,7 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         "ensure_llm_schema",
         "_ensure_tenant_schema",
         "ensure_appearance_schema",
+        "ensure_basic_data_schema",
         "ensure_cron_schema",
     }
     package_paths = [*BOUNDED_CONTEXTS.values(), ROOT / "api"]
@@ -285,6 +291,7 @@ def test_llm_core_stays_business_agnostic() -> None:
 def test_python_packages_have_required_metadata_and_entrypoints() -> None:
     expected = {
         "ops-admin-system": ("system", "system.entrypoints:router", "system.entrypoints:init_tasks"),
+        "ops-admin-basic-data": ("basic_data", "basic_data.entrypoints:router", "basic_data.entrypoints:init_tasks"),
         "ops-admin-cron": ("cron", "cron.entrypoints:router", "cron.entrypoints:init_tasks"),
         "ops-admin-file-management": (
             "file_management",

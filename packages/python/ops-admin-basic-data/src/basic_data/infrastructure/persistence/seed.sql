@@ -1,0 +1,2 @@
+-- Basic data dictionary rows are tenant-specific business data.
+-- Administrators should create dictionary content explicitly after schema initialization.

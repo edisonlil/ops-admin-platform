@@ -1,7 +1,7 @@
 import type { App } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 
-export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'file_management' | string;
+export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'basic_data' | 'file_management' | string;
 
 export interface OpsAdminWebModule {
   key: OpsAdminModuleKey;
@@ -123,6 +123,16 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'file-tenant-quotas',
     'file-tenant-quotas-manage',
   ],
+  basic_data: [
+    'basic-data',
+    'basic-data-dictionaries',
+    'basic-data-dictionaries-create',
+    'basic-data-dictionaries-update',
+    'basic-data-dictionaries-delete',
+    'basic-data-items-create',
+    'basic-data-items-update',
+    'basic-data-items-delete',
+  ],
 };
 
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();
@@ -195,6 +205,16 @@ export function registerLlmRuntimeModule(options: OpsAdminModuleOptions = {}) {
     key: 'llm_runtime',
     label: options.label || 'LLM Runtime',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.llm_runtime,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerBasicDataModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'basic_data',
+    label: options.label || '基础数据',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.basic_data,
     routes: options.routes,
     install: options.install,
   });

@@ -286,6 +286,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("appearance-studio", menu_keys)
         self.assertIn("file-storage-profiles", menu_keys)
         self.assertIn("file-tenant-quotas", menu_keys)
+        self.assertIn("basic-data", menu_keys)
+        self.assertIn("basic-data-dictionaries", menu_keys)
         self.assertIn("llm-debug", menu_keys)
         self.assertNotIn("recommend", menu_keys)
         self.assertNotIn("function-points", menu_keys)
@@ -294,6 +296,8 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:quota:manage" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:storage_profiles:manage" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "basic-data:dictionary:read" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "basic-data:dictionary:manage" for item in permission_response.json()["data"]["items"]))
 
         menus_by_key = {item["key"]: item for item in menu_response.json()["data"]["items"]}
         self.assertEqual(menus_by_key["platform-management"]["menu_type"], "directory")
@@ -339,10 +343,14 @@ class ApiTests(unittest.TestCase):
         self.assertIn("cron:tasks:trigger", permissions)
         self.assertIn("file:object:upload", permissions)
         self.assertIn("file:library:manage", permissions)
+        self.assertIn("basic-data:dictionary:read", permissions)
+        self.assertIn("basic-data:dictionary:manage", permissions)
         self.assertIn("llm-config", keys)
         self.assertIn("cron-tasks", keys)
         self.assertIn("file-libraries", keys)
         self.assertIn("file-management", keys)
+        self.assertIn("basic-data", keys)
+        self.assertIn("basic-data-dictionaries", keys)
         self.assertIn("file-objects", keys)
         self.assertIn("cron-runs", keys)
         self.assertNotIn("tenant-management", keys)
@@ -560,6 +568,64 @@ class ApiTests(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNotNone(repaired)
+
+    def test_identity_initialization_repairs_tenant_admin_basic_data_menus_and_permissions(self) -> None:
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            conn.execute(
+                """
+                DELETE FROM role_menus
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND menu_id IN (
+                      SELECT id FROM menus WHERE menu_key IN (?, ?)
+                  )
+                """,
+                ("tenant-admin", "basic-data", "basic-data-dictionaries"),
+            )
+            conn.execute(
+                """
+                DELETE FROM role_permissions
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND permission_id IN (
+                      SELECT id FROM permissions WHERE code IN (?, ?)
+                  )
+                """,
+                ("tenant-admin", "basic-data:dictionary:read", "basic-data:dictionary:manage"),
+            )
+
+            initialize_auth_storage(conn)
+
+            repaired_menus = conn.execute(
+                """
+                SELECT m.menu_key
+                FROM role_menus rm
+                JOIN roles r ON r.id = rm.role_id
+                JOIN menus m ON m.id = rm.menu_id
+                WHERE r.role_key = ?
+                  AND m.menu_key IN (?, ?)
+                ORDER BY m.menu_key
+                """,
+                ("tenant-admin", "basic-data", "basic-data-dictionaries"),
+            ).fetchall()
+            repaired_permissions = conn.execute(
+                """
+                SELECT p.code
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ?
+                  AND p.code IN (?, ?)
+                ORDER BY p.code
+                """,
+                ("tenant-admin", "basic-data:dictionary:read", "basic-data:dictionary:manage"),
+            ).fetchall()
+
+        self.assertEqual({row["menu_key"] for row in repaired_menus}, {"basic-data", "basic-data-dictionaries"})
+        self.assertEqual(
+            {row["code"] for row in repaired_permissions},
+            {"basic-data:dictionary:manage", "basic-data:dictionary:read"},
+        )
 
     def test_admin_can_create_update_and_delete_menu(self) -> None:
         create_response = self.request(

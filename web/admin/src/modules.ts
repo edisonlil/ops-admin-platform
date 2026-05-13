@@ -1,5 +1,6 @@
 import {
   clearOpsAdminModules,
+  registerBasicDataModule,
   registerCronModule,
   registerAppearanceModule,
   registerFileManagementModule,
@@ -12,6 +13,10 @@ export function setupStarterModules() {
   clearOpsAdminModules();
   registerIdentityAccessModule();
   registerAppearanceModule();
+  if (import.meta.env.VITE_ENABLE_BASIC_DATA !== 'false') {
+    registerBasicDataModule();
+  }
+
   if (import.meta.env.VITE_ENABLE_MESSAGING !== 'false') {
     registerMessagingModule();
   }
