@@ -11,7 +11,17 @@ from fastapi import APIRouter
 
 ROUTER_GROUP = "ops_admin.routers"
 INIT_TASK_GROUP = "ops_admin.init_tasks"
-MODULE_ORDER = ("system", "cron", "identity_access", "basic_data", "file_management", "messaging", "llm_runtime", "appearance")
+MODULE_ORDER = (
+    "system",
+    "cron",
+    "identity_access",
+    "basic_data",
+    "file_management",
+    "messaging",
+    "llm_runtime",
+    "ai_assets",
+    "appearance",
+)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_PACKAGE_SRC = {
     "system": REPO_ROOT / "packages" / "python" / "ops-admin-system" / "src",
@@ -21,6 +31,7 @@ LOCAL_PACKAGE_SRC = {
     "file_management": REPO_ROOT / "packages" / "python" / "ops-admin-file-management" / "src",
     "messaging": REPO_ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     "llm_runtime": REPO_ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
+    "ai_assets": REPO_ROOT / "packages" / "python" / "ops-admin-ai-assets" / "src",
     "appearance": REPO_ROOT / "packages" / "python" / "ops-admin-appearance" / "src",
 }
 LOCAL_ENTRYPOINTS = {
@@ -32,6 +43,7 @@ LOCAL_ENTRYPOINTS = {
         "file_management": "file_management.entrypoints:router",
         "messaging": "messaging.entrypoints:router",
         "llm_runtime": "llm_runtime.entrypoints:router",
+        "ai_assets": "ai_assets.entrypoints:router",
         "appearance": "appearance.entrypoints:router",
     },
     INIT_TASK_GROUP: {
@@ -42,6 +54,7 @@ LOCAL_ENTRYPOINTS = {
         "file_management": "file_management.entrypoints:init_tasks",
         "messaging": "messaging.entrypoints:init_tasks",
         "llm_runtime": "llm_runtime.entrypoints:init_tasks",
+        "ai_assets": "ai_assets.entrypoints:init_tasks",
         "appearance": "appearance.entrypoints:init_tasks",
     },
 }

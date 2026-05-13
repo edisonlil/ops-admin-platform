@@ -38,6 +38,7 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("file_management", "file_management.entrypoints:router", fake_router("file_management")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
             FakeEntryPoint("llm_runtime", "llm_runtime.entrypoints:router", fake_router("llm_runtime")),
+            FakeEntryPoint("ai_assets", "ai_assets.entrypoints:router", fake_router("ai_assets")),
             FakeEntryPoint("messaging", "messaging.entrypoints:router", fake_router("messaging")),
             FakeEntryPoint("identity_access", "identity_access.entrypoints:router", fake_router("identity_access")),
         ]
@@ -45,10 +46,20 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 8)
+        self.assertEqual(len(routers), 9)
         self.assertEqual(
             loaded,
-            ["system", "cron", "identity_access", "basic_data", "file_management", "messaging", "llm_runtime", "appearance"],
+            [
+                "system",
+                "cron",
+                "identity_access",
+                "basic_data",
+                "file_management",
+                "messaging",
+                "llm_runtime",
+                "ai_assets",
+                "appearance",
+            ],
         )
 
     def test_module_registry_composes_init_tasks(self) -> None:
@@ -85,12 +96,20 @@ class PackageEntrypointTests(unittest.TestCase):
                 "messaging.entrypoints:init_tasks",
                 lambda: (lambda: {"messaging": lambda conn: None}),
             ),
+            FakeEntryPoint(
+                "ai_assets",
+                "ai_assets.entrypoints:init_tasks",
+                lambda: (lambda: {"ai_assets": lambda conn: None}),
+            ),
         ]
 
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             tasks = module_registry.module_init_tasks()
 
-        self.assertEqual(set(tasks), {"cron", "identity_access", "basic_data", "file_management", "appearance", "messaging", "llm_runtime"})
+        self.assertEqual(
+            set(tasks),
+            {"cron", "identity_access", "basic_data", "file_management", "appearance", "messaging", "llm_runtime", "ai_assets"},
+        )
 
 
 if __name__ == "__main__":

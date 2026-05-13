@@ -1,0 +1,3 @@
+-- AI assets seed data belongs to identity_access for RBAC/menu wiring.
+-- Prompt assets, versions, contracts, bindings, and runs are created
+-- explicitly by administrators or business setup scripts.

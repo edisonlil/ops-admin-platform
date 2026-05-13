@@ -1,7 +1,7 @@
 import type { App } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 
-export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'basic_data' | 'file_management' | string;
+export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'basic_data' | 'file_management' | 'ai_assets' | string;
 
 export interface OpsAdminWebModule {
   key: OpsAdminModuleKey;
@@ -123,6 +123,16 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'file-tenant-quotas',
     'file-tenant-quotas-manage',
   ],
+  ai_assets: [
+    'ai-assets',
+    'prompt-library',
+    'prompt-library-manage',
+    'prompt-contracts',
+    'prompt-contracts-manage',
+    'prompt-bindings',
+    'prompt-bindings-manage',
+    'prompt-runs',
+  ],
   basic_data: [
     'basic-data',
     'basic-data-dictionaries',
@@ -235,6 +245,16 @@ export function registerFileManagementModule(options: OpsAdminModuleOptions = {}
     key: 'file_management',
     label: options.label || '文件管理',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.file_management,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerAIAssetsModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'ai_assets',
+    label: options.label || 'AI 资产',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.ai_assets,
     routes: options.routes,
     install: options.install,
   });
