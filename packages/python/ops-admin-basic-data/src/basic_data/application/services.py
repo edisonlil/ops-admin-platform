@@ -50,6 +50,8 @@ def list_dictionary_types(
 def save_dictionary_type(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     normalized = normalize_type_payload(payload)
+    ensure_unique_type_code(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), code=str(normalized.get("code") or ""))
+    ensure_valid_type_parent(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), parent_id=normalized.get("parent_id"))
     dictionary_type = DictionaryType(id=int(normalized.get("id") or 0), tenant_id=tenant_id, create_time="", update_time="", **normalized_type_fields(normalized))
     dictionary_type.validate()
     try:
@@ -183,9 +185,37 @@ def ensure_dictionary_type_exists(*, tenant_id: int, type_id: int) -> Dictionary
     return item
 
 
+def ensure_unique_type_code(*, tenant_id: int, type_id: int, code: str) -> None:
+    try:
+        existing = repo().get_dictionary_type_by_code(tenant_id=tenant_id, code=code.strip())
+    except RuntimeError as exc:
+        raise BasicDataStorageNotReadyError(str(exc)) from exc
+    if existing and existing.id != type_id:
+        raise BasicDataDomainError("dictionary type code already exists")
+
+
+def ensure_valid_type_parent(*, tenant_id: int, type_id: int, parent_id: int | None) -> None:
+    if not parent_id:
+        return
+    if type_id and parent_id == type_id:
+        raise BasicDataDomainError("dictionary type parent cannot be itself")
+    parent = ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=parent_id)
+    visited = {type_id} if type_id else set()
+    current = parent
+    while current.parent_id:
+        if current.parent_id in visited:
+            raise BasicDataDomainError("dictionary type parent cannot be a descendant")
+        visited.add(current.id)
+        next_parent = repo().get_dictionary_type(tenant_id=tenant_id, type_id=current.parent_id)
+        if not next_parent:
+            break
+        current = next_parent
+
+
 def normalize_type_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(payload.get("id") or 0),
+        "parent_id": int(payload.get("parent_id") or 0) or None,
         "code": str(payload.get("code") or "").strip(),
         "name": str(payload.get("name") or "").strip(),
         "category": str(payload.get("category") or "general").strip() or "general",
@@ -211,6 +241,7 @@ def normalize_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def normalized_type_fields(payload: dict[str, Any]) -> dict[str, Any]:
     return {
+        "parent_id": int(payload.get("parent_id") or 0) or None,
         "code": str(payload.get("code") or ""),
         "name": str(payload.get("name") or ""),
         "category": str(payload.get("category") or ""),

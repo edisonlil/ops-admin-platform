@@ -66,6 +66,100 @@
     <section v-if="$slots.collection" class="app-list-page__collection">
       <slot name="collection"></slot>
     </section>
+    <section v-else-if="isSplitListView && splitView" class="app-list-page__split" :style="splitStyle">
+      <section class="app-list-page__split-pane app-list-page__split-pane--master">
+        <div v-if="splitView.master.title || splitView.master.description || splitView.master.primaryAction || splitView.master.actions?.length" class="app-list-page__pane-header">
+          <div class="app-list-page__pane-title">
+            <h3 v-if="splitView.master.title">{{ splitView.master.title }}</h3>
+            <p v-if="splitView.master.description">{{ splitView.master.description }}</p>
+          </div>
+          <div class="app-list-page__pane-actions">
+            <n-button
+              v-for="action in splitView.master.actions || []"
+              :key="action.key"
+              size="small"
+              :type="action.type || 'default'"
+              :disabled="action.disabled"
+              :loading="action.loading"
+              @click="handleAction(action)"
+            >
+              {{ action.label }}
+            </n-button>
+            <n-button
+              v-if="splitView.master.primaryAction"
+              :type="splitView.master.primaryAction.type || 'primary'"
+              :disabled="splitView.master.primaryAction.disabled"
+              :loading="splitView.master.primaryAction.loading"
+              @click="handleAction(splitView.master.primaryAction)"
+            >
+              {{ splitView.master.primaryAction.label }}
+            </n-button>
+          </div>
+        </div>
+        <AppCollectionView
+          :schema="resolveTableViewSchema(splitView.master.view)"
+          :rows="getPagedSplitRows('master')"
+          :loading="splitView.master.loading || false"
+        />
+        <AppPagination
+          :pagination="getSplitPagination('master')"
+          :item-count="splitView.master.rows?.length || 0"
+          @update:page="(page) => updateSplitPage('master', page)"
+          @update:page-size="(pageSize) => updateSplitPageSize('master', pageSize)"
+        />
+      </section>
+      <section class="app-list-page__split-pane app-list-page__split-pane--detail">
+        <div v-if="splitView.detail.title || splitView.detail.description || splitView.detail.primaryAction || splitView.detail.actions?.length" class="app-list-page__pane-header">
+          <div class="app-list-page__pane-title">
+            <h3 v-if="splitView.detail.title">{{ splitView.detail.title }}</h3>
+            <p v-if="splitView.detail.description">{{ splitView.detail.description }}</p>
+          </div>
+          <div class="app-list-page__pane-actions">
+            <n-button
+              v-for="action in splitView.detail.actions || []"
+              :key="action.key"
+              size="small"
+              :type="action.type || 'default'"
+              :disabled="action.disabled"
+              :loading="action.loading"
+              @click="handleAction(action)"
+            >
+              {{ action.label }}
+            </n-button>
+            <n-button
+              v-if="splitView.detail.primaryAction"
+              :type="splitView.detail.primaryAction.type || 'primary'"
+              :disabled="splitView.detail.primaryAction.disabled"
+              :loading="splitView.detail.primaryAction.loading"
+              @click="handleAction(splitView.detail.primaryAction)"
+            >
+              {{ splitView.detail.primaryAction.label }}
+            </n-button>
+          </div>
+        </div>
+        <AppCollectionView
+          :schema="resolveTableViewSchema(splitView.detail.view)"
+          :rows="getPagedSplitRows('detail')"
+          :loading="splitView.detail.loading || false"
+        >
+          <template v-if="splitView.detail.view.type === 'table'" #table-tools>
+            <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="splitView.detail.loading" @click="handleSplitRefresh('detail')">
+              刷新
+            </n-button>
+            <AppTableRuntimeControls
+              v-model:fill-height="runtimeTableFillHeight"
+              v-model:row-density="runtimeTableRowDensity"
+            />
+          </template>
+        </AppCollectionView>
+        <AppPagination
+          :pagination="getSplitPagination('detail')"
+          :item-count="splitView.detail.rows?.length || 0"
+          @update:page="(page) => updateSplitPage('detail', page)"
+          @update:page-size="(pageSize) => updateSplitPageSize('detail', pageSize)"
+        />
+      </section>
+    </section>
     <section v-else-if="isTabbedListView" class="app-list-page__tabbed">
       <n-tabs v-model:value="activeTab" type="line" animated class="app-list-page__tabs">
         <n-tab-pane v-for="pane in tabbedPanes" :key="pane.name" :name="pane.name" :tab="formatPaneTab(pane)">
@@ -124,7 +218,7 @@
     </AppCollectionView>
 
     <AppPagination
-      v-if="!isTabbedListView"
+      v-if="!isTabbedListView && !isSplitListView"
       :pagination="resolvedPagination"
       :item-count="rows.length"
       @update:page="updatePage"
@@ -135,6 +229,7 @@
 
 <script lang="ts" setup generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>">
   import { computed, ref, watch, useSlots } from 'vue';
+  import { useDialog } from 'naive-ui';
   import type { PaginationProps } from 'naive-ui';
   import AppCollectionView from '../components/AppCollectionView.vue';
   import AppFilterBar from '../components/AppFilterBar.vue';
@@ -174,6 +269,7 @@
   const emit = defineEmits<{
     refresh: [];
   }>();
+  const dialog = useDialog();
   const slots = useSlots();
   const runtimeTableFillHeight = ref(props.schema.view.tableLayout?.heightMode === 'fill');
   const runtimeTableRowDensity = ref<TableRowDensity>(props.schema.view.tableLayout?.rowDensity || 'default');
@@ -183,14 +279,24 @@
     pageSize: getInitialPageSize(props.schema.pagination),
   });
   const panePaginationState = ref<Record<string, RuntimePaginationState>>({});
+  const splitPaginationState = ref<Record<'master' | 'detail', RuntimePaginationState>>({
+    master: { page: DEFAULT_PAGE, pageSize: DEFAULT_PAGE_SIZE },
+    detail: { page: DEFAULT_PAGE, pageSize: DEFAULT_PAGE_SIZE },
+  });
 
   const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
   const rightTools = computed(() => props.schema.toolbar?.rightTools || []);
   const hasRefreshTool = computed(() => rightTools.value.includes('refresh'));
   const isTabbedListView = computed(() => props.schema.view.type === 'tabbed-list');
+  const isSplitListView = computed(() => props.schema.view.type === 'split-list');
+  const splitView = computed(() => props.schema.view.split);
+  const splitStyle = computed(() => ({
+    '--app-list-page-master-width': formatCssSize(splitView.value?.masterWidth || 300),
+    '--app-list-page-split-min-height': formatCssSize(splitView.value?.minHeight || 420),
+  }));
   const tabbedPanes = computed(() => props.schema.view.tabs || []);
-  const hasRuntimeTableTools = computed(() => props.schema.view.type === 'table' || isTabbedListView.value);
+  const hasRuntimeTableTools = computed(() => props.schema.view.type === 'table' || isTabbedListView.value || isSplitListView.value);
   const hasOnlyRefreshTool = computed(() => hasRefreshTool.value && rightTools.value.length === 1);
   const hasBatchActions = computed(() => !!props.schema.toolbar?.batchActions?.length);
   const hasNonRefreshRightTools = computed(() => rightTools.value.some((tool) => tool !== 'refresh'));
@@ -224,6 +330,16 @@
   });
 
   function handleAction(action: PageAction) {
+    if (action.confirm) {
+      dialog.warning({
+        title: action.confirmTitle || '确认操作',
+        content: action.confirmContent || '确认执行该操作吗？',
+        positiveText: action.positiveText || '确认',
+        negativeText: action.negativeText || '取消',
+        onPositiveClick: () => action.onClick?.(context.value),
+      });
+      return;
+    }
     return action.onClick?.(context.value);
   }
 
@@ -264,6 +380,49 @@
     return panePaginationState.value[pane.name] || {
       page: getInitialPage(pane.pagination),
       pageSize: getInitialPageSize(pane.pagination),
+    };
+  }
+
+  function getSplitPane(name: 'master' | 'detail') {
+    return splitView.value?.[name];
+  }
+
+  function getSplitPagination(name: 'master' | 'detail') {
+    const pane = getSplitPane(name);
+    return resolvePagination(pane?.pagination, pane?.rows?.length || 0, getSplitPaginationState(name));
+  }
+
+  function getPagedSplitRows(name: 'master' | 'detail') {
+    const pane = getSplitPane(name);
+    return sliceRows(pane?.rows || [], pane?.pagination, getSplitPaginationState(name));
+  }
+
+  function getSplitPaginationState(name: 'master' | 'detail') {
+    return splitPaginationState.value[name] || {
+      page: DEFAULT_PAGE,
+      pageSize: DEFAULT_PAGE_SIZE,
+    };
+  }
+
+  function updateSplitPage(name: 'master' | 'detail', page: number) {
+    const pane = getSplitPane(name);
+    const current = getSplitPaginationState(name);
+    splitPaginationState.value = {
+      ...splitPaginationState.value,
+      [name]: {
+        ...current,
+        page: clampPage(page, pane?.rows?.length || 0, current.pageSize),
+      },
+    };
+  }
+
+  function updateSplitPageSize(name: 'master' | 'detail', pageSize: number) {
+    splitPaginationState.value = {
+      ...splitPaginationState.value,
+      [name]: {
+        page: DEFAULT_PAGE,
+        pageSize,
+      },
     };
   }
 
@@ -357,6 +516,19 @@
     emit('refresh');
   }
 
+  async function handleSplitRefresh(name: 'master' | 'detail') {
+    const pane = getSplitPane(name);
+    if (pane?.refresh) {
+      await pane.refresh();
+      return;
+    }
+    emit('refresh');
+  }
+
+  function formatCssSize(value: number | string) {
+    return typeof value === 'number' ? `${value}px` : value;
+  }
+
   watch(
     tabbedPanes,
     (panes) => {
@@ -411,6 +583,21 @@
   }
 
   .app-list-page__tabbed {
+    min-width: 0;
+  }
+
+  .app-list-page__split {
+    display: grid;
+    grid-template-columns: minmax(240px, var(--app-list-page-master-width)) minmax(0, 1fr);
+    gap: var(--app-page-section-gap);
+    align-items: start;
+    min-width: 0;
+    min-height: var(--app-list-page-split-min-height);
+  }
+
+  .app-list-page__split-pane {
+    display: grid;
+    gap: var(--app-page-section-gap);
     min-width: 0;
   }
 
@@ -491,6 +678,14 @@
     line-height: 1.5;
   }
 
+  .app-list-page__pane-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+  }
+
   @media (max-width: 900px) {
     .app-list-page__embedded-header {
       flex-direction: column;
@@ -510,6 +705,10 @@
 
     .app-list-page__pane-title {
       padding-left: 0;
+    }
+
+    .app-list-page__pane-actions {
+      justify-content: flex-start;
     }
 
     .app-list-page__pane-header :deep(.n-button) {

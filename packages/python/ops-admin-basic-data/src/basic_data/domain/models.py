@@ -15,6 +15,7 @@ STATUSES = {STATUS_ACTIVE, STATUS_DISABLED}
 class DictionaryType:
     id: int
     tenant_id: int
+    parent_id: int | None
     code: str
     name: str
     category: str
@@ -38,6 +39,7 @@ class DictionaryType:
         return {
             "id": self.id,
             "tenant_id": self.tenant_id,
+            "parent_id": self.parent_id,
             "code": self.code,
             "name": self.name,
             "category": self.category,

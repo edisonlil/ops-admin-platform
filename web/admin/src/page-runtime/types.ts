@@ -1,5 +1,5 @@
 import type { Component } from 'vue';
-import type { DataTableColumns, PaginationProps, SelectOption } from 'naive-ui';
+import type { DataTableColumns, PaginationProps, SelectOption, TreeOption } from 'naive-ui';
 import type { PageDensity, PageVariant } from '@/appearance/types';
 
 export type CollectionViewType =
@@ -41,7 +41,17 @@ export interface PageAction {
   type?: 'primary' | 'default' | 'error' | 'warning' | 'info';
   disabled?: boolean;
   loading?: boolean;
+  confirm?: boolean;
+  confirmTitle?: string;
+  confirmContent?: string;
+  positiveText?: string;
+  negativeText?: string;
   onClick?: (ctx: PageRuntimeContext) => void | Promise<void>;
+}
+
+export interface TreeNodeAction extends Omit<PageAction, 'onClick'> {
+  show?: boolean;
+  onClick?: (node: TreeOption) => void | Promise<void>;
 }
 
 export interface FilterField<T = Record<string, unknown>> {
@@ -100,6 +110,12 @@ export interface CollectionViewSchema<Row = Record<string, unknown>> {
   endDateField?: string;
   tableProps?: Record<string, unknown>;
   tabs?: Array<TabbedListPaneSchema<Row>>;
+  treeData?: TreeOption[];
+  selectedKeys?: Array<string | number>;
+  treeProps?: Record<string, unknown>;
+  treeNodeActions?: TreeNodeAction[] | ((node: TreeOption) => TreeNodeAction[]);
+  onUpdateSelectedKeys?: (keys: Array<string | number>) => void;
+  split?: SplitListViewSchema;
 }
 
 export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
@@ -114,6 +130,25 @@ export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
   primaryAction?: PageAction;
   view: CollectionViewSchema<Row>;
   pagination?: false | PaginationProps;
+}
+
+export interface SplitListPaneSchema<Row = Record<string, unknown>> {
+  title?: string;
+  description?: string;
+  rows?: Row[];
+  loading?: boolean;
+  refresh?: () => void | Promise<void>;
+  primaryAction?: PageAction;
+  actions?: PageAction[];
+  view: CollectionViewSchema<Row>;
+  pagination?: false | PaginationProps;
+}
+
+export interface SplitListViewSchema {
+  master: SplitListPaneSchema;
+  detail: SplitListPaneSchema;
+  masterWidth?: number | string;
+  minHeight?: number | string;
 }
 
 export interface ListToolbarSchema {

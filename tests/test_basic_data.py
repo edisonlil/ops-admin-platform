@@ -111,6 +111,16 @@ class BasicDataTests(unittest.TestCase):
             self.current_user,
         )["item"]
         self.assertEqual(saved_type["code"], "customer_level")
+        child_type = services.save_dictionary_type(
+            {
+                "parent_id": int(saved_type["id"]),
+                "code": "customer_level_child",
+                "name": "客户等级子分类",
+                "category": "crm",
+            },
+            self.current_user,
+        )["item"]
+        self.assertEqual(child_type["parent_id"], saved_type["id"])
 
         gold = services.save_dictionary_item(
             int(saved_type["id"]),
@@ -137,9 +147,11 @@ class BasicDataTests(unittest.TestCase):
         )["item"]
 
         page = services.list_dictionary_types(page=1, page_size=20, keyword="客户", status=None, category="", current_user=self.current_user)
-        self.assertEqual(page["pagination"]["total"], 1)
+        self.assertEqual(page["pagination"]["total"], 2)
         items = services.list_dictionary_items(type_id=int(saved_type["id"]), page=1, page_size=20, keyword="", status=None, current_user=self.current_user)
         self.assertEqual(items["pagination"]["total"], 2)
+        silver_item = next(item for item in items["items"] if item["code"] == "silver")
+        self.assertNotIn("parent_id", silver_item)
 
         active = services.list_items_by_type_code(type_code="customer_level", active_only=True, current_user=self.current_user)
         self.assertEqual([item["code"] for item in active["items"]], ["gold"])
@@ -147,6 +159,38 @@ class BasicDataTests(unittest.TestCase):
 
         deleted = services.delete_dictionary_item(item_id=int(silver["id"]), current_user=self.current_user)
         self.assertTrue(deleted["deleted"])
+        recreated_silver = services.save_dictionary_item(
+            int(saved_type["id"]),
+            {
+                "code": "silver",
+                "value": "S2",
+                "label": "银牌复建",
+                "sort_order": 3,
+            },
+            self.current_user,
+        )["item"]
+        deleted_recreated = services.delete_dictionary_item(item_id=int(recreated_silver["id"]), current_user=self.current_user)
+        self.assertTrue(deleted_recreated["deleted"])
+
+        services.save_dictionary_item(
+            int(child_type["id"]),
+            {"code": "child", "value": "C", "label": "子分类项"},
+            self.current_user,
+        )
+        deleted_type = services.delete_dictionary_type(type_id=int(saved_type["id"]), current_user=self.current_user)
+        self.assertTrue(deleted_type["deleted"])
+        remaining_types = services.list_dictionary_types(page=1, page_size=20, keyword="", status=None, category="", current_user=self.current_user)
+        self.assertEqual(remaining_types["pagination"]["total"], 0)
+        recreated_type = services.save_dictionary_type(
+            {
+                "code": "customer_level",
+                "name": "Customer Level Recreated",
+                "category": "crm",
+            },
+            self.current_user,
+        )["item"]
+        deleted_recreated_type = services.delete_dictionary_type(type_id=int(recreated_type["id"]), current_user=self.current_user)
+        self.assertTrue(deleted_recreated_type["deleted"])
 
     def test_dictionary_service_filters_by_tenant(self) -> None:
         from basic_data.application import services
@@ -176,6 +220,16 @@ class BasicDataTests(unittest.TestCase):
         null_status_payload = null_status_response.json()
         self.assertTrue(null_status_payload["success"])
         self.assertEqual(null_status_payload["data"]["pagination"]["total"], 1)
+
+        duplicate_response = self.request(
+            "POST",
+            "/api/basic-data/dictionary-types",
+            json={"code": "invoice_status", "name": "Invoice Status Duplicate"},
+        )
+        self.assertEqual(duplicate_response.status_code, 400)
+        duplicate_payload = duplicate_response.json()
+        self.assertFalse(duplicate_payload["success"])
+        self.assertEqual(duplicate_payload["code"], "BASIC_DATA_VALIDATION_ERROR")
 
     def test_missing_schema_returns_operational_error(self) -> None:
         from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema

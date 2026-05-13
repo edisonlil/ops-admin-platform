@@ -14,6 +14,7 @@ export interface BasicDataListData<TItem> {
 export interface DictionaryType {
   id: number;
   tenant_id: number;
+  parent_id?: number | null;
   code: string;
   name: string;
   category: string;
@@ -43,6 +44,7 @@ export interface DictionaryItem {
 
 export interface DictionaryTypePayload {
   id?: number;
+  parent_id?: number | null;
   code: string;
   name: string;
   category?: string;
@@ -83,6 +85,7 @@ export function getDictionaryTypes(
 
 export function saveDictionaryType(payload: Partial<DictionaryTypePayload> & { id?: number }) {
   const body: DictionaryTypePayload = {
+    parent_id: payload.parent_id || null,
     code: String(payload.code || '').trim(),
     name: String(payload.name || '').trim(),
     category: payload.category || 'general',

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from basic_data.domain.exceptions import BasicDataDomainError
 from basic_data.domain.models import DictionaryItem, DictionaryType, STATUS_ACTIVE, STATUS_DISABLED
 from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
@@ -82,6 +84,7 @@ def save_dictionary_type(*, tenant_id: int, payload: dict[str, Any], actor: str,
     timestamp = now_iso()
     type_id = int(payload.get("id") or 0)
     values = (
+        int(payload.get("parent_id") or 0) or None,
         str(payload.get("code") or "").strip(),
         str(payload.get("name") or "").strip(),
         str(payload.get("category") or "general").strip() or "general",
@@ -94,39 +97,42 @@ def save_dictionary_type(*, tenant_id: int, payload: dict[str, Any], actor: str,
     )
     with connect(database_target(), readonly=False) as conn:
         require_basic_data_schema(conn)
-        if type_id:
-            conn.execute(
-                """
-                UPDATE business_dictionary_types
-                SET code = ?, name = ?, category = ?, description = ?, status = ?,
-                    sort_order = ?, editor = ?, editor_id = ?, update_time = ?,
-                    lock_version = lock_version + 1
-                WHERE id = ? AND tenant_id = ? AND deleted = 0
-                """,
-                (*values, type_id, tenant_id),
-            )
-            saved_id = type_id
-        else:
-            cursor = conn.execute(
-                """
-                INSERT INTO business_dictionary_types (
-                    tenant_id, code, name, category, description, status, sort_order,
-                    creator, creator_id, editor, editor_id, create_time, update_time
+        try:
+            if type_id:
+                conn.execute(
+                    """
+                    UPDATE business_dictionary_types
+                    SET parent_id = ?, code = ?, name = ?, category = ?, description = ?, status = ?,
+                        sort_order = ?, editor = ?, editor_id = ?, update_time = ?,
+                        lock_version = lock_version + 1
+                    WHERE id = ? AND tenant_id = ? AND deleted = 0
+                    """,
+                    (*values, type_id, tenant_id),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    tenant_id,
-                    *values[:6],
-                    actor,
-                    actor_id,
-                    actor,
-                    actor_id,
-                    timestamp,
-                    timestamp,
-                ),
-            )
-            saved_id = inserted_id(conn, cursor, "business_dictionary_types", timestamp, actor)
+                saved_id = type_id
+            else:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO business_dictionary_types (
+                        tenant_id, parent_id, code, name, category, description, status, sort_order,
+                        creator, creator_id, editor, editor_id, create_time, update_time
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tenant_id,
+                        *values[:7],
+                        actor,
+                        actor_id,
+                        actor,
+                        actor_id,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                saved_id = inserted_id(conn, cursor, "business_dictionary_types", timestamp, actor)
+        except sqlite3.IntegrityError as exc:
+            raise_unique_constraint_error(exc)
     item = get_dictionary_type(tenant_id=tenant_id, type_id=saved_id)
     if item is None:
         raise RuntimeError("dictionary type save failed")
@@ -143,25 +149,49 @@ def delete_dictionary_type(*, tenant_id: int, type_id: int, actor: str, actor_id
         ).fetchone()
         if not existing:
             return None
+        type_ids = collect_dictionary_type_descendant_ids(conn, tenant_id=tenant_id, root_type_id=type_id)
+        placeholders = ", ".join("?" for _ in type_ids)
         conn.execute(
-            """
+            f"""
             UPDATE business_dictionary_items
-            SET deleted = 1, status = ?, editor = ?, editor_id = ?,
+            SET code = {deleted_code_expression(conn)}, deleted = 1, status = ?, editor = ?, editor_id = ?,
                 update_time = ?, lock_version = lock_version + 1
-            WHERE tenant_id = ? AND type_id = ? AND deleted = 0
+            WHERE tenant_id = ? AND type_id IN ({placeholders}) AND deleted = 0
             """,
-            (STATUS_DISABLED, actor, actor_id, timestamp, tenant_id, type_id),
+            (STATUS_DISABLED, actor, actor_id, timestamp, tenant_id, *type_ids),
         )
         conn.execute(
-            """
+            f"""
             UPDATE business_dictionary_types
-            SET deleted = 1, status = ?, editor = ?, editor_id = ?,
+            SET code = {deleted_code_expression(conn)}, deleted = 1, status = ?, editor = ?, editor_id = ?,
                 update_time = ?, lock_version = lock_version + 1
-            WHERE id = ? AND tenant_id = ?
+            WHERE id IN ({placeholders}) AND tenant_id = ?
             """,
-            (STATUS_DISABLED, actor, actor_id, timestamp, type_id, tenant_id),
+            (STATUS_DISABLED, actor, actor_id, timestamp, *type_ids, tenant_id),
         )
     return row_to_dictionary_type(dict(existing))
+
+
+def collect_dictionary_type_descendant_ids(conn: Any, *, tenant_id: int, root_type_id: int) -> list[int]:
+    pending = [root_type_id]
+    collected: list[int] = []
+    seen: set[int] = set()
+    while pending:
+        current_id = pending.pop(0)
+        if current_id in seen:
+            continue
+        seen.add(current_id)
+        collected.append(current_id)
+        rows = conn.execute(
+            """
+            SELECT id
+            FROM business_dictionary_types
+            WHERE tenant_id = ? AND parent_id = ? AND deleted = 0
+            """,
+            (tenant_id, current_id),
+        ).fetchall()
+        pending.extend(int(row["id"]) for row in rows)
+    return collected
 
 
 def list_dictionary_items(
@@ -245,41 +275,44 @@ def save_dictionary_item(
     )
     with connect(database_target(), readonly=False) as conn:
         require_basic_data_schema(conn)
-        if item_id:
-            conn.execute(
-                """
-                UPDATE business_dictionary_items
-                SET code = ?, value = ?, label = ?, color = ?, description = ?,
-                    extra_json = ?, status = ?, sort_order = ?, editor = ?,
-                    editor_id = ?, update_time = ?, lock_version = lock_version + 1
-                WHERE id = ? AND tenant_id = ? AND deleted = 0
-                """,
-                (*values, item_id, tenant_id),
-            )
-            saved_id = item_id
-        else:
-            cursor = conn.execute(
-                """
-                INSERT INTO business_dictionary_items (
-                    tenant_id, type_id, code, value, label, color, description,
-                    extra_json, status, sort_order, creator, creator_id, editor,
-                    editor_id, create_time, update_time
+        try:
+            if item_id:
+                conn.execute(
+                    """
+                    UPDATE business_dictionary_items
+                    SET code = ?, value = ?, label = ?, color = ?, description = ?,
+                        extra_json = ?, status = ?, sort_order = ?, editor = ?,
+                        editor_id = ?, update_time = ?, lock_version = lock_version + 1
+                    WHERE id = ? AND tenant_id = ? AND deleted = 0
+                    """,
+                    (*values, item_id, tenant_id),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    tenant_id,
-                    type_id,
-                    *values[:8],
-                    actor,
-                    actor_id,
-                    actor,
-                    actor_id,
-                    timestamp,
-                    timestamp,
-                ),
-            )
-            saved_id = inserted_id(conn, cursor, "business_dictionary_items", timestamp, actor)
+                saved_id = item_id
+            else:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO business_dictionary_items (
+                        tenant_id, type_id, code, value, label, color, description,
+                        extra_json, status, sort_order, creator, creator_id, editor,
+                        editor_id, create_time, update_time
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tenant_id,
+                        type_id,
+                        *values[:8],
+                        actor,
+                        actor_id,
+                        actor,
+                        actor_id,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                saved_id = inserted_id(conn, cursor, "business_dictionary_items", timestamp, actor)
+        except sqlite3.IntegrityError as exc:
+            raise_unique_constraint_error(exc)
     item = get_dictionary_item(tenant_id=tenant_id, item_id=saved_id)
     if item is None:
         raise RuntimeError("dictionary item save failed")
@@ -304,11 +337,11 @@ def delete_dictionary_item(*, tenant_id: int, item_id: int, actor: str, actor_id
         conn.execute(
             """
             UPDATE business_dictionary_items
-            SET deleted = 1, status = ?, editor = ?, editor_id = ?,
+            SET code = ?, deleted = 1, status = ?, editor = ?, editor_id = ?,
                 update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ?
             """,
-            (STATUS_DISABLED, actor, actor_id, timestamp, item_id, tenant_id),
+            (f"__deleted__{item_id}", STATUS_DISABLED, actor, actor_id, timestamp, item_id, tenant_id),
         )
     return row_to_dictionary_item(dict(existing))
 
@@ -339,6 +372,7 @@ def row_to_dictionary_type(row: dict[str, Any]) -> DictionaryType:
     return DictionaryType(
         id=int(row["id"]),
         tenant_id=int(row["tenant_id"]),
+        parent_id=int(row["parent_id"]) if row.get("parent_id") not in (None, "") else None,
         code=str(row.get("code") or ""),
         name=str(row.get("name") or ""),
         category=str(row.get("category") or "general"),
@@ -377,6 +411,21 @@ def normalize_status(value: Any) -> str:
 def status_filter(value: Any) -> str | None:
     status = str(value or "").strip()
     return status if status in {STATUS_ACTIVE, STATUS_DISABLED} else None
+
+
+def deleted_code_expression(conn: Any) -> str:
+    if getattr(conn, "backend", "sqlite") == "postgres":
+        return "'__deleted__' || id::text"
+    return "'__deleted__' || id"
+
+
+def raise_unique_constraint_error(exc: Exception) -> None:
+    message = str(exc).lower()
+    if "business_dictionary_types" in message and ("unique" in message or "duplicate" in message):
+        raise BasicDataDomainError("dictionary type code already exists") from exc
+    if "business_dictionary_items" in message and ("unique" in message or "duplicate" in message):
+        raise BasicDataDomainError("dictionary item code already exists") from exc
+    raise exc
 
 
 def inserted_id(conn: Any, cursor: Any, table_name: str, timestamp: str, actor: str) -> int:

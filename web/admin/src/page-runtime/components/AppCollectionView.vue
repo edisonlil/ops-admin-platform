@@ -41,6 +41,28 @@
       <n-empty v-else description="暂无数据" class="app-collection-view__empty" />
     </n-spin>
 
+    <n-spin v-else-if="schema.type === 'tree'" :show="loading">
+      <n-tree
+        class="app-collection-view__tree"
+        block-line
+        :data="schema.treeData || []"
+        :selected-keys="schema.selectedKeys || []"
+        v-bind="resolvedTreeProps"
+        :render-label="renderTreeNode"
+        @update:selected-keys="handleTreeSelectedKeys"
+      />
+      <n-dropdown
+        trigger="manual"
+        placement="bottom-start"
+        :show="treeContextMenu.show"
+        :x="treeContextMenu.x"
+        :y="treeContextMenu.y"
+        :options="treeContextOptions"
+        @select="handleTreeContextSelect"
+        @clickoutside="hideTreeContextMenu"
+      />
+    </n-spin>
+
     <div v-else class="app-collection-view__placeholder">
       <strong>{{ viewDefinition.label }}</strong>
       <span>{{ viewDefinition.description }}</span>
@@ -50,18 +72,19 @@
 </template>
 
 <script lang="ts" setup generic="Row extends Record<string, unknown>">
-  import { computed, h, ref } from 'vue';
-  import { NIcon, NTooltip } from 'naive-ui';
+  import { computed, h, nextTick, reactive, ref } from 'vue';
+  import { NIcon, NTooltip, useDialog } from 'naive-ui';
   import { LockOutlined, UnlockOutlined } from '@vicons/antd';
   import { getCollectionViewDefinition } from '../collectionRegistry';
-  import type { CollectionViewSchema } from '../types';
-  import type { DataTableColumn, DataTableColumns } from 'naive-ui';
+  import type { CollectionViewSchema, TreeNodeAction } from '../types';
+  import type { DataTableColumn, DataTableColumns, DropdownOption, TreeRenderProps } from 'naive-ui';
   import type { VNodeChild } from 'vue';
 
   const SELECTION_COLUMN_KEY = '__selection__';
   const DEFAULT_TABLE_COLUMN_WIDTH = 140;
   const DEFAULT_TABLE_COLUMN_MIN_WIDTH = 80;
   const lockedColumnKeys = ref<Array<string | number>>([]);
+  const dialog = useDialog();
 
   const props = withDefaults(
     defineProps<{
@@ -131,11 +154,106 @@
       ],
     };
   });
+  const treeContextMenu = reactive<{
+    show: boolean;
+    x: number;
+    y: number;
+    node: TreeRenderProps['option'] | null;
+  }>({
+    show: false,
+    x: 0,
+    y: 0,
+    node: null,
+  });
+  const treeContextActions = computed<TreeNodeAction[]>(() => {
+    if (!treeContextMenu.node) return [];
+    const actions =
+      typeof props.schema.treeNodeActions === 'function'
+        ? props.schema.treeNodeActions(treeContextMenu.node)
+        : props.schema.treeNodeActions || [];
+    return actions.filter((action) => action.show !== false);
+  });
+  const treeContextOptions = computed<DropdownOption[]>(() =>
+    treeContextActions.value.map((action) => ({
+      key: action.key,
+      label: action.label,
+      disabled: action.disabled,
+    }))
+  );
+  const resolvedTreeProps = computed(() => {
+    const treeProps = props.schema.treeProps || {};
+    const userNodeProps = treeProps.nodeProps as ((props: TreeRenderProps) => TreeNodeRuntimeProps) | undefined;
+    return {
+      ...treeProps,
+      nodeProps: (nodeProps: TreeRenderProps) => {
+        const originalProps = userNodeProps?.(nodeProps) || {};
+        return {
+          ...originalProps,
+          onContextmenu: (event: MouseEvent) => {
+            const originalContextMenu = originalProps.onContextmenu;
+            if (typeof originalContextMenu === 'function') {
+              originalContextMenu(event);
+            }
+            if (!event.defaultPrevented) {
+              showTreeContextMenu(event, nodeProps.option);
+            }
+          },
+        };
+      },
+    };
+  });
 
   function resolveItemKey(row: Row, index: number) {
     const key = props.schema.itemKey || props.schema.rowKey || 'id';
     if (typeof key === 'function') return key(row);
     return row[key] ?? index;
+  }
+
+  function handleTreeSelectedKeys(keys: Array<string | number>) {
+    props.schema.onUpdateSelectedKeys?.(keys);
+  }
+
+  function showTreeContextMenu(event: MouseEvent, node: TreeRenderProps['option']) {
+    if (!treeContextActionsForNode(node).length) return;
+    event.preventDefault();
+    treeContextMenu.show = false;
+    treeContextMenu.node = node;
+    props.schema.onUpdateSelectedKeys?.([node.key as string | number]);
+    nextTick(() => {
+      treeContextMenu.x = event.clientX;
+      treeContextMenu.y = event.clientY;
+      treeContextMenu.show = true;
+    });
+  }
+
+  function hideTreeContextMenu() {
+    treeContextMenu.show = false;
+  }
+
+  function handleTreeContextSelect(key: string | number) {
+    const action = treeContextActions.value.find((entry) => entry.key === key);
+    const node = treeContextMenu.node;
+    hideTreeContextMenu();
+    if (!action || !node) return;
+    if (action.confirm) {
+      dialog.warning({
+        title: action.confirmTitle || '确认操作',
+        content: action.confirmContent || '确认执行该操作吗？',
+        positiveText: action.positiveText || '确认',
+        negativeText: action.negativeText || '取消',
+        onPositiveClick: () => action.onClick?.(node),
+      });
+      return;
+    }
+    action.onClick?.(node);
+  }
+
+  function treeContextActionsForNode(node: TreeRenderProps['option']) {
+    const actions =
+      typeof props.schema.treeNodeActions === 'function'
+        ? props.schema.treeNodeActions(node)
+        : props.schema.treeNodeActions || [];
+    return actions.filter((action) => action.show !== false);
   }
 
   function createSelectionColumn(): DataTableColumn<Row> {
@@ -350,6 +468,25 @@
       ...(pagination as Record<string, unknown>),
     };
   }
+
+  function renderTreeNode(props: TreeRenderProps): VNodeChild {
+    const renderLabel = schemaTreeRenderLabel.value;
+    const content = renderLabel ? renderLabel(props) : props.option.label;
+    return h(
+      'span',
+      {
+        class: 'app-collection-view__tree-node',
+      },
+      [content as VNodeChild]
+    );
+  }
+
+  const schemaTreeRenderLabel = computed(() => props.schema.treeProps?.renderLabel as ((props: TreeRenderProps) => VNodeChild) | undefined);
+
+  type TreeNodeRuntimeProps = {
+    onContextmenu?: (event: MouseEvent) => void;
+    [key: string]: unknown;
+  };
 </script>
 
 <style lang="less" scoped>
@@ -461,6 +598,13 @@
     }
   }
 
+  .app-collection-view__tree-node {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .app-collection-view--table {
     gap: 0;
     overflow: hidden;
@@ -502,6 +646,11 @@
     gap: var(--app-page-collection-gap);
     align-items: stretch;
     min-width: 0;
+  }
+
+  .app-collection-view__tree {
+    min-width: 0;
+    padding: 8px;
   }
 
   .app-collection-view__card-fallback,

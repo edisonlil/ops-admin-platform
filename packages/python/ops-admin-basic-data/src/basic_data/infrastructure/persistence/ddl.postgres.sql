@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS business_dictionary_types (
     id BIGSERIAL PRIMARY KEY,
     tenant_id BIGINT NOT NULL,
+    parent_id BIGINT DEFAULT NULL,
     code VARCHAR(120) NOT NULL,
     name VARCHAR(200) NOT NULL,
     category VARCHAR(120) NOT NULL DEFAULT 'general',
@@ -42,5 +43,6 @@ CREATE TABLE IF NOT EXISTS business_dictionary_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_tenant ON business_dictionary_types(tenant_id, deleted, status);
+CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_parent ON business_dictionary_types(tenant_id, parent_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_code ON business_dictionary_types(tenant_id, code, deleted);
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_items_type ON business_dictionary_items(tenant_id, type_id, deleted, status);

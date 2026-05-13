@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class DictionaryTypeRequest(BaseModel):
     id: int | None = None
+    parent_id: int | None = None
     code: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(default="general", max_length=120)
