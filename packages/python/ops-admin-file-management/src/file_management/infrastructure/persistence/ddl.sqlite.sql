@@ -108,6 +108,26 @@ CREATE TABLE IF NOT EXISTS file_storage_profiles (
     editor_id INTEGER DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS file_preview_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 0,
+    provider TEXT NOT NULL DEFAULT 'kkfileview',
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    supported_extensions_json TEXT NOT NULL DEFAULT '[]',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL
+);
+
 CREATE TABLE IF NOT EXISTS file_access_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL,
@@ -158,5 +178,6 @@ CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_hash ON file_objects(tenant_i
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_update ON file_objects(tenant_id, update_time);
 CREATE INDEX IF NOT EXISTS idx_file_folders_tenant_parent ON file_folders(tenant_id, library_id, parent_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_storage_profiles_default ON file_storage_profiles(provider, is_default, enabled, deleted);
+CREATE INDEX IF NOT EXISTS idx_file_preview_profiles_default ON file_preview_profiles(provider, is_default, enabled, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_access_logs_tenant_file ON file_access_logs(tenant_id, file_id, create_time);
 CREATE INDEX IF NOT EXISTS idx_file_index_jobs_tenant_status ON file_search_index_jobs(tenant_id, status, create_time);

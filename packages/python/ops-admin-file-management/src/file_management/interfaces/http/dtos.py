@@ -42,3 +42,13 @@ class StorageProfileRequest(BaseModel):
     is_default: bool = False
     enabled: bool = True
     extra_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class PreviewProfileRequest(BaseModel):
+    provider: str = Field(default="kkfileview", max_length=60)
+    name: str = Field(min_length=1, max_length=160)
+    base_url: str = Field(min_length=1, max_length=500)
+    enabled: bool = True
+    is_default: bool = False
+    supported_extensions: list[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)

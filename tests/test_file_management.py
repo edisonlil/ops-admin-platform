@@ -5,6 +5,7 @@ import io
 import sqlite3
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 
@@ -59,6 +60,9 @@ class FileManagementTests(unittest.TestCase):
                 "SUPABASE_DB_URL": "",
                 "DATABASE_URL": "",
                 "FG_AGENT_DB_PATH": str(self.db_path),
+                "OPS_ADMIN_PUBLIC_API_BASE_URL": "http://testserver",
+                "OPS_ADMIN_PUBLIC_API_URL_PREFIX": "/api",
+                "OPS_ADMIN_FILE_PREVIEW_SECRET": "test-preview-secret",
             },
             clear=False,
         )
@@ -235,6 +239,52 @@ class FileManagementTests(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             services.preview_file(int(upload["id"]), self.current_user)
         self.assertEqual(getattr(caught.exception, "status_code", None), 415)
+
+    def test_external_preview_profile_builds_signed_kkfileview_url(self) -> None:
+        self.create_default_profile()
+        services.save_preview_profile(
+            {
+                "provider": "kkfileview",
+                "name": "Default kkFileView",
+                "base_url": "http://kkfileview.local",
+                "enabled": True,
+                "is_default": True,
+                "supported_extensions": ["docx"],
+                "config": {"source_url_ttl_seconds": 300, "url_param_name": "url"},
+            },
+            self.admin_user,
+        )
+        upload = services.upload_file(
+            current_user=self.current_user,
+            filename="proposal.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            stream=io.BytesIO(b"office-doc"),
+            library_id=None,
+            visibility="tenant",
+            metadata={},
+        )["item"]
+
+        metadata = services.get_file_preview_metadata(int(upload["id"]), self.current_user)
+
+        preview = metadata["preview"]
+        self.assertTrue(preview["previewable"])
+        self.assertEqual(preview["engine"], "kkfileview")
+        self.assertEqual(preview["mode"], "external")
+        parsed = urllib.parse.urlparse(str(preview["url"]))
+        self.assertEqual(parsed.scheme, "http")
+        self.assertEqual(parsed.netloc, "kkfileview.local")
+        self.assertEqual(parsed.path, "/onlinePreview")
+        source_url = urllib.parse.parse_qs(parsed.query)["url"][0]
+        source = urllib.parse.urlparse(source_url)
+        self.assertEqual(source_url.split("?", 1)[0], f"http://testserver/api/files/{upload['id']}/preview-source")
+        query = urllib.parse.parse_qs(source.query)
+        item, download = services.preview_source_file(
+            int(upload["id"]),
+            expires=int(query["expires"][0]),
+            signature=query["signature"][0],
+        )
+        self.assertEqual(item.original_name, "proposal.docx")
+        self.assertEqual(download.stream.read(), b"office-doc")
 
     def test_folder_rejects_cross_tenant_and_non_empty_delete(self) -> None:
         library = services.save_library({"name": "Tenant Docs"}, self.current_user)["item"]

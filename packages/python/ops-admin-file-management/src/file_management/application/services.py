@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
+import os
 from pathlib import Path
+import time
+import urllib.parse
 from typing import Any, BinaryIO
 
 from fastapi import HTTPException, status
@@ -23,6 +27,7 @@ from file_management.domain.exceptions import (
     StorageOperationFailed,
     StorageProviderUnsupported,
     UnsupportedFileType,
+    PreviewProviderUnsupported,
 )
 from file_management.domain.models import (
     ACCESS_ACTION_DELETE,
@@ -35,10 +40,15 @@ from file_management.domain.models import (
     FileFolder,
     INDEX_JOB_STATUS_FAILED,
     INDEX_JOB_STATUS_SUCCEEDED,
+    PREVIEW_PROVIDER_KKFILEVIEW,
+    PREVIEW_PROVIDER_OPTIONS,
+    PREVIEW_PROVIDER_CUSTOM,
+    SUPPORTED_PREVIEW_PROVIDERS,
     STORAGE_PROVIDER_MINIO,
     STORAGE_PROVIDER_OPTIONS,
     SUPPORTED_STORAGE_PROVIDERS,
     ManagedFile,
+    PreviewProfile,
     StorageProfile,
 )
 from file_management.infrastructure.persistence import repositories
@@ -65,6 +75,14 @@ def configure_indexer(indexer: FileIndexerPort) -> None:
 def configure_preview_provider(preview_provider: PreviewProviderPort) -> None:
     global _preview_provider
     _preview_provider = preview_provider
+
+
+def external_base_url() -> str:
+    return os.environ.get("OPS_ADMIN_PUBLIC_API_BASE_URL", "").strip()
+
+
+def external_url_prefix() -> str:
+    return os.environ.get("OPS_ADMIN_PUBLIC_API_URL_PREFIX", "/api").strip()
 
 
 def list_libraries(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -316,6 +334,10 @@ def get_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 def get_file_preview_metadata(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_tenant_file(file_id=file_id, current_user=current_user)
     preview = _preview_provider.metadata_for(item)
+    if not preview.previewable:
+        external_preview = external_preview_for_file(item)
+        if external_preview:
+            preview = external_preview
     return {"item": item.to_dict(), "preview": preview.to_dict()}
 
 
@@ -479,6 +501,32 @@ def preview_file(
         raise domain_http_error(StorageOperationFailed(str(exc))) from exc
 
 
+def preview_source_file(
+    file_id: int,
+    *,
+    expires: int,
+    signature: str,
+) -> tuple[ManagedFile, DownloadObject]:
+    if not verify_preview_source_signature(file_id, expires, signature):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="preview source signature is invalid or expired")
+    try:
+        item = repositories.get_file(tenant_id=None, file_id=file_id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(ManagedFileNotFound("file not found"))
+    try:
+        profile = storage_profile_for_file(item)
+        download = _storage.open_for_read(profile=profile, key=item.storage_key)
+        return item, download
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    except Exception as exc:
+        raise domain_http_error(StorageOperationFailed(str(exc))) from exc
+
+
 def delete_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_tenant_file(file_id=file_id, current_user=current_user)
     try:
@@ -543,6 +591,53 @@ def list_storage_profiles() -> dict[str, Any]:
     return {"items": [item.to_dict() for item in items]}
 
 
+def list_preview_profiles() -> dict[str, Any]:
+    try:
+        items = repositories.list_preview_profiles()
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_preview_profile(payload: dict[str, Any], current_user: dict[str, Any], profile_id: int | None = None) -> dict[str, Any]:
+    provider = str(payload.get("provider") or "kkfileview")
+    if provider not in SUPPORTED_PREVIEW_PROVIDERS:
+        raise domain_http_error(PreviewProviderUnsupported(f"preview provider is not supported: {provider}"))
+    body = dict(payload)
+    body["supported_extensions"] = normalize_string_list(body.get("supported_extensions"))
+    body["base_url"] = str(body.get("base_url") or "").rstrip("/")
+    if not body["base_url"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="base_url is required")
+    try:
+        item = repositories.save_preview_profile(
+            profile_id=profile_id,
+            payload=body,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"item": item.to_dict()}
+
+
+def set_default_preview_profile(profile_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        item = repositories.set_default_preview_profile(
+            profile_id=profile_id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="preview profile not found")
+    return {"item": item.to_dict()}
+
+
+def preview_provider_options() -> dict[str, Any]:
+    return {"items": list(PREVIEW_PROVIDER_OPTIONS)}
+
+
 def save_storage_profile(payload: dict[str, Any], current_user: dict[str, Any], profile_id: int | None = None) -> dict[str, Any]:
     provider = str(payload.get("provider") or STORAGE_PROVIDER_MINIO).strip()
     if provider not in SUPPORTED_STORAGE_PROVIDERS:
@@ -603,6 +698,77 @@ def test_storage_profile(profile_id: int) -> dict[str, Any]:
 
 def storage_provider_options() -> dict[str, Any]:
     return {"items": [dict(item) for item in STORAGE_PROVIDER_OPTIONS]}
+
+
+def external_preview_for_file(item: ManagedFile):
+    try:
+        profile = repositories.get_default_preview_profile()
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not profile or not profile.enabled:
+        return None
+    extension = normalize_extension(item.extension)
+    if profile.supported_extensions and extension not in profile.supported_extensions:
+        return None
+    source_url = signed_preview_source_url(item, profile)
+    preview_url = external_preview_url(profile, source_url)
+    native_preview = _preview_provider.metadata_for(item)
+    return native_preview.__class__(
+        previewable=True,
+        engine=profile.provider,
+        mode="external",
+        mime_type=item.mime_type,
+        url=preview_url,
+    )
+
+
+def external_preview_url(profile: PreviewProfile, source_url: str) -> str:
+    if profile.provider == PREVIEW_PROVIDER_KKFILEVIEW:
+        return kkfileview_preview_url(profile, source_url)
+    if profile.provider == PREVIEW_PROVIDER_CUSTOM:
+        return custom_preview_url(profile, source_url)
+    raise domain_http_error(PreviewProviderUnsupported(f"preview provider is not supported: {profile.provider}"))
+
+
+def kkfileview_preview_url(profile: PreviewProfile, source_url: str) -> str:
+    param_name = str(profile.config.get("url_param_name") or "url")
+    return f"{profile.base_url.rstrip('/')}/onlinePreview?{urllib.parse.urlencode({param_name: source_url})}"
+
+
+def custom_preview_url(profile: PreviewProfile, source_url: str) -> str:
+    param_name = str(profile.config.get("url_param_name") or "url")
+    path = str(profile.config.get("preview_path") or "/onlinePreview")
+    path = path if path.startswith("/") else f"/{path}"
+    return f"{profile.base_url.rstrip('/')}{path}?{urllib.parse.urlencode({param_name: source_url})}"
+
+
+def signed_preview_source_url(item: ManagedFile, profile: PreviewProfile) -> str:
+    ttl = int(profile.config.get("source_url_ttl_seconds") or 300)
+    ttl = max(60, min(ttl, 3600))
+    expires = int(time.time()) + ttl
+    signature = sign_preview_source(item.id, expires)
+    url_prefix = external_url_prefix().strip("/")
+    path_prefix = f"/{url_prefix}" if url_prefix else ""
+    path = f"{path_prefix}/files/{item.id}/preview-source"
+    query = urllib.parse.urlencode({"expires": expires, "signature": signature})
+    base_url = external_base_url().rstrip("/")
+    return f"{base_url}{path}?{query}" if base_url else f"{path}?{query}"
+
+
+def sign_preview_source(file_id: int, expires: int) -> str:
+    payload = f"{file_id}:{expires}".encode("utf-8")
+    return hmac.new(preview_signing_secret().encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def verify_preview_source_signature(file_id: int, expires: int, signature: str) -> bool:
+    if expires < int(time.time()):
+        return False
+    expected = sign_preview_source(file_id, expires)
+    return hmac.compare_digest(expected, signature)
+
+
+def preview_signing_secret() -> str:
+    return os.environ.get("OPS_ADMIN_FILE_PREVIEW_SECRET") or os.environ.get("FG_AGENT_AUTH_SECRET", "fg-agent-dev-secret-change-me")
 
 
 def list_access_logs(

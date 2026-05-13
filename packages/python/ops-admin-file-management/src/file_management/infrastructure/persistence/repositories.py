@@ -11,6 +11,7 @@ from file_management.domain.models import (
     FileAccessLog,
     FileFolder,
     FileLibrary,
+    PreviewProfile,
     FileSearchIndexJob,
     ManagedFile,
     StorageProfile,
@@ -348,17 +349,27 @@ def list_files(
     return [row_to_file(dict(row)) for row in rows], total
 
 
-def get_file(*, tenant_id: int, file_id: int) -> ManagedFile | None:
+def get_file(*, tenant_id: int | None, file_id: int) -> ManagedFile | None:
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
-        row = conn.execute(
-            """
-            SELECT *
-            FROM file_objects
-            WHERE id = ? AND tenant_id = ? AND deleted = 0 AND status = ?
-            """,
-            (file_id, tenant_id, FILE_STATUS_AVAILABLE),
-        ).fetchone()
+        if tenant_id is None:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM file_objects
+                WHERE id = ? AND deleted = 0 AND status = ?
+                """,
+                (file_id, FILE_STATUS_AVAILABLE),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM file_objects
+                WHERE id = ? AND tenant_id = ? AND deleted = 0 AND status = ?
+                """,
+                (file_id, tenant_id, FILE_STATUS_AVAILABLE),
+            ).fetchone()
     return row_to_file(dict(row)) if row else None
 
 
@@ -681,6 +692,118 @@ def set_default_storage_profile(*, profile_id: int, actor: str, actor_id: int | 
     return row_to_storage_profile(dict(saved)) if saved else None
 
 
+def list_preview_profiles() -> list[PreviewProfile]:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM file_preview_profiles
+            WHERE deleted = 0
+            ORDER BY is_default DESC, provider ASC, id DESC
+            """
+        ).fetchall()
+    return [row_to_preview_profile(dict(row)) for row in rows]
+
+
+def get_preview_profile(*, profile_id: int) -> PreviewProfile | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM file_preview_profiles WHERE id = ? AND deleted = 0",
+            (profile_id,),
+        ).fetchone()
+    return row_to_preview_profile(dict(row)) if row else None
+
+
+def get_default_preview_profile() -> PreviewProfile | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_file_management_schema(conn)
+        row = conn.execute(
+            """
+            SELECT *
+            FROM file_preview_profiles
+            WHERE is_default = 1 AND enabled = 1 AND deleted = 0
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    return row_to_preview_profile(dict(row)) if row else None
+
+
+def save_preview_profile(
+    *, profile_id: int | None, payload: dict[str, Any], actor: str, actor_id: int | None
+) -> PreviewProfile:
+    timestamp = now_iso()
+    is_default = bool(payload.get("is_default", False))
+    values = (
+        str(payload.get("provider") or "kkfileview"),
+        str(payload.get("name") or ""),
+        str(payload.get("base_url") or ""),
+        bool(payload.get("enabled", True)),
+        is_default,
+        encode_json_list(normalize_string_list(payload.get("supported_extensions"))),
+        encode_json(payload.get("config") if isinstance(payload.get("config"), dict) else {}),
+        actor,
+        actor_id,
+        timestamp,
+    )
+    with connect(database_target(), readonly=False) as conn:
+        require_file_management_schema(conn)
+        if is_default:
+            unset_default_preview_profiles(conn, actor=actor, actor_id=actor_id, timestamp=timestamp)
+        if profile_id:
+            conn.execute(
+                """
+                UPDATE file_preview_profiles
+                SET provider = ?, name = ?, base_url = ?, enabled = ?, is_default = ?,
+                    supported_extensions_json = ?, config_json = ?, editor = ?, editor_id = ?,
+                    update_time = ?, lock_version = lock_version + 1
+                WHERE id = ? AND deleted = 0
+                """,
+                (*values, profile_id),
+            )
+            saved_id = profile_id
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO file_preview_profiles (
+                    tenant_id, provider, name, base_url, enabled, is_default,
+                    supported_extensions_json, config_json, creator, creator_id,
+                    editor, editor_id, create_time, update_time
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (0, *values[:7], actor, actor_id, actor, actor_id, timestamp, timestamp),
+            )
+            saved_id = inserted_id(conn, cursor, "file_preview_profiles", timestamp, actor)
+        row = conn.execute("SELECT * FROM file_preview_profiles WHERE id = ?", (saved_id,)).fetchone()
+    return row_to_preview_profile(dict(row))
+
+
+def set_default_preview_profile(*, profile_id: int, actor: str, actor_id: int | None) -> PreviewProfile | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_file_management_schema(conn)
+        row = conn.execute(
+            "SELECT id FROM file_preview_profiles WHERE id = ? AND enabled = 1 AND deleted = 0",
+            (profile_id,),
+        ).fetchone()
+        if not row:
+            return None
+        unset_default_preview_profiles(conn, actor=actor, actor_id=actor_id, timestamp=timestamp)
+        conn.execute(
+            """
+            UPDATE file_preview_profiles
+            SET is_default = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ?
+            """,
+            (actor, actor_id, timestamp, profile_id),
+        )
+        saved = conn.execute("SELECT * FROM file_preview_profiles WHERE id = ?", (profile_id,)).fetchone()
+    return row_to_preview_profile(dict(saved)) if saved else None
+
+
 def record_access_log(
     *,
     tenant_id: int,
@@ -854,6 +977,17 @@ def unset_default_profiles(conn: Any, *, provider: str, actor: str, actor_id: in
     )
 
 
+def unset_default_preview_profiles(conn: Any, *, actor: str, actor_id: int | None, timestamp: str) -> None:
+    conn.execute(
+        """
+        UPDATE file_preview_profiles
+        SET is_default = 0, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+        WHERE deleted = 0
+        """,
+        (actor, actor_id, timestamp),
+    )
+
+
 def inserted_id(conn: Any, cursor: Any, table_name: str, timestamp: str, actor: str) -> int:
     row_id = int(getattr(cursor, "lastrowid", 0) or 0)
     if row_id:
@@ -963,6 +1097,22 @@ def row_to_storage_profile(row: dict[str, Any]) -> StorageProfile:
     )
 
 
+def row_to_preview_profile(row: dict[str, Any]) -> PreviewProfile:
+    return PreviewProfile(
+        id=int(row["id"]),
+        tenant_id=int(row.get("tenant_id") or 0),
+        provider=str(row.get("provider") or "kkfileview"),
+        name=str(row.get("name") or ""),
+        base_url=str(row.get("base_url") or ""),
+        enabled=bool(row.get("enabled")),
+        is_default=bool(row.get("is_default")),
+        supported_extensions=decode_json_list(row.get("supported_extensions_json")),
+        config=decode_json(row.get("config_json")),
+        create_time=str(row.get("create_time") or ""),
+        update_time=str(row.get("update_time") or ""),
+    )
+
+
 def row_to_access_log(row: dict[str, Any]) -> FileAccessLog:
     return FileAccessLog(
         id=int(row["id"]),
@@ -1002,6 +1152,17 @@ def encode_json(payload: dict[str, Any]) -> str:
 
 def encode_json_list(value: list[str]) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = str(item or "").strip().lower().lstrip(".")
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
 
 
 def decode_json(value: Any) -> dict[str, Any]:

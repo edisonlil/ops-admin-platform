@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from file_management.application import services
-from file_management.interfaces.http.dtos import FileFolderRequest, FileLibraryRequest, StorageProfileRequest, TenantStorageQuotaRequest
+from file_management.interfaces.http.dtos import (
+    FileFolderRequest,
+    FileLibraryRequest,
+    PreviewProfileRequest,
+    StorageProfileRequest,
+    TenantStorageQuotaRequest,
+)
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import ok
 
@@ -220,6 +226,45 @@ def storage_provider_options(
     return ok(services.storage_provider_options())
 
 
+@router.get("/admin/preview-profiles")
+def preview_profiles(
+    _: dict[str, Any] = Depends(auth.require_platform_admin),
+) -> dict[str, Any]:
+    return ok(services.list_preview_profiles())
+
+
+@router.get("/admin/preview-provider-options")
+def preview_provider_options(
+    _: dict[str, Any] = Depends(auth.require_platform_admin),
+) -> dict[str, Any]:
+    return ok(services.preview_provider_options())
+
+
+@router.post("/admin/preview-profiles")
+def create_preview_profile(
+    payload: PreviewProfileRequest,
+    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+) -> dict[str, Any]:
+    return ok(services.save_preview_profile(payload.model_dump(), current_user))
+
+
+@router.put("/admin/preview-profiles/{profile_id}")
+def update_preview_profile(
+    profile_id: int,
+    payload: PreviewProfileRequest,
+    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+) -> dict[str, Any]:
+    return ok(services.save_preview_profile(payload.model_dump(), current_user, profile_id=profile_id))
+
+
+@router.post("/admin/preview-profiles/{profile_id}/default")
+def set_default_preview_profile(
+    profile_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_platform_admin),
+) -> dict[str, Any]:
+    return ok(services.set_default_preview_profile(profile_id, current_user))
+
+
 @router.post("/admin/storage-profiles")
 def create_storage_profile(
     payload: StorageProfileRequest,
@@ -280,6 +325,25 @@ def preview_file(
         media_type=mime_type,
         headers={
             "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{file_id}/preview-source")
+def preview_source_file(
+    file_id: int,
+    expires: int = Query(...),
+    signature: str = Query(...),
+) -> StreamingResponse:
+    item, download = services.preview_source_file(file_id, expires=expires, signature=signature)
+    filename = urllib.parse.quote(item.original_name)
+    return StreamingResponse(
+        download.stream,
+        media_type=download.content_type or item.mime_type,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
         },

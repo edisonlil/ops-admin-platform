@@ -40,6 +40,38 @@ STORAGE_PROVIDER_OPTIONS = (
         "config_schema": {},
     },
 )
+PREVIEW_PROVIDER_NATIVE = "native"
+PREVIEW_PROVIDER_KKFILEVIEW = "kkfileview"
+PREVIEW_PROVIDER_CUSTOM = "custom"
+SUPPORTED_PREVIEW_PROVIDERS = {PREVIEW_PROVIDER_KKFILEVIEW, PREVIEW_PROVIDER_CUSTOM}
+PREVIEW_PROVIDER_OPTIONS = (
+    {
+        "provider": PREVIEW_PROVIDER_NATIVE,
+        "label": "Native Preview",
+        "supported": True,
+        "config_schema": {},
+    },
+    {
+        "provider": PREVIEW_PROVIDER_KKFILEVIEW,
+        "label": "kkFileView",
+        "supported": True,
+        "config_schema": {
+            "base_url": {"required": True},
+            "source_url_ttl_seconds": {"required": False, "default": 300},
+            "url_param_name": {"required": False, "default": "url"},
+        },
+    },
+    {
+        "provider": PREVIEW_PROVIDER_CUSTOM,
+        "label": "Custom External Preview",
+        "supported": True,
+        "config_schema": {
+            "base_url": {"required": True},
+            "source_url_ttl_seconds": {"required": False, "default": 300},
+            "url_param_name": {"required": False, "default": "url"},
+        },
+    },
+)
 
 ACCESS_ACTION_DOWNLOAD = "download"
 ACCESS_ACTION_PREVIEW = "preview"
@@ -219,6 +251,36 @@ class StorageProfile:
         if include_secret:
             payload["secret_access_key"] = self.secret_access_key
         return payload
+
+
+@dataclass(frozen=True)
+class PreviewProfile:
+    id: int
+    tenant_id: int
+    provider: str
+    name: str
+    base_url: str
+    enabled: bool
+    is_default: bool
+    supported_extensions: list[str]
+    config: dict[str, Any]
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "provider": self.provider,
+            "name": self.name,
+            "base_url": self.base_url,
+            "enabled": self.enabled,
+            "is_default": self.is_default,
+            "supported_extensions": self.supported_extensions,
+            "config": self.config,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
 
 
 @dataclass(frozen=True)

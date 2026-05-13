@@ -291,6 +291,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("platform-branding", menu_keys)
         self.assertIn("appearance-studio", menu_keys)
         self.assertIn("file-storage-profiles", menu_keys)
+        self.assertIn("file-preview-profiles", menu_keys)
         self.assertIn("file-tenant-quotas", menu_keys)
         self.assertIn("basic-data", menu_keys)
         self.assertIn("basic-data-dictionaries", menu_keys)
@@ -302,6 +303,7 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(any(item["code"] == "system:menu:access" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:quota:manage" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "file:storage_profiles:manage" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "file:preview_profiles:manage" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "basic-data:dictionary:read" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "basic-data:dictionary:manage" for item in permission_response.json()["data"]["items"]))
 

@@ -220,6 +220,12 @@
             :src="previewBlobUrl"
             title="文件预览"
           />
+          <iframe
+            v-else-if="previewMode === 'external' && previewExternalUrl"
+            class="file-preview__frame"
+            :src="previewExternalUrl"
+            title="文件预览"
+          />
           <div v-else-if="isMarkdownPreview" class="file-preview__markdown" v-html="markdownHtml"></div>
           <pre v-else-if="previewMode === 'text'" class="file-preview__text">{{ previewText }}</pre>
           <audio
@@ -314,6 +320,7 @@
   const previewMode = ref<FilePreviewMode>('unsupported');
   const previewText = ref('');
   const previewBlobUrl = ref('');
+  const previewExternalUrl = ref('');
   const viewMode = ref<ViewMode>('grid');
   const fileBodyMaxHeight = 'calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 290px)';
   const keyword = ref('');
@@ -369,7 +376,7 @@
     return paths.join(' / ');
   });
   const previewTitle = computed(() => previewFile.value?.display_name || previewFile.value?.original_name || '文件预览');
-  const previewDrawerWidth = computed(() => (previewMode.value === 'text' ? 'min(760px, 100vw)' : 'min(920px, 100vw)'));
+  const previewDrawerWidth = computed(() => (previewMode.value === 'text' ? 'min(760px, 100vw)' : 'min(980px, 100vw)'));
   const isMarkdownPreview = computed(() => previewMode.value === 'text' && isMarkdownFile(previewFile.value));
   const markdownHtml = computed(() => markdownRenderer.render(previewText.value || ''));
 
@@ -558,6 +565,7 @@
     previewFile.value = row;
     previewMode.value = 'unsupported';
     previewText.value = '';
+    previewExternalUrl.value = '';
     previewError.value = '';
     previewVisible.value = true;
     previewLoading.value = true;
@@ -570,6 +578,10 @@
       }
       if (metadata.mode === 'text') {
         previewText.value = await fetchFilePreviewText(row.id);
+        return;
+      }
+      if (metadata.mode === 'external') {
+        previewExternalUrl.value = metadata.url;
         return;
       }
       const blob = await fetchFilePreviewBlob(row.id);
@@ -586,6 +598,7 @@
     previewLoading.value = false;
     previewError.value = '';
     previewText.value = '';
+    previewExternalUrl.value = '';
     previewFile.value = null;
     previewMode.value = 'unsupported';
   }

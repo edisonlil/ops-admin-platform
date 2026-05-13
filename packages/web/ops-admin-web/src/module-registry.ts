@@ -120,6 +120,8 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'file-objects-delete',
     'file-storage-profiles',
     'file-storage-profiles-manage',
+    'file-preview-profiles',
+    'file-preview-profiles-manage',
     'file-tenant-quotas',
     'file-tenant-quotas-manage',
   ],

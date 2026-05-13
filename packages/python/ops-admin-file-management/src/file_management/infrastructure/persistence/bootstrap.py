@@ -20,6 +20,7 @@ def require_file_management_schema(conn: Any) -> None:
         "file_objects",
         "tenant_file_storage_quotas",
         "file_storage_profiles",
+        "file_preview_profiles",
         "file_access_logs",
         "file_search_index_jobs",
     )

@@ -58,7 +58,7 @@ export interface ManagedFile {
   update_time?: string;
 }
 
-export type FilePreviewMode = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'unsupported';
+export type FilePreviewMode = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'external' | 'unsupported';
 
 export interface FilePreviewMetadata {
   previewable: boolean;
@@ -108,6 +108,27 @@ export interface StorageProfile {
 }
 
 export interface StorageProviderOption {
+  provider: string;
+  label: string;
+  supported: boolean;
+  config_schema: Record<string, unknown>;
+}
+
+export interface PreviewProfile {
+  id: number;
+  tenant_id: number;
+  provider: string;
+  name: string;
+  base_url: string;
+  enabled: boolean;
+  is_default: boolean;
+  supported_extensions: string[];
+  config: Record<string, unknown>;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface PreviewProviderOption {
   provider: string;
   label: string;
   supported: boolean;
@@ -184,6 +205,17 @@ export interface StorageProfilePayload {
   is_default?: boolean;
   enabled?: boolean;
   extra_config?: Record<string, unknown>;
+}
+
+export interface PreviewProfilePayload {
+  id?: number;
+  provider: string;
+  name: string;
+  base_url: string;
+  enabled?: boolean;
+  is_default?: boolean;
+  supported_extensions?: string[];
+  config?: Record<string, unknown>;
 }
 
 export interface TenantQuotaPayload {
@@ -342,6 +374,29 @@ export function testStorageProfile(profileId: number) {
 
 export function setDefaultStorageProfile(profileId: number) {
   return Alova.Post<{ item: StorageProfile }>(`/files/admin/storage-profiles/${profileId}/default`);
+}
+
+export function getPreviewProfiles() {
+  return Alova.Get<{ items: PreviewProfile[] }>('/files/admin/preview-profiles', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function getPreviewProviderOptions() {
+  return Alova.Get<{ items: PreviewProviderOption[] }>('/files/admin/preview-provider-options', {
+    params: withNoCacheParams(),
+  });
+}
+
+export function savePreviewProfile(payload: PreviewProfilePayload) {
+  if (payload.id) {
+    return Alova.Put<{ item: PreviewProfile }>(`/files/admin/preview-profiles/${payload.id}`, payload);
+  }
+  return Alova.Post<{ item: PreviewProfile }>('/files/admin/preview-profiles', payload);
+}
+
+export function setDefaultPreviewProfile(profileId: number) {
+  return Alova.Post<{ item: PreviewProfile }>(`/files/admin/preview-profiles/${profileId}/default`);
 }
 
 export function getTenantFileQuota(tenantId: number) {

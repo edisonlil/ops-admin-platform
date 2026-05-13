@@ -22,7 +22,7 @@ class DownloadObject:
     content_type: str | None = None
 
 
-PreviewMode = Literal["image", "pdf", "text", "audio", "video", "unsupported"]
+PreviewMode = Literal["image", "pdf", "text", "audio", "video", "external", "unsupported"]
 
 
 @dataclass(frozen=True)
