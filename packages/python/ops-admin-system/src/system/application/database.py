@@ -6,3 +6,4 @@ from system.infrastructure.config import (
     resolve_db_path,
 )
 from system.infrastructure.persistence.connection import connect, is_database_url
+from system.infrastructure.persistence.dialect import table_exists

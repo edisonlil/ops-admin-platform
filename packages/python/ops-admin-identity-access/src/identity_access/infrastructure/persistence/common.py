@@ -13,6 +13,7 @@ from identity_access.infrastructure.config import (
 )
 from identity_access.infrastructure.persistence.bootstrap import ensure_identity_schema, ensure_identity_seed
 from identity_access.infrastructure.security import hash_password
+from system.infrastructure.persistence.dialect import add_column_if_missing, backend_name, column_exists, index_exists, table_exists
 from system.infrastructure.persistence.connection import connect
 
 
@@ -380,7 +381,7 @@ def normalize_username(username: str) -> str:
 
 
 def ensure_auth_schema(conn: Any) -> None:
-    if getattr(conn, "backend", "sqlite") != "postgres":
+    if backend_name(conn) == "sqlite":
         repair_sqlite_identity_tables_before_schema(conn)
     ensure_identity_schema(conn)
     ensure_menu_schema(conn)
@@ -428,14 +429,14 @@ def repair_sqlite_identity_tables_before_schema(conn: Any) -> None:
 
 def ensure_menu_schema(conn: Any) -> None:
     now = now_iso()
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id BIGINT DEFAULT 1")
-        conn.execute("ALTER TABLE roles ADD COLUMN IF NOT EXISTS tenant_id BIGINT DEFAULT NULL")
-        conn.execute("ALTER TABLE roles ADD COLUMN IF NOT EXISTS role_scope TEXT DEFAULT 'platform'")
-        conn.execute("ALTER TABLE menus ADD COLUMN IF NOT EXISTS menu_type TEXT DEFAULT 'page'")
-        conn.execute("ALTER TABLE menus ADD COLUMN IF NOT EXISTS menu_scope TEXT DEFAULT 'tenant'")
-        conn.execute("ALTER TABLE menus ADD COLUMN IF NOT EXISTS component TEXT DEFAULT ''")
-        conn.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS tenant_id BIGINT DEFAULT 1")
+    if backend_name(conn) in {"postgres", "mysql"}:
+        add_column_if_missing(conn, "users", "tenant_id", "BIGINT DEFAULT 1")
+        add_column_if_missing(conn, "roles", "tenant_id", "BIGINT DEFAULT NULL")
+        add_column_if_missing(conn, "roles", "role_scope", "TEXT DEFAULT 'platform'")
+        add_column_if_missing(conn, "menus", "menu_type", "TEXT DEFAULT 'page'")
+        add_column_if_missing(conn, "menus", "menu_scope", "TEXT DEFAULT 'tenant'")
+        add_column_if_missing(conn, "menus", "component", "TEXT DEFAULT ''")
+        add_column_if_missing(conn, "api_keys", "tenant_id", "BIGINT DEFAULT 1")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tenant_menu_overrides (
@@ -451,70 +452,34 @@ def ensure_menu_schema(conn: Any) -> None:
         conn.execute("UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL")
         conn.execute("UPDATE roles SET role_scope = 'platform' WHERE role_scope IS NULL OR role_scope = ''")
         conn.execute("UPDATE menus SET menu_scope = 'tenant' WHERE menu_scope IS NULL OR menu_scope = ''")
-        conn.execute(
-            """
-            DO $$
-            DECLARE
-                constraint_name text;
-            BEGIN
-                SELECT c.conname INTO constraint_name
-                FROM pg_constraint c
-                JOIN pg_class t ON t.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE t.relname = 'users'
-                  AND c.contype = 'u'
-                  AND (
-                      SELECT array_agg(a.attname ORDER BY a.attnum)
-                      FROM unnest(c.conkey) AS key(attnum)
-                      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key.attnum
-                  ) = ARRAY['username'];
+        if backend_name(conn) == "postgres":
+            conn.execute(
+                """
+                DO $$
+                DECLARE
+                    constraint_name text;
+                BEGIN
+                    SELECT c.conname INTO constraint_name
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                    WHERE t.relname = 'users'
+                      AND c.contype = 'u'
+                      AND (
+                          SELECT array_agg(a.attname ORDER BY a.attnum)
+                          FROM unnest(c.conkey) AS key(attnum)
+                          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key.attnum
+                      ) = ARRAY['username'];
 
-                IF constraint_name IS NOT NULL THEN
-                    EXECUTE format('ALTER TABLE users DROP CONSTRAINT %I', constraint_name);
-                END IF;
-            END $$;
-            """
-        )
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username_unique ON users(tenant_id, username)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_roles_scope ON roles(role_scope)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_menus_scope ON menus(menu_scope)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tenant_menu_overrides_tenant ON tenant_menu_overrides(tenant_id)")
-        conn.execute(
-            """
-            INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
-            OVERRIDING SYSTEM VALUE
-            SELECT 1, ?, ?, 'active', ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
-              AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = 1)
-            """,
-            (
-                PLATFORM_TENANT_KEY,
-                "Platform Administration",
-                "System realm for platform administrators",
-                now,
-                now,
-                PLATFORM_TENANT_KEY,
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
-            OVERRIDING SYSTEM VALUE
-            SELECT 2, ?, ?, 'active', ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
-              AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = 2)
-            """,
-            (
-                DEFAULT_TENANT_KEY,
-                "Default Tenant",
-                "Migrated single-tenant workspace",
-                now,
-                now,
-                DEFAULT_TENANT_KEY,
-            ),
-        )
+                    IF constraint_name IS NOT NULL THEN
+                        EXECUTE format('ALTER TABLE users DROP CONSTRAINT %I', constraint_name);
+                    END IF;
+                END $$;
+                """
+            )
+        ensure_identity_indexes(conn)
+        insert_seed_tenant_with_id(conn, 1, PLATFORM_TENANT_KEY, "Platform Administration", "System realm for platform administrators", now)
+        insert_seed_tenant_with_id(conn, 2, DEFAULT_TENANT_KEY, "Default Tenant", "Migrated single-tenant workspace", now)
         return
 
     migrate_sqlite_users_for_tenancy(conn)
@@ -554,14 +519,10 @@ def ensure_menu_schema(conn: Any) -> None:
         )
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username_unique ON users(tenant_id, username)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username)")
+    ensure_identity_indexes(conn)
     conn.execute("UPDATE roles SET role_scope = 'platform' WHERE role_scope IS NULL OR role_scope = ''")
     conn.execute("UPDATE menus SET menu_scope = 'tenant' WHERE menu_scope IS NULL OR menu_scope = ''")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_roles_scope ON roles(role_scope)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_menus_scope ON menus(menu_scope)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tenant_menu_overrides_tenant ON tenant_menu_overrides(tenant_id)")
+    ensure_identity_indexes(conn)
     conn.execute(
         """
         INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
@@ -650,6 +611,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
         )
         """
     )
+
     select_tenant = "tenant_id" if "tenant_id" in column_names else "1 AS tenant_id"
     select_lock_version = "lock_version" if "lock_version" in column_names else "0 AS lock_version"
     select_deleted = "deleted" if "deleted" in column_names else "0 AS deleted"
@@ -671,6 +633,54 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     )
     conn.execute("DROP TABLE users")
     conn.execute("ALTER TABLE users_tenant_migration RENAME TO users")
+
+
+def ensure_identity_indexes(conn: Any) -> None:
+    index_statements = (
+        ("idx_api_keys_tenant", "CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)"),
+        (
+            "idx_users_tenant_username_unique",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username_unique ON users(tenant_id, username)",
+        ),
+        ("idx_users_tenant_username", "CREATE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username)"),
+        ("idx_roles_scope", "CREATE INDEX IF NOT EXISTS idx_roles_scope ON roles(role_scope)"),
+        ("idx_menus_scope", "CREATE INDEX IF NOT EXISTS idx_menus_scope ON menus(menu_scope)"),
+        (
+            "idx_tenant_menu_overrides_tenant",
+            "CREATE INDEX IF NOT EXISTS idx_tenant_menu_overrides_tenant ON tenant_menu_overrides(tenant_id)",
+        ),
+    )
+    for index_name, statement in index_statements:
+        if backend_name(conn) == "mysql":
+            statement = statement.replace(" IF NOT EXISTS", "")
+            if index_exists(conn, index_name):
+                continue
+        conn.execute(statement)
+
+
+def insert_seed_tenant_with_id(conn: Any, tenant_id: int, tenant_key: str, name: str, remark: str, now: str) -> None:
+    if backend_name(conn) == "mysql":
+        conn.execute(
+            """
+            INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
+            SELECT ?, ?, ?, 'active', ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
+              AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = ?)
+            """,
+            (tenant_id, tenant_key, name, remark, now, now, tenant_key, tenant_id),
+        )
+        return
+    override = "OVERRIDING SYSTEM VALUE" if backend_name(conn) == "postgres" else ""
+    conn.execute(
+        f"""
+        INSERT INTO tenants (id, tenant_key, name, status, remark, create_time, update_time)
+        {override}
+        SELECT ?, ?, ?, 'active', ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE tenant_key = ?)
+          AND NOT EXISTS (SELECT 1 FROM tenants WHERE id = ?)
+        """,
+        (tenant_id, tenant_key, name, remark, now, now, tenant_key, tenant_id),
+    )
 
 
 def ensure_platform_tenant(conn: Any) -> dict[str, Any]:
@@ -914,15 +924,14 @@ def backfill_default_menu_metadata(conn: Any) -> None:
             and menu_key in default_tenant_scoped_platform_keys
             and str(existing["menu_scope"] or "") == "tenant"
         )
+        child_exists = bool(conn.execute("SELECT 1 FROM menus WHERE parent_key = ? LIMIT 1", (menu_key,)).fetchone())
+        next_menu_type = metadata["menu_type"] if not child_exists or metadata["menu_type"] != "directory" else "directory"
         conn.execute(
             """
             UPDATE menus
             SET menu_type = CASE
                     WHEN menu_type IS NULL OR menu_type = '' THEN ?
-                    WHEN ? = 'directory'
-                        AND menu_type = 'page'
-                        AND EXISTS (SELECT 1 FROM menus child WHERE child.parent_key = menus.menu_key)
-                    THEN 'directory'
+                    WHEN ? = 'directory' AND menu_type = 'page' AND ? THEN 'directory'
                     ELSE menu_type
                 END,
                 component = CASE WHEN component IS NULL OR component = '' THEN ? ELSE component END,
@@ -931,7 +940,8 @@ def backfill_default_menu_metadata(conn: Any) -> None:
             """,
             (
                 metadata["menu_type"],
-                metadata["menu_type"],
+                next_menu_type,
+                child_exists,
                 metadata["component"],
                 should_set_scope,
                 metadata["menu_scope"],
@@ -1971,13 +1981,24 @@ def ensure_tenant_default_roles(conn: Any) -> None:
 
 
 def initialize_auth_storage(conn: Any) -> None:
-    if getattr(conn, "backend", "sqlite") == "postgres":
+    if backend_name(conn) == "postgres":
         conn.execute("SELECT pg_advisory_xact_lock(?)", (7183001,))
         ensure_auth_schema(conn)
         ensure_platform_tenant(conn)
         ensure_default_tenant(conn)
         ensure_default_admin(conn)
         ensure_default_rbac(conn)
+        return
+    if backend_name(conn) == "mysql":
+        conn.execute("SELECT GET_LOCK(?, ?)", ("ops_admin_identity_init", 30))
+        try:
+            ensure_auth_schema(conn)
+            ensure_platform_tenant(conn)
+            ensure_default_tenant(conn)
+            ensure_default_admin(conn)
+            ensure_default_rbac(conn)
+        finally:
+            conn.execute("SELECT RELEASE_LOCK(?)", ("ops_admin_identity_init",))
         return
     with _auth_schema_lock:
         ensure_auth_schema(conn)

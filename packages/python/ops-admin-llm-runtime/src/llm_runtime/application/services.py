@@ -13,7 +13,7 @@ from llm_runtime.domain.events import llm_runtime_settings_updated
 from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
 from framework.llm_core import CommandLLMClient, LLMClient, LLMResponse, MiniMaxLLMClient, OpenAICompatibleLLMClient
 from llm_runtime.application import gateway
-from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.database import connect, resolve_database_url, resolve_db_path, table_exists
 from system.application.event_bus import publish_event
 from system.application.tenancy import current_tenant_scope
 from system.interfaces.http import current_request_id
@@ -421,24 +421,6 @@ def mask_secret(value: str) -> str:
     if len(value) <= 8:
         return "*" * len(value)
     return f"{value[:4]}...{value[-4:]}"
-
-
-def table_exists(conn: Any, table_name: str) -> bool:
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        row = conn.execute(
-            """
-            SELECT 1
-            FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = ?
-            """,
-            (table_name,),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        ).fetchone()
-    return bool(row)
 
 
 def build_llm_client(

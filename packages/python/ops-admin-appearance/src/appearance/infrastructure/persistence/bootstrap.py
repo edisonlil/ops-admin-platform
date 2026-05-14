@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from system.infrastructure.persistence.dialect import (
+    add_column_if_missing,
+    apply_sql_script,
+    backend_name,
+    bigint_type,
+    column_exists as has_column,
+    ddl_filename,
+    table_exists,
+    text_json_type,
+)
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
 
 
 def ensure_appearance_schema(conn: Any) -> None:
-    filename = "ddl.postgres.sql" if getattr(conn, "backend", "sqlite") == "postgres" else "ddl.sqlite.sql"
-    apply_sql_script(conn, PERSISTENCE_DIR / filename)
+    apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
     ensure_draft_columns(conn)
     ensure_platform_branding_columns(conn)
 
@@ -57,29 +67,17 @@ def require_appearance_schema(conn: Any) -> None:
 
 
 def ensure_draft_columns(conn: Any) -> None:
+    json_default = "'{}'::jsonb" if backend_name(conn) == "postgres" else "'{}'"
     default_columns = {
         "draft_preset_id": "TEXT NOT NULL DEFAULT 'default'",
-        "draft_token_overrides_json": "JSONB NOT NULL DEFAULT '{}'::jsonb"
-        if getattr(conn, "backend", "sqlite") == "postgres"
-        else "TEXT NOT NULL DEFAULT '{}'",
-        "draft_layout_overrides_json": "JSONB NOT NULL DEFAULT '{}'::jsonb"
-        if getattr(conn, "backend", "sqlite") == "postgres"
-        else "TEXT NOT NULL DEFAULT '{}'",
-        "project_overrides_json": "JSONB NOT NULL DEFAULT '{}'::jsonb"
-        if getattr(conn, "backend", "sqlite") == "postgres"
-        else "TEXT NOT NULL DEFAULT '{}'",
-        "draft_project_overrides_json": "JSONB NOT NULL DEFAULT '{}'::jsonb"
-        if getattr(conn, "backend", "sqlite") == "postgres"
-        else "TEXT NOT NULL DEFAULT '{}'",
+        "draft_token_overrides_json": f"{text_json_type(conn)} NOT NULL DEFAULT {json_default}",
+        "draft_layout_overrides_json": f"{text_json_type(conn)} NOT NULL DEFAULT {json_default}",
+        "project_overrides_json": f"{text_json_type(conn)} NOT NULL DEFAULT {json_default}",
+        "draft_project_overrides_json": f"{text_json_type(conn)} NOT NULL DEFAULT {json_default}",
         "draft_skin_class": "TEXT NOT NULL DEFAULT ''",
     }
     for column_name, definition in default_columns.items():
-        if has_column(conn, "appearance_themes", column_name):
-            continue
-        if getattr(conn, "backend", "sqlite") == "postgres":
-            conn.execute(f"ALTER TABLE appearance_themes ADD COLUMN IF NOT EXISTS {column_name} {definition}")
-        else:
-            conn.execute(f"ALTER TABLE appearance_themes ADD COLUMN {column_name} {definition}")
+        add_column_if_missing(conn, "appearance_themes", column_name, definition)
     conn.execute(
         """
         UPDATE appearance_themes
@@ -94,64 +92,9 @@ def ensure_draft_columns(conn: Any) -> None:
 
 
 def ensure_platform_branding_columns(conn: Any) -> None:
-    if not table_exists(conn, "appearance_platform_branding"):
-        return
-    if has_column(conn, "appearance_platform_branding", "platform_name_font_size"):
-        return
-    definition = "BIGINT NOT NULL DEFAULT 20" if getattr(conn, "backend", "sqlite") == "postgres" else "INTEGER NOT NULL DEFAULT 20"
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        conn.execute(f"ALTER TABLE appearance_platform_branding ADD COLUMN IF NOT EXISTS platform_name_font_size {definition}")
-    else:
-        conn.execute(f"ALTER TABLE appearance_platform_branding ADD COLUMN platform_name_font_size {definition}")
-
-
-def apply_sql_script(conn: Any, path: Path) -> None:
-    sql = path.read_text(encoding="utf-8")
-    if getattr(conn, "backend", "sqlite") != "postgres" and hasattr(conn, "executescript"):
-        conn.executescript(sql)
-        return
-    for statement in split_sql_statements(sql):
-        conn.execute(statement)
-
-
-def split_sql_statements(sql: str) -> Iterable[str]:
-    for chunk in sql.split(";"):
-        statement = chunk.strip()
-        if not statement:
-            continue
-        if all(not line.strip() or line.strip().startswith("--") for line in statement.splitlines()):
-            continue
-        yield statement
-
-
-def table_exists(conn: Any, table_name: str) -> bool:
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        row = conn.execute(
-            """
-            SELECT 1
-            FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = ?
-            """,
-            (table_name,),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        ).fetchone()
-    return bool(row)
-
-
-def has_column(conn: Any, table_name: str, column_name: str) -> bool:
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        row = conn.execute(
-            """
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
-            """,
-            (table_name, column_name),
-        ).fetchone()
-        return bool(row)
-    columns = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
-    return column_name in columns
+    add_column_if_missing(
+        conn,
+        "appearance_platform_branding",
+        "platform_name_font_size",
+        f"{bigint_type(conn)} NOT NULL DEFAULT 20",
+    )

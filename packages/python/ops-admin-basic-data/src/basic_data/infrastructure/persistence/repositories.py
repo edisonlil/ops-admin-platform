@@ -414,6 +414,8 @@ def status_filter(value: Any) -> str | None:
 def deleted_code_expression(conn: Any) -> str:
     if getattr(conn, "backend", "sqlite") == "postgres":
         return "'__deleted__' || id::text"
+    if getattr(conn, "backend", "sqlite") == "mysql":
+        return "CONCAT('__deleted__', id)"
     return "'__deleted__' || id"
 
 

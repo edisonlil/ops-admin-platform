@@ -7,6 +7,7 @@ from sqlalchemy import MetaData, Table, and_, create_engine, insert, select, upd
 from sqlalchemy.engine import Connection, Engine
 
 from system.application.tenancy import current_tenant_scope
+from system.infrastructure.persistence.connection import is_database_url
 
 
 metadata = MetaData()
@@ -15,7 +16,7 @@ _engines: dict[str, Engine] = {}
 
 def engine_for(database_target: str) -> Engine:
     url = database_target
-    if not url.startswith(("sqlite://", "postgres://", "postgresql://")):
+    if not url.startswith("sqlite://") and not is_database_url(url):
         url = f"sqlite:///{database_target}"
     engine = _engines.get(url)
     if engine is None:

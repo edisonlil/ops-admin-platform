@@ -40,6 +40,7 @@ LEGACY_TOP_LEVEL_PACKAGES = {"fp_recommender", "storage"}
 REQUIRED_PERSISTENCE_FILES = {
     "ddl.sqlite.sql",
     "ddl.postgres.sql",
+    "ddl.mysql.sql",
     "seed.sql",
 }
 BASE_TABLE_COLUMNS = {
@@ -155,7 +156,7 @@ def test_business_tables_use_standard_base_columns() -> None:
     violations: list[str] = []
     for context, context_path in BOUNDED_CONTEXTS.items():
         persistence_path = context_path / "infrastructure" / "persistence"
-        for filename in ("ddl.sqlite.sql", "ddl.postgres.sql"):
+        for filename in ("ddl.sqlite.sql", "ddl.postgres.sql", "ddl.mysql.sql"):
             ddl_path = persistence_path / filename
             sql = ddl_path.read_text(encoding="utf-8")
             tables = ddl_tables(sql)

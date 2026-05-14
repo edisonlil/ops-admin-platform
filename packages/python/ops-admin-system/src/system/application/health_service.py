@@ -5,17 +5,18 @@ from typing import Any
 from urllib.parse import urlparse
 
 from system.infrastructure.config import resolve_database_url, resolve_db_path
-from system.infrastructure.persistence.connection import connect
+from system.infrastructure.persistence.connection import connect, database_backend_for_target
 
 
 def health_payload() -> dict[str, Any]:
     database_url = resolve_database_url()
     if database_url:
+        backend = database_backend_for_target(database_url)
         healthy = check_database_connection(database_url)
         return {
             "status": "ok" if healthy else "degraded",
-            "database_backend": "postgres",
-            "database_source": "Supabase Postgres",
+            "database_backend": backend,
+            "database_source": database_source_label(backend),
             "database_detail": database_url_detail(database_url),
             "database_path": mask_database_url(database_url),
             "database_exists": healthy,
@@ -33,17 +34,25 @@ def health_payload() -> dict[str, Any]:
 
 def mask_database_url(database_url: str) -> str:
     if "@" not in database_url:
-        return "postgres"
+        return database_backend_for_target(database_url)
     scheme, _, rest = database_url.partition("://")
     _, _, host = rest.rpartition("@")
     return f"{scheme}://***@{host}" if scheme else f"***@{host}"
 
 
+def database_source_label(backend: str) -> str:
+    if backend == "postgres":
+        return "Postgres"
+    if backend == "mysql":
+        return "MySQL"
+    return "Database"
+
+
 def database_url_detail(database_url: str) -> str:
     parsed = urlparse(database_url)
-    host = parsed.hostname or "postgres"
+    host = parsed.hostname or database_backend_for_target(database_url)
     port = f":{parsed.port}" if parsed.port else ""
-    database = parsed.path.lstrip("/") or "postgres"
+    database = parsed.path.lstrip("/") or database_backend_for_target(database_url)
     return f"{host}{port}/{database}"
 
 

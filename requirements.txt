@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 psycopg[binary]
+PyMySQL
 SQLAlchemy
 fastapi-login
 pwdlib[argon2]

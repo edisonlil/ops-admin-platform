@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+from system.infrastructure.persistence.dialect import apply_sql_script, ddl_filename, table_exists
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
 
 
 def ensure_messaging_schema(conn: Any) -> None:
-    filename = "ddl.postgres.sql" if getattr(conn, "backend", "sqlite") == "postgres" else "ddl.sqlite.sql"
-    apply_sql_script(conn, PERSISTENCE_DIR / filename)
+    apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
 
 
 def require_messaging_schema(conn: Any) -> None:
@@ -27,40 +28,3 @@ def require_messaging_schema(conn: Any) -> None:
             "messaging storage is not initialized; run `python scripts/init_messaging.py`"
             + f" (missing tables: {', '.join(missing)})"
         )
-
-
-def apply_sql_script(conn: Any, path: Path) -> None:
-    sql = path.read_text(encoding="utf-8")
-    if getattr(conn, "backend", "sqlite") != "postgres" and hasattr(conn, "executescript"):
-        conn.executescript(sql)
-        return
-    for statement in split_sql_statements(sql):
-        conn.execute(statement)
-
-
-def split_sql_statements(sql: str) -> Iterable[str]:
-    for chunk in sql.split(";"):
-        statement = chunk.strip()
-        if not statement:
-            continue
-        if all(not line.strip() or line.strip().startswith("--") for line in statement.splitlines()):
-            continue
-        yield statement
-
-
-def table_exists(conn: Any, table_name: str) -> bool:
-    if getattr(conn, "backend", "sqlite") == "postgres":
-        row = conn.execute(
-            """
-            SELECT 1
-            FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = ?
-            """,
-            (table_name,),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        ).fetchone()
-    return bool(row)

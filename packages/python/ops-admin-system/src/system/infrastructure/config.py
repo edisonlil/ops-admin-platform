@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from system.infrastructure.persistence.connection import database_backend_for_target
+
 
 def repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
@@ -50,7 +52,8 @@ def resolve_database_url() -> str | None:
 
 
 def database_backend() -> str:
-    return "postgres" if resolve_database_url() else "sqlite"
+    database_url = resolve_database_url()
+    return database_backend_for_target(database_url) if database_url else "sqlite"
 
 
 def default_use_keywords_recall() -> bool:

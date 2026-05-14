@@ -1,0 +1,2 @@
+-- The system context currently has no durable tables.
+-- Request context and in-process events are runtime infrastructure only.
