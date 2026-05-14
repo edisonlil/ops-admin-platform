@@ -1,5 +1,6 @@
 import {
   clearOpsAdminModules,
+  registerAIAssetsModule,
   registerBasicDataModule,
   registerCronModule,
   registerAppearanceModule,
@@ -31,5 +32,9 @@ export function setupStarterModules() {
 
   if (import.meta.env.VITE_ENABLE_LLM_RUNTIME !== 'false') {
     registerLlmRuntimeModule();
+  }
+
+  if (import.meta.env.VITE_ENABLE_AI_ASSETS !== 'false') {
+    registerAIAssetsModule();
   }
 }

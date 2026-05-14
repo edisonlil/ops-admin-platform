@@ -91,6 +91,14 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "llm-routing-policies-save": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "llm-debug": {"menu_type": "page", "component": "/settings/llm-debug/index", "menu_scope": "tenant"},
     "llm-debug-send": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "ai-assets": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "prompt-library": {"menu_type": "page", "component": "/prompts/library/index", "menu_scope": "tenant"},
+    "prompt-library-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "prompt-contracts": {"menu_type": "page", "component": "/prompts/contracts/index", "menu_scope": "tenant"},
+    "prompt-contracts-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "prompt-bindings": {"menu_type": "page", "component": "/prompts/bindings/index", "menu_scope": "tenant"},
+    "prompt-bindings-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "prompt-runs": {"menu_type": "page", "component": "/prompts/runs/index", "menu_scope": "tenant"},
     "tenant-settings": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "tenant-user-management": {"menu_type": "page", "component": "/tenant/index", "menu_scope": "tenant"},
     "tenant-users-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -216,6 +224,23 @@ TENANT_CRON_MENU_KEYS = [
     "cron-tasks-trigger",
     "cron-runs",
 ]
+TENANT_AI_ASSETS_MENU_KEYS = [
+    "ai-assets",
+    "prompt-library",
+    "prompt-library-manage",
+    "prompt-contracts",
+    "prompt-contracts-manage",
+    "prompt-bindings",
+    "prompt-bindings-manage",
+    "prompt-runs",
+]
+TENANT_AI_ASSETS_NAV_MENU_KEYS = [
+    "ai-assets",
+    "prompt-library",
+    "prompt-contracts",
+    "prompt-bindings",
+    "prompt-runs",
+]
 TENANT_ADMIN_MENU_KEYS = (
     [
         "tenant-settings",
@@ -233,6 +258,7 @@ TENANT_ADMIN_MENU_KEYS = (
     + TENANT_BASIC_DATA_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + TENANT_CRON_MENU_KEYS
+    + TENANT_AI_ASSETS_MENU_KEYS
 )
 TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = (
@@ -242,6 +268,7 @@ DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     + TENANT_BASIC_DATA_NAV_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + ["cron", "cron-tasks", "cron-runs"]
+    + TENANT_AI_ASSETS_NAV_MENU_KEYS
 )
 TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "llm_config:update",
@@ -1561,6 +1588,86 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "llm_debug:send",
             921,
         ),
+        (
+            "ai-assets",
+            "AI 资产",
+            "",
+            "",
+            "robot",
+            "",
+            "",
+            93,
+        ),
+        (
+            "prompt-library",
+            "提示词库",
+            "/prompts/library",
+            "prompt-library",
+            "message",
+            "ai-assets",
+            "prompt:assets:view",
+            931,
+        ),
+        (
+            "prompt-library-manage",
+            "管理提示词",
+            "",
+            "",
+            "",
+            "prompt-library",
+            "prompt:assets:manage",
+            9311,
+        ),
+        (
+            "prompt-contracts",
+            "任务契约",
+            "/prompts/contracts",
+            "prompt-contracts",
+            "api",
+            "ai-assets",
+            "prompt:assets:view",
+            932,
+        ),
+        (
+            "prompt-contracts-manage",
+            "管理任务契约",
+            "",
+            "",
+            "",
+            "prompt-contracts",
+            "prompt:contracts:manage",
+            9321,
+        ),
+        (
+            "prompt-bindings",
+            "提示词绑定",
+            "/prompts/bindings",
+            "prompt-bindings",
+            "deployment-unit",
+            "ai-assets",
+            "prompt:assets:view",
+            933,
+        ),
+        (
+            "prompt-bindings-manage",
+            "管理提示词绑定",
+            "",
+            "",
+            "",
+            "prompt-bindings",
+            "prompt:bindings:manage",
+            9331,
+        ),
+        (
+            "prompt-runs",
+            "运行记录",
+            "/prompts/runs",
+            "prompt-runs",
+            "history",
+            "ai-assets",
+            "prompt:runs:view",
+            934,
+        ),
     ]
     for key, label, path, route_name, icon, parent_key, permission_code, sort_order in tenant_menu_rows:
         conn.execute(
@@ -1788,6 +1895,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
