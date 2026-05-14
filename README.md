@@ -44,6 +44,8 @@ Default development login:
 
 Runtime code must not initialize, migrate, seed, backfill, or repair schema implicitly. Initialization is an operations task run through the scripts above.
 
+When developing a backend module, run the relevant explicit initialization script once after changing storage, seed data, permissions, menus, or module entry points, then verify `/api/admin_info` returns the expected menu for the target login scope. See [Backend Development Workflow](docs/backend-development-workflow.md).
+
 ## One-Click Development Startup
 
 Use the Windows starter to configure and run both services:

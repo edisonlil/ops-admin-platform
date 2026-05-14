@@ -40,6 +40,7 @@
 - Business tables must follow `docs/backend-table-conventions.md`: `id`, `tenant_id`, `lock_version`, `deleted`, `create_time`, `creator`, `creator_id`, `update_time`, `editor`, and `editor_id` are required base fields.
 - Business runtime must never initialize, migrate, seed, backfill, or repair database schema/data implicitly.
 - Runtime code may check that required tables/data already exist and fail with a clear operational error if they do not.
+- After adding or changing backend storage, seed data, permissions, menus, tenant menu defaults, or module entry points, explicitly run the relevant initialization script once in the development database and verify the menu/permission chain. This remains a development/operations step, not runtime behavior. See `docs/backend-development-workflow.md`.
 - Every bounded context must maintain its own `README.md` at the context root.
 - Do not add new direct imports from `domain` packages to FastAPI, `sqlite3`, `psycopg`, or storage implementations.
 
