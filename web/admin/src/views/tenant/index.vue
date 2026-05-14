@@ -1,30 +1,13 @@
 <template>
-  <div>
-    <ListPageRuntime
-      v-if="isPlatformTenantManagement"
-      :schema="tenantListPage"
-      :rows="tenants"
-      :loading="loading"
-      @refresh="reload"
-    >
+  <div class="tenant-page">
+    <ListPageRuntime v-if="isPlatformTenantManagement" :schema="tenantListPage" :rows="tenants" :loading="loading" @refresh="reload">
       <template #filters>
-        <n-input
-          v-model:value="query"
-          clearable
-          placeholder="搜索租户 Key / 名称"
-          @keyup.enter="reload"
-        />
+        <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" class="tenant-page__search" @keyup.enter="reload" />
         <n-button @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
 
-    <ListPageRuntime
-      v-else
-      :schema="memberListPage"
-      :rows="tenantUsers"
-      :loading="usersLoading || loading"
-      @refresh="loadTenantUsers"
-    />
+    <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" @refresh="loadTenantUsers" />
 
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
       <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
@@ -42,14 +25,7 @@
           <n-input v-model:value="tenantForm.remark" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" />
         </n-form-item>
         <n-form-item v-if="tenantFormMode === 'edit' && canAssignTenantTheme" label="外观主题">
-          <n-select
-            v-model:value="tenantForm.theme_id"
-            clearable
-            filterable
-            :loading="themesLoading"
-            :options="themeOptions"
-            placeholder="选择租户外观主题"
-          />
+          <n-select v-model:value="tenantForm.theme_id" clearable filterable :loading="themesLoading" :options="themeOptions" placeholder="选择租户外观主题" />
         </n-form-item>
         <template v-if="tenantFormMode === 'create'">
           <n-form-item label="管理员账号">
@@ -69,10 +45,7 @@
     </n-modal>
 
     <n-drawer v-model:show="detailVisible" :width="920" placement="right" to=".appearance-root">
-      <n-drawer-content
-        class="tenant-detail-drawer"
-        :title="activeTenant ? `${activeTenant.name} / ${activeTenant.tenant_key}` : '租户详情'"
-      >
+      <n-drawer-content class="tenant-detail-drawer" :title="activeTenant ? `${activeTenant.name} / ${activeTenant.tenant_key}` : '租户详情'">
         <n-tabs type="line" animated>
           <n-tab-pane name="base" tab="基础信息">
             <n-descriptions v-if="activeTenant" bordered :column="2" size="small">
@@ -81,33 +54,20 @@
                 <AppStatusTag :status-key="activeTenant.status === 'active' ? 'active' : 'suspended'" />
               </n-descriptions-item>
               <n-descriptions-item label="租户名称">{{ activeTenant.name }}</n-descriptions-item>
-              <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.update_time) }}</n-descriptions-item>
+              <n-descriptions-item label="更新时间">{{ formatToDateTime(activeTenant.update_time || '') }}</n-descriptions-item>
               <n-descriptions-item label="备注" :span="2">{{ activeTenant.remark || '-' }}</n-descriptions-item>
             </n-descriptions>
           </n-tab-pane>
-
           <n-tab-pane name="users" tab="成员">
-            <ListPageRuntime
-              :schema="drawerUserListPage"
-              :rows="tenantUsers"
-              :loading="usersLoading"
-              @refresh="loadTenantUsers"
-            />
+            <ListPageRuntime :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" @refresh="loadTenantUsers" />
           </n-tab-pane>
-
           <n-tab-pane name="keys" tab="API Key">
-            <ListPageRuntime
-              :schema="drawerKeyListPage"
-              :rows="tenantKeys"
-              :loading="keysLoading"
-              @refresh="loadTenantKeys"
-            />
+            <ListPageRuntime :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" @refresh="loadTenantKeys" />
           </n-tab-pane>
-
           <n-tab-pane name="init" tab="初始化">
-            <n-result status="success" title="租户初始化由后端能力保证">
+            <n-result status="success" title="租户初始化由后端受控脚本保证">
               <template #footer>
-                <span class="tenant-drawer-note">RBAC、默认角色和租户基础数据应由受控初始化流程完成。</span>
+                <span class="tenant-drawer-note">RBAC、默认角色、默认菜单和租户基础数据由显式初始化流程完成。</span>
               </template>
             </n-result>
           </n-tab-pane>
@@ -115,9 +75,9 @@
       </n-drawer-content>
     </n-drawer>
 
-    <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
+    <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '680px' }" :bordered="false">
       <template #header>{{ userFormMode === 'create' ? '新增成员' : '编辑成员' }}</template>
-      <n-form ref="userFormRef" :model="userForm" :rules="userRules" label-placement="left" :label-width="110">
+      <n-form ref="userFormRef" :model="userForm" :rules="userRules" label-placement="left" :label-width="112">
         <n-form-item label="用户名" path="username">
           <n-input v-model:value="userForm.username" />
         </n-form-item>
@@ -126,6 +86,12 @@
         </n-form-item>
         <n-form-item label="角色" path="role_keys">
           <n-select v-model:value="userForm.role_keys" multiple filterable clearable :options="roleOptions" />
+        </n-form-item>
+        <n-form-item label="所属部门">
+          <n-select v-model:value="userForm.department_ids" multiple filterable clearable :options="departmentOptions" placeholder="选择成员所属部门" />
+        </n-form-item>
+        <n-form-item label="主部门">
+          <n-select v-model:value="userForm.primary_department_id" clearable filterable :options="primaryDepartmentOptions" placeholder="用于本部门数据权限计算" />
         </n-form-item>
         <n-form-item label="启用" path="is_active">
           <n-switch v-model:value="userForm.is_active" />
@@ -169,6 +135,7 @@
     getCurrentTenantApiKeys,
     getCurrentTenantRoles,
     getCurrentTenantUsers,
+    getDepartments,
     getRbacRoles,
     getTenantApiKeys,
     getTenantUsers,
@@ -204,6 +171,9 @@
     id: number;
     username: string;
     roles?: Array<{ key?: string; name?: string }>;
+    departments?: DepartmentRow[];
+    department_ids?: number[];
+    primary_department_id?: number | null;
     is_active?: boolean;
     is_superuser?: boolean;
     is_tenant_admin?: boolean;
@@ -215,6 +185,13 @@
     prefix?: string;
     is_active?: boolean;
     create_time?: string;
+  }
+
+  interface DepartmentRow extends Recordable {
+    id: number;
+    parent_id?: number | null;
+    code: string;
+    name: string;
   }
 
   const message = useMessage();
@@ -234,6 +211,7 @@
   const activeTenant = ref<TenantRow | null>(null);
   const tenantUsers = ref<TenantUserRow[]>([]);
   const tenantKeys = ref<TenantApiKeyRow[]>([]);
+  const departments = ref<DepartmentRow[]>([]);
   const usersLoading = ref(false);
   const keysLoading = ref(false);
   const userModalVisible = ref(false);
@@ -248,6 +226,8 @@
     username: '',
     password: '',
     role_keys: [] as string[],
+    department_ids: [] as number[],
+    primary_department_id: null as number | null,
     is_active: true,
     is_superuser: false,
   });
@@ -285,6 +265,9 @@
     password: userFormMode.value === 'create' ? [{ required: true, message: '请输入初始密码', trigger: ['blur', 'input'] }] : [],
   }));
 
+  const departmentOptions = computed<SelectOption[]>(() => departments.value.map((item) => ({ label: `${departmentPath(item)} (${item.code})`, value: item.id })));
+  const primaryDepartmentOptions = computed<SelectOption[]>(() => departmentOptions.value.filter((item) => userForm.department_ids.includes(Number(item.value))));
+
   const tenantColumns: DataTableColumns<TenantRow> = [
     { title: 'ID', key: 'id', width: 80 },
     { title: '租户 Key', key: 'tenant_key', minWidth: 160 },
@@ -294,15 +277,12 @@
       key: 'status',
       width: 100,
       render(row) {
-        return h(AppStatusTag, {
-          tone: row.status === 'active' ? 'success' : 'warning',
-          label: row.status === 'active' ? '启用' : '停用',
-        });
+        return h(AppStatusTag, { tone: row.status === 'active' ? 'success' : 'warning', label: row.status === 'active' ? '启用' : '停用' });
       },
     },
     { title: '成员', key: 'user_count', width: 90 },
     { title: 'API Key', key: 'api_key_count', width: 100 },
-    { title: '更新时间', key: 'update_time', width: 190, render: (row) => formatToDateTime(row.update_time) },
+    { title: '更新时间', key: 'update_time', width: 190, render: (row) => formatToDateTime(row.update_time || '') },
     {
       title: '操作',
       key: 'actions',
@@ -338,15 +318,12 @@
         const roles = row.roles || [];
         return h(AppStatusGroup, {
           items: roles.length
-            ? roles.map((role) => ({
-                key: String(role.key || role.name),
-                label: String(role.name || role.key),
-                tone: 'info',
-              }))
+            ? roles.map((role) => ({ key: String(role.key || role.name), label: String(role.name || role.key), tone: 'info' }))
             : [{ statusKey: 'unassigned' }],
         });
       },
     },
+    { title: '部门', key: 'departments', minWidth: 220, render: (row) => departmentNames(row.department_ids || []) },
     {
       title: '状态',
       key: 'is_active',
@@ -358,9 +335,9 @@
     {
       title: '操作',
       key: 'actions',
-      width: 110,
-      render: (row) =>
-        h(AppTableActions, {
+      width: 150,
+      render(row) {
+        return h(AppTableActions, {
           actions: [
             { label: '编辑', show: canUpdateTenantUser.value, onClick: () => openUserEdit(row) },
             {
@@ -373,7 +350,8 @@
               onConfirm: () => toggleUser(row),
             },
           ],
-        }),
+        });
+      },
     },
   ];
 
@@ -388,7 +366,7 @@
         return h(AppStatusTag, { tone: row.is_active ? 'success' : 'neutral', label: row.is_active ? '有效' : '已撤销' });
       },
     },
-    { title: '创建时间', key: 'create_time', width: 190, render: (row) => formatToDateTime(row.create_time) },
+    { title: '创建时间', key: 'create_time', width: 190, render: (row) => formatToDateTime(row.create_time || '') },
     {
       title: '操作',
       key: 'actions',
@@ -412,117 +390,80 @@
     },
   ];
 
-  const tenantListPage = defineListPage<TenantRow>({
-    id: 'tenant.platform',
-    title: '租户管理',
-    description: '管理平台租户、成员用户与租户级 API Key。',
-    variant: 'dense-data',
-    density: 'compact',
-    view: {
-      type: 'table',
-      columns: tenantColumns,
-      rowKey: (row) => Number(row.id),
-      scrollX: 1160,
-      tableProps: { size: 'small' },
-    },
-    toolbar: {
-      primaryAction: canCreateTenant.value
-        ? { key: 'create', label: '新增租户', type: 'primary', onClick: () => openCreate() }
-        : undefined,
-      rightTools: ['refresh'],
-    },
-    pagination: { pageSize: 20 },
-  });
+  const tenantListPage = computed(() =>
+    defineListPage<TenantRow>({
+      id: 'tenant.platform',
+      title: '租户管理',
+      description: '管理平台租户、成员用户与租户级 API Key。',
+      variant: 'dense-data',
+      density: 'compact',
+      view: { type: 'table', columns: tenantColumns, rowKey: (row) => Number(row.id), scrollX: 1160, tableProps: { size: 'small' } },
+      toolbar: {
+        primaryAction: canCreateTenant.value ? { key: 'create', label: '新增租户', type: 'primary', onClick: () => openCreate() } : undefined,
+        rightTools: ['refresh'],
+      },
+      pagination: { pageSize: 20 },
+    })
+  );
 
-  const memberListPage = defineListPage<TenantUserRow>({
-    id: 'tenant.members',
-    title: '成员管理',
-    description: '管理当前租户的成员账号、角色和启用状态。',
-    variant: 'dense-data',
-    density: 'compact',
-    view: {
-      type: 'table',
-      columns: userColumns,
-      rowKey: (row) => Number(row.id),
-      scrollX: 640,
-      tableProps: { size: 'small' },
-    },
-    toolbar: {
-      primaryAction: canCreateTenantUser.value
-        ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() }
-        : undefined,
-      rightTools: ['refresh'],
-    },
-    pagination: { pageSize: 20 },
-  });
+  const memberListPage = computed(() =>
+    defineListPage<TenantUserRow>({
+      id: 'tenant.members',
+      title: '成员管理',
+      description: '管理当前租户的成员账号、角色、所属部门和启用状态。',
+      variant: 'dense-data',
+      density: 'compact',
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, tableProps: { size: 'small' } },
+      toolbar: {
+        primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
+        rightTools: ['refresh'],
+      },
+      pagination: { pageSize: 20 },
+    })
+  );
 
-  const drawerUserListPage = defineListPage<TenantUserRow>({
-    id: 'tenant.drawer.members',
-    title: '成员',
-    description: '管理此租户下的成员账号、角色和启用状态。',
-    embedded: true,
-    variant: 'dense-data',
-    density: 'compact',
-    view: {
-      type: 'table',
-      columns: userColumns,
-      rowKey: (row) => Number(row.id),
-      scrollX: 640,
-      tableProps: { size: 'small' },
-    },
-    toolbar: {
-      primaryAction: canCreateTenantUser.value
-        ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() }
-        : undefined,
-      rightTools: ['refresh'],
-    },
-    pagination: { pageSize: 20 },
-  });
+  const drawerUserListPage = computed(() =>
+    defineListPage<TenantUserRow>({
+      id: 'tenant.drawer.members',
+      title: '成员',
+      description: '管理此租户下的成员账号、角色、所属部门和启用状态。',
+      embedded: true,
+      variant: 'dense-data',
+      density: 'compact',
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, tableProps: { size: 'small' } },
+      toolbar: {
+        primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
+        rightTools: ['refresh'],
+      },
+      pagination: { pageSize: 20 },
+    })
+  );
 
-  const drawerKeyListPage = defineListPage<TenantApiKeyRow>({
-    id: 'tenant.drawer.api-keys',
-    title: 'API Key',
-    description: '管理此租户可用于外部集成和自动化访问的 API Key。',
-    embedded: true,
-    variant: 'dense-data',
-    density: 'compact',
-    view: {
-      type: 'table',
-      columns: keyColumns,
-      rowKey: (row) => Number(row.id),
-      scrollX: 700,
-      tableProps: { size: 'small' },
-    },
-    toolbar: {
-      primaryAction: canCreateTenantApiKey.value
-        ? { key: 'create', label: '新增 Key', type: 'primary', onClick: () => (keyCreateVisible.value = true) }
-        : undefined,
-      rightTools: ['refresh'],
-    },
-    pagination: { pageSize: 20 },
-  });
+  const drawerKeyListPage = computed(() =>
+    defineListPage<TenantApiKeyRow>({
+      id: 'tenant.drawer.api-keys',
+      title: 'API Key',
+      description: '管理此租户可用于外部集成和自动化访问的 API Key。',
+      embedded: true,
+      variant: 'dense-data',
+      density: 'compact',
+      view: { type: 'table', columns: keyColumns, rowKey: (row) => Number(row.id), scrollX: 700, tableProps: { size: 'small' } },
+      toolbar: {
+        primaryAction: canCreateTenantApiKey.value ? { key: 'create', label: '新增 Key', type: 'primary', onClick: () => (keyCreateVisible.value = true) } : undefined,
+        rightTools: ['refresh'],
+      },
+      pagination: { pageSize: 20 },
+    })
+  );
 
   function resetTenantForm() {
-    tenantForm.id = 0;
-    tenantForm.key = '';
-    tenantForm.name = '';
-    tenantForm.status = 'active';
-    tenantForm.remark = '';
-    tenantForm.theme_id = null;
-    tenantAdminForm.username = '';
-    tenantAdminForm.password = '';
+    Object.assign(tenantForm, { id: 0, key: '', name: '', status: 'active', remark: '', theme_id: null });
+    Object.assign(tenantAdminForm, { username: '', password: '' });
     tenantFormRef.value?.restoreValidation();
   }
 
   function resetUserForm() {
-    Object.assign(userForm, {
-      id: 0,
-      username: '',
-      password: '',
-      role_keys: [],
-      is_active: true,
-      is_superuser: false,
-    });
+    Object.assign(userForm, { id: 0, username: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
     userFormRef.value?.restoreValidation();
   }
 
@@ -534,11 +475,7 @@
 
   async function openEdit(row: TenantRow) {
     tenantFormMode.value = 'edit';
-    tenantForm.id = row.id;
-    tenantForm.key = row.tenant_key;
-    tenantForm.name = row.name;
-    tenantForm.status = row.status;
-    tenantForm.remark = row.remark || '';
+    Object.assign(tenantForm, { id: row.id, key: row.tenant_key, name: row.name, status: row.status, remark: row.remark || '' });
     await ensureThemes();
     try {
       const payload = await getTenantAppearanceTheme(row.id);
@@ -554,9 +491,7 @@
     themesLoading.value = true;
     try {
       const payload = await getAppearanceThemes();
-      themeOptions.value = (payload.items || [])
-        .filter((theme) => theme.status === 'published')
-        .map((theme) => ({ label: theme.name || `主题 ${theme.id}`, value: Number(theme.id) }));
+      themeOptions.value = (payload.items || []).filter((theme) => theme.status === 'published').map((theme) => ({ label: theme.name || `主题 ${theme.id}`, value: Number(theme.id) }));
     } finally {
       themesLoading.value = false;
     }
@@ -575,17 +510,12 @@
         name: tenantForm.name,
         status: tenantForm.status,
         remark: tenantForm.remark,
-        ...(tenantFormMode.value === 'create'
-          ? { admin_username: tenantAdminForm.username, admin_password: tenantAdminForm.password }
-          : {}),
+        ...(tenantFormMode.value === 'create' ? { admin_username: tenantAdminForm.username, admin_password: tenantAdminForm.password } : {}),
       };
-      if (tenantFormMode.value === 'create') {
-        await createTenant(payload);
-      } else {
+      if (tenantFormMode.value === 'create') await createTenant(payload);
+      else {
         await updateTenant(tenantForm.id, payload);
-        if (canAssignTenantTheme.value) {
-          await assignTenantAppearanceTheme(tenantForm.id, tenantForm.theme_id || null);
-        }
+        if (canAssignTenantTheme.value) await assignTenantAppearanceTheme(tenantForm.id, tenantForm.theme_id || null);
       }
       tenantModalVisible.value = false;
       await reload();
@@ -596,10 +526,9 @@
   }
 
   function toggleTenant(row: TenantRow) {
-    const nextActive = row.status !== 'active';
     return (async () => {
-      if (nextActive) await activateTenant(row.id);
-      else await suspendTenant(row.id);
+      if (row.status === 'active') await suspendTenant(row.id);
+      else await activateTenant(row.id);
       await reload();
     })();
   }
@@ -627,15 +556,26 @@
   async function ensureRoles() {
     if (roleOptions.value.length) return;
     const payload = isPlatformTenantManagement.value ? await getRbacRoles() : await getCurrentTenantRoles();
-    roleOptions.value = (payload.items || [])
-      .filter((role) => role.role_scope === 'tenant')
-      .map((role) => ({ label: role.name || role.key, value: role.key }));
+    roleOptions.value = (payload.items || []).filter((role) => role.role_scope === 'tenant').map((role) => ({ label: role.name || role.key, value: role.key }));
+  }
+
+  async function ensureDepartments() {
+    try {
+      const payload = await getDepartments({
+        include_disabled: false,
+        tenant_id: isPlatformTenantManagement.value ? activeTenant.value?.id : undefined,
+      });
+      departments.value = payload.items || [];
+    } catch {
+      departments.value = [];
+    }
   }
 
   async function loadTenantUsers() {
     if (!activeTenant.value) return;
     usersLoading.value = true;
     try {
+      await ensureDepartments();
       const payload = isPlatformTenantManagement.value ? await getTenantUsers(activeTenant.value.id) : await getCurrentTenantUsers();
       tenantUsers.value = payload.items || [];
     } finally {
@@ -655,20 +595,22 @@
   }
 
   async function openUserCreate() {
-    await ensureRoles();
+    await Promise.all([ensureRoles(), ensureDepartments()]);
     userFormMode.value = 'create';
     resetUserForm();
     userModalVisible.value = true;
   }
 
   async function openUserEdit(row: TenantUserRow) {
-    await ensureRoles();
+    await Promise.all([ensureRoles(), ensureDepartments()]);
     userFormMode.value = 'edit';
     Object.assign(userForm, {
       id: row.id,
       username: row.username,
       password: '',
       role_keys: (row.roles || []).map((role) => String(role.key)),
+      department_ids: [...(row.department_ids || [])],
+      primary_department_id: row.primary_department_id || null,
       is_active: !!row.is_active,
       is_superuser: !!row.is_superuser,
     });
@@ -684,15 +626,18 @@
     }
     savingUser.value = true;
     try {
+      const primaryId = userForm.primary_department_id && userForm.department_ids.includes(userForm.primary_department_id) ? userForm.primary_department_id : null;
       const payload = {
         username: userForm.username,
         password: userForm.password || undefined,
         role_keys: userForm.role_keys,
+        department_ids: [...userForm.department_ids],
+        primary_department_id: primaryId,
         is_active: userForm.is_active,
         is_superuser: userForm.is_superuser,
       };
       if (userFormMode.value === 'create') {
-        if (isPlatformTenantManagement.value) await createTenantUser(activeTenant.value.id, payload);
+        if (isPlatformTenantManagement.value) await createTenantUser(activeTenant.value.id, { ...payload, password: userForm.password });
         else await createCurrentTenantUser({ ...payload, password: userForm.password });
       } else if (isPlatformTenantManagement.value) await updateTenantUser(activeTenant.value.id, userForm.id, payload);
       else await updateCurrentTenantUser(userForm.id, payload);
@@ -727,6 +672,26 @@
     await loadTenantKeys();
   }
 
+  function departmentNames(ids: number[]) {
+    if (!ids.length) return '-';
+    const names = ids.map((id) => departments.value.find((item) => item.id === id)).filter(Boolean).map((item) => departmentPath(item as DepartmentRow));
+    return names.length ? names.join('、') : ids.join('、');
+  }
+
+  function departmentPath(row: DepartmentRow) {
+    const names = [row.name];
+    let parentId = Number(row.parent_id || 0);
+    const seen = new Set<number>([row.id]);
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = departments.value.find((item) => item.id === parentId);
+      if (!parent) break;
+      names.unshift(parent.name);
+      parentId = Number(parent.parent_id || 0);
+    }
+    return names.join(' / ');
+  }
+
   async function reload() {
     loading.value = true;
     try {
@@ -758,6 +723,14 @@
 </script>
 
 <style lang="less" scoped>
+  .tenant-page {
+    min-width: 0;
+  }
+
+  .tenant-page__search {
+    width: min(320px, 100%);
+  }
+
   .tenant-detail-drawer {
     --app-page-embedded-section-gap: 10px;
   }

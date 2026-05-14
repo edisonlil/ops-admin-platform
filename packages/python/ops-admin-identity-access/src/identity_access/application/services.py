@@ -244,7 +244,8 @@ def create_user(
         is_active=is_active,
         is_superuser=is_superuser,
     )
-    sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    if department_ids is not None or primary_department_id is not None:
+        sync_user_departments_if_available(user, department_ids or [], primary_department_id)
     return enrich_user_with_departments(user)
 
 
@@ -269,7 +270,8 @@ def update_user(
         is_active=is_active,
         is_superuser=is_superuser,
     )
-    sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    if department_ids is not None or primary_department_id is not None:
+        sync_user_departments_if_available(user, department_ids or [], primary_department_id)
     return enrich_user_with_departments(user)
 
 
@@ -344,8 +346,6 @@ def list_menus() -> list[dict[str, Any]]:
 
 
 def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
-    if not department_ids and not primary_department_id:
-        return
     try:
         from organization.application import services as organization_services
     except Exception:

@@ -14,7 +14,7 @@ class RbacUserCreateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=200)
     role_keys: list[str] = Field(default_factory=list)
-    department_ids: list[int] = Field(default_factory=list)
+    department_ids: list[int] | None = None
     primary_department_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False
@@ -41,7 +41,7 @@ class RbacUserUpdateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(default="", max_length=200)
     role_keys: list[str] = Field(default_factory=list)
-    department_ids: list[int] = Field(default_factory=list)
+    department_ids: list[int] | None = None
     primary_department_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False

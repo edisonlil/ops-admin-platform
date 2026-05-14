@@ -28,6 +28,7 @@ export interface RbacRoleCreatePayload {
   description?: string;
   role_scope?: 'platform' | 'tenant';
   menu_keys?: string[];
+  data_scopes?: RoleDataScopePayload[];
 }
 
 export interface RbacRoleUpdatePayload {
@@ -35,6 +36,7 @@ export interface RbacRoleUpdatePayload {
   name: string;
   description?: string;
   menu_keys?: string[];
+  data_scopes?: RoleDataScopePayload[];
 }
 
 export interface RbacUserCreatePayload {
@@ -42,6 +44,8 @@ export interface RbacUserCreatePayload {
   username: string;
   password: string;
   role_keys?: string[];
+  department_ids?: number[] | null;
+  primary_department_id?: number | null;
   is_active?: boolean;
   is_superuser?: boolean;
 }
@@ -51,8 +55,43 @@ export interface RbacUserUpdatePayload {
   username: string;
   password?: string;
   role_keys?: string[];
+  department_ids?: number[] | null;
+  primary_department_id?: number | null;
   is_active?: boolean;
   is_superuser?: boolean;
+}
+
+export interface DepartmentPayload {
+  id?: number;
+  tenant_id?: number | null;
+  parent_id?: number | null;
+  code: string;
+  name: string;
+  manager_user_id?: number | null;
+  base_location?: string;
+  region?: string;
+  status?: string;
+  sort_order?: number;
+}
+
+export interface RoleDataScopePayload {
+  role_key: string;
+  resource_key: string;
+  action?: string;
+  scope: string;
+  department_ids?: number[];
+}
+
+export interface DataResourcePayload {
+  resource_key: string;
+  name: string;
+  description?: string;
+  tenant_column?: string;
+  creator_column?: string;
+  owner_user_column?: string;
+  owner_department_column?: string;
+  supported_scopes?: string[];
+  requires_data_scope?: boolean;
 }
 
 export interface RbacMenuPayload {
@@ -375,4 +414,40 @@ export function enableRbacUser(userId: number) {
 
 export function disableRbacUser(userId: number) {
   return Alova.Post(`/rbac/users/${userId}/disable`);
+}
+
+export function getDepartments(params: { include_disabled?: boolean; tenant_id?: number | null } = {}) {
+  return Alova.Get('/organization/departments', { params: withNoCacheParams(params) });
+}
+
+export function createDepartment(payload: DepartmentPayload) {
+  return Alova.Post('/organization/departments', payload);
+}
+
+export function updateDepartment(departmentId: number, payload: DepartmentPayload) {
+  return Alova.Put(`/organization/departments/${departmentId}`, payload);
+}
+
+export function deleteDepartment(departmentId: number, params: { tenant_id?: number | null } = {}) {
+  return Alova.Delete(`/organization/departments/${departmentId}`, { params: withNoCacheParams(params) });
+}
+
+export function getAuthorizationResources() {
+  return Alova.Get('/authorization/resources', { params: withNoCacheParams() });
+}
+
+export function saveAuthorizationResource(resourceKey: string, payload: DataResourcePayload) {
+  return Alova.Put(`/authorization/resources/${resourceKey}`, payload);
+}
+
+export function getRoleDataScopes(params: { role_key?: string } = {}) {
+  return Alova.Get('/authorization/role-data-scopes', { params: withNoCacheParams(params) });
+}
+
+export function saveRoleDataScope(payload: RoleDataScopePayload) {
+  return Alova.Post('/authorization/role-data-scopes', payload);
+}
+
+export function deleteRoleDataScope(scopeId: number) {
+  return Alova.Delete(`/authorization/role-data-scopes/${scopeId}`);
 }

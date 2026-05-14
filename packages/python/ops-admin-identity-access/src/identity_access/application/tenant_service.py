@@ -268,12 +268,13 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             user_id=int(user["id"]),
             is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
-    sync_tenant_user_departments_if_available(
-        tenant_id=tenant_id,
-        user_id=int(user["id"]),
-        department_ids=[int(value) for value in payload.get("department_ids") or []],
-        primary_department_id=payload.get("primary_department_id"),
-    )
+    if payload.get("department_ids") is not None or payload.get("primary_department_id") is not None:
+        sync_tenant_user_departments_if_available(
+            tenant_id=tenant_id,
+            user_id=int(user["id"]),
+            department_ids=[int(value) for value in payload.get("department_ids") or []],
+            primary_department_id=payload.get("primary_department_id"),
+        )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user)
 
 
@@ -308,12 +309,13 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             user_id=user_id,
             is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
-    sync_tenant_user_departments_if_available(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        department_ids=[int(value) for value in payload.get("department_ids") or []],
-        primary_department_id=payload.get("primary_department_id"),
-    )
+    if payload.get("department_ids") is not None or payload.get("primary_department_id") is not None:
+        sync_tenant_user_departments_if_available(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            department_ids=[int(value) for value in payload.get("department_ids") or []],
+            primary_department_id=payload.get("primary_department_id"),
+        )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
 
 
@@ -341,8 +343,6 @@ def sync_tenant_user_departments_if_available(
     department_ids: list[int],
     primary_department_id: Any,
 ) -> None:
-    if not department_ids and not primary_department_id:
-        return
     try:
         from organization.application import services as organization_services
     except Exception:

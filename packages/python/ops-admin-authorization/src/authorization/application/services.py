@@ -99,15 +99,21 @@ class BuiltinDataAccessFilterProvider:
         roles = [str(role.get("key") or "") for role in current_user.get("roles", []) if str(role.get("key") or "")]
         if not roles:
             return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_SELF, user_id=user_id)
-        policies = [
-            item
-            for item in repo().list_role_data_scopes()
-            if item.role_key in roles and item.resource_key == resource.resource_key and item.action == action
-        ]
+        try:
+            policies = [
+                item
+                for item in repo().list_role_data_scopes()
+                if item.role_key in roles and item.resource_key == resource.resource_key and item.action == action
+            ]
+        except Exception:
+            policies = []
         if not policies:
             return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_SELF, user_id=user_id)
         policy = max(policies, key=lambda item: SCOPE_RANK.get(item.scope, 0))
-        departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
+        try:
+            departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
+        except Exception:
+            departments = []
         primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
         if policy.scope == DATA_SCOPE_TENANT:
             return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_TENANT, user_id=user_id)

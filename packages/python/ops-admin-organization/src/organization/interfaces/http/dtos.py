@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class DepartmentRequest(BaseModel):
+    tenant_id: int | None = Field(default=None, ge=1)
     parent_id: int | None = Field(default=None, ge=1)
     code: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=200)
