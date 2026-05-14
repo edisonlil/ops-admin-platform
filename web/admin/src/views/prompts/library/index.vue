@@ -246,7 +246,7 @@
     view: {
       type: 'card-list',
       itemKey: (row) => row.id,
-      cardMinWidth: '300px',
+      cardMinWidth: '236px',
     },
     toolbar: {
       primaryAction: canManage.value

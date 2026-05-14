@@ -271,7 +271,7 @@
     view: {
       type: 'card-list',
       itemKey: (theme) => Number(theme.id),
-      cardMinWidth: '292px',
+      cardMinWidth: '236px',
     },
     toolbar: {
       primaryAction: canCreateTheme.value
