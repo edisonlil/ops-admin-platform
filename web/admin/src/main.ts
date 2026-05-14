@@ -26,6 +26,13 @@ async function bootstrap() {
       appearanceStore.loadPlatformBranding().catch(() => undefined),
       appearanceStore.loadPlatformTheme().catch(() => appearanceStore.ensurePlatformThemeLoaded()),
     ]);
+  } else {
+    await Promise.all([
+      appearanceStore.loadPlatformBranding().catch(() => undefined),
+      appearanceStore
+        .loadEffectiveThemeForCurrentTenant()
+        .catch(() => appearanceStore.ensureLoadedForCurrentTenant()),
+    ]);
   }
 
   // 注册全局常用的 naive-ui 组件
