@@ -51,6 +51,14 @@ def prompt_asset(
     return ok(services.get_prompt_asset(prompt_id, current_user))
 
 
+@router.post("/prompts/{prompt_id}/copy")
+def copy_prompt_asset(
+    prompt_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:manage")),
+) -> dict[str, Any]:
+    return ok(services.copy_prompt_asset(prompt_id, current_user))
+
+
 @router.put("/prompts/{prompt_id}")
 def update_prompt_asset(
     prompt_id: int,

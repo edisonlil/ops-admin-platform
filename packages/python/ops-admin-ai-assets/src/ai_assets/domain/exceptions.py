@@ -11,6 +11,11 @@ class PromptAssetNotFound(AIAssetsError):
     status_code = 404
 
 
+class PromptAssetNameConflict(AIAssetsError):
+    code = "PROMPT_ASSET_NAME_CONFLICT"
+    status_code = 409
+
+
 class PromptVersionNotFound(AIAssetsError):
     code = "PROMPT_VERSION_NOT_FOUND"
     status_code = 404

@@ -206,6 +206,44 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(updated["prompt_key"], prompt["prompt_key"])
         self.assertEqual(updated["name"], "Renamed Prompt")
 
+    def test_prompt_asset_name_must_be_unique_in_tenant(self) -> None:
+        first = self.create_prompt(prompt_key="meeting.summary")
+
+        with self.assertRaises(Exception) as caught:
+            services.save_prompt_asset(
+                {
+                    "prompt_key": "meeting.summary.copy",
+                    "name": first["name"],
+                    "description": "",
+                    "tags": ["summary"],
+                    "status": "draft",
+                },
+                self.current_user,
+            )
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_copy_prompt_asset_creates_draft_with_unique_name_and_versions(self) -> None:
+        prompt = self.create_prompt(prompt_key="meeting.summary", tags=["chatbot"])
+        first = self.create_version(int(prompt["id"]), version="1.0.0")
+        second = self.create_version(int(prompt["id"]), version="2.0.0")
+        services.publish_prompt_version(int(prompt["id"]), int(second["id"]), self.current_user)
+
+        copied = services.copy_prompt_asset(int(prompt["id"]), self.current_user)["item"]
+        copied_versions = services.list_prompt_versions(int(copied["id"]), self.current_user)["items"]
+
+        self.assertEqual(copied["name"], "meeting.summary 副本")
+        self.assertEqual(copied["status"], "draft")
+        self.assertEqual(copied["tags"], ["chatbot"])
+        self.assertNotEqual(copied["prompt_key"], prompt["prompt_key"])
+        self.assertEqual(len(copied_versions), 2)
+        self.assertEqual({item["version"] for item in copied_versions}, {first["version"], second["version"]})
+        self.assertEqual({item["status"] for item in copied_versions}, {"draft"})
+        self.assertTrue(any(item["user_prompt_template"] == second["user_prompt_template"] for item in copied_versions))
+
+        second_copy = services.copy_prompt_asset(int(prompt["id"]), self.current_user)["item"]
+        self.assertEqual(second_copy["name"], "meeting.summary 副本 2")
+
     def test_archived_prompt_asset_remains_visible_in_archived_filter(self) -> None:
         prompt = self.create_prompt()
 
@@ -221,6 +259,22 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(len(archived_items), 1)
         self.assertEqual(archived_items[0]["id"], prompt["id"])
         self.assertEqual(archived_items[0]["status"], "archived")
+
+    def test_delete_archived_prompt_asset_removes_it_from_lists(self) -> None:
+        prompt = self.create_prompt()
+
+        archived = services.delete_prompt_asset(int(prompt["id"]), self.current_user)
+        deleted = services.delete_prompt_asset(int(prompt["id"]), self.current_user)
+        archived_items = services.list_prompt_assets(
+            page=1,
+            page_size=20,
+            current_user=self.current_user,
+            status_filter="archived",
+        )["items"]
+
+        self.assertTrue(archived["archived"])
+        self.assertTrue(deleted["deleted"])
+        self.assertEqual(archived_items, [])
 
     def create_prompt(
         self,

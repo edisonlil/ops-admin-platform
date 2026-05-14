@@ -121,6 +121,26 @@ def prompt_key_exists(*, tenant_id: int, prompt_key: str) -> bool:
     return bool(row)
 
 
+def prompt_name_exists(*, tenant_id: int, name: str, exclude_prompt_id: int | None = None) -> bool:
+    filters = ["tenant_id = ?", "name = ?", "deleted = 0"]
+    params: list[Any] = [tenant_id, name]
+    if exclude_prompt_id:
+        filters.append("id <> ?")
+        params.append(exclude_prompt_id)
+    with connect(database_target(), readonly=True) as conn:
+        require_ai_assets_schema(conn)
+        row = conn.execute(
+            f"""
+            SELECT 1
+            FROM prompt_assets
+            WHERE {" AND ".join(filters)}
+            LIMIT 1
+            """,
+            tuple(params),
+        ).fetchone()
+    return bool(row)
+
+
 def save_prompt_asset(
     *, tenant_id: int, prompt_id: int | None, payload: dict[str, Any], actor: str, actor_id: int | None
 ) -> PromptAsset | None:
@@ -164,6 +184,98 @@ def save_prompt_asset(
     return get_prompt_asset(tenant_id=tenant_id, prompt_id=saved_id)
 
 
+def copy_prompt_asset(
+    *,
+    tenant_id: int,
+    source_prompt_id: int,
+    prompt_key: str,
+    name: str,
+    actor: str,
+    actor_id: int | None,
+) -> PromptAsset | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_ai_assets_schema(conn)
+        source = conn.execute(
+            """
+            SELECT *
+            FROM prompt_assets
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (source_prompt_id, tenant_id),
+        ).fetchone()
+        if not source:
+            return None
+        cursor = conn.execute(
+            """
+            INSERT INTO prompt_assets (
+                tenant_id, prompt_key, name, description, tags_json,
+                status, creator, creator_id, editor, editor_id, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tenant_id,
+                prompt_key,
+                name,
+                str(source["description"] or ""),
+                str(source["tags_json"] or "[]"),
+                PROMPT_ASSET_STATUS_DRAFT,
+                actor,
+                actor_id,
+                actor,
+                actor_id,
+                timestamp,
+                timestamp,
+            ),
+        )
+        saved_id = inserted_id(conn, cursor, "prompt_assets", timestamp, actor)
+        version_rows = conn.execute(
+            """
+            SELECT *
+            FROM prompt_versions
+            WHERE tenant_id = ? AND prompt_id = ? AND deleted = 0
+            ORDER BY create_time ASC, id ASC
+            """,
+            (tenant_id, source_prompt_id),
+        ).fetchall()
+        for row in version_rows:
+            conn.execute(
+                """
+                INSERT INTO prompt_versions (
+                    tenant_id, prompt_id, version, system_prompt, developer_prompt,
+                    user_prompt_template, variables_schema_json, output_schema_json,
+                    example_inputs_json, example_outputs_json, model_preferences_json,
+                    render_engine, status, creator, creator_id, editor, editor_id,
+                    create_time, update_time
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tenant_id,
+                    saved_id,
+                    str(row["version"] or ""),
+                    str(row["system_prompt"] or ""),
+                    str(row["developer_prompt"] or ""),
+                    str(row["user_prompt_template"] or ""),
+                    str(row["variables_schema_json"] or "{}"),
+                    str(row["output_schema_json"] or "{}"),
+                    str(row["example_inputs_json"] or "[]"),
+                    str(row["example_outputs_json"] or "[]"),
+                    str(row["model_preferences_json"] or "{}"),
+                    str(row["render_engine"] or "simple"),
+                    "draft",
+                    actor,
+                    actor_id,
+                    actor,
+                    actor_id,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+    return get_prompt_asset(tenant_id=tenant_id, prompt_id=saved_id)
+
+
 def archive_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, actor_id: int | None) -> bool:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
@@ -177,6 +289,31 @@ def archive_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, actor_id
             (PROMPT_ASSET_STATUS_ARCHIVED, actor, actor_id, timestamp, prompt_id, tenant_id),
         )
     return int(getattr(cursor, "rowcount", 0) or 0) > 0
+
+
+def delete_archived_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, actor_id: int | None) -> bool:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_ai_assets_schema(conn)
+        cursor = conn.execute(
+            """
+            UPDATE prompt_assets
+            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND status = ? AND deleted = 0
+            """,
+            (actor, actor_id, timestamp, prompt_id, tenant_id, PROMPT_ASSET_STATUS_ARCHIVED),
+        )
+        if int(getattr(cursor, "rowcount", 0) or 0) > 0:
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+                WHERE prompt_id = ? AND tenant_id = ? AND deleted = 0
+                """,
+                (actor, actor_id, timestamp, prompt_id, tenant_id),
+            )
+            return True
+    return False
 
 
 def list_prompt_versions(*, tenant_id: int, prompt_id: int) -> list[PromptVersion]:

@@ -8,12 +8,14 @@ from fastapi import HTTPException, status
 
 from ai_assets.domain.exceptions import (
     AIAssetsError,
+    PromptAssetNameConflict,
     PromptAssetNotFound,
     PromptVersionImmutable,
     PromptVersionNotFound,
     PromptVersionStateConflict,
 )
 from ai_assets.domain.models import (
+    PROMPT_ASSET_STATUS_ARCHIVED,
     PROMPT_VERSION_STATUS_DEPRECATED,
     PROMPT_VERSION_STATUS_PUBLISHED,
     PromptAsset,
@@ -63,9 +65,12 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
     prompt_key = existing.prompt_key if existing else str(payload.get("prompt_key") or "").strip()
     if not prompt_key:
         prompt_key = generate_prompt_key(tenant_id=tenant_id, name=payload.get("name"))
+    name = normalize_required(payload.get("name"), "name")
+    if repositories.prompt_name_exists(tenant_id=tenant_id, name=name, exclude_prompt_id=prompt_id):
+        raise domain_http_error(PromptAssetNameConflict("prompt title already exists"))
     data = {
         "prompt_key": prompt_key,
-        "name": normalize_required(payload.get("name"), "name"),
+        "name": name,
         "description": str(payload.get("description") or "").strip(),
         "tags": normalize_string_list(payload.get("tags")),
         "status": str(payload.get("status") or "draft").strip() or "draft",
@@ -85,6 +90,36 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
     return {"item": item.to_dict()}
 
 
+def copy_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    source = load_prompt_asset(prompt_id, current_user)
+    copy_name = next_copy_prompt_name(tenant_id=source.tenant_id, source_name=source.name)
+    try:
+        item = repositories.copy_prompt_asset(
+            tenant_id=source.tenant_id,
+            source_prompt_id=prompt_id,
+            prompt_key=generate_prompt_key(tenant_id=source.tenant_id, name=copy_name),
+            name=copy_name,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
+    return {"item": item.to_dict()}
+
+
+def next_copy_prompt_name(*, tenant_id: int, source_name: str) -> str:
+    base = f"{source_name} 副本"
+    if not repositories.prompt_name_exists(tenant_id=tenant_id, name=base):
+        return base
+    for index in range(2, 1000):
+        candidate = f"{base} {index}"
+        if not repositories.prompt_name_exists(tenant_id=tenant_id, name=candidate):
+            return candidate
+    return f"{base} {uuid.uuid4().hex[:8]}"
+
+
 def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
     base = re.sub(r"[^a-z0-9]+", "_", str(name or "prompt").strip().lower()).strip("_") or "prompt"
     base = base[:48].strip("_") or "prompt"
@@ -97,6 +132,21 @@ def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
 
 def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
+    item = load_prompt_asset(prompt_id, current_user)
+    if item.status == PROMPT_ASSET_STATUS_ARCHIVED:
+        try:
+            deleted = repositories.delete_archived_prompt_asset(
+                tenant_id=tenant_id,
+                prompt_id=prompt_id,
+                actor=current_actor(current_user),
+                actor_id=current_user_id_or_none(current_user),
+            )
+        except RuntimeError as exc:
+            raise storage_unavailable(exc) from exc
+        if not deleted:
+            raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
+        return {"id": prompt_id, "archived": False, "deleted": True}
+
     try:
         archived = repositories.archive_prompt_asset(
             tenant_id=tenant_id,
@@ -108,7 +158,7 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
         raise storage_unavailable(exc) from exc
     if not archived:
         raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
-    return {"id": prompt_id, "archived": True}
+    return {"id": prompt_id, "archived": True, "deleted": False}
 
 
 def list_prompt_versions(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:

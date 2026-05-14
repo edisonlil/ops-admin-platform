@@ -90,6 +90,10 @@ export function getPromptAsset(promptId: number) {
   });
 }
 
+export function copyPromptAsset(promptId: number) {
+  return Alova.Post<{ item: PromptAsset }>(`/prompts/${promptId}/copy`);
+}
+
 export function savePromptAsset(payload: Partial<PromptAssetPayload> & { id?: number }) {
   const body: PromptAssetPayload = {
     name: String(payload.name || '').trim(),
@@ -108,7 +112,7 @@ export function savePromptAsset(payload: Partial<PromptAssetPayload> & { id?: nu
 }
 
 export function deletePromptAsset(promptId: number) {
-  return Alova.Delete<{ id: number; archived: boolean }>(`/prompts/${promptId}`);
+  return Alova.Delete<{ id: number; archived: boolean; deleted: boolean }>(`/prompts/${promptId}`);
 }
 
 export function getPromptVersions(promptId: number) {

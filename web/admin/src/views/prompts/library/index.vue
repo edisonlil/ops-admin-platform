@@ -33,7 +33,10 @@
             <div class="prompt-card__title">
               <h3>{{ row.name }}</h3>
             </div>
-            <AppStatusTag :tone="assetStatusTone(row.status)" :label="assetStatusLabel(row.status)" />
+            <div class="prompt-card__header-actions">
+              <AppStatusTag :tone="assetStatusTone(row.status)" :label="assetStatusLabel(row.status)" />
+              <n-button v-if="canManage" size="tiny" quaternary :loading="copyingId === row.id" @click="copyPrompt(row)">复制</n-button>
+            </div>
           </header>
 
           <p class="prompt-card__description">{{ row.description || '暂无说明' }}</p>
@@ -49,7 +52,9 @@
             <div class="prompt-card__actions">
               <n-button size="tiny" quaternary @click="openVersions(row)">版本</n-button>
               <n-button v-if="canManage" size="tiny" quaternary @click="openEdit(row)">编辑</n-button>
-              <n-button v-if="canManage" size="tiny" quaternary type="error" @click="remove(row)">归档</n-button>
+              <n-button v-if="canManage" size="tiny" quaternary type="error" @click="remove(row)">
+                {{ row.status === 'archived' ? '删除' : '归档' }}
+              </n-button>
             </div>
           </footer>
         </article>
@@ -214,6 +219,7 @@
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
+    copyPromptAsset,
     deletePromptAsset,
     deprecatePromptVersion,
     getPromptAsset,
@@ -240,6 +246,7 @@
   const canManage = computed(() => hasPermission(['prompt:assets:manage']));
   const loading = ref(false);
   const saving = ref(false);
+  const copyingId = ref<number | null>(null);
   const assetFormLoading = ref(false);
   const rows = ref<PromptAsset[]>([]);
   const versions = ref<PromptVersion[]>([]);
@@ -322,7 +329,7 @@
         : undefined,
       rightTools: ['refresh'],
     },
-    pagination: { pageSize: 12, pageSizes: [12, 24, 48], showSizePicker: true },
+    pagination: { pageSize: 12, pageSizes: [6, 12, 24], showSizePicker: true },
   }));
 
   function uniqueOptions(values: string[]) {
@@ -410,9 +417,20 @@
   }
 
   async function remove(row: PromptAsset) {
-    await deletePromptAsset(row.id);
-    message.success('提示词已归档');
+    const result = await deletePromptAsset(row.id);
+    message.success(result.deleted ? '提示词已删除' : '提示词已归档');
     await reload();
+  }
+
+  async function copyPrompt(row: PromptAsset) {
+    copyingId.value = row.id;
+    try {
+      const copied = await copyPromptAsset(row.id);
+      message.success(`已复制为「${copied.item.name}」`);
+      await reload();
+    } finally {
+      copyingId.value = null;
+    }
   }
 
   async function openVersions(row: PromptAsset) {
@@ -646,12 +664,24 @@
 
   .prompt-card__title h3 {
     margin: 0;
+    display: -webkit-box;
+    overflow: hidden;
     overflow-wrap: anywhere;
     color: var(--app-text-color);
     font-size: 16px;
     font-weight: 650;
     line-height: 1.35;
     letter-spacing: 0;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .prompt-card__header-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    align-items: center;
+    white-space: nowrap;
   }
 
   .prompt-card__muted,
