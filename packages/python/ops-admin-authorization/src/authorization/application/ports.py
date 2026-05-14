@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from authorization.domain.models import ResourceDescriptorRecord, RoleDataScope
+from authorization.domain.models import DataAccessPolicy, ResourceDescriptorRecord
 
 
 class AuthorizationRepository(Protocol):
@@ -12,19 +12,28 @@ class AuthorizationRepository(Protocol):
 
     def get_resource_descriptor(self, resource_key: str) -> ResourceDescriptorRecord | None: ...
 
-    def list_role_data_scopes(self, *, tenant_id: int, role_key: str | None = None) -> list[RoleDataScope]: ...
-
-    def save_role_data_scope(
+    def list_data_access_policies(
         self,
         *,
         tenant_id: int,
-        role_key: str,
+        subject_type: str | None = None,
+        subject_id: int | None = None,
+        resource_key: str | None = None,
+    ) -> list[DataAccessPolicy]: ...
+
+    def save_data_access_policy(
+        self,
+        *,
+        tenant_id: int,
+        subject_type: str,
+        subject_id: int,
         resource_key: str,
         action: str,
         scope: str,
         department_ids: list[int],
+        priority: int,
         actor: str,
         actor_id: int | None,
-    ) -> RoleDataScope: ...
+    ) -> DataAccessPolicy: ...
 
-    def delete_role_data_scope(self, *, tenant_id: int, scope_id: int) -> RoleDataScope | None: ...
+    def delete_data_access_policy(self, *, tenant_id: int, policy_id: int) -> DataAccessPolicy | None: ...

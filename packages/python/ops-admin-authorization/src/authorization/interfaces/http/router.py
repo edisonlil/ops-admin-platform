@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from authorization.application import services
 from authorization.domain.exceptions import AuthorizationDomainError, AuthorizationNotFoundError, AuthorizationStorageNotReadyError
-from authorization.interfaces.http.dtos import ResourceDescriptorRequest, RoleDataScopeRequest
+from authorization.interfaces.http.dtos import DataAccessPolicyRequest, ResourceDescriptorRequest
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import error_response, ok
 
@@ -30,30 +30,40 @@ def upsert_resource(
     return ok_or_error(lambda: services.save_resource_descriptor(body, current_user))
 
 
-@router.get("/role-data-scopes")
-def role_data_scopes(
-    role_key: str | None = Query(default=None),
+@router.get("/data-access-policies")
+def data_access_policies(
+    subject_type: str | None = Query(default=None),
+    subject_id: int | None = Query(default=None, ge=1),
+    resource_key: str | None = Query(default=None),
     tenant_id: int | None = Query(default=None, ge=1),
     current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_role_data_scopes(current_user, role_key=role_key, tenant_id=tenant_id))
+    return ok_or_error(
+        lambda: services.list_data_access_policies(
+            current_user,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            resource_key=resource_key,
+            tenant_id=tenant_id,
+        )
+    )
 
 
-@router.post("/role-data-scopes")
-def save_role_data_scope(
-    payload: RoleDataScopeRequest,
+@router.post("/data-access-policies")
+def save_data_access_policy(
+    payload: DataAccessPolicyRequest,
     current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:manage")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.save_role_data_scope(payload.model_dump(), current_user))
+    return ok_or_error(lambda: services.save_data_access_policy(payload.model_dump(), current_user))
 
 
-@router.delete("/role-data-scopes/{scope_id}")
-def delete_role_data_scope(
-    scope_id: int,
+@router.delete("/data-access-policies/{policy_id}")
+def delete_data_access_policy(
+    policy_id: int,
     tenant_id: int | None = Query(default=None, ge=1),
     current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:manage")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.delete_role_data_scope(scope_id, current_user, tenant_id=tenant_id))
+    return ok_or_error(lambda: services.delete_data_access_policy(policy_id, current_user, tenant_id=tenant_id))
 
 
 def ok_or_error(action: Any) -> dict[str, Any]:

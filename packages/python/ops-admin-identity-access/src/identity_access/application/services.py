@@ -280,7 +280,7 @@ def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
 
 
 def list_roles() -> list[dict[str, Any]]:
-    return [enrich_role_with_data_scopes(item) for item in rbac_service.list_roles()]
+    return rbac_service.list_roles()
 
 
 def create_role(
@@ -290,7 +290,6 @@ def create_role(
     description: str = "",
     role_scope: str = "platform",
     menu_keys: list[str] | None = None,
-    data_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     role = rbac_service.create_role(
         role_key=role_key,
@@ -299,9 +298,8 @@ def create_role(
         role_scope=role_scope,
         menu_keys=menu_keys,
     )
-    sync_role_data_scopes_if_available(role, data_scopes or [])
     publish_event(events.role_permissions_changed(int(role["id"]), correlation_id=current_request_id()))
-    return enrich_role_with_data_scopes(role)
+    return role
 
 
 def update_role(
@@ -311,7 +309,6 @@ def update_role(
     name: str,
     description: str = "",
     menu_keys: list[str] | None = None,
-    data_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     role = rbac_service.update_role(
         role_id,
@@ -320,9 +317,8 @@ def update_role(
         description=description,
         menu_keys=menu_keys,
     )
-    sync_role_data_scopes_if_available(role, data_scopes or [])
     publish_event(events.role_permissions_changed(role_id, correlation_id=current_request_id()))
-    return enrich_role_with_data_scopes(role)
+    return role
 
 
 def update_role_menus(role_id: int, menu_keys: list[str]) -> dict[str, Any]:
@@ -381,46 +377,6 @@ def enrich_user_with_departments(user: dict[str, Any]) -> dict[str, Any]:
     primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
     item["department_ids"] = [int(department["department_id"]) for department in departments]
     item["primary_department_id"] = int(primary["department_id"]) if primary else None
-    return item
-
-
-def sync_role_data_scopes_if_available(role: dict[str, Any], data_scopes: list[dict[str, Any]]) -> None:
-    if not data_scopes:
-        return
-    try:
-        from authorization.application import services as authorization_services
-    except Exception:
-        return
-    role_key = str(role.get("key") or role.get("role_key") or "")
-    if not role_key:
-        return
-    tenant_id = int(role.get("tenant_id", 0) or 0)
-    if not tenant_id:
-        return
-    for scope in data_scopes:
-        payload = dict(scope)
-        payload["role_key"] = role_key
-        payload["tenant_id"] = int(payload.get("tenant_id") or tenant_id)
-        authorization_services.save_role_data_scope(payload, {"username": "system", "id": None, "tenant_id": tenant_id})
-
-
-def enrich_role_with_data_scopes(role: dict[str, Any]) -> dict[str, Any]:
-    try:
-        from authorization.application import services as authorization_services
-    except Exception:
-        return role
-    role_key = str(role.get("key") or role.get("role_key") or "")
-    if not role_key:
-        return role
-    tenant_id = int(role.get("tenant_id", 0) or 0)
-    if not tenant_id:
-        return role
-    try:
-        payload = authorization_services.list_role_data_scopes({"tenant_id": tenant_id}, role_key=role_key)
-    except Exception:
-        return role
-    item = dict(role)
-    item["data_scopes"] = payload.get("items", [])
     return item
 
 

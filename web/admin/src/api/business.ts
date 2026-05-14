@@ -28,7 +28,6 @@ export interface RbacRoleCreatePayload {
   description?: string;
   role_scope?: 'platform' | 'tenant';
   menu_keys?: string[];
-  data_scopes?: RoleDataScopePayload[];
 }
 
 export interface RbacRoleUpdatePayload {
@@ -36,7 +35,6 @@ export interface RbacRoleUpdatePayload {
   name: string;
   description?: string;
   menu_keys?: string[];
-  data_scopes?: RoleDataScopePayload[];
 }
 
 export interface RbacUserCreatePayload {
@@ -74,13 +72,15 @@ export interface DepartmentPayload {
   sort_order?: number;
 }
 
-export interface RoleDataScopePayload {
+export interface DataAccessPolicyPayload {
   tenant_id?: number | null;
-  role_key: string;
+  subject_type: 'user' | 'department' | string;
+  subject_id: number;
   resource_key: string;
   action?: string;
   scope: string;
   department_ids?: number[];
+  priority?: number;
 }
 
 export interface DataResourcePayload {
@@ -441,14 +441,14 @@ export function saveAuthorizationResource(resourceKey: string, payload: DataReso
   return Alova.Put(`/authorization/resources/${resourceKey}`, payload);
 }
 
-export function getRoleDataScopes(params: { role_key?: string; tenant_id?: number | null } = {}) {
-  return Alova.Get('/authorization/role-data-scopes', { params: withNoCacheParams(params) });
+export function getDataAccessPolicies(params: { subject_type?: string; subject_id?: number; resource_key?: string; tenant_id?: number | null } = {}) {
+  return Alova.Get('/authorization/data-access-policies', { params: withNoCacheParams(params) });
 }
 
-export function saveRoleDataScope(payload: RoleDataScopePayload) {
-  return Alova.Post('/authorization/role-data-scopes', payload);
+export function saveDataAccessPolicy(payload: DataAccessPolicyPayload) {
+  return Alova.Post('/authorization/data-access-policies', payload);
 }
 
-export function deleteRoleDataScope(scopeId: number, params: { tenant_id?: number | null } = {}) {
-  return Alova.Delete(`/authorization/role-data-scopes/${scopeId}`, { params: withNoCacheParams(params) });
+export function deleteDataAccessPolicy(policyId: number, params: { tenant_id?: number | null } = {}) {
+  return Alova.Delete(`/authorization/data-access-policies/${policyId}`, { params: withNoCacheParams(params) });
 }

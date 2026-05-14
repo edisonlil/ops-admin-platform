@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from authorization.domain.exceptions import AuthorizationDomainError
-from authorization.domain.models import ResourceDescriptorRecord, RoleDataScope, VALID_DATA_SCOPES
+from authorization.domain.models import DataAccessPolicy, ResourceDescriptorRecord, VALID_DATA_SCOPES, VALID_POLICY_SUBJECT_TYPES
 from authorization.infrastructure.persistence.bootstrap import require_authorization_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
@@ -116,44 +116,63 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
     return descriptor
 
 
-def list_role_data_scopes(*, tenant_id: int, role_key: str | None = None) -> list[RoleDataScope]:
+def list_data_access_policies(
+    *,
+    tenant_id: int,
+    subject_type: str | None = None,
+    subject_id: int | None = None,
+    resource_key: str | None = None,
+) -> list[DataAccessPolicy]:
     where = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [int(tenant_id)]
-    if role_key:
-        where.append("role_key = ?")
-        params.append(role_key.strip())
+    if subject_type:
+        where.append("subject_type = ?")
+        params.append(subject_type.strip())
+    if subject_id:
+        where.append("subject_id = ?")
+        params.append(int(subject_id))
+    if resource_key:
+        where.append("resource_key = ?")
+        params.append(resource_key.strip())
     with connect(database_target(), readonly=True) as conn:
         require_authorization_schema(conn)
         rows = conn.execute(
             f"""
             SELECT *
-            FROM role_data_scopes
+            FROM data_access_policies
             WHERE {" AND ".join(where)}
-            ORDER BY role_key, resource_key, action
+            ORDER BY subject_type, subject_id, resource_key, action, priority DESC
             """,
             tuple(params),
         ).fetchall()
-    return [row_to_role_data_scope(dict(row)) for row in rows]
+    return [row_to_data_access_policy(dict(row)) for row in rows]
 
 
-def save_role_data_scope(
+def save_data_access_policy(
     *,
     tenant_id: int,
-    role_key: str,
+    subject_type: str,
+    subject_id: int,
     resource_key: str,
     action: str,
     scope: str,
     department_ids: list[int],
+    priority: int,
     actor: str,
     actor_id: int | None,
-) -> RoleDataScope:
-    normalized_role = role_key.strip()
+) -> DataAccessPolicy:
+    normalized_subject_type = subject_type.strip()
+    normalized_subject_id = int(subject_id)
     normalized_resource = resource_key.strip()
     normalized_action = action.strip() or "read"
     normalized_scope = scope.strip()
     normalized_tenant_id = int(tenant_id)
     if not normalized_tenant_id:
         raise AuthorizationDomainError("tenant id is required")
+    if normalized_subject_type not in VALID_POLICY_SUBJECT_TYPES:
+        raise AuthorizationDomainError("unknown data policy subject")
+    if not normalized_subject_id:
+        raise AuthorizationDomainError("data policy subject id is required")
     if normalized_scope not in VALID_DATA_SCOPES:
         raise AuthorizationDomainError("unknown data scope")
     descriptor = get_resource_descriptor(normalized_resource)
@@ -166,14 +185,15 @@ def save_role_data_scope(
         existing = conn.execute(
             """
             SELECT id
-            FROM role_data_scopes
-            WHERE tenant_id = ? AND role_key = ? AND resource_key = ? AND action = ? AND deleted = 0
+            FROM data_access_policies
+            WHERE tenant_id = ? AND subject_type = ? AND subject_id = ? AND resource_key = ? AND action = ? AND deleted = 0
             """,
-            (normalized_tenant_id, normalized_role, normalized_resource, normalized_action),
+            (normalized_tenant_id, normalized_subject_type, normalized_subject_id, normalized_resource, normalized_action),
         ).fetchone()
         values = (
             normalized_scope,
             json.dumps(ids, ensure_ascii=False, separators=(",", ":")),
+            int(priority),
             actor,
             actor_id,
             timestamp,
@@ -182,8 +202,8 @@ def save_role_data_scope(
             scope_id = int(existing["id"])
             conn.execute(
                 """
-                UPDATE role_data_scopes
-                SET scope = ?, department_ids_json = ?, editor = ?, editor_id = ?,
+                UPDATE data_access_policies
+                SET scope = ?, department_ids_json = ?, priority = ?, editor = ?, editor_id = ?,
                     update_time = ?, lock_version = lock_version + 1
                 WHERE id = ? AND tenant_id = ?
                 """,
@@ -192,19 +212,21 @@ def save_role_data_scope(
         else:
             cursor = conn.execute(
                 """
-                INSERT INTO role_data_scopes (
-                    tenant_id, role_key, resource_key, action, scope, department_ids_json,
+                INSERT INTO data_access_policies (
+                    tenant_id, subject_type, subject_id, resource_key, action, scope, department_ids_json, priority,
                     creator, creator_id, editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized_tenant_id,
-                    normalized_role,
+                    normalized_subject_type,
+                    normalized_subject_id,
                     normalized_resource,
                     normalized_action,
                     normalized_scope,
                     values[1],
+                    values[2],
                     actor,
                     actor_id,
                     actor,
@@ -213,33 +235,45 @@ def save_role_data_scope(
                     timestamp,
                 ),
             )
-            scope_id = inserted_id(conn, cursor, "role_data_scopes", timestamp, actor)
-    item = next((scope_item for scope_item in list_role_data_scopes(tenant_id=normalized_tenant_id, role_key=normalized_role) if scope_item.id == scope_id), None)
+            scope_id = inserted_id(conn, cursor, "data_access_policies", timestamp, actor)
+    item = next(
+        (
+            policy
+            for policy in list_data_access_policies(
+                tenant_id=normalized_tenant_id,
+                subject_type=normalized_subject_type,
+                subject_id=normalized_subject_id,
+                resource_key=normalized_resource,
+            )
+            if policy.id == scope_id
+        ),
+        None,
+    )
     if item is None:
-        raise RuntimeError("role data scope save failed")
+        raise RuntimeError("data access policy save failed")
     return item
 
 
-def delete_role_data_scope(*, tenant_id: int, scope_id: int) -> RoleDataScope | None:
+def delete_data_access_policy(*, tenant_id: int, policy_id: int) -> DataAccessPolicy | None:
     timestamp = now_iso()
     normalized_tenant_id = int(tenant_id)
     with connect(database_target(), readonly=False) as conn:
         require_authorization_schema(conn)
         existing = conn.execute(
-            "SELECT * FROM role_data_scopes WHERE id = ? AND tenant_id = ? AND deleted = 0",
-            (scope_id, normalized_tenant_id),
+            "SELECT * FROM data_access_policies WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (policy_id, normalized_tenant_id),
         ).fetchone()
         if not existing:
             return None
         conn.execute(
             """
-            UPDATE role_data_scopes
+            UPDATE data_access_policies
             SET deleted = 1, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ?
             """,
-            (timestamp, scope_id, normalized_tenant_id),
+            (timestamp, policy_id, normalized_tenant_id),
         )
-    return row_to_role_data_scope(dict(existing))
+    return row_to_data_access_policy(dict(existing))
 
 
 def row_to_resource_descriptor(row: dict[str, Any]) -> ResourceDescriptorRecord:
@@ -259,15 +293,17 @@ def row_to_resource_descriptor(row: dict[str, Any]) -> ResourceDescriptorRecord:
     )
 
 
-def row_to_role_data_scope(row: dict[str, Any]) -> RoleDataScope:
-    return RoleDataScope(
+def row_to_data_access_policy(row: dict[str, Any]) -> DataAccessPolicy:
+    return DataAccessPolicy(
         id=int(row["id"]),
         tenant_id=int(row.get("tenant_id") or 0),
-        role_key=str(row.get("role_key") or ""),
+        subject_type=str(row.get("subject_type") or ""),
+        subject_id=int(row.get("subject_id") or 0),
         resource_key=str(row.get("resource_key") or ""),
         action=str(row.get("action") or "read"),
         scope=str(row.get("scope") or "self"),
         department_ids=tuple(int(value) for value in decode_list(row.get("department_ids_json")) if int(value or 0)),
+        priority=int(row.get("priority") or 0),
         create_time=str(row.get("create_time") or ""),
         update_time=str(row.get("update_time") or ""),
     )

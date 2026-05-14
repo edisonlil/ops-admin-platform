@@ -355,7 +355,6 @@ def create_rbac_role(
         description=payload.description,
         role_scope=payload.role_scope,
         menu_keys=payload.menu_keys,
-        data_scopes=payload.data_scopes,
     )})
 
 
@@ -380,7 +379,6 @@ def update_rbac_role(
         name=payload.name,
         description=payload.description,
         menu_keys=payload.menu_keys,
-        data_scopes=payload.data_scopes,
     )})
 
 

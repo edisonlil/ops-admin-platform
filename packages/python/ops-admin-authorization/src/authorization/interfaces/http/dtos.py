@@ -20,15 +20,17 @@ class ResourceDescriptorRequest(BaseModel):
         return value.strip()
 
 
-class RoleDataScopeRequest(BaseModel):
+class DataAccessPolicyRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
-    role_key: str = Field(min_length=1, max_length=120)
+    subject_type: str = Field(min_length=1, max_length=40)
+    subject_id: int = Field(ge=1)
     resource_key: str = Field(min_length=1, max_length=160)
     action: str = Field(default="read", max_length=80)
     scope: str = Field(min_length=1, max_length=80)
     department_ids: list[int] = Field(default_factory=list)
+    priority: int = Field(default=100, ge=0, le=10000)
 
-    @field_validator("role_key", "resource_key", "action", "scope")
+    @field_validator("subject_type", "resource_key", "action", "scope")
     @classmethod
     def normalize_text(cls, value: str) -> str:
         return value.strip()
