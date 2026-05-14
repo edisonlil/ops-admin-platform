@@ -65,8 +65,8 @@
   import {
     deleteRoleDataScope,
     getAuthorizationResources,
+    getCurrentTenantRoles,
     getDepartments,
-    getRbacRoles,
     getRoleDataScopes,
     saveRoleDataScope,
     type RoleDataScopePayload,
@@ -189,7 +189,7 @@
     defineListPage<ScopeRow>({
       id: 'authorization.data-scope',
       title: '数据权限',
-      description: '按角色配置数据访问范围，授权模块通过可插拔 provider 聚合 RBAC、组织部门和资源描述。',
+      description: '租户管理员按角色配置当前租户的数据访问范围，资源定义由平台统一维护。',
       variant: 'dense-data',
       density: 'compact',
       view: {
@@ -297,7 +297,7 @@
   async function reload() {
     loading.value = true;
     try {
-      const [rolePayload, resourcePayload, scopePayload] = await Promise.all([getRbacRoles(), getAuthorizationResources(), getRoleDataScopes()]);
+      const [rolePayload, resourcePayload, scopePayload] = await Promise.all([getCurrentTenantRoles(), getAuthorizationResources(), getRoleDataScopes()]);
       roles.value = rolePayload.items || [];
       resources.value = resourcePayload.items || [];
       rows.value = scopePayload.items || [];

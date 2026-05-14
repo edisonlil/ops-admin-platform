@@ -116,9 +116,9 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
     return descriptor
 
 
-def list_role_data_scopes(*, role_key: str | None = None) -> list[RoleDataScope]:
-    where = ["deleted = 0"]
-    params: list[Any] = []
+def list_role_data_scopes(*, tenant_id: int, role_key: str | None = None) -> list[RoleDataScope]:
+    where = ["tenant_id = ?", "deleted = 0"]
+    params: list[Any] = [int(tenant_id)]
     if role_key:
         where.append("role_key = ?")
         params.append(role_key.strip())
@@ -138,6 +138,7 @@ def list_role_data_scopes(*, role_key: str | None = None) -> list[RoleDataScope]
 
 def save_role_data_scope(
     *,
+    tenant_id: int,
     role_key: str,
     resource_key: str,
     action: str,
@@ -150,6 +151,9 @@ def save_role_data_scope(
     normalized_resource = resource_key.strip()
     normalized_action = action.strip() or "read"
     normalized_scope = scope.strip()
+    normalized_tenant_id = int(tenant_id)
+    if not normalized_tenant_id:
+        raise AuthorizationDomainError("tenant id is required")
     if normalized_scope not in VALID_DATA_SCOPES:
         raise AuthorizationDomainError("unknown data scope")
     descriptor = get_resource_descriptor(normalized_resource)
@@ -163,9 +167,9 @@ def save_role_data_scope(
             """
             SELECT id
             FROM role_data_scopes
-            WHERE role_key = ? AND resource_key = ? AND action = ? AND deleted = 0
+            WHERE tenant_id = ? AND role_key = ? AND resource_key = ? AND action = ? AND deleted = 0
             """,
-            (normalized_role, normalized_resource, normalized_action),
+            (normalized_tenant_id, normalized_role, normalized_resource, normalized_action),
         ).fetchone()
         values = (
             normalized_scope,
@@ -181,20 +185,21 @@ def save_role_data_scope(
                 UPDATE role_data_scopes
                 SET scope = ?, department_ids_json = ?, editor = ?, editor_id = ?,
                     update_time = ?, lock_version = lock_version + 1
-                WHERE id = ?
+                WHERE id = ? AND tenant_id = ?
                 """,
-                (*values, scope_id),
+                (*values, scope_id, normalized_tenant_id),
             )
         else:
             cursor = conn.execute(
                 """
                 INSERT INTO role_data_scopes (
-                    role_key, resource_key, action, scope, department_ids_json,
+                    tenant_id, role_key, resource_key, action, scope, department_ids_json,
                     creator, creator_id, editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    normalized_tenant_id,
                     normalized_role,
                     normalized_resource,
                     normalized_action,
@@ -209,26 +214,30 @@ def save_role_data_scope(
                 ),
             )
             scope_id = inserted_id(conn, cursor, "role_data_scopes", timestamp, actor)
-    item = next((scope_item for scope_item in list_role_data_scopes(role_key=normalized_role) if scope_item.id == scope_id), None)
+    item = next((scope_item for scope_item in list_role_data_scopes(tenant_id=normalized_tenant_id, role_key=normalized_role) if scope_item.id == scope_id), None)
     if item is None:
         raise RuntimeError("role data scope save failed")
     return item
 
 
-def delete_role_data_scope(scope_id: int) -> RoleDataScope | None:
+def delete_role_data_scope(*, tenant_id: int, scope_id: int) -> RoleDataScope | None:
     timestamp = now_iso()
+    normalized_tenant_id = int(tenant_id)
     with connect(database_target(), readonly=False) as conn:
         require_authorization_schema(conn)
-        existing = conn.execute("SELECT * FROM role_data_scopes WHERE id = ? AND deleted = 0", (scope_id,)).fetchone()
+        existing = conn.execute(
+            "SELECT * FROM role_data_scopes WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (scope_id, normalized_tenant_id),
+        ).fetchone()
         if not existing:
             return None
         conn.execute(
             """
             UPDATE role_data_scopes
             SET deleted = 1, update_time = ?, lock_version = lock_version + 1
-            WHERE id = ?
+            WHERE id = ? AND tenant_id = ?
             """,
-            (timestamp, scope_id),
+            (timestamp, scope_id, normalized_tenant_id),
         )
     return row_to_role_data_scope(dict(existing))
 
@@ -253,6 +262,7 @@ def row_to_resource_descriptor(row: dict[str, Any]) -> ResourceDescriptorRecord:
 def row_to_role_data_scope(row: dict[str, Any]) -> RoleDataScope:
     return RoleDataScope(
         id=int(row["id"]),
+        tenant_id=int(row.get("tenant_id") or 0),
         role_key=str(row.get("role_key") or ""),
         resource_key=str(row.get("resource_key") or ""),
         action=str(row.get("action") or "read"),

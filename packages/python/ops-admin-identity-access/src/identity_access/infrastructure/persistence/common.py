@@ -109,6 +109,9 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "organization-departments-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "organization-departments-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "organization-departments-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "tenant"},
+    "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "platform-management": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "platform-branding": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
     "platform-branding-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -143,9 +146,6 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "role-management-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "role-management-delete": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "role-management-assign-menus": {"menu_type": "action", "component": "", "menu_scope": "platform"},
-    "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "platform"},
-    "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "platform"},
-    "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
 }
 
 TENANT_MESSAGING_MENU_KEYS = [
@@ -243,10 +243,14 @@ TENANT_ORGANIZATION_MENU_KEYS = [
     "organization-departments-create",
     "organization-departments-update",
     "organization-departments-delete",
+    "data-scope-management",
+    "data-scope-management-read",
+    "data-scope-management-manage",
 ]
 TENANT_ORGANIZATION_NAV_MENU_KEYS = [
     "organization",
     "organization-departments",
+    "data-scope-management",
 ]
 RETIRED_AI_ASSETS_MENU_KEYS = [
     "prompt-contracts",
@@ -302,10 +306,13 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "tenant:users:update",
     "tenant:users:enable",
     "tenant:users:disable",
+    "tenant:user:manage",
     "tenant:api_keys:create",
     "tenant:api_keys:revoke",
     "organization:departments:read",
     "organization:departments:manage",
+    "authorization:data-scope:read",
+    "authorization:data-scope:manage",
     "messaging:inbox:view",
     "messaging:inbox:manage_self",
     "messaging:messages:view",
@@ -909,6 +916,11 @@ def ensure_file_management_permissions(conn: Any) -> None:
             "维护租户组织部门和用户部门关系",
         ),
         (
+            "authorization:data-resource:manage",
+            "管理数据资源定义",
+            "维护平台级数据权限资源定义",
+        ),
+        (
             "authorization:data-scope:read",
             "查看数据权限",
             "查看数据权限资源和角色策略",
@@ -963,6 +975,8 @@ def backfill_default_menu_metadata(conn: Any) -> None:
     for menu_key, metadata in DEFAULT_MENU_METADATA.items():
         existing = conn.execute("SELECT id, menu_scope FROM menus WHERE menu_key = ?", (menu_key,)).fetchone()
         should_set_scope = existing is None or (
+            metadata["menu_scope"] != str(existing["menu_scope"] or "")
+        ) or (
             metadata["menu_scope"] == "platform"
             and menu_key in default_tenant_scoped_platform_keys
             and str(existing["menu_scope"] or "") == "tenant"
@@ -1016,6 +1030,49 @@ def backfill_default_menu_metadata(conn: Any) -> None:
     ]
     for menu_key, label in basic_data_label_rows:
         conn.execute("UPDATE menus SET label = ? WHERE menu_key = ?", (label, menu_key))
+    conn.execute(
+        """
+        UPDATE menus
+        SET label = '数据权限',
+            menu_type = 'page',
+            path = '/authorization/data-scope',
+            route_name = 'data-scope-management',
+            component = '/authorization/data-scope/index',
+            icon = 'SafetyCertificateOutlined',
+            parent_key = 'organization',
+            permission_code = 'authorization:data-scope:read',
+            sort_order = 832,
+            is_visible = TRUE,
+            menu_scope = 'tenant'
+        WHERE menu_key = 'data-scope-management'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE menus
+        SET label = CASE
+                WHEN menu_key = 'data-scope-management-read' THEN '查看数据权限'
+                ELSE '管理数据权限'
+            END,
+            menu_type = 'action',
+            path = '',
+            route_name = '',
+            component = '',
+            icon = '',
+            parent_key = 'data-scope-management',
+            permission_code = CASE
+                WHEN menu_key = 'data-scope-management-read' THEN 'authorization:data-scope:read'
+                ELSE 'authorization:data-scope:manage'
+            END,
+            sort_order = CASE
+                WHEN menu_key = 'data-scope-management-read' THEN 8321
+                ELSE 8322
+            END,
+            is_visible = TRUE,
+            menu_scope = 'tenant'
+        WHERE menu_key IN ('data-scope-management-read', 'data-scope-management-manage')
+        """
+    )
     conn.execute(
         """
         UPDATE menus
@@ -1139,9 +1196,6 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("role-management-update", "编辑角色", "", "", "", "role-management", "system:roles:update", 1022),
         ("role-management-delete", "删除角色", "", "", "", "role-management", "system:roles:delete", 1023),
         ("role-management-assign-menus", "分配菜单权限", "", "", "", "role-management", "system:roles:assign_menus", 1024),
-        ("data-scope-management", "数据权限", "/authorization/data-scope", "data-scope-management", "SafetyCertificateOutlined", "rbac", "authorization:data-scope:read", 103),
-        ("data-scope-management-read", "查看数据权限", "", "", "", "data-scope-management", "authorization:data-scope:read", 1031),
-        ("data-scope-management-manage", "管理数据权限", "", "", "", "data-scope-management", "authorization:data-scope:manage", 1032),
         ("tenant-management", "租户管理", "/tenant", "tenant-management", "ApartmentOutlined", "", "tenant:access", 110),
         ("tenant-management-create", "新增租户", "", "", "", "tenant-management", "tenant:create", 1101),
         ("tenant-management-update", "编辑租户", "", "", "", "tenant-management", "tenant:update", 1102),
@@ -1327,6 +1381,36 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "organization-departments",
             "organization:departments:manage",
             8313,
+        ),
+        (
+            "data-scope-management",
+            "数据权限",
+            "/authorization/data-scope",
+            "data-scope-management",
+            "SafetyCertificateOutlined",
+            "organization",
+            "authorization:data-scope:read",
+            832,
+        ),
+        (
+            "data-scope-management-read",
+            "查看数据权限",
+            "",
+            "",
+            "",
+            "data-scope-management",
+            "authorization:data-scope:read",
+            8321,
+        ),
+        (
+            "data-scope-management-manage",
+            "管理数据权限",
+            "",
+            "",
+            "",
+            "data-scope-management",
+            "authorization:data-scope:manage",
+            8322,
         ),
         (
             "file-management",
@@ -2028,6 +2112,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_ORGANIZATION_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()

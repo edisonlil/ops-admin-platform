@@ -37,6 +37,7 @@ class ResourceDescriptorRecord:
 @dataclass(frozen=True)
 class RoleDataScope:
     id: int
+    tenant_id: int
     role_key: str
     resource_key: str
     action: str

@@ -1,6 +1,6 @@
 <template>
   <div class="department-page">
-    <ListPageRuntime :schema="departmentPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="departmentPage" :rows="treeRows" :loading="loading" @refresh="reload">
       <template #filters>
         <n-select
           v-if="isPlatformAdmin"
@@ -72,6 +72,7 @@
     tenant_id: number;
     create_time?: string;
     update_time?: string;
+    children?: DepartmentRow[];
   }
 
   const message = useMessage();
@@ -115,22 +116,32 @@
       .map((item) => ({ label: `${departmentPath(item)} (${item.code})`, value: item.id }))
   );
 
-  const filteredRows = computed(() => {
+  const treeRows = computed(() => {
     const text = keyword.value.trim().toLowerCase();
-    return rows.value.filter((row) => {
-      const matchedText =
-        !text ||
-        row.code.toLowerCase().includes(text) ||
-        row.name.toLowerCase().includes(text) ||
-        String(row.base_location || '').toLowerCase().includes(text) ||
-        String(row.region || '').toLowerCase().includes(text);
-      const matchedStatus = !statusFilter.value || row.status === statusFilter.value;
-      return matchedText && matchedStatus;
-    });
+    const childrenByParent = new Map<number | null, DepartmentRow[]>();
+    for (const row of rows.value) {
+      const parentId = row.parent_id ? Number(row.parent_id) : null;
+      const item = { ...row, children: [] };
+      const siblings = childrenByParent.get(parentId) || [];
+      siblings.push(item);
+      childrenByParent.set(parentId, siblings);
+    }
+    const sortRows = (items: DepartmentRow[]) =>
+      items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id) - Number(b.id));
+    const build = (parentId: number | null): DepartmentRow[] =>
+      sortRows(childrenByParent.get(parentId) || []).map((row) => {
+        const children = build(row.id);
+        return {
+          ...row,
+          children: children.length ? children : undefined,
+        };
+      });
+    const rootRows = build(null);
+    return filterTree(rootRows, text, statusFilter.value);
   });
 
   const columns: DataTableColumns<DepartmentRow> = [
-    { title: '部门', key: 'name', minWidth: 220, render: (row) => departmentPath(row) },
+    { title: '部门', key: 'name', minWidth: 220 },
     { title: '编码', key: 'code', width: 160 },
     { title: 'Base 地', key: 'base_location', width: 140 },
     { title: '区域', key: 'region', width: 120 },
@@ -183,7 +194,7 @@
         columns,
         rowKey: (row) => Number(row.id),
         scrollX: 1120,
-        tableProps: { size: 'small' },
+        tableProps: { size: 'small', defaultExpandAll: true },
       },
       toolbar: {
         primaryAction: hasPermission(['organization:departments:manage'])
@@ -256,6 +267,25 @@
       parentId = Number(parent.parent_id || 0);
     }
     return names.join(' / ');
+  }
+
+  function filterTree(items: DepartmentRow[], text: string, status: string | null): DepartmentRow[] {
+    return items
+      .map((row) => {
+        const children = filterTree(row.children || [], text, status);
+        const matchedText =
+          !text ||
+          row.code.toLowerCase().includes(text) ||
+          row.name.toLowerCase().includes(text) ||
+          String(row.base_location || '').toLowerCase().includes(text) ||
+          String(row.region || '').toLowerCase().includes(text);
+        const matchedStatus = !status || row.status === status;
+        if ((matchedText && matchedStatus) || children.length) {
+          return { ...row, children: children.length ? children : undefined };
+        }
+        return null;
+      })
+      .filter(Boolean) as DepartmentRow[];
   }
 
   function isDescendant(candidateId: number, targetId: number) {

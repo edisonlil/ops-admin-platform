@@ -394,10 +394,14 @@ def sync_role_data_scopes_if_available(role: dict[str, Any], data_scopes: list[d
     role_key = str(role.get("key") or role.get("role_key") or "")
     if not role_key:
         return
+    tenant_id = int(role.get("tenant_id", 0) or 0)
+    if not tenant_id:
+        return
     for scope in data_scopes:
         payload = dict(scope)
         payload["role_key"] = role_key
-        authorization_services.save_role_data_scope(payload, {"username": "system", "id": None})
+        payload["tenant_id"] = int(payload.get("tenant_id") or tenant_id)
+        authorization_services.save_role_data_scope(payload, {"username": "system", "id": None, "tenant_id": tenant_id})
 
 
 def enrich_role_with_data_scopes(role: dict[str, Any]) -> dict[str, Any]:
@@ -408,8 +412,11 @@ def enrich_role_with_data_scopes(role: dict[str, Any]) -> dict[str, Any]:
     role_key = str(role.get("key") or role.get("role_key") or "")
     if not role_key:
         return role
+    tenant_id = int(role.get("tenant_id", 0) or 0)
+    if not tenant_id:
+        return role
     try:
-        payload = authorization_services.list_role_data_scopes(role_key=role_key)
+        payload = authorization_services.list_role_data_scopes({"tenant_id": tenant_id}, role_key=role_key)
     except Exception:
         return role
     item = dict(role)

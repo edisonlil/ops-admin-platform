@@ -21,6 +21,7 @@ class ResourceDescriptorRequest(BaseModel):
 
 
 class RoleDataScopeRequest(BaseModel):
+    tenant_id: int | None = Field(default=None, ge=1)
     role_key: str = Field(min_length=1, max_length=120)
     resource_key: str = Field(min_length=1, max_length=160)
     action: str = Field(default="read", max_length=80)

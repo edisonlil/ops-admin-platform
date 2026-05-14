@@ -23,7 +23,7 @@ def resources(_: dict[str, Any] = Depends(auth.require_permission("authorization
 def upsert_resource(
     resource_key: str,
     payload: ResourceDescriptorRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-resource:manage")),
 ) -> dict[str, Any]:
     body = payload.model_dump()
     body["resource_key"] = resource_key
@@ -33,9 +33,10 @@ def upsert_resource(
 @router.get("/role-data-scopes")
 def role_data_scopes(
     role_key: str | None = Query(default=None),
-    _: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read")),
+    tenant_id: int | None = Query(default=None, ge=1),
+    current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_role_data_scopes(role_key=role_key))
+    return ok_or_error(lambda: services.list_role_data_scopes(current_user, role_key=role_key, tenant_id=tenant_id))
 
 
 @router.post("/role-data-scopes")
@@ -49,9 +50,10 @@ def save_role_data_scope(
 @router.delete("/role-data-scopes/{scope_id}")
 def delete_role_data_scope(
     scope_id: int,
-    _: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:manage")),
+    tenant_id: int | None = Query(default=None, ge=1),
+    current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:manage")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.delete_role_data_scope(scope_id))
+    return ok_or_error(lambda: services.delete_role_data_scope(scope_id, current_user, tenant_id=tenant_id))
 
 
 def ok_or_error(action: Any) -> dict[str, Any]:

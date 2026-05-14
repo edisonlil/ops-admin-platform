@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS role_data_scopes (
     update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     editor VARCHAR(64) DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (role_key, resource_key, action, deleted)
+    UNIQUE (tenant_id, role_key, resource_key, action, deleted)
 );
 
 CREATE INDEX idx_data_resource_descriptors_key ON data_resource_descriptors(resource_key, deleted);
-CREATE INDEX idx_role_data_scopes_role ON role_data_scopes(role_key, deleted);
-CREATE INDEX idx_role_data_scopes_resource ON role_data_scopes(resource_key, action, deleted);
+CREATE INDEX idx_role_data_scopes_role ON role_data_scopes(tenant_id, role_key, deleted);
+CREATE INDEX idx_role_data_scopes_resource ON role_data_scopes(tenant_id, resource_key, action, deleted);

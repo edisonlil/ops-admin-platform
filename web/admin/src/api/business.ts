@@ -75,6 +75,7 @@ export interface DepartmentPayload {
 }
 
 export interface RoleDataScopePayload {
+  tenant_id?: number | null;
   role_key: string;
   resource_key: string;
   action?: string;
@@ -440,7 +441,7 @@ export function saveAuthorizationResource(resourceKey: string, payload: DataReso
   return Alova.Put(`/authorization/resources/${resourceKey}`, payload);
 }
 
-export function getRoleDataScopes(params: { role_key?: string } = {}) {
+export function getRoleDataScopes(params: { role_key?: string; tenant_id?: number | null } = {}) {
   return Alova.Get('/authorization/role-data-scopes', { params: withNoCacheParams(params) });
 }
 
@@ -448,6 +449,6 @@ export function saveRoleDataScope(payload: RoleDataScopePayload) {
   return Alova.Post('/authorization/role-data-scopes', payload);
 }
 
-export function deleteRoleDataScope(scopeId: number) {
-  return Alova.Delete(`/authorization/role-data-scopes/${scopeId}`);
+export function deleteRoleDataScope(scopeId: number, params: { tenant_id?: number | null } = {}) {
+  return Alova.Delete(`/authorization/role-data-scopes/${scopeId}`, { params: withNoCacheParams(params) });
 }

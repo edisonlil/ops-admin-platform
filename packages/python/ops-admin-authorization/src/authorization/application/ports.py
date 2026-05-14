@@ -12,11 +12,12 @@ class AuthorizationRepository(Protocol):
 
     def get_resource_descriptor(self, resource_key: str) -> ResourceDescriptorRecord | None: ...
 
-    def list_role_data_scopes(self, *, role_key: str | None = None) -> list[RoleDataScope]: ...
+    def list_role_data_scopes(self, *, tenant_id: int, role_key: str | None = None) -> list[RoleDataScope]: ...
 
     def save_role_data_scope(
         self,
         *,
+        tenant_id: int,
         role_key: str,
         resource_key: str,
         action: str,
@@ -26,4 +27,4 @@ class AuthorizationRepository(Protocol):
         actor_id: int | None,
     ) -> RoleDataScope: ...
 
-    def delete_role_data_scope(self, scope_id: int) -> RoleDataScope | None: ...
+    def delete_role_data_scope(self, *, tenant_id: int, scope_id: int) -> RoleDataScope | None: ...

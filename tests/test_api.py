@@ -353,12 +353,17 @@ class ApiTests(unittest.TestCase):
         self.assertIn("file:library:manage", permissions)
         self.assertIn("basic-data:dictionary:read", permissions)
         self.assertIn("basic-data:dictionary:manage", permissions)
+        self.assertIn("authorization:data-scope:read", permissions)
+        self.assertIn("authorization:data-scope:manage", permissions)
         self.assertIn("llm-config", keys)
         self.assertIn("cron-tasks", keys)
         self.assertIn("file-libraries", keys)
         self.assertIn("file-management", keys)
         self.assertIn("basic-data", keys)
         self.assertIn("basic-data-dictionaries", keys)
+        self.assertIn("organization", keys)
+        self.assertIn("organization-departments", keys)
+        self.assertIn("data-scope-management", keys)
         self.assertIn("file-objects", keys)
         self.assertIn("cron-runs", keys)
         self.assertNotIn("tenant-management", keys)
@@ -633,6 +638,69 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(
             {row["code"] for row in repaired_permissions},
             {"basic-data:dictionary:manage", "basic-data:dictionary:read"},
+        )
+
+    def test_identity_initialization_repairs_tenant_admin_data_scope_menus_and_permissions(self) -> None:
+        from identity_access.infrastructure.persistence.common import auth_database_target, connect, initialize_auth_storage
+
+        with connect(auth_database_target(), readonly=False) as conn:
+            conn.execute(
+                """
+                DELETE FROM role_menus
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND menu_id IN (
+                      SELECT id FROM menus WHERE menu_key IN (?, ?, ?)
+                  )
+                """,
+                ("tenant-admin", "data-scope-management", "data-scope-management-read", "data-scope-management-manage"),
+            )
+            conn.execute(
+                """
+                DELETE FROM role_permissions
+                WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
+                  AND permission_id IN (
+                      SELECT id FROM permissions WHERE code IN (?, ?)
+                  )
+                """,
+                ("tenant-admin", "authorization:data-scope:read", "authorization:data-scope:manage"),
+            )
+
+            initialize_auth_storage(conn)
+
+            repaired_menus = conn.execute(
+                """
+                SELECT m.menu_key, m.menu_scope, m.parent_key
+                FROM role_menus rm
+                JOIN roles r ON r.id = rm.role_id
+                JOIN menus m ON m.id = rm.menu_id
+                WHERE r.role_key = ?
+                  AND m.menu_key IN (?, ?, ?)
+                ORDER BY m.menu_key
+                """,
+                ("tenant-admin", "data-scope-management", "data-scope-management-read", "data-scope-management-manage"),
+            ).fetchall()
+            repaired_permissions = conn.execute(
+                """
+                SELECT p.code
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.role_key = ?
+                  AND p.code IN (?, ?)
+                ORDER BY p.code
+                """,
+                ("tenant-admin", "authorization:data-scope:read", "authorization:data-scope:manage"),
+            ).fetchall()
+
+        self.assertEqual(
+            {row["menu_key"] for row in repaired_menus},
+            {"data-scope-management", "data-scope-management-read", "data-scope-management-manage"},
+        )
+        self.assertEqual({row["menu_scope"] for row in repaired_menus}, {"tenant"})
+        self.assertIn("organization", {row["parent_key"] for row in repaired_menus})
+        self.assertEqual(
+            {row["code"] for row in repaired_permissions},
+            {"authorization:data-scope:manage", "authorization:data-scope:read"},
         )
 
     def test_admin_can_create_update_and_delete_menu(self) -> None:
