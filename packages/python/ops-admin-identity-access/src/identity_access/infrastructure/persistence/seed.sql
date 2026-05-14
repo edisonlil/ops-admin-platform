@@ -206,24 +206,15 @@ SELECT 'file:storage_profiles:manage', 'Manage file storage profiles', 'Configur
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:storage_profiles:manage');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'prompt:assets:view', 'View prompt assets', 'View prompt assets, versions, contracts, and bindings'
+SELECT 'prompt:assets:view', 'View prompt assets', 'View prompt assets and versions'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:assets:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'prompt:assets:manage', 'Manage prompt assets', 'Create, update, publish, test, and archive prompt assets'
+SELECT 'prompt:assets:manage', 'Manage prompt assets', 'Create, update, publish, and archive prompt assets'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:assets:manage');
 
-INSERT INTO permissions (code, name, description)
-SELECT 'prompt:contracts:manage', 'Manage prompt contracts', 'Create and update prompt task contracts'
-WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:contracts:manage');
 
-INSERT INTO permissions (code, name, description)
-SELECT 'prompt:bindings:manage', 'Manage prompt bindings', 'Bind prompt versions to task contracts'
-WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:bindings:manage');
 
-INSERT INTO permissions (code, name, description)
-SELECT 'prompt:runs:view', 'View prompt runs', 'View prompt execution and test run records'
-WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:runs:view');
 
 INSERT INTO permissions (code, name, description)
 SELECT 'basic-data:dictionary:read', 'Read business dictionaries', 'View and consume tenant business dictionaries'
@@ -792,25 +783,10 @@ INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, com
 SELECT 'prompt-library-manage', 'tenant', '管理提示词', 'action', '', '', '', '', 'prompt-library', 'prompt:assets:manage', 8411, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-library-manage');
 
-INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'prompt-contracts', 'tenant', '任务契约', 'page', '/prompts/contracts', 'prompt-contracts', '/prompts/contracts/index', 'api', 'ai-assets', 'prompt:assets:view', 842, TRUE
-WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-contracts');
 
-INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'prompt-contracts-manage', 'tenant', '管理任务契约', 'action', '', '', '', '', 'prompt-contracts', 'prompt:contracts:manage', 8421, TRUE
-WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-contracts-manage');
 
-INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'prompt-bindings', 'tenant', '提示词绑定', 'page', '/prompts/bindings', 'prompt-bindings', '/prompts/bindings/index', 'deployment-unit', 'ai-assets', 'prompt:assets:view', 843, TRUE
-WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-bindings');
 
-INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'prompt-bindings-manage', 'tenant', '管理提示词绑定', 'action', '', '', '', '', 'prompt-bindings', 'prompt:bindings:manage', 8431, TRUE
-WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-bindings-manage');
 
-INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'prompt-runs', 'tenant', '运行记录', 'page', '/prompts/runs', 'prompt-runs', '/prompts/runs/index', 'history', 'ai-assets', 'prompt:runs:view', 844, TRUE
-WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-runs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'basic-data', 'tenant', '基础数据', 'directory', '', '', '', 'database', '', '', 85, TRUE

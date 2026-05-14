@@ -16,9 +16,6 @@ def require_ai_assets_schema(conn: Any) -> None:
     required_tables = (
         "prompt_assets",
         "prompt_versions",
-        "prompt_task_contracts",
-        "prompt_task_bindings",
-        "prompt_runs",
     )
     missing = [table_name for table_name in required_tables if not table_exists(conn, table_name)]
     if missing:

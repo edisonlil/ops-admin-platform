@@ -94,11 +94,6 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "ai-assets": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "prompt-library": {"menu_type": "page", "component": "/prompts/library/index", "menu_scope": "tenant"},
     "prompt-library-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
-    "prompt-contracts": {"menu_type": "page", "component": "/prompts/contracts/index", "menu_scope": "tenant"},
-    "prompt-contracts-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
-    "prompt-bindings": {"menu_type": "page", "component": "/prompts/bindings/index", "menu_scope": "tenant"},
-    "prompt-bindings-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
-    "prompt-runs": {"menu_type": "page", "component": "/prompts/runs/index", "menu_scope": "tenant"},
     "tenant-settings": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "tenant-user-management": {"menu_type": "page", "component": "/tenant/index", "menu_scope": "tenant"},
     "tenant-users-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -228,18 +223,22 @@ TENANT_AI_ASSETS_MENU_KEYS = [
     "ai-assets",
     "prompt-library",
     "prompt-library-manage",
+]
+TENANT_AI_ASSETS_NAV_MENU_KEYS = [
+    "ai-assets",
+    "prompt-library",
+]
+RETIRED_AI_ASSETS_MENU_KEYS = [
     "prompt-contracts",
     "prompt-contracts-manage",
     "prompt-bindings",
     "prompt-bindings-manage",
     "prompt-runs",
 ]
-TENANT_AI_ASSETS_NAV_MENU_KEYS = [
-    "ai-assets",
-    "prompt-library",
-    "prompt-contracts",
-    "prompt-bindings",
-    "prompt-runs",
+RETIRED_AI_ASSETS_PERMISSION_CODES = [
+    "prompt:contracts:manage",
+    "prompt:bindings:manage",
+    "prompt:runs:view",
 ]
 TENANT_ADMIN_MENU_KEYS = (
     [
@@ -813,6 +812,8 @@ def ensure_default_rbac(conn: Any) -> None:
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
     ensure_identity_seed(conn)
     ensure_file_management_permissions(conn)
+    retire_tenant_menu_keys(conn, RETIRED_AI_ASSETS_MENU_KEYS)
+    retire_permission_codes(conn, RETIRED_AI_ASSETS_PERMISSION_CODES)
     ensure_platform_default_menus(conn)
     backfill_default_menu_metadata(conn)
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
@@ -864,6 +865,16 @@ def ensure_file_management_permissions(conn: Any) -> None:
             "Manage business dictionaries",
             "Create, update, disable, and delete tenant business dictionaries",
         ),
+        (
+            "prompt:assets:view",
+            "View prompt assets",
+            "View prompt assets and versions",
+        ),
+        (
+            "prompt:assets:manage",
+            "Manage prompt assets",
+            "Create, update, publish, and archive prompt assets",
+        ),
     ]
     for code, name, description in permission_rows:
         conn.execute(
@@ -873,6 +884,14 @@ def ensure_file_management_permissions(conn: Any) -> None:
             WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = ?)
             """,
             (code, name, description, code),
+        )
+        conn.execute(
+            """
+            UPDATE permissions
+            SET name = ?, description = ?
+            WHERE code = ?
+            """,
+            (name, description, code),
         )
 
 
@@ -983,6 +1002,61 @@ def retire_platform_menu_keys(conn: Any, menu_keys: list[str]) -> None:
           AND menu_key IN ({placeholders})
         """,
         tuple(menu_keys),
+    )
+
+
+def retire_tenant_menu_keys(conn: Any, menu_keys: list[str]) -> None:
+    if not menu_keys:
+        return
+    placeholders = ", ".join("?" for _ in menu_keys)
+    conn.execute(
+        f"""
+        DELETE FROM role_menus
+        WHERE menu_id IN (
+            SELECT id FROM menus
+            WHERE menu_scope = 'tenant'
+              AND menu_key IN ({placeholders})
+        )
+        """,
+        tuple(menu_keys),
+    )
+    conn.execute(
+        f"""
+        DELETE FROM tenant_menu_overrides
+        WHERE menu_key IN ({placeholders})
+        """,
+        tuple(menu_keys),
+    )
+    conn.execute(
+        f"""
+        DELETE FROM menus
+        WHERE menu_scope = 'tenant'
+          AND menu_key IN ({placeholders})
+        """,
+        tuple(menu_keys),
+    )
+
+
+def retire_permission_codes(conn: Any, permission_codes: list[str]) -> None:
+    if not permission_codes:
+        return
+    placeholders = ", ".join("?" for _ in permission_codes)
+    conn.execute(
+        f"""
+        DELETE FROM role_permissions
+        WHERE permission_id IN (
+            SELECT id FROM permissions
+            WHERE code IN ({placeholders})
+        )
+        """,
+        tuple(permission_codes),
+    )
+    conn.execute(
+        f"""
+        DELETE FROM permissions
+        WHERE code IN ({placeholders})
+        """,
+        tuple(permission_codes),
     )
 
 
@@ -1618,58 +1692,10 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "prompt:assets:manage",
             9311,
         ),
-        (
-            "prompt-contracts",
-            "任务契约",
-            "/prompts/contracts",
-            "prompt-contracts",
-            "api",
-            "ai-assets",
-            "prompt:assets:view",
-            932,
-        ),
-        (
-            "prompt-contracts-manage",
-            "管理任务契约",
-            "",
-            "",
-            "",
-            "prompt-contracts",
-            "prompt:contracts:manage",
-            9321,
-        ),
-        (
-            "prompt-bindings",
-            "提示词绑定",
-            "/prompts/bindings",
-            "prompt-bindings",
-            "deployment-unit",
-            "ai-assets",
-            "prompt:assets:view",
-            933,
-        ),
-        (
-            "prompt-bindings-manage",
-            "管理提示词绑定",
-            "",
-            "",
-            "",
-            "prompt-bindings",
-            "prompt:bindings:manage",
-            9331,
-        ),
-        (
-            "prompt-runs",
-            "运行记录",
-            "/prompts/runs",
-            "prompt-runs",
-            "history",
-            "ai-assets",
-            "prompt:runs:view",
-            934,
-        ),
     ]
     for key, label, path, route_name, icon, parent_key, permission_code, sort_order in tenant_menu_rows:
+        if key in RETIRED_AI_ASSETS_MENU_KEYS:
+            continue
         conn.execute(
             """
             INSERT INTO menus (

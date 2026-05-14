@@ -1,8 +1,8 @@
 # AI Assets
 
-The `ai_assets` bounded context manages prompt assets, prompt versions, task contracts, bindings, and prompt run evidence.
+The `ai_assets` bounded context manages tenant-scoped prompt assets and their versions.
 
-Business contexts should call the application layer with a `contract_key` and variables. They should not own prompt text or bind directly to arbitrary prompt versions.
+The first phase deliberately stays focused on prompt library management: create prompts, edit metadata, maintain versions, publish versions, and archive prompts. Task contracts, prompt bindings, and contract-driven execution are not part of this module.
 
 Runtime code checks that the schema already exists. Initialize storage explicitly with:
 

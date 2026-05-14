@@ -28,10 +28,6 @@
               <dt>版本</dt>
               <dd>{{ row.version_count || 0 }}</dd>
             </div>
-            <div>
-              <dt>绑定</dt>
-              <dd>{{ row.binding_count || 0 }}</dd>
-            </div>
           </dl>
 
           <footer class="prompt-card__footer">
@@ -244,7 +240,7 @@
   const pageSchema = computed(() => defineListPage<PromptAsset>({
     id: 'prompts.library',
     title: '提示词库',
-    description: '以卡片方式维护可版本化、可绑定、可测试的提示词资产。',
+    description: '以卡片方式维护可版本化、可发布和可归档的提示词资产。',
     variant: 'dense-data',
     density: 'compact',
     view: {
@@ -524,7 +520,7 @@
 
   .prompt-card__facts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     margin: 0;
   }

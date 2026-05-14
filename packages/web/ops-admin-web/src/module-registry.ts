@@ -129,11 +129,6 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'ai-assets',
     'prompt-library',
     'prompt-library-manage',
-    'prompt-contracts',
-    'prompt-contracts-manage',
-    'prompt-bindings',
-    'prompt-bindings-manage',
-    'prompt-runs',
   ],
   basic_data: [
     'basic-data',
@@ -147,10 +142,18 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
   ],
 };
 
+const RETIRED_MODULE_MENU_KEYS = [
+  'prompt-contracts',
+  'prompt-contracts-manage',
+  'prompt-bindings',
+  'prompt-bindings-manage',
+  'prompt-runs',
+];
+
 const modules = new Map<OpsAdminModuleKey, OpsAdminWebModule>();
 
 function knownMenuKeys() {
-  return new Set(Object.values(DEFAULT_MODULE_MENU_KEYS).flat());
+  return new Set([...Object.values(DEFAULT_MODULE_MENU_KEYS).flat(), ...RETIRED_MODULE_MENU_KEYS]);
 }
 
 export function registerOpsAdminModule(module: OpsAdminWebModule) {

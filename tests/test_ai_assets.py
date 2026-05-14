@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from framework.llm_core import LLMResponse
-
 from ai_assets.application import services
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
-from llm_runtime.infrastructure.persistence.bootstrap import ensure_llm_schema
-from llm_runtime.infrastructure.persistence import repositories as llm_repositories
 
 
 class AIAssetsTests(unittest.TestCase):
@@ -43,12 +38,12 @@ class AIAssetsTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def initialize_db(self) -> None:
+        import sqlite3
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
             ensure_ai_assets_schema(conn)
-            ensure_llm_schema(conn)
-            self.seed_llm_route(conn)
             conn.commit()
         finally:
             conn.close()
@@ -72,80 +67,6 @@ class AIAssetsTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(caught.exception, "status_code", None), 409)
-
-    def test_contract_compatible_prompts_and_binding_are_scope_limited(self) -> None:
-        prompt = self.create_prompt(tags=["summary"])
-        version = self.create_version(int(prompt["id"]), version="1.0.0")
-        contract = self.create_contract(
-            allowed_prompt_scopes={
-                "tags": ["summary"],
-            }
-        )
-
-        compatible = services.compatible_prompts("voice_analysis.transcript.summary", self.current_user)
-
-        self.assertEqual(len(compatible["items"]), 1)
-        binding = services.create_binding(
-            {
-                "contract_id": contract["id"],
-                "prompt_id": prompt["id"],
-                "prompt_version_id": version["id"],
-                "binding_name": "Default",
-                "environment": "prod",
-            },
-            self.current_user,
-        )["item"]
-        self.assertEqual(binding["contract_key"], "voice_analysis.transcript.summary")
-
-        other_prompt = self.create_prompt(prompt_key="wrong.owner", tags=["other"])
-        other_version = self.create_version(int(other_prompt["id"]), version="1.0.0")
-        with self.assertRaises(Exception) as caught:
-            services.create_binding(
-                {
-                    "contract_id": contract["id"],
-                    "prompt_id": other_prompt["id"],
-                    "prompt_version_id": other_version["id"],
-                },
-                self.current_user,
-            )
-
-        self.assertEqual(getattr(caught.exception, "status_code", None), 422)
-
-    def test_execute_prompt_renders_messages_calls_llm_and_records_run(self) -> None:
-        prompt = self.create_prompt()
-        version = self.create_version(int(prompt["id"]), version="1.0.0")
-        contract = self.create_contract()
-        services.create_binding(
-            {
-                "contract_id": contract["id"],
-                "prompt_id": prompt["id"],
-                "prompt_version_id": version["id"],
-                "environment": "prod",
-            },
-            self.current_user,
-        )
-
-        with mock.patch(
-            "ai_assets.application.services.llm_gateway.generate",
-            return_value=LLMResponse(content='{"summary":"done"}', elapsed_seconds=0.03),
-        ) as generate:
-            result = services.execute_prompt(
-                {
-                    "contract_key": "voice_analysis.transcript.summary",
-                    "variables": {"transcript": "hello"},
-                    "correlation_id": "corr-1",
-                },
-                self.current_user,
-            )
-
-        self.assertTrue(result["schema_valid"])
-        self.assertEqual(result["output_json"], {"summary": "done"})
-        self.assertEqual(result["run"]["status"], "succeeded")
-        self.assertEqual(result["run"]["correlation_id"], "corr-1")
-        self.assertIn("hello", result["rendered_messages"][-1]["content"])
-        self.assertEqual(generate.call_args.kwargs["task_key"], "voice_analysis.summary")
-        runs = services.list_runs(page=1, page_size=20, current_user=self.current_user)
-        self.assertEqual(runs["pagination"]["total"], 1)
 
     def test_requires_explicit_schema_initialization(self) -> None:
         missing_db = Path(self.temp_dir.name) / "missing-schema.db"
@@ -178,7 +99,6 @@ class AIAssetsTests(unittest.TestCase):
                 "tags",
                 "status",
                 "version_count",
-                "binding_count",
                 "create_time",
                 "update_time",
             },
@@ -238,60 +158,6 @@ class AIAssetsTests(unittest.TestCase):
             },
             self.current_user,
         )["item"]
-
-    def create_contract(self, *, allowed_prompt_scopes: dict[str, object] | None = None) -> dict[str, object]:
-        return services.save_contract(
-            {
-                "contract_key": "voice_analysis.transcript.summary",
-                "owner_context": "voice_analysis",
-                "task_kind": "single_call",
-                "display_name": "Transcript Summary",
-                "llm_task_key": "voice_analysis.summary",
-                "input_schema": {"type": "object", "required": ["transcript"], "properties": {"transcript": {"type": "string"}}},
-                "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
-                "allowed_prompt_scopes": allowed_prompt_scopes or {"tags": ["summary"]},
-                "enabled": True,
-            },
-            self.current_user,
-        )["item"]
-
-    @staticmethod
-    def seed_llm_route(conn: sqlite3.Connection) -> None:
-        llm_repositories.upsert_provider(
-            conn,
-            {
-                "provider_key": "test",
-                "display_name": "Test",
-                "base_url": "https://test.example/v1",
-                "api_key": "sk-test",
-                "enabled": True,
-            },
-        )
-        llm_repositories.upsert_model(
-            conn,
-            {
-                "model_key": "test.model",
-                "provider_key": "test",
-                "model_name": "test-model",
-                "enabled": True,
-            },
-        )
-        llm_repositories.register_task(
-            conn,
-            {
-                "task_key": "voice_analysis.summary",
-                "display_name": "Voice Summary",
-                "owner_context": "voice_analysis",
-            },
-        )
-        llm_repositories.upsert_routing_policy(
-            conn,
-            {
-                "route_key": "voice_analysis.summary",
-                "strategy": "priority",
-                "entries": [{"model_key": "test.model", "priority": 1, "response_format": "json"}],
-            },
-        )
 
 
 if __name__ == "__main__":
