@@ -22,7 +22,17 @@
               <n-select v-model:value="form.subject_type" :options="subjectTypeOptions" @update:value="handleSubjectTypeChange" />
             </n-form-item-gi>
             <n-form-item-gi label="业务主体" path="subject_id">
-              <n-select v-model:value="form.subject_id" filterable :options="currentSubjectOptions" />
+              <n-tree-select
+                v-if="form.subject_type === 'department'"
+                v-model:value="form.subject_id"
+                clearable
+                filterable
+                checkable
+                block-line
+                default-expand-all
+                :options="departmentTreeOptions"
+              />
+              <n-select v-else v-model:value="form.subject_id" filterable :options="userOptions" />
             </n-form-item-gi>
             <n-form-item-gi label="数据资源" path="resource_key">
               <n-select v-model:value="form.resource_key" filterable :options="resourceOptions" />
@@ -38,12 +48,16 @@
             </n-form-item-gi>
           </n-grid>
           <n-form-item v-if="form.scope === 'custom_departments'" label="自定义部门" path="department_ids">
-            <n-select
+            <n-tree-select
               v-model:value="form.department_ids"
               multiple
               clearable
               filterable
-              :options="departmentOptions"
+              cascade
+              checkable
+              block-line
+              default-expand-all
+              :options="departmentTreeOptions"
               placeholder="选择允许访问的部门"
             />
           </n-form-item>
@@ -62,7 +76,7 @@
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
-  import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
+  import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
@@ -159,8 +173,8 @@
   const departmentOptions = computed<SelectOption[]>(() =>
     departments.value.map((department) => ({ label: `${departmentPath(department)} (${department.code})`, value: department.id }))
   );
+  const departmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions());
   const userOptions = computed<SelectOption[]>(() => users.value.map((user) => ({ label: `${user.username} (#${user.id})`, value: user.id })));
-  const currentSubjectOptions = computed<SelectOption[]>(() => (form.subject_type === 'user' ? userOptions.value : departmentOptions.value));
   const filteredRows = computed(() =>
     rows.value.filter((row) => {
       const matchedSubject = !subjectTypeFilter.value || row.subject_type === subjectTypeFilter.value;
@@ -349,6 +363,26 @@
       parentId = Number(parent.parent_id || 0);
     }
     return names.join(' / ');
+  }
+
+  function buildDepartmentTreeOptions() {
+    const byParent = new Map<number, DepartmentRow[]>();
+    departments.value.forEach((department) => {
+      byParent.set(Number(department.parent_id || 0), [...(byParent.get(Number(department.parent_id || 0)) || []), department]);
+    });
+    const build = (parentId: number): TreeSelectOption[] =>
+      (byParent.get(parentId) || [])
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name))
+        .map((department) => {
+          const children = build(department.id);
+          return {
+            label: department.name,
+            key: department.id,
+            value: department.id,
+            children: children.length ? children : undefined,
+          };
+        });
+    return build(0);
   }
 
   async function reload() {

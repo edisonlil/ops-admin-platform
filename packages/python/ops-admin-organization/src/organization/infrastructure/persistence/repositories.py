@@ -246,24 +246,29 @@ def validate_department_parent(conn: Any, *, tenant_id: int, department_id: int,
     if not parent_id:
         return
     if department_id and parent_id == department_id:
-        raise OrganizationDomainError("department cannot be its own parent")
+        raise OrganizationDomainError("部门不能作为自己的上级部门")
     parent = conn.execute(
-        "SELECT id FROM departments WHERE tenant_id = ? AND id = ? AND deleted = 0",
+        "SELECT id, parent_id FROM departments WHERE tenant_id = ? AND id = ? AND deleted = 0",
         (tenant_id, parent_id),
     ).fetchone()
     if not parent:
-        raise OrganizationDomainError("parent department not found")
+        raise OrganizationDomainError("上级部门不存在")
     if department_id:
-        pending = [parent_id]
-        while pending:
-            current = pending.pop(0)
-            if current == department_id:
-                raise OrganizationDomainError("department cannot move under its descendant")
-            rows = conn.execute(
-                "SELECT id FROM departments WHERE tenant_id = ? AND parent_id = ? AND deleted = 0",
-                (tenant_id, current),
-            ).fetchall()
-            pending.extend(int(row["id"]) for row in rows)
+        current_parent_id = int(parent_id)
+        visited: set[int] = set()
+        while current_parent_id:
+            if current_parent_id == department_id:
+                raise OrganizationDomainError("部门不能移动到自己的下级部门")
+            if current_parent_id in visited:
+                raise OrganizationDomainError("部门层级存在循环")
+            visited.add(current_parent_id)
+            row = conn.execute(
+                "SELECT parent_id FROM departments WHERE tenant_id = ? AND id = ? AND deleted = 0",
+                (tenant_id, current_parent_id),
+            ).fetchone()
+            if not row:
+                break
+            current_parent_id = int(row["parent_id"] or 0)
 
 
 def row_to_department(row: dict[str, Any]) -> Department:

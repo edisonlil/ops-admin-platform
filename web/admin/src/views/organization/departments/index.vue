@@ -22,7 +22,15 @@
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
           <n-grid :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="上级部门">
-              <n-select v-model:value="form.parent_id" clearable filterable :options="parentOptions" placeholder="不选择则为一级部门" />
+              <n-tree-select
+                v-model:value="form.parent_id"
+                clearable
+                filterable
+                block-line
+                default-expand-all
+                :options="parentTreeOptions"
+                placeholder="不选择则为一级部门"
+              />
             </n-form-item-gi>
             <n-form-item-gi label="编码" path="code">
               <n-input v-model:value="form.code" placeholder="sales-east" />
@@ -58,7 +66,7 @@
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
-  import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
+  import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
@@ -109,12 +117,7 @@
     name: [{ required: true, message: '请输入部门名称', trigger: ['blur', 'input'] }],
   };
 
-  const parentOptions = computed<SelectOption[]>(() =>
-    rows.value
-      .filter((item) => item.id !== form.id)
-      .filter((item) => !form.id || !isDescendant(item.id, form.id))
-      .map((item) => ({ label: `${departmentPath(item)} (${item.code})`, value: item.id }))
-  );
+  const parentTreeOptions = computed<TreeSelectOption[]>(() => buildParentTreeOptions());
 
   const treeRows = computed(() => {
     const text = keyword.value.trim().toLowerCase();
@@ -295,6 +298,31 @@
       parentId = rows.value.find((item) => item.id === Number(parentId))?.parent_id;
     }
     return false;
+  }
+
+  function buildParentTreeOptions() {
+    const childrenByParent = new Map<number | null, DepartmentRow[]>();
+    for (const row of rows.value) {
+      if (row.id === form.id) continue;
+      if (form.id && isDescendant(row.id, form.id)) continue;
+      const parentId = row.parent_id ? Number(row.parent_id) : null;
+      const siblings = childrenByParent.get(parentId) || [];
+      siblings.push(row);
+      childrenByParent.set(parentId, siblings);
+    }
+    const sortRows = (items: DepartmentRow[]) =>
+      items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id) - Number(b.id));
+    const build = (parentId: number | null): TreeSelectOption[] =>
+      sortRows(childrenByParent.get(parentId) || []).map((row) => {
+        const children = build(row.id);
+        return {
+          label: row.name,
+          key: row.id,
+          value: row.id,
+          children: children.length ? children : undefined,
+        };
+      });
+    return build(null);
   }
 
   async function reload() {

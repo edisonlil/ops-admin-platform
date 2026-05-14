@@ -88,10 +88,30 @@
           <n-select v-model:value="userForm.role_keys" multiple filterable clearable :options="roleOptions" />
         </n-form-item>
         <n-form-item label="所属部门">
-          <n-select v-model:value="userForm.department_ids" multiple filterable clearable :options="departmentOptions" placeholder="选择成员所属部门" />
+          <n-tree-select
+            v-model:value="userForm.department_ids"
+            multiple
+            clearable
+            filterable
+            cascade
+            checkable
+            block-line
+            default-expand-all
+            :options="departmentTreeOptions"
+            placeholder="选择成员所属部门"
+            @update:value="handleDepartmentIdsChange"
+          />
         </n-form-item>
         <n-form-item label="主部门">
-          <n-select v-model:value="userForm.primary_department_id" clearable filterable :options="primaryDepartmentOptions" placeholder="用于本部门数据权限计算" />
+          <n-tree-select
+            v-model:value="userForm.primary_department_id"
+            clearable
+            filterable
+            block-line
+            default-expand-all
+            :options="primaryDepartmentTreeOptions"
+            placeholder="用于本部门数据权限计算"
+          />
         </n-form-item>
         <n-form-item label="启用" path="is_active">
           <n-switch v-model:value="userForm.is_active" />
@@ -120,7 +140,7 @@
   import { computed, h, reactive, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import { useMessage } from 'naive-ui';
-  import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
+  import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import {
     activateTenant,
     createCurrentTenantApiKey,
@@ -265,8 +285,8 @@
     password: userFormMode.value === 'create' ? [{ required: true, message: '请输入初始密码', trigger: ['blur', 'input'] }] : [],
   }));
 
-  const departmentOptions = computed<SelectOption[]>(() => departments.value.map((item) => ({ label: `${departmentPath(item)} (${item.code})`, value: item.id })));
-  const primaryDepartmentOptions = computed<SelectOption[]>(() => departmentOptions.value.filter((item) => userForm.department_ids.includes(Number(item.value))));
+  const departmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions());
+  const primaryDepartmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions(new Set(userForm.department_ids)));
 
   const tenantColumns: DataTableColumns<TenantRow> = [
     { title: 'ID', key: 'id', width: 80 },
@@ -676,6 +696,41 @@
     if (!ids.length) return '-';
     const names = ids.map((id) => departments.value.find((item) => item.id === id)).filter(Boolean).map((item) => departmentPath(item as DepartmentRow));
     return names.length ? names.join('、') : ids.join('、');
+  }
+
+  function handleDepartmentIdsChange(value: number[] | null) {
+    const departmentIds = value || [];
+    userForm.department_ids = departmentIds;
+    if (userForm.primary_department_id && !departmentIds.includes(userForm.primary_department_id)) {
+      userForm.primary_department_id = null;
+    }
+  }
+
+  function buildDepartmentTreeOptions(allowedIds?: Set<number>) {
+    const byParent = new Map<number, DepartmentRow[]>();
+    departments.value.forEach((department) => {
+      const parentId = Number(department.parent_id || 0);
+      byParent.set(parentId, [...(byParent.get(parentId) || []), department]);
+    });
+    const hasAllowedDescendant = (department: DepartmentRow): boolean => {
+      if (!allowedIds || allowedIds.has(department.id)) return true;
+      return (byParent.get(department.id) || []).some((child) => hasAllowedDescendant(child));
+    };
+    const build = (parentId: number): TreeSelectOption[] =>
+      (byParent.get(parentId) || [])
+        .filter(hasAllowedDescendant)
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name))
+        .map((department) => {
+          const children = build(department.id);
+          return {
+            label: department.name,
+            key: department.id,
+            value: department.id,
+            disabled: !!allowedIds && !allowedIds.has(department.id),
+            children: children.length ? children : undefined,
+          };
+        });
+    return build(0);
   }
 
   function departmentPath(row: DepartmentRow) {
