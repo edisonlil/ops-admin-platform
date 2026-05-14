@@ -6,13 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class PromptAssetRequest(BaseModel):
-    prompt_key: str = Field(min_length=1, max_length=200)
+    prompt_key: str = Field(default="", max_length=200)
     name: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
-    category: str = Field(default="general", max_length=100)
     tags: list[str] = Field(default_factory=list)
-    owner_context: str = Field(default="general", max_length=120)
-    visibility: str = Field(default="tenant", max_length=40)
     status: str = Field(default="draft", max_length=40)
 
 

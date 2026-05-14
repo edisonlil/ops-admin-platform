@@ -4,10 +4,7 @@ CREATE TABLE IF NOT EXISTS prompt_assets (
     prompt_key TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL DEFAULT 'general',
     tags_json TEXT NOT NULL DEFAULT '[]',
-    owner_context TEXT NOT NULL DEFAULT 'general',
-    visibility TEXT NOT NULL DEFAULT 'tenant',
     status TEXT NOT NULL DEFAULT 'draft',
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
@@ -122,7 +119,6 @@ CREATE TABLE IF NOT EXISTS prompt_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_prompt_assets_tenant_status ON prompt_assets(tenant_id, status, deleted);
-CREATE INDEX IF NOT EXISTS idx_prompt_assets_tenant_owner ON prompt_assets(tenant_id, owner_context, category, deleted);
 CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(tenant_id, prompt_id, status, deleted);
 CREATE INDEX IF NOT EXISTS idx_prompt_contracts_tenant_enabled ON prompt_task_contracts(tenant_id, enabled, deleted);
 CREATE INDEX IF NOT EXISTS idx_prompt_bindings_contract ON prompt_task_bindings(tenant_id, contract_id, enabled, priority, deleted);

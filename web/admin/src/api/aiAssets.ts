@@ -17,10 +17,7 @@ export interface PromptAsset {
   prompt_key: string;
   name: string;
   description: string;
-  category: string;
   tags: string[];
-  owner_context: string;
-  visibility: string;
   status: string;
   version_count: number;
   binding_count: number;
@@ -108,13 +105,10 @@ export interface PromptRun {
 }
 
 export interface PromptAssetPayload {
-  prompt_key: string;
+  prompt_key?: string;
   name: string;
   description?: string;
-  category?: string;
   tags?: string[];
-  owner_context?: string;
-  visibility?: string;
   status?: string;
 }
 
@@ -175,8 +169,6 @@ export function getPromptAssets(params: {
   page?: number;
   page_size?: number;
   keyword?: string;
-  category?: string;
-  owner_context?: string;
   status?: string;
 } = {}) {
   return Alova.Get<PromptListData<PromptAsset>>('/prompts', {
@@ -192,15 +184,15 @@ export function getPromptAsset(promptId: number) {
 
 export function savePromptAsset(payload: Partial<PromptAssetPayload> & { id?: number }) {
   const body: PromptAssetPayload = {
-    prompt_key: String(payload.prompt_key || '').trim(),
     name: String(payload.name || '').trim(),
     description: payload.description || '',
-    category: payload.category || 'general',
     tags: payload.tags || [],
-    owner_context: payload.owner_context || 'general',
-    visibility: payload.visibility || 'tenant',
     status: payload.status || 'draft',
   };
+  const promptKey = String(payload.prompt_key || '').trim();
+  if (promptKey) {
+    body.prompt_key = promptKey;
+  }
   if (payload.id) {
     return Alova.Put<{ item: PromptAsset }>(`/prompts/${payload.id}`, body);
   }

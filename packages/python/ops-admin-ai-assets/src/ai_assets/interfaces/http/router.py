@@ -24,8 +24,6 @@ def prompt_assets(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str = "",
-    category: str = "",
-    owner_context: str = "",
     status_filter: str = Query(default="", alias="status"),
     current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
 ) -> dict[str, Any]:
@@ -34,8 +32,6 @@ def prompt_assets(
             page=page,
             page_size=page_size,
             keyword=keyword,
-            category=category,
-            owner_context=owner_context,
             status_filter=status_filter,
             current_user=current_user,
         )

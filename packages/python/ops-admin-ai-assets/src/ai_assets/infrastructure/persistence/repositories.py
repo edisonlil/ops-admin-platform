@@ -31,8 +31,6 @@ def list_prompt_assets(
     page: int,
     page_size: int,
     keyword: str = "",
-    category: str = "",
-    owner_context: str = "",
     status: str = "",
 ) -> tuple[list[PromptAsset], int]:
     start = (page - 1) * page_size
@@ -42,12 +40,6 @@ def list_prompt_assets(
         filters.append("(prompt_key LIKE ? OR name LIKE ? OR description LIKE ?)")
         like = f"%{keyword}%"
         params.extend([like, like, like])
-    if category:
-        filters.append("category = ?")
-        params.append(category)
-    if owner_context:
-        filters.append("owner_context = ?")
-        params.append(owner_context)
     if status:
         filters.append("status = ?")
         params.append(status)
@@ -90,6 +82,21 @@ def get_prompt_asset(*, tenant_id: int, prompt_id: int) -> PromptAsset | None:
     return row_to_asset(dict(row)) if row else None
 
 
+def prompt_key_exists(*, tenant_id: int, prompt_key: str) -> bool:
+    with connect(database_target(), readonly=True) as conn:
+        require_ai_assets_schema(conn)
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM prompt_assets
+            WHERE tenant_id = ? AND prompt_key = ? AND deleted = 0
+            LIMIT 1
+            """,
+            (tenant_id, prompt_key),
+        ).fetchone()
+    return bool(row)
+
+
 def save_prompt_asset(
     *, tenant_id: int, prompt_id: int | None, payload: dict[str, Any], actor: str, actor_id: int | None
 ) -> PromptAsset | None:
@@ -98,10 +105,7 @@ def save_prompt_asset(
         str(payload["prompt_key"]),
         str(payload["name"]),
         str(payload.get("description") or ""),
-        str(payload.get("category") or "general"),
         encode_json_list(payload.get("tags") if isinstance(payload.get("tags"), list) else []),
-        str(payload.get("owner_context") or "general"),
-        str(payload.get("visibility") or "tenant"),
         str(payload.get("status") or "draft"),
         actor,
         actor_id,
@@ -113,8 +117,8 @@ def save_prompt_asset(
             conn.execute(
                 """
                 UPDATE prompt_assets
-                SET prompt_key = ?, name = ?, description = ?, category = ?, tags_json = ?,
-                    owner_context = ?, visibility = ?, status = ?, editor = ?, editor_id = ?,
+                SET prompt_key = ?, name = ?, description = ?, tags_json = ?,
+                    status = ?, editor = ?, editor_id = ?,
                     update_time = ?, lock_version = lock_version + 1
                 WHERE id = ? AND tenant_id = ? AND deleted = 0
                 """,
@@ -125,12 +129,12 @@ def save_prompt_asset(
             cursor = conn.execute(
                 """
                 INSERT INTO prompt_assets (
-                    tenant_id, prompt_key, name, description, category, tags_json, owner_context,
-                    visibility, status, creator, creator_id, editor, editor_id, create_time, update_time
+                    tenant_id, prompt_key, name, description, tags_json,
+                    status, creator, creator_id, editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tenant_id, *values[:8], actor, actor_id, actor, actor_id, timestamp, timestamp),
+                (tenant_id, *values[:5], actor, actor_id, actor, actor_id, timestamp, timestamp),
             )
             saved_id = inserted_id(conn, cursor, "prompt_assets", timestamp, actor)
     return get_prompt_asset(tenant_id=tenant_id, prompt_id=saved_id)
@@ -384,8 +388,8 @@ def list_prompt_versions_for_compatibility(*, tenant_id: int) -> list[tuple[Prom
         rows = conn.execute(
             """
             SELECT pa.id AS asset_id, pa.tenant_id AS asset_tenant_id, pa.prompt_key, pa.name,
-                   pa.description, pa.category, pa.tags_json, pa.owner_context, pa.visibility,
-                   pa.status AS asset_status, pa.create_time AS asset_create_time,
+                   pa.description, pa.tags_json, pa.status AS asset_status,
+                   pa.create_time AS asset_create_time,
                    pa.update_time AS asset_update_time,
                    0 AS version_count, 0 AS binding_count,
                    pv.*
@@ -405,10 +409,7 @@ def list_prompt_versions_for_compatibility(*, tenant_id: int) -> list[tuple[Prom
             "prompt_key": data["prompt_key"],
             "name": data["name"],
             "description": data["description"],
-            "category": data["category"],
             "tags_json": data["tags_json"],
-            "owner_context": data["owner_context"],
-            "visibility": data["visibility"],
             "status": data["asset_status"],
             "version_count": data["version_count"],
             "binding_count": data["binding_count"],
@@ -671,10 +672,7 @@ def row_to_asset(row: dict[str, Any]) -> PromptAsset:
         prompt_key=str(row.get("prompt_key") or ""),
         name=str(row.get("name") or ""),
         description=str(row.get("description") or ""),
-        category=str(row.get("category") or "general"),
         tags=decode_json_list(row.get("tags_json")),
-        owner_context=str(row.get("owner_context") or "general"),
-        visibility=str(row.get("visibility") or "tenant"),
         status=str(row.get("status") or "draft"),
         version_count=int(row.get("version_count") or 0),
         binding_count=int(row.get("binding_count") or 0),

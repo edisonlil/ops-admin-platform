@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -41,8 +42,6 @@ def list_prompt_assets(
     page_size: int,
     current_user: dict[str, Any],
     keyword: str = "",
-    category: str = "",
-    owner_context: str = "",
     status_filter: str = "",
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
@@ -52,8 +51,6 @@ def list_prompt_assets(
             page=page,
             page_size=page_size,
             keyword=keyword.strip(),
-            category=category.strip(),
-            owner_context=owner_context.strip(),
             status=status_filter.strip(),
         )
     except RuntimeError as exc:
@@ -72,14 +69,20 @@ def get_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, 
 
 def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], prompt_id: int | None = None) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
+    try:
+        existing = repositories.get_prompt_asset(tenant_id=tenant_id, prompt_id=prompt_id) if prompt_id else None
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if prompt_id and not existing:
+        raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
+    prompt_key = existing.prompt_key if existing else str(payload.get("prompt_key") or "").strip()
+    if not prompt_key:
+        prompt_key = generate_prompt_key(tenant_id=tenant_id, name=payload.get("name"))
     data = {
-        "prompt_key": normalize_required(payload.get("prompt_key"), "prompt_key"),
+        "prompt_key": prompt_key,
         "name": normalize_required(payload.get("name"), "name"),
         "description": str(payload.get("description") or "").strip(),
-        "category": str(payload.get("category") or "general").strip() or "general",
         "tags": normalize_string_list(payload.get("tags")),
-        "owner_context": str(payload.get("owner_context") or "general").strip() or "general",
-        "visibility": str(payload.get("visibility") or "tenant").strip() or "tenant",
         "status": str(payload.get("status") or "draft").strip() or "draft",
     }
     try:
@@ -95,6 +98,16 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
     if not item:
         raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
     return {"item": item.to_dict()}
+
+
+def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", str(name or "prompt").strip().lower()).strip("_") or "prompt"
+    base = base[:48].strip("_") or "prompt"
+    for _ in range(8):
+        candidate = f"{base}_{uuid.uuid4().hex[:8]}"
+        if not repositories.prompt_key_exists(tenant_id=tenant_id, prompt_key=candidate):
+            return candidate
+    return f"{base}_{uuid.uuid4().hex[:16]}"
 
 
 def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -463,19 +476,10 @@ def get_run(run_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 def check_compatibility(contract: PromptTaskContract, asset: PromptAsset, version: PromptVersion) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     allowed = contract.allowed_prompt_scopes or {}
-    allowed_owner_contexts = normalize_string_list(allowed.get("owner_contexts"))
-    allowed_categories = normalize_string_list(allowed.get("categories"))
     allowed_tags = normalize_string_list(allowed.get("tags"))
     allowed_prompt_keys = normalize_string_list(allowed.get("prompt_keys"))
-    allowed_visibility = normalize_string_list(allowed.get("visibility"))
-    if allowed_owner_contexts and asset.owner_context not in allowed_owner_contexts:
-        reasons.append("owner_context is outside the contract scope")
-    if allowed_categories and asset.category not in allowed_categories:
-        reasons.append("category is outside the contract scope")
     if allowed_prompt_keys and asset.prompt_key not in allowed_prompt_keys:
         reasons.append("prompt_key is outside the contract scope")
-    if allowed_visibility and asset.visibility not in allowed_visibility:
-        reasons.append("visibility is outside the contract scope")
     if allowed_tags and not set(asset.tags).intersection(allowed_tags):
         reasons.append("tags do not match the contract scope")
 

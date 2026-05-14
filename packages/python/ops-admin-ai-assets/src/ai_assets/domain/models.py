@@ -14,9 +14,6 @@ PROMPT_VERSION_STATUS_DEPRECATED = "deprecated"
 PROMPT_TASK_KIND_SINGLE_CALL = "single_call"
 PROMPT_TASK_KIND_WORKFLOW_STEP = "workflow_step"
 PROMPT_TASK_KIND_WORKFLOW = "workflow"
-PROMPT_VISIBILITY_PRIVATE = "private"
-PROMPT_VISIBILITY_TENANT = "tenant"
-PROMPT_VISIBILITY_PLATFORM = "platform"
 PROMPT_RUN_STATUS_SUCCEEDED = "succeeded"
 PROMPT_RUN_STATUS_FAILED = "failed"
 
@@ -28,10 +25,7 @@ class PromptAsset:
     prompt_key: str
     name: str
     description: str
-    category: str
     tags: list[str]
-    owner_context: str
-    visibility: str
     status: str
     version_count: int
     binding_count: int
@@ -45,10 +39,7 @@ class PromptAsset:
             "prompt_key": self.prompt_key,
             "name": self.name,
             "description": self.description,
-            "category": self.category,
             "tags": self.tags,
-            "owner_context": self.owner_context,
-            "visibility": self.visibility,
             "status": self.status,
             "version_count": self.version_count,
             "binding_count": self.binding_count,

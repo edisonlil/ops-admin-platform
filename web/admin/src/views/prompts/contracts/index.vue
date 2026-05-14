@@ -93,7 +93,7 @@
   const formRef = ref<FormInst | null>(null);
   const inputSchemaText = ref('{}');
   const outputSchemaText = ref('{}');
-  const scopeText = ref('{\n  "owner_contexts": [],\n  "categories": [],\n  "tags": []\n}');
+  const scopeText = ref('{\n  "tags": [],\n  "prompt_keys": []\n}');
 
   const form = reactive<ContractForm>({
     contract_key: '',
@@ -202,7 +202,7 @@
     });
     inputSchemaText.value = '{}';
     outputSchemaText.value = '{}';
-    scopeText.value = '{\n  "owner_contexts": [],\n  "categories": [],\n  "tags": []\n}';
+    scopeText.value = '{\n  "tags": [],\n  "prompt_keys": []\n}';
     formRef.value?.restoreValidation();
   }
 

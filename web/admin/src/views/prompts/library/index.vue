@@ -2,23 +2,20 @@
   <div class="prompt-library-page">
     <ListPageRuntime :schema="pageSchema" :rows="filteredRows" :loading="loading" @refresh="reload">
       <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索名称、Key、说明" class="prompt-library-page__keyword" />
+        <n-input v-model:value="keyword" clearable placeholder="搜索标题、说明、标签" class="prompt-library-page__keyword" />
         <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="assetStatusOptions" class="prompt-library-page__select" />
-        <n-select v-model:value="categoryFilter" clearable placeholder="分类" :options="categoryOptions" class="prompt-library-page__select" />
-        <n-select v-model:value="ownerFilter" clearable placeholder="归属上下文" :options="ownerOptions" class="prompt-library-page__select" />
+        <n-select v-model:value="tagFilter" clearable placeholder="标签" :options="tagOptions" class="prompt-library-page__select" />
       </template>
 
       <template #item="{ row }">
         <article class="prompt-card">
           <header class="prompt-card__header">
             <div class="prompt-card__title">
-              <span class="prompt-card__category">{{ row.category || 'general' }}</span>
               <h3>{{ row.name }}</h3>
             </div>
             <AppStatusTag :tone="assetStatusTone(row.status)" :label="assetStatusLabel(row.status)" />
           </header>
 
-          <p class="prompt-card__key">{{ row.prompt_key }}</p>
           <p class="prompt-card__description">{{ row.description || '暂无说明' }}</p>
 
           <div class="prompt-card__tags">
@@ -35,14 +32,10 @@
               <dt>绑定</dt>
               <dd>{{ row.binding_count || 0 }}</dd>
             </div>
-            <div>
-              <dt>范围</dt>
-              <dd>{{ visibilityLabel(row.visibility) }}</dd>
-            </div>
           </dl>
 
           <footer class="prompt-card__footer">
-            <span>{{ row.owner_context || 'general' }} · {{ formatToDateTime(row.update_time || row.create_time || '') || '-' }}</span>
+            <span>{{ formatToDateTime(row.update_time || row.create_time || '') || '-' }}</span>
             <div class="prompt-card__actions">
               <n-button size="tiny" quaternary @click="openVersions(row)">版本</n-button>
               <n-button v-if="canManage" size="tiny" quaternary @click="openEdit(row)">编辑</n-button>
@@ -53,35 +46,42 @@
       </template>
     </ListPageRuntime>
 
-    <n-drawer v-model:show="assetDrawerVisible" width="560">
+    <n-drawer v-model:show="assetDrawerVisible" width="min(840px, 92vw)">
       <n-drawer-content :title="assetForm.id ? '编辑提示词' : '新建提示词'">
-        <n-form ref="assetFormRef" :model="assetForm" :rules="assetRules" label-placement="top">
-          <n-form-item label="Prompt Key" path="prompt_key">
-            <n-input v-model:value="assetForm.prompt_key" placeholder="voice_analysis.transcript.summary" />
+        <n-form ref="assetFormRef" :model="assetForm" :rules="assetRules" label-placement="top" class="prompt-form">
+          <n-form-item label="标题" path="name">
+            <n-input v-model:value="assetForm.name" placeholder="为你的提示词起个醒目的标题" />
           </n-form-item>
-          <n-form-item label="名称" path="name">
-            <n-input v-model:value="assetForm.name" placeholder="会议纪要提取" />
+          <template v-if="!assetForm.id">
+            <n-form-item label="提示词内容" path="prompt_content">
+              <n-input
+                v-model:value="assetForm.prompt_content"
+                type="textarea"
+                placeholder="在这里输入你的提示词内容，可以包含具体的指令、上下文要求等"
+                :autosize="{ minRows: 10, maxRows: 18 }"
+              />
+            </n-form-item>
+            <p class="prompt-form__hint">提示：使用 <code>&#123;&#123;变量&#125;&#125;</code> 语法可以创建动态变量</p>
+          </template>
+          <n-form-item label="描述">
+            <n-input
+              v-model:value="assetForm.description"
+              type="textarea"
+              placeholder="简要描述这个提示词的用途和使用场景"
+              :autosize="{ minRows: 2, maxRows: 5 }"
+            />
           </n-form-item>
-          <n-grid :cols="2" :x-gap="16" responsive="screen">
-            <n-form-item-gi label="分类">
-              <n-input v-model:value="assetForm.category" placeholder="analysis" />
-            </n-form-item-gi>
-            <n-form-item-gi label="归属上下文">
-              <n-input v-model:value="assetForm.owner_context" placeholder="voice_analysis" />
-            </n-form-item-gi>
-            <n-form-item-gi label="可见性">
-              <n-select v-model:value="assetForm.visibility" :options="visibilityOptions" />
-            </n-form-item-gi>
+          <n-form-item label="标签">
+            <n-dynamic-tags v-model:value="assetForm.tags" />
+          </n-form-item>
+          <n-form-item v-if="!assetForm.id" label="版本" path="version">
+            <n-input v-model:value="assetForm.version" placeholder="1.0.0" />
+          </n-form-item>
+          <n-grid v-if="assetForm.id" :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="状态">
               <n-select v-model:value="assetForm.status" :options="assetStatusOptions" />
             </n-form-item-gi>
           </n-grid>
-          <n-form-item label="标签">
-            <n-dynamic-tags v-model:value="assetForm.tags" />
-          </n-form-item>
-          <n-form-item label="说明">
-            <n-input v-model:value="assetForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
-          </n-form-item>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -168,7 +168,11 @@
     type PromptVersion,
   } from '@/api/aiAssets';
 
-  type PromptAssetForm = Partial<PromptAsset> & { tags: string[] };
+  type PromptAssetForm = Partial<PromptAsset> & {
+    tags: string[];
+    prompt_content: string;
+    version: string;
+  };
   type PromptVersionForm = Partial<PromptVersion>;
 
   const message = useMessage();
@@ -181,8 +185,7 @@
   const selectedPrompt = ref<PromptAsset | null>(null);
   const keyword = ref('');
   const statusFilter = ref<string | null>(null);
-  const categoryFilter = ref<string | null>(null);
-  const ownerFilter = ref<string | null>(null);
+  const tagFilter = ref<string | null>(null);
   const assetDrawerVisible = ref(false);
   const versionDrawerVisible = ref(false);
   const assetFormRef = ref<FormInst | null>(null);
@@ -193,11 +196,10 @@
     prompt_key: '',
     name: '',
     description: '',
-    category: 'general',
     tags: [],
-    owner_context: 'general',
-    visibility: 'tenant',
     status: 'draft',
+    prompt_content: '',
+    version: '1.0.0',
   });
 
   const versionForm = reactive<PromptVersionForm>({
@@ -209,10 +211,11 @@
     status: 'draft',
   });
 
-  const assetRules: FormRules = {
-    prompt_key: [{ required: true, message: '请输入 Prompt Key', trigger: ['blur', 'input'] }],
-    name: [{ required: true, message: '请输入名称', trigger: ['blur', 'input'] }],
-  };
+  const assetRules = computed<FormRules>(() => ({
+    name: [{ required: true, message: '请输入标题', trigger: ['blur', 'input'] }],
+    prompt_content: assetForm.id ? [] : [{ required: true, message: '请输入提示词内容', trigger: ['blur', 'input'] }],
+    version: assetForm.id ? [] : [{ required: true, message: '请输入版本号', trigger: ['blur', 'input'] }],
+  }));
 
   const assetStatusOptions: SelectOption[] = [
     { label: '草稿', value: 'draft' },
@@ -220,27 +223,20 @@
     { label: '已发布', value: 'published' },
     { label: '已归档', value: 'archived' },
   ];
-  const visibilityOptions: SelectOption[] = [
-    { label: '私有', value: 'private' },
-    { label: '租户', value: 'tenant' },
-    { label: '平台', value: 'platform' },
-  ];
-
-  const categoryOptions = computed<SelectOption[]>(() => uniqueOptions(rows.value.map((row) => row.category)));
-  const ownerOptions = computed<SelectOption[]>(() => uniqueOptions(rows.value.map((row) => row.owner_context)));
+  const tagOptions = computed<SelectOption[]>(() => uniqueOptions(rows.value.flatMap((row) => row.tags || [])));
   const filteredRows = computed(() => {
     const text = keyword.value.trim().toLowerCase();
     return rows.value.filter((row) => {
+      const tags = row.tags || [];
       const matchesKeyword =
         !text ||
         row.name.toLowerCase().includes(text) ||
-        row.prompt_key.toLowerCase().includes(text) ||
-        row.description.toLowerCase().includes(text);
+        row.description.toLowerCase().includes(text) ||
+        tags.some((tag) => tag.toLowerCase().includes(text));
       return (
         matchesKeyword &&
         (!statusFilter.value || row.status === statusFilter.value) &&
-        (!categoryFilter.value || row.category === categoryFilter.value) &&
-        (!ownerFilter.value || row.owner_context === ownerFilter.value)
+        (!tagFilter.value || tags.includes(tagFilter.value))
       );
     });
   });
@@ -275,11 +271,10 @@
       prompt_key: '',
       name: '',
       description: '',
-      category: 'general',
       tags: [],
-      owner_context: 'general',
-      visibility: 'tenant',
       status: 'draft',
+      prompt_content: '',
+      version: '1.0.0',
     });
     assetFormRef.value?.restoreValidation();
   }
@@ -290,7 +285,7 @@
   }
 
   function openEdit(row: PromptAsset) {
-    Object.assign(assetForm, { ...row, tags: [...(row.tags || [])] });
+    Object.assign(assetForm, { ...row, tags: [...(row.tags || [])], prompt_content: '', version: '1.0.0' });
     assetDrawerVisible.value = true;
   }
 
@@ -302,7 +297,15 @@
     }
     saving.value = true;
     try {
-      await savePromptAsset(assetForm);
+      const saved = await savePromptAsset(assetForm);
+      if (!assetForm.id) {
+        await savePromptVersion(saved.item.id, {
+          version: assetForm.version || '1.0.0',
+          user_prompt_template: assetForm.prompt_content,
+          render_engine: 'simple',
+          status: 'draft',
+        });
+      }
       message.success('提示词已保存');
       assetDrawerVisible.value = false;
       await reload();
@@ -429,10 +432,6 @@
     return status === 'published' ? 'success' : status === 'deprecated' ? 'neutral' : 'info';
   }
 
-  function visibilityLabel(visibility: string) {
-    return ({ private: '私有', tenant: '租户', platform: '平台' } as Record<string, string>)[visibility] || visibility;
-  }
-
   reload();
 </script>
 
@@ -447,6 +446,18 @@
 
   .prompt-library-page__select {
     width: 160px;
+  }
+
+  .prompt-form {
+    display: grid;
+    gap: 8px;
+  }
+
+  .prompt-form__hint {
+    margin: -8px 0 10px;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.4;
   }
 
   .prompt-card {
@@ -484,20 +495,11 @@
     letter-spacing: 0;
   }
 
-  .prompt-card__category,
   .prompt-card__muted,
   .prompt-card__footer {
     color: var(--app-text-color-2);
     font-size: 12px;
     line-height: 1.35;
-  }
-
-  .prompt-card__key {
-    margin: 0;
-    overflow-wrap: anywhere;
-    color: var(--app-primary-color);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
   }
 
   .prompt-card__description {
@@ -522,7 +524,7 @@
 
   .prompt-card__facts {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     margin: 0;
   }

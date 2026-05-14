@@ -74,12 +74,10 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(getattr(caught.exception, "status_code", None), 409)
 
     def test_contract_compatible_prompts_and_binding_are_scope_limited(self) -> None:
-        prompt = self.create_prompt(owner_context="voice_analysis", category="analysis", tags=["summary"])
+        prompt = self.create_prompt(tags=["summary"])
         version = self.create_version(int(prompt["id"]), version="1.0.0")
         contract = self.create_contract(
             allowed_prompt_scopes={
-                "owner_contexts": ["voice_analysis"],
-                "categories": ["analysis"],
                 "tags": ["summary"],
             }
         )
@@ -99,7 +97,7 @@ class AIAssetsTests(unittest.TestCase):
         )["item"]
         self.assertEqual(binding["contract_key"], "voice_analysis.transcript.summary")
 
-        other_prompt = self.create_prompt(prompt_key="wrong.owner", owner_context="other", category="analysis")
+        other_prompt = self.create_prompt(prompt_key="wrong.owner", tags=["other"])
         other_version = self.create_version(int(other_prompt["id"]), version="1.0.0")
         with self.assertRaises(Exception) as caught:
             services.create_binding(
@@ -114,7 +112,7 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(getattr(caught.exception, "status_code", None), 422)
 
     def test_execute_prompt_renders_messages_calls_llm_and_records_run(self) -> None:
-        prompt = self.create_prompt(owner_context="voice_analysis", category="analysis")
+        prompt = self.create_prompt()
         version = self.create_version(int(prompt["id"]), version="1.0.0")
         contract = self.create_contract()
         services.create_binding(
@@ -159,12 +157,59 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(getattr(caught.exception, "status_code", None), 503)
         self.assertIn("init_ai_assets.py", str(caught.exception.detail))
 
+    def test_prompt_asset_response_fields_stay_tenant_scoped(self) -> None:
+        prompt = services.save_prompt_asset(
+            {
+                "name": "Tenant Scope",
+            },
+            self.current_user,
+        )["item"]
+
+        self.assertEqual(prompt["tenant_id"], 7)
+        self.assertRegex(str(prompt["prompt_key"]), r"^tenant_scope_[0-9a-f]{8}$")
+        self.assertEqual(
+            set(prompt),
+            {
+                "id",
+                "tenant_id",
+                "prompt_key",
+                "name",
+                "description",
+                "tags",
+                "status",
+                "version_count",
+                "binding_count",
+                "create_time",
+                "update_time",
+            },
+        )
+
+    def test_prompt_asset_update_keeps_generated_key(self) -> None:
+        prompt = services.save_prompt_asset(
+            {
+                "name": "Generated Prompt",
+                "description": "first",
+            },
+            self.current_user,
+        )["item"]
+
+        updated = services.save_prompt_asset(
+            {
+                "name": "Renamed Prompt",
+                "description": "second",
+                "prompt_key": "attempted.change",
+            },
+            self.current_user,
+            prompt_id=int(prompt["id"]),
+        )["item"]
+
+        self.assertEqual(updated["prompt_key"], prompt["prompt_key"])
+        self.assertEqual(updated["name"], "Renamed Prompt")
+
     def create_prompt(
         self,
         *,
         prompt_key: str = "voice.summary",
-        owner_context: str = "voice_analysis",
-        category: str = "analysis",
         tags: list[str] | None = None,
     ) -> dict[str, object]:
         return services.save_prompt_asset(
@@ -172,10 +217,7 @@ class AIAssetsTests(unittest.TestCase):
                 "prompt_key": prompt_key,
                 "name": prompt_key,
                 "description": "",
-                "category": category,
                 "tags": tags or ["summary"],
-                "owner_context": owner_context,
-                "visibility": "tenant",
                 "status": "draft",
             },
             self.current_user,
@@ -207,7 +249,7 @@ class AIAssetsTests(unittest.TestCase):
                 "llm_task_key": "voice_analysis.summary",
                 "input_schema": {"type": "object", "required": ["transcript"], "properties": {"transcript": {"type": "string"}}},
                 "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
-                "allowed_prompt_scopes": allowed_prompt_scopes or {"owner_contexts": ["voice_analysis"], "categories": ["analysis"]},
+                "allowed_prompt_scopes": allowed_prompt_scopes or {"tags": ["summary"]},
                 "enabled": True,
             },
             self.current_user,
