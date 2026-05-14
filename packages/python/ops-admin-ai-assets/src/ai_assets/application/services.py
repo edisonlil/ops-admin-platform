@@ -11,6 +11,7 @@ from ai_assets.domain.exceptions import (
     PromptAssetNotFound,
     PromptVersionImmutable,
     PromptVersionNotFound,
+    PromptVersionStateConflict,
 )
 from ai_assets.domain.models import (
     PROMPT_VERSION_STATUS_DEPRECATED,
@@ -97,7 +98,7 @@ def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
 def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        deleted = repositories.delete_prompt_asset(
+        archived = repositories.archive_prompt_asset(
             tenant_id=tenant_id,
             prompt_id=prompt_id,
             actor=current_actor(current_user),
@@ -105,9 +106,9 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
-    if not deleted:
+    if not archived:
         raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
-    return {"id": prompt_id, "deleted": True}
+    return {"id": prompt_id, "archived": True}
 
 
 def list_prompt_versions(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -129,8 +130,13 @@ def save_prompt_version(
             raise domain_http_error(PromptVersionNotFound("prompt version not found"))
         if existing.status == PROMPT_VERSION_STATUS_PUBLISHED:
             raise domain_http_error(PromptVersionImmutable("published prompt versions cannot be edited"))
+        requested_version = normalize_required(payload.get("version"), "version")
+        if requested_version != existing.version:
+            raise domain_http_error(PromptVersionImmutable("prompt version number cannot be changed; create a new version instead"))
+    else:
+        requested_version = normalize_required(payload.get("version"), "version")
     data = {
-        "version": normalize_required(payload.get("version"), "version"),
+        "version": requested_version,
         "system_prompt": str(payload.get("system_prompt") or ""),
         "developer_prompt": str(payload.get("developer_prompt") or ""),
         "user_prompt_template": str(payload.get("user_prompt_template") or ""),
@@ -171,6 +177,18 @@ def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, 
     version = repositories.get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
     if not version or version.prompt_id != prompt_id:
         raise domain_http_error(PromptVersionNotFound("prompt version not found"))
+    if new_status == PROMPT_VERSION_STATUS_DEPRECATED and version.status == PROMPT_VERSION_STATUS_PUBLISHED:
+        published_count = repositories.count_prompt_versions_by_status(
+            tenant_id=asset.tenant_id,
+            prompt_id=prompt_id,
+            status=PROMPT_VERSION_STATUS_PUBLISHED,
+        )
+        if published_count <= 1:
+            raise domain_http_error(
+                PromptVersionStateConflict(
+                    "cannot deprecate the only published prompt version; archive the prompt asset or publish another version first"
+                )
+            )
     item = repositories.set_prompt_version_status(
         tenant_id=asset.tenant_id,
         prompt_id=prompt_id,

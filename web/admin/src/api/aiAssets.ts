@@ -108,7 +108,7 @@ export function savePromptAsset(payload: Partial<PromptAssetPayload> & { id?: nu
 }
 
 export function deletePromptAsset(promptId: number) {
-  return Alova.Delete<{ id: number; deleted: boolean }>(`/prompts/${promptId}`);
+  return Alova.Delete<{ id: number; archived: boolean }>(`/prompts/${promptId}`);
 }
 
 export function getPromptVersions(promptId: number) {

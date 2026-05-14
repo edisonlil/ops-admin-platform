@@ -48,6 +48,16 @@ class AIAssetsTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def mark_prompt_versions_deprecated(self, prompt_id: int) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("UPDATE prompt_versions SET status = 'deprecated' WHERE prompt_id = ?", (prompt_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
     def test_prompt_version_publish_makes_version_immutable(self) -> None:
         prompt = self.create_prompt()
         version = self.create_version(int(prompt["id"]), version="1.0.0")
@@ -67,6 +77,76 @@ class AIAssetsTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_prompt_version_number_cannot_be_renamed_on_update(self) -> None:
+        prompt = self.create_prompt()
+        version = self.create_version(int(prompt["id"]), version="1.0.0")
+
+        updated = services.save_prompt_version(
+            int(prompt["id"]),
+            {
+                **version,
+                "user_prompt_template": "Summarize and extract action items: {{transcript}}",
+            },
+            self.current_user,
+            version_id=int(version["id"]),
+        )["item"]
+
+        self.assertEqual(updated["version"], "1.0.0")
+        self.assertIn("action items", updated["user_prompt_template"])
+
+        with self.assertRaises(Exception) as caught:
+            services.save_prompt_version(
+                int(prompt["id"]),
+                {
+                    **version,
+                    "version": "2.0.0",
+                },
+                self.current_user,
+                version_id=int(version["id"]),
+            )
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_publishing_prompt_version_deprecates_previous_published_version(self) -> None:
+        prompt = self.create_prompt()
+        first = self.create_version(int(prompt["id"]), version="1.0.0")
+        second = self.create_version(int(prompt["id"]), version="2.0.0")
+
+        services.publish_prompt_version(int(prompt["id"]), int(first["id"]), self.current_user)
+        published = services.publish_prompt_version(int(prompt["id"]), int(second["id"]), self.current_user)["item"]
+
+        versions = services.list_prompt_versions(int(prompt["id"]), self.current_user)["items"]
+        versions_by_id = {int(item["id"]): item for item in versions}
+
+        self.assertEqual(published["status"], "published")
+        self.assertEqual(versions_by_id[int(first["id"])]["status"], "deprecated")
+        self.assertEqual(versions_by_id[int(second["id"])]["status"], "published")
+        self.assertEqual(sum(1 for item in versions if item["status"] == "published"), 1)
+
+    def test_cannot_deprecate_only_published_prompt_version(self) -> None:
+        prompt = self.create_prompt()
+        version = self.create_version(int(prompt["id"]), version="1.0.0")
+        services.publish_prompt_version(int(prompt["id"]), int(version["id"]), self.current_user)
+
+        with self.assertRaises(Exception) as caught:
+            services.deprecate_prompt_version(int(prompt["id"]), int(version["id"]), self.current_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+        versions = services.list_prompt_versions(int(prompt["id"]), self.current_user)["items"]
+        self.assertEqual(versions[0]["status"], "published")
+
+    def test_prompt_asset_status_is_derived_from_published_versions(self) -> None:
+        prompt = self.create_prompt()
+        version = self.create_version(int(prompt["id"]), version="1.0.0")
+
+        services.publish_prompt_version(int(prompt["id"]), int(version["id"]), self.current_user)
+        published_prompt = services.get_prompt_asset(int(prompt["id"]), self.current_user)["item"]
+        self.assertEqual(published_prompt["status"], "published")
+
+        self.mark_prompt_versions_deprecated(int(prompt["id"]))
+        draft_prompt = services.get_prompt_asset(int(prompt["id"]), self.current_user)["item"]
+        self.assertEqual(draft_prompt["status"], "draft")
 
     def test_requires_explicit_schema_initialization(self) -> None:
         missing_db = Path(self.temp_dir.name) / "missing-schema.db"
@@ -125,6 +205,22 @@ class AIAssetsTests(unittest.TestCase):
 
         self.assertEqual(updated["prompt_key"], prompt["prompt_key"])
         self.assertEqual(updated["name"], "Renamed Prompt")
+
+    def test_archived_prompt_asset_remains_visible_in_archived_filter(self) -> None:
+        prompt = self.create_prompt()
+
+        archived = services.delete_prompt_asset(int(prompt["id"]), self.current_user)
+        archived_items = services.list_prompt_assets(
+            page=1,
+            page_size=20,
+            current_user=self.current_user,
+            status_filter="archived",
+        )["items"]
+
+        self.assertTrue(archived["archived"])
+        self.assertEqual(len(archived_items), 1)
+        self.assertEqual(archived_items[0]["id"], prompt["id"])
+        self.assertEqual(archived_items[0]["status"], "archived")
 
     def create_prompt(
         self,

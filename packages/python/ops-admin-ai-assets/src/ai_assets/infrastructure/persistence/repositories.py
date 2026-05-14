@@ -5,7 +5,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ai_assets.domain.models import PromptAsset, PromptVersion
+from ai_assets.domain.models import (
+    PROMPT_ASSET_STATUS_ARCHIVED,
+    PROMPT_ASSET_STATUS_DRAFT,
+    PROMPT_ASSET_STATUS_PUBLISHED,
+    PROMPT_VERSION_STATUS_DEPRECATED,
+    PROMPT_VERSION_STATUS_PUBLISHED,
+    PromptAsset,
+    PromptVersion,
+)
 from ai_assets.infrastructure.persistence.bootstrap import require_ai_assets_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
@@ -18,6 +26,25 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="microseconds")
 
 
+def published_version_exists_sql() -> str:
+    return """
+        SELECT 1
+        FROM prompt_versions pv
+        WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id
+            AND pv.status = 'published' AND pv.deleted = 0
+    """
+
+
+def effective_prompt_asset_status_sql() -> str:
+    return f"""
+        CASE
+            WHEN pa.status = 'archived' THEN 'archived'
+            WHEN EXISTS ({published_version_exists_sql()}) THEN 'published'
+            ELSE 'draft'
+        END
+    """
+
+
 def list_prompt_assets(
     *,
     tenant_id: int,
@@ -27,24 +54,31 @@ def list_prompt_assets(
     status: str = "",
 ) -> tuple[list[PromptAsset], int]:
     start = (page - 1) * page_size
-    filters = ["tenant_id = ?", "deleted = 0"]
+    filters = ["pa.tenant_id = ?", "pa.deleted = 0"]
     params: list[Any] = [tenant_id]
     if keyword:
-        filters.append("(prompt_key LIKE ? OR name LIKE ? OR description LIKE ? OR tags_json LIKE ?)")
+        filters.append("(pa.prompt_key LIKE ? OR pa.name LIKE ? OR pa.description LIKE ? OR pa.tags_json LIKE ?)")
         like = f"%{keyword}%"
         params.extend([like, like, like, like])
-    if status:
-        filters.append("status = ?")
+    if status == PROMPT_ASSET_STATUS_PUBLISHED:
+        filters.append(f"pa.status <> ? AND EXISTS ({published_version_exists_sql()})")
+        params.append(PROMPT_ASSET_STATUS_ARCHIVED)
+    elif status == PROMPT_ASSET_STATUS_DRAFT:
+        filters.append(f"pa.status <> ? AND NOT EXISTS ({published_version_exists_sql()})")
+        params.append(PROMPT_ASSET_STATUS_ARCHIVED)
+    elif status:
+        filters.append("pa.status = ?")
         params.append(status)
     where_sql = " AND ".join(filters)
     with connect(database_target(), readonly=True) as conn:
         require_ai_assets_schema(conn)
-        total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM prompt_assets WHERE {where_sql}", tuple(params)))
+        total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM prompt_assets pa WHERE {where_sql}", tuple(params)))
         rows = conn.execute(
             f"""
             SELECT pa.*,
                    (SELECT COUNT(*) FROM prompt_versions pv
-                    WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count
+                    WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count,
+                   {effective_prompt_asset_status_sql()} AS effective_status
             FROM prompt_assets pa
             WHERE {where_sql}
             ORDER BY pa.update_time DESC, pa.id DESC
@@ -59,10 +93,11 @@ def get_prompt_asset(*, tenant_id: int, prompt_id: int) -> PromptAsset | None:
     with connect(database_target(), readonly=True) as conn:
         require_ai_assets_schema(conn)
         row = conn.execute(
-            """
+            f"""
             SELECT pa.*,
                    (SELECT COUNT(*) FROM prompt_versions pv
-                    WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count
+                    WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count,
+                   {effective_prompt_asset_status_sql()} AS effective_status
             FROM prompt_assets pa
             WHERE pa.id = ? AND pa.tenant_id = ? AND pa.deleted = 0
             """,
@@ -129,17 +164,17 @@ def save_prompt_asset(
     return get_prompt_asset(tenant_id=tenant_id, prompt_id=saved_id)
 
 
-def delete_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, actor_id: int | None) -> bool:
+def archive_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, actor_id: int | None) -> bool:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
         require_ai_assets_schema(conn)
         cursor = conn.execute(
             """
             UPDATE prompt_assets
-            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            SET status = ?, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
             """,
-            (actor, actor_id, timestamp, prompt_id, tenant_id),
+            (PROMPT_ASSET_STATUS_ARCHIVED, actor, actor_id, timestamp, prompt_id, tenant_id),
         )
     return int(getattr(cursor, "rowcount", 0) or 0) > 0
 
@@ -167,6 +202,19 @@ def get_prompt_version(*, tenant_id: int, version_id: int) -> PromptVersion | No
             (version_id, tenant_id),
         ).fetchone()
     return row_to_version(dict(row)) if row else None
+
+
+def count_prompt_versions_by_status(*, tenant_id: int, prompt_id: int, status: str) -> int:
+    with connect(database_target(), readonly=True) as conn:
+        require_ai_assets_schema(conn)
+        return count_row(conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM prompt_versions
+            WHERE tenant_id = ? AND prompt_id = ? AND status = ? AND deleted = 0
+            """,
+            (tenant_id, prompt_id, status),
+        ))
 
 
 def save_prompt_version(
@@ -244,7 +292,26 @@ def set_prompt_version_status(
             """,
             (status, published_time, actor, actor_id, timestamp, version_id, tenant_id, prompt_id),
         )
-        if status == "published":
+        if status == PROMPT_VERSION_STATUS_PUBLISHED:
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET status = ?, editor = ?, editor_id = ?, update_time = ?,
+                    lock_version = lock_version + 1
+                WHERE tenant_id = ? AND prompt_id = ? AND id <> ? AND status = ?
+                    AND deleted = 0
+                """,
+                (
+                    PROMPT_VERSION_STATUS_DEPRECATED,
+                    actor,
+                    actor_id,
+                    timestamp,
+                    tenant_id,
+                    prompt_id,
+                    version_id,
+                    PROMPT_VERSION_STATUS_PUBLISHED,
+                ),
+            )
             conn.execute(
                 """
                 UPDATE prompt_assets
@@ -287,7 +354,7 @@ def row_to_asset(row: dict[str, Any]) -> PromptAsset:
         name=str(row.get("name") or ""),
         description=str(row.get("description") or ""),
         tags=decode_json_list(row.get("tags_json")),
-        status=str(row.get("status") or "draft"),
+        status=str(row.get("effective_status") or row.get("status") or "draft"),
         version_count=int(row.get("version_count") or 0),
         create_time=str(row.get("create_time") or ""),
         update_time=str(row.get("update_time") or ""),

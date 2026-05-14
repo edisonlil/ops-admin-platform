@@ -19,3 +19,8 @@ class PromptVersionNotFound(AIAssetsError):
 class PromptVersionImmutable(AIAssetsError):
     code = "PROMPT_VERSION_IMMUTABLE"
     status_code = 409
+
+
+class PromptVersionStateConflict(AIAssetsError):
+    code = "PROMPT_VERSION_STATE_CONFLICT"
+    status_code = 409
