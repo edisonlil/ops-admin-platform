@@ -1,0 +1,1 @@
+-- Organization seed data is intentionally empty.

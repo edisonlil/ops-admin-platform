@@ -43,5 +43,9 @@ def require_basic_data_schema(conn: Any) -> None:
 
 def ensure_basic_data_columns(conn: Any) -> None:
     add_column_if_missing(conn, "business_dictionary_types", "parent_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_dictionary_types", "owner_user_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_dictionary_types", "owner_department_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_dictionary_items", "owner_user_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_dictionary_items", "owner_department_id", "BIGINT DEFAULT NULL")
     if table_exists(conn, "business_dictionary_items") and column_exists(conn, "business_dictionary_items", "label"):
         conn.execute("ALTER TABLE business_dictionary_items DROP COLUMN label")

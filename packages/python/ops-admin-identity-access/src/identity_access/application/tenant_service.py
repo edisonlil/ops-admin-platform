@@ -242,6 +242,7 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
     for row in rows:
         item = dict(by_id.get(int(row["id"]), {}))
         item["is_tenant_admin"] = bool(row["is_tenant_admin"])
+        item = enrich_tenant_user_with_departments(item, tenant_id)
         result.append(item)
     return result
 
@@ -267,6 +268,12 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             user_id=int(user["id"]),
             is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
+    sync_tenant_user_departments_if_available(
+        tenant_id=tenant_id,
+        user_id=int(user["id"]),
+        department_ids=[int(value) for value in payload.get("department_ids") or []],
+        primary_department_id=payload.get("primary_department_id"),
+    )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user)
 
 
@@ -301,6 +308,12 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             user_id=user_id,
             is_tenant_admin=TENANT_ADMIN_ROLE_KEY in role_keys,
         )
+    sync_tenant_user_departments_if_available(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        department_ids=[int(value) for value in payload.get("department_ids") or []],
+        primary_department_id=payload.get("primary_department_id"),
+    )
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
 
 
@@ -319,3 +332,44 @@ def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dic
 
     user = rbac_service.set_user_active(user_id, is_active)
     return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
+
+
+def sync_tenant_user_departments_if_available(
+    *,
+    tenant_id: int,
+    user_id: int,
+    department_ids: list[int],
+    primary_department_id: Any,
+) -> None:
+    if not department_ids and not primary_department_id:
+        return
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    organization_services.set_user_departments(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        department_ids=department_ids,
+        primary_department_id=int(primary_department_id or 0) or None,
+        current_user={"username": "system", "id": None},
+    )
+
+
+def enrich_tenant_user_with_departments(item: dict[str, Any], tenant_id: int) -> dict[str, Any]:
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return item
+    user_id = int(item.get("id", 0) or 0)
+    if not user_id:
+        return item
+    try:
+        departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
+    except Exception:
+        return item
+    item["departments"] = departments
+    item["department_ids"] = [int(department["department_id"]) for department in departments]
+    primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
+    item["primary_department_id"] = int(primary["department_id"]) if primary else None
+    return item

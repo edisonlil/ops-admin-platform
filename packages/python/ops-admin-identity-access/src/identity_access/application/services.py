@@ -222,7 +222,7 @@ def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dic
 
 
 def list_users() -> list[dict[str, Any]]:
-    return rbac_service.list_users()
+    return [enrich_user_with_departments(item) for item in rbac_service.list_users()]
 
 
 def create_user(
@@ -231,10 +231,12 @@ def create_user(
     password: str,
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
+    department_ids: list[int] | None = None,
+    primary_department_id: int | None = None,
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
-    return rbac_service.create_user(
+    user = rbac_service.create_user(
         username=username,
         password=password,
         tenant_id=tenant_id,
@@ -242,6 +244,8 @@ def create_user(
         is_active=is_active,
         is_superuser=is_superuser,
     )
+    sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    return enrich_user_with_departments(user)
 
 
 def update_user(
@@ -251,10 +255,12 @@ def update_user(
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
+    department_ids: list[int] | None = None,
+    primary_department_id: int | None = None,
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
-    return rbac_service.update_user(
+    user = rbac_service.update_user(
         user_id,
         username=username,
         password=password,
@@ -263,6 +269,8 @@ def update_user(
         is_active=is_active,
         is_superuser=is_superuser,
     )
+    sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    return enrich_user_with_departments(user)
 
 
 def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
@@ -270,7 +278,7 @@ def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
 
 
 def list_roles() -> list[dict[str, Any]]:
-    return rbac_service.list_roles()
+    return [enrich_role_with_data_scopes(item) for item in rbac_service.list_roles()]
 
 
 def create_role(
@@ -280,6 +288,7 @@ def create_role(
     description: str = "",
     role_scope: str = "platform",
     menu_keys: list[str] | None = None,
+    data_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     role = rbac_service.create_role(
         role_key=role_key,
@@ -288,8 +297,9 @@ def create_role(
         role_scope=role_scope,
         menu_keys=menu_keys,
     )
+    sync_role_data_scopes_if_available(role, data_scopes or [])
     publish_event(events.role_permissions_changed(int(role["id"]), correlation_id=current_request_id()))
-    return role
+    return enrich_role_with_data_scopes(role)
 
 
 def update_role(
@@ -299,6 +309,7 @@ def update_role(
     name: str,
     description: str = "",
     menu_keys: list[str] | None = None,
+    data_scopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     role = rbac_service.update_role(
         role_id,
@@ -307,8 +318,9 @@ def update_role(
         description=description,
         menu_keys=menu_keys,
     )
+    sync_role_data_scopes_if_available(role, data_scopes or [])
     publish_event(events.role_permissions_changed(role_id, correlation_id=current_request_id()))
-    return role
+    return enrich_role_with_data_scopes(role)
 
 
 def update_role_menus(role_id: int, menu_keys: list[str]) -> dict[str, Any]:
@@ -329,6 +341,80 @@ def list_permissions() -> list[dict[str, str]]:
 
 def list_menus() -> list[dict[str, Any]]:
     return rbac_service.list_menus()
+
+
+def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
+    if not department_ids and not primary_department_id:
+        return
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    tenant_id = int(user.get("tenant_id", 0) or 0)
+    user_id = int(user.get("id", 0) or 0)
+    if not tenant_id or not user_id:
+        return
+    organization_services.set_user_departments(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        department_ids=department_ids,
+        primary_department_id=primary_department_id,
+        current_user={"username": "system", "id": None},
+    )
+
+
+def enrich_user_with_departments(user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return user
+    tenant_id = int(user.get("tenant_id", 0) or 0)
+    user_id = int(user.get("id", 0) or 0)
+    if not tenant_id or not user_id:
+        return user
+    try:
+        departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
+    except Exception:
+        return user
+    item = dict(user)
+    item["departments"] = departments
+    primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
+    item["department_ids"] = [int(department["department_id"]) for department in departments]
+    item["primary_department_id"] = int(primary["department_id"]) if primary else None
+    return item
+
+
+def sync_role_data_scopes_if_available(role: dict[str, Any], data_scopes: list[dict[str, Any]]) -> None:
+    if not data_scopes:
+        return
+    try:
+        from authorization.application import services as authorization_services
+    except Exception:
+        return
+    role_key = str(role.get("key") or role.get("role_key") or "")
+    if not role_key:
+        return
+    for scope in data_scopes:
+        payload = dict(scope)
+        payload["role_key"] = role_key
+        authorization_services.save_role_data_scope(payload, {"username": "system", "id": None})
+
+
+def enrich_role_with_data_scopes(role: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from authorization.application import services as authorization_services
+    except Exception:
+        return role
+    role_key = str(role.get("key") or role.get("role_key") or "")
+    if not role_key:
+        return role
+    try:
+        payload = authorization_services.list_role_data_scopes(role_key=role_key)
+    except Exception:
+        return role
+    item = dict(role)
+    item["data_scopes"] = payload.get("items", [])
+    return item
 
 
 def create_menu(

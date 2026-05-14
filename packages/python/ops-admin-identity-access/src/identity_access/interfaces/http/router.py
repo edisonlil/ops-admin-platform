@@ -297,6 +297,8 @@ def create_rbac_user(
         username=payload.username,
         password=payload.password,
         role_keys=payload.role_keys,
+        department_ids=payload.department_ids,
+        primary_department_id=payload.primary_department_id,
         is_active=payload.is_active,
         is_superuser=payload.is_superuser,
     )})
@@ -314,6 +316,8 @@ def update_rbac_user(
         username=payload.username,
         password=payload.password,
         role_keys=payload.role_keys,
+        department_ids=payload.department_ids,
+        primary_department_id=payload.primary_department_id,
         is_active=payload.is_active,
         is_superuser=payload.is_superuser,
     )})
@@ -351,6 +355,7 @@ def create_rbac_role(
         description=payload.description,
         role_scope=payload.role_scope,
         menu_keys=payload.menu_keys,
+        data_scopes=payload.data_scopes,
     )})
 
 
@@ -375,6 +380,7 @@ def update_rbac_role(
         name=payload.name,
         description=payload.description,
         menu_keys=payload.menu_keys,
+        data_scopes=payload.data_scopes,
     )})
 
 

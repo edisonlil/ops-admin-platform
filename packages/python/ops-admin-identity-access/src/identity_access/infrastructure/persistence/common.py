@@ -104,6 +104,11 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "tenant-api-keys": {"menu_type": "page", "component": "/settings/api-keys/index", "menu_scope": "tenant"},
     "tenant-api-keys-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "tenant-api-keys-revoke": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "organization": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "organization-departments": {"menu_type": "page", "component": "/organization/departments/index", "menu_scope": "tenant"},
+    "organization-departments-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "organization-departments-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "organization-departments-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "platform-management": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "platform-branding": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
     "platform-branding-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -138,6 +143,9 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "role-management-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "role-management-delete": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "role-management-assign-menus": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "platform"},
+    "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
 }
 
 TENANT_MESSAGING_MENU_KEYS = [
@@ -229,6 +237,17 @@ TENANT_AI_ASSETS_NAV_MENU_KEYS = [
     "ai-assets",
     "prompt-library",
 ]
+TENANT_ORGANIZATION_MENU_KEYS = [
+    "organization",
+    "organization-departments",
+    "organization-departments-create",
+    "organization-departments-update",
+    "organization-departments-delete",
+]
+TENANT_ORGANIZATION_NAV_MENU_KEYS = [
+    "organization",
+    "organization-departments",
+]
 RETIRED_AI_ASSETS_MENU_KEYS = [
     "prompt-contracts",
     "prompt-contracts-manage",
@@ -259,6 +278,7 @@ TENANT_ADMIN_MENU_KEYS = (
     + TENANT_LLM_MENU_KEYS
     + TENANT_CRON_MENU_KEYS
     + TENANT_AI_ASSETS_MENU_KEYS
+    + TENANT_ORGANIZATION_MENU_KEYS
 )
 TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = (
@@ -269,6 +289,7 @@ DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     + TENANT_LLM_MENU_KEYS
     + ["cron", "cron-tasks", "cron-runs"]
     + TENANT_AI_ASSETS_NAV_MENU_KEYS
+    + TENANT_ORGANIZATION_NAV_MENU_KEYS
 )
 TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "llm_config:update",
@@ -283,6 +304,8 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "tenant:users:disable",
     "tenant:api_keys:create",
     "tenant:api_keys:revoke",
+    "organization:departments:read",
+    "organization:departments:manage",
     "messaging:inbox:view",
     "messaging:inbox:manage_self",
     "messaging:messages:view",
@@ -850,40 +873,60 @@ def ensure_default_rbac(conn: Any) -> None:
 
 def ensure_file_management_permissions(conn: Any) -> None:
     permission_rows = [
-        ("file:library:manage", "Manage file libraries", "Create, update, and delete tenant file libraries"),
-        ("file:object:read", "Read files", "List, search, and download tenant files"),
-        ("file:object:upload", "Upload files", "Upload files to tenant file libraries"),
-        ("file:object:delete", "Delete files", "Delete tenant files"),
-        ("file:quota:manage", "Manage file quotas", "Configure tenant file storage quotas"),
+        ("file:library:manage", "管理文件库", "创建、更新和删除租户文件库"),
+        ("file:object:read", "查看文件", "浏览、搜索和下载租户文件"),
+        ("file:object:upload", "上传文件", "上传文件到租户文件库"),
+        ("file:object:delete", "删除文件", "删除租户文件"),
+        ("file:quota:manage", "管理文件配额", "配置租户文件存储配额"),
         (
             "file:storage_profiles:manage",
-            "Manage file storage profiles",
-            "Configure object storage profiles for file management",
+            "管理存储配置",
+            "配置文件管理使用的对象存储方案",
         ),
         (
             "file:preview_profiles:manage",
-            "Manage file preview profiles",
-            "Configure external preview services for file management",
+            "管理预览配置",
+            "配置文件预览使用的外部服务",
         ),
         (
             "basic-data:dictionary:read",
-            "Read business dictionaries",
-            "View and consume tenant business dictionaries",
+            "查看业务字典",
+            "查看和使用租户业务字典",
         ),
         (
             "basic-data:dictionary:manage",
-            "Manage business dictionaries",
-            "Create, update, disable, and delete tenant business dictionaries",
+            "管理业务字典",
+            "创建、更新、停用和删除租户业务字典",
+        ),
+        (
+            "organization:departments:read",
+            "查看组织部门",
+            "查看租户组织部门",
+        ),
+        (
+            "organization:departments:manage",
+            "管理组织部门",
+            "维护租户组织部门和用户部门关系",
+        ),
+        (
+            "authorization:data-scope:read",
+            "查看数据权限",
+            "查看数据权限资源和角色策略",
+        ),
+        (
+            "authorization:data-scope:manage",
+            "管理数据权限",
+            "配置角色数据权限策略",
         ),
         (
             "prompt:assets:view",
-            "View prompt assets",
-            "View prompt assets and versions",
+            "查看提示词资产",
+            "查看提示词资产和版本",
         ),
         (
             "prompt:assets:manage",
-            "Manage prompt assets",
-            "Create, update, publish, and archive prompt assets",
+            "管理提示词资产",
+            "创建、更新、发布和归档提示词资产",
         ),
     ]
     for code, name, description in permission_rows:
@@ -1096,6 +1139,9 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("role-management-update", "编辑角色", "", "", "", "role-management", "system:roles:update", 1022),
         ("role-management-delete", "删除角色", "", "", "", "role-management", "system:roles:delete", 1023),
         ("role-management-assign-menus", "分配菜单权限", "", "", "", "role-management", "system:roles:assign_menus", 1024),
+        ("data-scope-management", "数据权限", "/authorization/data-scope", "data-scope-management", "SafetyCertificateOutlined", "rbac", "authorization:data-scope:read", 103),
+        ("data-scope-management-read", "查看数据权限", "", "", "", "data-scope-management", "authorization:data-scope:read", 1031),
+        ("data-scope-management-manage", "管理数据权限", "", "", "", "data-scope-management", "authorization:data-scope:manage", 1032),
         ("tenant-management", "租户管理", "/tenant", "tenant-management", "ApartmentOutlined", "", "tenant:access", 110),
         ("tenant-management-create", "新增租户", "", "", "", "tenant-management", "tenant:create", 1101),
         ("tenant-management-update", "编辑租户", "", "", "", "tenant-management", "tenant:update", 1102),
@@ -1231,6 +1277,56 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "tenant-api-keys",
             "tenant:api_keys:revoke",
             822,
+        ),
+        (
+            "organization",
+            "组织管理",
+            "",
+            "",
+            "ApartmentOutlined",
+            "",
+            "",
+            83,
+        ),
+        (
+            "organization-departments",
+            "部门管理",
+            "/organization/departments",
+            "organization-departments",
+            "PartitionOutlined",
+            "organization",
+            "organization:departments:read",
+            831,
+        ),
+        (
+            "organization-departments-create",
+            "新增部门",
+            "",
+            "",
+            "",
+            "organization-departments",
+            "organization:departments:manage",
+            8311,
+        ),
+        (
+            "organization-departments-update",
+            "编辑部门",
+            "",
+            "",
+            "",
+            "organization-departments",
+            "organization:departments:manage",
+            8312,
+        ),
+        (
+            "organization-departments-delete",
+            "删除部门",
+            "",
+            "",
+            "",
+            "organization-departments",
+            "organization:departments:manage",
+            8313,
         ),
         (
             "file-management",

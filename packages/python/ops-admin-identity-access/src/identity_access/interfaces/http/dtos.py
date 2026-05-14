@@ -14,6 +14,8 @@ class RbacUserCreateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=200)
     role_keys: list[str] = Field(default_factory=list)
+    department_ids: list[int] = Field(default_factory=list)
+    primary_department_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False
 
@@ -39,6 +41,8 @@ class RbacUserUpdateRequest(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(default="", max_length=200)
     role_keys: list[str] = Field(default_factory=list)
+    department_ids: list[int] = Field(default_factory=list)
+    primary_department_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False
 
@@ -61,6 +65,7 @@ class RbacRoleCreateRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     role_scope: str = Field(default="platform", max_length=20)
     menu_keys: list[str] = Field(default_factory=list)
+    data_scopes: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("key")
     @classmethod
@@ -94,6 +99,7 @@ class RbacRoleUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     menu_keys: list[str] = Field(default_factory=list)
+    data_scopes: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("key")
     @classmethod

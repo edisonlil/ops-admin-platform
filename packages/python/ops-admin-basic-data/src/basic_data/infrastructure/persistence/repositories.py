@@ -9,7 +9,11 @@ from typing import Any
 from basic_data.domain.exceptions import BasicDataDomainError
 from basic_data.domain.models import DictionaryItem, DictionaryType, STATUS_ACTIVE, STATUS_DISABLED
 from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor
 from system.application.database import connect, resolve_database_url, resolve_db_path
+
+
+DICTIONARY_RESOURCE = ResourceDescriptor(resource_key="basic-data.dictionary")
 
 
 def database_target() -> str | Path:
@@ -28,10 +32,12 @@ def list_dictionary_types(
     keyword: str = "",
     status: str | None = None,
     category: str = "",
+    data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[DictionaryType], int]:
     offset = (page - 1) * page_size
     where = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
+    append_data_scope(where, params, data_scope, DICTIONARY_RESOURCE)
     if keyword.strip():
         where.append("(code LIKE ? OR name LIKE ? OR description LIKE ?)")
         text = f"%{keyword.strip()}%"
@@ -115,13 +121,15 @@ def save_dictionary_type(*, tenant_id: int, payload: dict[str, Any], actor: str,
                     """
                     INSERT INTO business_dictionary_types (
                         tenant_id, parent_id, code, name, category, description, status, sort_order,
-                        creator, creator_id, editor, editor_id, create_time, update_time
+                        owner_user_id, owner_department_id, creator, creator_id, editor, editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         tenant_id,
                         *values[:7],
+                        payload.get("owner_user_id"),
+                        payload.get("owner_department_id"),
                         actor,
                         actor_id,
                         actor,
@@ -202,10 +210,12 @@ def list_dictionary_items(
     page_size: int,
     keyword: str = "",
     status: str | None = None,
+    data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[DictionaryItem], int]:
     offset = (page - 1) * page_size
     where = ["i.tenant_id = ?", "i.type_id = ?", "i.deleted = 0"]
     params: list[Any] = [tenant_id, type_id]
+    append_data_scope(where, params, data_scope, DICTIONARY_RESOURCE, alias="i")
     if keyword.strip():
         where.append("(i.code LIKE ? OR i.value LIKE ? OR i.description LIKE ?)")
         text = f"%{keyword.strip()}%"
@@ -292,15 +302,17 @@ def save_dictionary_item(
                     """
                     INSERT INTO business_dictionary_items (
                         tenant_id, type_id, code, value, color, description,
-                        extra_json, status, sort_order, creator, creator_id, editor,
+                        extra_json, status, sort_order, owner_user_id, owner_department_id, creator, creator_id, editor,
                         editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         tenant_id,
                         type_id,
                         *values[:7],
+                        payload.get("owner_user_id"),
+                        payload.get("owner_department_id"),
                         actor,
                         actor_id,
                         actor,
@@ -417,6 +429,32 @@ def deleted_code_expression(conn: Any) -> str:
     if getattr(conn, "backend", "sqlite") == "mysql":
         return "CONCAT('__deleted__', id)"
     return "'__deleted__' || id"
+
+
+def append_data_scope(
+    where: list[str],
+    params: list[Any],
+    data_scope: DataAccessPredicate | None,
+    descriptor: ResourceDescriptor,
+    *,
+    alias: str = "",
+) -> None:
+    if data_scope is None:
+        return
+    sql, scope_params = data_scope.to_sql(descriptor, alias=alias)
+    if not sql:
+        return
+    prefix = f"{alias}." if alias else ""
+    tenant_clause = f"{prefix}{descriptor.tenant_column} = ?"
+    clauses = [clause.strip() for clause in sql.split(" AND ") if clause.strip()]
+    params_to_add = list(scope_params)
+    for clause in clauses:
+        if clause == tenant_clause:
+            if params_to_add:
+                params_to_add.pop(0)
+            continue
+        where.append(clause)
+    params.extend(params_to_add)
 
 
 def raise_unique_constraint_error(exc: Exception) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from basic_data.domain.models import DictionaryItem, DictionaryType
+from system.application.data_access import DataAccessPredicate
 
 
 class BasicDataRepository(Protocol):
@@ -15,6 +16,7 @@ class BasicDataRepository(Protocol):
         keyword: str,
         status: str | None,
         category: str,
+        data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryType], int]: ...
 
     def get_dictionary_type(self, *, tenant_id: int, type_id: int) -> DictionaryType | None: ...
@@ -48,6 +50,7 @@ class BasicDataRepository(Protocol):
         page_size: int,
         keyword: str,
         status: str | None,
+        data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryItem], int]: ...
 
     def get_dictionary_item(self, *, tenant_id: int, item_id: int) -> DictionaryItem | None: ...

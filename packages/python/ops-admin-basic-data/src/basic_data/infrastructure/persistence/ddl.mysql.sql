@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS business_dictionary_types (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     tenant_id BIGINT NOT NULL,
     parent_id BIGINT DEFAULT NULL,
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     code VARCHAR(120) NOT NULL,
     name VARCHAR(200) NOT NULL,
     category VARCHAR(120) NOT NULL DEFAULT 'general',
@@ -23,6 +25,8 @@ CREATE TABLE IF NOT EXISTS business_dictionary_items (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     tenant_id BIGINT NOT NULL,
     type_id BIGINT NOT NULL,
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     code VARCHAR(120) NOT NULL,
     value VARCHAR(300) NOT NULL,
     color VARCHAR(80) NOT NULL DEFAULT '',
@@ -44,4 +48,6 @@ CREATE TABLE IF NOT EXISTS business_dictionary_items (
 CREATE INDEX idx_business_dictionary_types_tenant ON business_dictionary_types(tenant_id, deleted, status);
 CREATE INDEX idx_business_dictionary_types_parent ON business_dictionary_types(tenant_id, parent_id, deleted);
 CREATE INDEX idx_business_dictionary_types_code ON business_dictionary_types(tenant_id, code, deleted);
+CREATE INDEX idx_business_dictionary_types_owner_department ON business_dictionary_types(tenant_id, owner_department_id, deleted);
 CREATE INDEX idx_business_dictionary_items_type ON business_dictionary_items(tenant_id, type_id, deleted, status);
+CREATE INDEX idx_business_dictionary_items_owner_department ON business_dictionary_items(tenant_id, owner_department_id, deleted);

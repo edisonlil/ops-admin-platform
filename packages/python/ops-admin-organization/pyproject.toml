@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-admin-organization"
+version = "0.1.0"
+description = "Organization bounded context for ops-admin-platform."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "ops-admin-system",
+    "ops-admin-identity-access",
+]
+
+[project.entry-points."ops_admin.routers"]
+organization = "organization.entrypoints:router"
+
+[project.entry-points."ops_admin.init_tasks"]
+organization = "organization.entrypoints:init_tasks"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+organization = ["infrastructure/persistence/*.sql"]

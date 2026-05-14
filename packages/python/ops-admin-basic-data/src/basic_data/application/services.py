@@ -5,9 +5,11 @@ from typing import Any
 from basic_data.application.ports import BasicDataRepository
 from basic_data.domain.exceptions import BasicDataDomainError, BasicDataNotFoundError, BasicDataStorageNotReadyError
 from basic_data.domain.models import DictionaryItem, DictionaryType, STATUS_ACTIVE
+from system.application.data_access import ResourceDescriptor, resolve_data_access_filter
 
 
 repository: BasicDataRepository | None = None
+DICTIONARY_RESOURCE = ResourceDescriptor(resource_key="basic-data.dictionary")
 
 
 def configure_repository(basic_data_repository: BasicDataRepository) -> None:
@@ -38,6 +40,7 @@ def list_dictionary_types(
             keyword=keyword,
             status=status,
             category=category,
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=DICTIONARY_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
@@ -50,6 +53,8 @@ def list_dictionary_types(
 def save_dictionary_type(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     normalized = normalize_type_payload(payload)
+    normalized["owner_user_id"] = current_user_id_or_none(current_user)
+    normalized["owner_department_id"] = current_primary_department_id(current_user)
     ensure_unique_type_code(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), code=str(normalized.get("code") or ""))
     ensure_valid_type_parent(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), parent_id=normalized.get("parent_id"))
     dictionary_type = DictionaryType(id=int(normalized.get("id") or 0), tenant_id=tenant_id, create_time="", update_time="", **normalized_type_fields(normalized))
@@ -100,6 +105,7 @@ def list_dictionary_items(
             page_size=page_size,
             keyword=keyword,
             status=status,
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=DICTIONARY_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
@@ -113,6 +119,8 @@ def save_dictionary_item(type_id: int, payload: dict[str, Any], current_user: di
     tenant_id = current_tenant_id(current_user)
     ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
     normalized = normalize_item_payload(payload)
+    normalized["owner_user_id"] = current_user_id_or_none(current_user)
+    normalized["owner_department_id"] = current_primary_department_id(current_user)
     item = DictionaryItem(
         id=int(normalized.get("id") or 0),
         tenant_id=tenant_id,
@@ -275,3 +283,27 @@ def current_actor(current_user: dict[str, Any]) -> str:
 def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
     user_id = int(current_user.get("id", 0) or 0)
     return user_id or None
+
+
+def current_primary_department_id(current_user: dict[str, Any]) -> int | None:
+    departments = current_user.get("departments") or []
+    primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
+    if primary:
+        department_id = int(primary.get("department_id") or primary.get("id") or 0)
+        return department_id or None
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return None
+    user_id = current_user_id_or_none(current_user)
+    if not user_id:
+        return None
+    try:
+        loaded = organization_services.user_departments(tenant_id=current_tenant_id(current_user), user_id=user_id)
+    except Exception:
+        return None
+    primary = next((item for item in loaded if bool(item.get("is_primary"))), loaded[0] if loaded else None)
+    if not primary:
+        return None
+    department_id = int(primary.get("department_id") or primary.get("id") or 0)
+    return department_id or None
