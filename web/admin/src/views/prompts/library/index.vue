@@ -23,14 +23,8 @@
             <span v-if="!(row.tags || []).length" class="prompt-card__muted">未设置标签</span>
           </div>
 
-          <dl class="prompt-card__facts">
-            <div>
-              <dt>版本</dt>
-              <dd>{{ row.version_count || 0 }}</dd>
-            </div>
-          </dl>
-
           <footer class="prompt-card__footer">
+            <span class="prompt-card__version-count">{{ row.version_count || 0 }} 个版本</span>
             <span>{{ formatToDateTime(row.update_time || row.create_time || '') || '-' }}</span>
             <div class="prompt-card__actions">
               <n-button size="tiny" quaternary @click="openVersions(row)">版本</n-button>
@@ -459,7 +453,8 @@
   .prompt-card {
     display: grid;
     gap: 12px;
-    min-height: 236px;
+    align-content: start;
+    min-height: 204px;
     padding: 16px;
     background: var(--app-surface-bg);
     border: 1px solid var(--app-border-color, #d9e1ec);
@@ -518,41 +513,24 @@
     min-width: 0;
   }
 
-  .prompt-card__facts {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    margin: 0;
+  .prompt-card__footer {
+    position: relative;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 48%, transparent);
   }
 
-  .prompt-card__facts div {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-    padding: 8px;
-    background: var(--app-surface-muted-bg);
-    border-radius: 6px;
-  }
-
-  .prompt-card__facts dt {
+  .prompt-card__version-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding-left: 8px;
+    transform: translateY(-50%);
+    background: var(--app-surface-bg);
     color: var(--app-text-color-2);
     font-size: 12px;
-  }
-
-  .prompt-card__facts dd {
-    margin: 0;
-    overflow: hidden;
-    color: var(--app-text-color);
-    font-size: 14px;
-    font-weight: 650;
-    text-overflow: ellipsis;
+    line-height: 1.35;
     white-space: nowrap;
-  }
-
-  .prompt-card__footer {
-    align-items: center;
-    padding-top: 4px;
-    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 48%, transparent);
   }
 
   .version-workbench {
