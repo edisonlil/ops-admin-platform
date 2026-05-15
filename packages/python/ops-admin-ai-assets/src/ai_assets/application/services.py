@@ -237,7 +237,7 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
 def ensure_prompt_asset_not_in_use(*, tenant_id: int, prompt_key: str) -> None:
     for checker in list(_prompt_asset_reference_checkers):
         if checker(tenant_id, prompt_key):
-            raise domain_http_error(PromptAssetInUse("prompt asset is referenced by AI applications and cannot be archived"))
+            raise domain_http_error(PromptAssetInUse("提示词已被 AI 应用引用，不能归档"))
 
 
 def list_prompt_versions(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:

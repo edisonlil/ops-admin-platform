@@ -420,9 +420,18 @@
   }
 
   async function remove(row: PromptAsset) {
-    const result = await deletePromptAsset(row.id);
-    message.success(result.deleted ? '提示词已删除' : '提示词已归档');
-    await reload();
+    try {
+      const result = await deletePromptAsset(row.id);
+      message.success(result.deleted ? '提示词已删除' : '提示词已归档');
+      await reload();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '';
+      if (errorMessage.includes('AI 应用引用') || errorMessage.includes('referenced by AI applications')) {
+        message.warning('该提示词已被 AI 应用引用，不能归档');
+        return;
+      }
+      throw error;
+    }
   }
 
   async function copyPrompt(row: PromptAsset) {
