@@ -65,48 +65,21 @@
             </n-form>
           </div>
 
-          <div class="studio-section">
+          <div class="studio-section studio-section--advanced">
             <header class="studio-section__head">
               <div>
-                <h3>变量</h3>
-                <span>声明运行时需要注入的变量 Schema。</span>
+                <h3>高级配置</h3>
+                <span>管理运行变量和结构化输出契约；日常调试优先使用右侧预览区。</span>
               </div>
-              <n-button size="small" text @click="resetVariablesSchema">重置</n-button>
             </header>
-            <n-input v-model:value="variablesSchemaText" type="textarea" :autosize="{ minRows: 7, maxRows: 10 }" />
-          </div>
-
-          <div class="studio-section studio-section--muted">
-            <header class="studio-section__head">
-              <div>
-                <h3>上下文</h3>
-                <span>后续可接入知识库、会话上下文或业务上下文。</span>
-              </div>
-              <n-button size="small" text disabled>添加</n-button>
-            </header>
-            <p>当前版本暂未启用上下文，应用以变量和提示词作为输入。</p>
-          </div>
-
-          <div class="studio-section studio-section--muted">
-            <header class="studio-section__head">
-              <div>
-                <h3>工具</h3>
-                <span>后续可挂载 Skill、MCP、Plugin 或内部工具。</span>
-              </div>
-              <n-button size="small" text disabled>添加</n-button>
-            </header>
-            <p>Prompt Runtime v1 保留工具抽象入口，执行阶段暂不调用工具。</p>
-          </div>
-
-          <div class="studio-section">
-            <header class="studio-section__head">
-              <div>
-                <h3>输出</h3>
-                <span>定义返回结构，便于后续 API 发布和调用方集成。</span>
-              </div>
-              <n-button size="small" text @click="resetOutputSchema">清空</n-button>
-            </header>
-            <n-input v-model:value="outputSchemaText" type="textarea" :autosize="{ minRows: 7, maxRows: 10 }" />
+            <n-collapse class="advanced-collapse" arrow-placement="right">
+              <n-collapse-item title="输出 Schema" name="output">
+                <template #header-extra>
+                  <n-button size="tiny" text @click.stop="resetOutputSchema">清空</n-button>
+                </template>
+                <n-input v-model:value="outputSchemaText" type="textarea" :autosize="{ minRows: 7, maxRows: 10 }" />
+              </n-collapse-item>
+            </n-collapse>
           </div>
         </section>
 
@@ -120,13 +93,12 @@
               <n-button type="primary" :loading="running" @click="runDraft">Run Prompt</n-button>
             </header>
 
-            <section class="runtime-variables">
+            <section v-if="runtimeVariableFields.length" class="runtime-variables">
               <div class="runtime-variables__header">
                 <span>运行变量</span>
                 <n-button size="tiny" text @click="syncRuntimeVariableValues">同步 Schema</n-button>
               </div>
-              <n-empty v-if="!runtimeVariableFields.length" size="small" description="当前 Prompt 不需要变量" />
-              <n-grid v-else :cols="1" responsive="screen">
+              <n-grid :cols="1" responsive="screen">
                 <n-form-item-gi v-for="field in runtimeVariableFields" :key="field.key" :show-require-mark="field.required">
                   <template #label>
                     <span class="runtime-variable-label">
@@ -156,7 +128,6 @@
             </section>
 
             <div class="chat-preview">
-              <div class="chat-preview__avatar">AI</div>
               <div class="chat-preview__bubble">
                 <pre>{{ runResult?.answer || '运行后将在这里预览模型输出。' }}</pre>
               </div>
@@ -454,7 +425,7 @@
     return {
       ...form,
       model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
-      variables_schema: parseJsonObject(variablesSchemaText.value),
+      variables_schema: buildVariablesSchemaFromTemplate(parsedVariablesSchema.value, form.user_prompt_template),
       output_schema: parseJsonObject(outputSchemaText.value),
       trace_policy: { enabled: true },
       runtime_config: {
@@ -464,10 +435,6 @@
         system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
       },
     };
-  }
-
-  function resetVariablesSchema() {
-    variablesSchemaText.value = '{\n  "type": "object",\n  "required": ["question"]\n}';
   }
 
   function resetOutputSchema() {
@@ -554,6 +521,21 @@
         options,
       };
     });
+  }
+
+  function buildVariablesSchemaFromTemplate(schema: SchemaRecord | null, template: string): Record<string, unknown> {
+    const keys = extractTemplateVariableKeys(template || '');
+    if (!keys.length) return {};
+    const existingProperties = asSchemaRecord(schema?.properties);
+    const properties = keys.reduce<Record<string, unknown>>((result, key) => {
+      result[key] = existingProperties?.[key] || { type: 'string' };
+      return result;
+    }, {});
+    return {
+      type: 'object',
+      required: keys,
+      properties,
+    };
   }
 
   function buildVariableOptions(node: SchemaRecord | null): SelectOption[] | undefined {
@@ -678,10 +660,6 @@
     box-shadow: 0 0 0 2px var(--app-primary-soft-bg);
   }
 
-  .studio-section--muted {
-    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
-  }
-
   .studio-section__head,
   .preview-panel__head,
   .runtime-variables__header {
@@ -702,17 +680,15 @@
 
   .studio-section__head span,
   .preview-panel__head span,
-  .studio-section--muted p {
-    color: var(--app-text-color-2);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .studio-section--muted p {
-    margin: 0;
-  }
-
   .studio-form {
+    min-width: 0;
+  }
+
+  .studio-section--advanced {
+    padding-bottom: 8px;
+  }
+
+  .advanced-collapse {
     min-width: 0;
   }
 
@@ -799,26 +775,10 @@
   }
 
   .chat-preview {
-    display: grid;
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 10px;
     min-height: 150px;
     padding: 12px;
     background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 76%, var(--app-surface-bg));
     border-radius: var(--app-card-radius);
-  }
-
-  .chat-preview__avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    color: var(--app-primary-color);
-    font-size: 12px;
-    font-weight: 700;
-    background: var(--app-primary-soft-bg);
-    border-radius: 8px;
   }
 
   .chat-preview__bubble {
