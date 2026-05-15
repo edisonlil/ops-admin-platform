@@ -34,7 +34,9 @@
               <h3>{{ row.name }}</h3>
             </div>
             <div class="prompt-card__header-actions">
-              <AppStatusTag :tone="assetStatusTone(row.status)" :label="assetStatusLabel(row.status)" />
+              <n-tag size="small" :type="assetStatusTagType(row.status)">
+                {{ assetStatusLabel(row.status) }}
+              </n-tag>
               <n-button v-if="canManage" size="tiny" quaternary :loading="copyingId === row.id" @click="copyPrompt(row)">复制</n-button>
             </div>
           </header>
@@ -142,7 +144,9 @@
               <div class="version-row__main">
                 <strong>{{ version.version }}</strong>
               </div>
-              <AppStatusTag :tone="versionStatusTone(version.status)" :label="versionStatusLabel(version.status)" />
+              <n-tag size="small" :type="versionStatusTagType(version.status)">
+                {{ versionStatusLabel(version.status) }}
+              </n-tag>
               <span class="version-row__time">{{ formatToDateTime(version.update_time || version.create_time || '') || '-' }}</span>
               <n-space size="small" class="version-row__actions" @click.stop>
                 <n-button v-if="canManage && version.status === 'draft'" size="tiny" quaternary type="primary" @click="publishVersion(version)">发布</n-button>
@@ -213,8 +217,7 @@
   import { computed, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import { HighlightOutlined, RobotOutlined } from '@vicons/antd';
-  import type { FormInst, FormRules, SelectOption } from 'naive-ui';
-  import AppStatusTag from '@/components/Application/AppStatusTag.vue';
+  import type { FormInst, FormRules, SelectOption, TagProps } from 'naive-ui';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -525,16 +528,16 @@
     return ({ draft: '草稿', reviewing: '评审中', published: '已发布', archived: '已归档' } as Record<string, string>)[status] || status;
   }
 
-  function assetStatusTone(status: string) {
-    return status === 'published' ? 'success' : status === 'reviewing' ? 'warning' : status === 'archived' ? 'neutral' : 'info';
+  function assetStatusTagType(status: string): TagProps['type'] {
+    return status === 'published' ? 'success' : status === 'reviewing' ? 'warning' : 'default';
   }
 
   function versionStatusLabel(status: string) {
     return ({ draft: '草稿', published: '已发布', deprecated: '已废弃' } as Record<string, string>)[status] || status;
   }
 
-  function versionStatusTone(status: string) {
-    return status === 'published' ? 'success' : status === 'deprecated' ? 'neutral' : 'info';
+  function versionStatusTagType(status: string): TagProps['type'] {
+    return status === 'published' ? 'success' : 'default';
   }
 
   function isOnlyPublishedVersion(version: PromptVersion) {
