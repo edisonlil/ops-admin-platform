@@ -455,15 +455,25 @@
               </div>
               <section>
                 <h4>输入变量</h4>
-                <pre>{{ stringifyJson(selectedRunLog.input_variables) }}</pre>
+                <pre class="run-log-json-viewer">{{ stringifyJson(selectedRunLog.input_variables) }}</pre>
               </section>
               <section>
                 <h4>输出结果</h4>
-                <div
-                  v-if="selectedRunLog.answer"
-                  class="markdown-answer run-log-answer"
-                  v-html="renderMarkdown(selectedRunLog.answer)"
-                ></div>
+                <div v-if="selectedRunLog.answer" class="run-log-answer">
+                  <n-collapse v-if="selectedRunLogOutput.think" class="think-collapse" arrow-placement="right">
+                    <n-collapse-item name="think">
+                      <template #header>
+                        <span class="think-collapse__title">已生成思考过程</span>
+                      </template>
+                      <pre class="think-box">{{ selectedRunLogOutput.think }}</pre>
+                    </n-collapse-item>
+                  </n-collapse>
+                  <div
+                    v-if="selectedRunLogOutput.answer"
+                    class="markdown-answer"
+                    v-html="renderMarkdown(selectedRunLogOutput.answer)"
+                  ></div>
+                </div>
                 <n-empty v-else description="本次运行没有输出内容" />
               </section>
               <section>
@@ -671,6 +681,7 @@
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
   const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
   const selectedRunLog = computed(() => runLogs.value.find((item) => item.run_id === selectedRunLogId.value) || runLogs.value[0] || null);
+  const selectedRunLogOutput = computed(() => splitThinkContent(selectedRunLog.value?.answer || ''));
   const apiEndpoint = computed(() => `/runtime/apps/${form.app_key || '{app_key}'}/run`);
   const apiVariableRows = computed(() =>
     runtimeVariableFields.value.map((field) => ({
@@ -1863,6 +1874,21 @@
   .run-log-detail h4 {
     margin: 0 0 8px;
     font-weight: 650;
+  }
+
+  .run-log-json-viewer {
+    max-height: 220px;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 62%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 62%, transparent);
+    border-radius: 7px;
   }
 
   .run-log-error {
