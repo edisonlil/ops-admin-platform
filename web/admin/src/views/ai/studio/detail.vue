@@ -1,7 +1,7 @@
 <template>
   <DetailPageRuntime :schema="detailPage">
     <n-spin :show="loading">
-      <div class="studio-workbench">
+      <div ref="workbenchRef" class="studio-workbench" :style="workbenchStyle">
         <section class="studio-builder">
           <div class="studio-section studio-section--prompt">
             <header class="studio-section__head">
@@ -109,6 +109,17 @@
           </div>
         </section>
 
+        <button
+          class="studio-resizer"
+          type="button"
+          :aria-label="previewWidthPercent > 52 ? '收起预览面板' : '拉宽预览面板'"
+          :title="previewWidthPercent > 52 ? '收起预览面板' : '拉宽预览面板'"
+          @click="togglePreviewWidth"
+          @pointerdown="startPreviewResize"
+        >
+          <span></span>
+        </button>
+
         <aside class="studio-preview">
           <div class="preview-panel">
             <header class="preview-panel__head">
@@ -173,6 +184,10 @@
             </section>
 
             <div class="chat-preview">
+              <div v-if="runElapsedSeconds" class="run-metrics">
+                <span>执行耗时</span>
+                <strong>{{ runElapsedSeconds }} 秒</strong>
+              </div>
               <div class="chat-preview__bubble">
                 <n-collapse v-if="previewThinkText" class="think-collapse" arrow-placement="right">
                   <n-collapse-item name="think">
@@ -199,7 +214,7 @@
                   <dt>Model</dt>
                   <dd>{{ runResult.trace.model_key || runResult.trace.route_key }}</dd>
                   <dt>Latency</dt>
-                  <dd>{{ runResult.trace.elapsed_ms }} ms</dd>
+                  <dd>{{ formatElapsedSeconds(runResult.trace.elapsed_ms) }} 秒</dd>
                   <template v-if="tracePromptAsset">
                     <dt>Prompt Source</dt>
                     <dd>{{ tracePromptAsset.prompt_asset_name }} / {{ tracePromptAsset.prompt_version }}</dd>
@@ -275,6 +290,9 @@
   const saving = ref(false);
   const publishing = ref(false);
   const running = ref(false);
+  const workbenchRef = ref<HTMLElement | null>(null);
+  const previewWidthPercent = ref(42);
+  const previewResizeDragged = ref(false);
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
@@ -362,6 +380,13 @@
   const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
   const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
+  const runElapsedSeconds = computed(() => {
+    const elapsedMs = Number(runResult.value?.trace?.elapsed_ms || 0);
+    return elapsedMs > 0 ? formatElapsedSeconds(elapsedMs) : '';
+  });
+  const workbenchStyle = computed(() => ({
+    '--studio-preview-width': `${previewWidthPercent.value}%`,
+  }));
 
   const detailPage = computed(() =>
     defineDetailPage<AiApplication>({
@@ -665,6 +690,45 @@
 
   function generatePromptHint() {
     message.info('后续会接入提示词生成能力');
+  }
+
+  function togglePreviewWidth() {
+    if (previewResizeDragged.value) {
+      previewResizeDragged.value = false;
+      return;
+    }
+    previewWidthPercent.value = previewWidthPercent.value > 52 ? 42 : 62;
+  }
+
+  function startPreviewResize(event: PointerEvent) {
+    const target = event.currentTarget as HTMLElement;
+    const container = workbenchRef.value;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const startX = event.clientX;
+    previewResizeDragged.value = false;
+    target.setPointerCapture?.(event.pointerId);
+
+    const resize = (moveEvent: PointerEvent) => {
+      const delta = Math.abs(moveEvent.clientX - startX);
+      if (delta > 3) previewResizeDragged.value = true;
+      const width = rect.right - moveEvent.clientX;
+      const percent = (width / rect.width) * 100;
+      previewWidthPercent.value = clampNumber(percent, 34, 68);
+    };
+    const stop = () => {
+      target.releasePointerCapture?.(event.pointerId);
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  }
+
+  function clampNumber(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
   }
 
   function asSchemaRecord(value: unknown): SchemaRecord | null {
@@ -974,6 +1038,12 @@
     return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
   }
 
+  function formatElapsedSeconds(elapsedMs: unknown) {
+    const seconds = Number(elapsedMs || 0) / 1000;
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0.00';
+    return seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
+  }
+
   function parseJsonObject(value: string): Record<string, unknown> {
     try {
       const payload = JSON.parse(value || '{}');
@@ -1007,10 +1077,51 @@
 <style lang="less" scoped>
   .studio-workbench {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(520px, 42%);
-    gap: 16px;
+    grid-template-columns: minmax(360px, 1fr) 10px minmax(420px, var(--studio-preview-width, 42%));
+    gap: 10px;
     align-items: start;
     min-width: 0;
+  }
+
+  .studio-resizer {
+    position: sticky;
+    top: 12px;
+    display: grid;
+    place-items: center;
+    width: 10px;
+    min-height: 72px;
+    padding: 0;
+    color: var(--app-text-color-3);
+    cursor: col-resize;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+  }
+
+  .studio-resizer::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 2px;
+    content: '';
+    background: color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 999px;
+  }
+
+  .studio-resizer span {
+    z-index: 1;
+    width: 6px;
+    height: 28px;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 80%, transparent);
+    border-radius: 999px;
+    box-shadow: 0 1px 4px color-mix(in srgb, #000 10%, transparent);
+  }
+
+  .studio-resizer:hover::before,
+  .studio-resizer:focus-visible::before {
+    background: color-mix(in srgb, var(--app-primary-color) 55%, var(--app-border-color, #d9e1ec));
   }
 
   .studio-builder {
@@ -1296,8 +1407,25 @@
   }
 
   .chat-preview {
+    display: grid;
+    gap: 8px;
     min-height: 150px;
     background: transparent;
+  }
+
+  .run-metrics {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    width: fit-content;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .run-metrics strong {
+    color: var(--app-text-color-1);
+    font-weight: 650;
   }
 
   .chat-preview__bubble {
@@ -1484,6 +1612,10 @@
   @media (max-width: 1180px) {
     .studio-workbench {
       grid-template-columns: 1fr;
+    }
+
+    .studio-resizer {
+      display: none;
     }
 
     .studio-preview {
