@@ -92,6 +92,14 @@
                     </n-space>
                   </n-radio-group>
                 </n-form-item>
+                <n-form-item label="菜单范围" path="menu_scope">
+                  <n-radio-group v-model:value="formParams.menu_scope" name="menuScope" :disabled="structureLockedByRoles">
+                    <n-space>
+                      <n-radio value="platform">平台</n-radio>
+                      <n-radio value="tenant">租户</n-radio>
+                    </n-space>
+                  </n-radio-group>
+                </n-form-item>
                 <n-form-item label="名称" path="label">
                   <n-input v-model:value="formParams.label" placeholder="请输入菜单名称" />
                 </n-form-item>
@@ -284,6 +292,7 @@
     id: number;
     key: string;
     label: string;
+    menu_scope?: 'platform' | 'tenant' | string;
     menu_type: 'directory' | 'page' | 'action';
     path?: string;
     route_name?: string;
@@ -301,6 +310,7 @@
     id: number | null;
     key: string;
     label: string;
+    menu_scope: 'platform' | 'tenant';
     menu_type: 'directory' | 'page' | 'action';
     path: string;
     route_name: string;
@@ -334,6 +344,7 @@
     id: null,
     key: '',
     label: '',
+    menu_scope: 'platform',
     menu_type: 'page',
     path: '',
     route_name: '',
@@ -366,6 +377,7 @@
     label: { required: true, message: '请输入菜单名称', trigger: 'blur' },
     key: { required: true, message: '请输入菜单 Key', trigger: 'blur' },
     menu_type: { required: true, message: '请选择菜单类型', trigger: 'change' },
+    menu_scope: { required: true, message: '请选择菜单范围', trigger: 'change' },
     component: {
       validator: (_rule, value: string) => {
         if (formParams.menu_type === 'page' && !String(value || '').trim()) {
@@ -467,7 +479,7 @@
       blocked.add(formParams.key);
     }
     return rows.value
-      .filter((item) => item.menu_type !== 'action' && !blocked.has(item.key))
+      .filter((item) => item.menu_type !== 'action' && item.menu_scope === formParams.menu_scope && !blocked.has(item.key))
       .map((item) => ({
         label: item.label,
         value: item.key,
@@ -535,6 +547,7 @@
     formParams.id = null;
     formParams.key = '';
     formParams.label = '';
+    formParams.menu_scope = 'platform';
     formParams.menu_type = 'page';
     formParams.path = '';
     formParams.route_name = '';
@@ -555,6 +568,7 @@
     formParams.id = menu.id;
     formParams.key = menu.key;
     formParams.label = menu.label || '';
+    formParams.menu_scope = menu.menu_scope === 'tenant' ? 'tenant' : 'platform';
     formParams.menu_type = menu.menu_type || 'page';
     formParams.path = menu.path || '';
     formParams.route_name = menu.route_name || '';
@@ -575,6 +589,7 @@
     resetForm();
     formParams.parent_key = parentKey;
     const parent = parentKey ? findMenuByKey(rows.value, parentKey) : null;
+    formParams.menu_scope = parent?.menu_scope === 'tenant' ? 'tenant' : 'platform';
     formParams.menu_type = parent?.menu_type === 'page' ? 'action' : parentKey ? 'page' : 'directory';
   }
 
@@ -640,6 +655,7 @@
       const payload = {
         key: formParams.key.trim(),
         label: formParams.label.trim(),
+        menu_scope: formParams.menu_scope,
         menu_type: formParams.menu_type,
         path: formParams.menu_type === 'action' ? '' : formParams.path.trim(),
         route_name: formParams.menu_type === 'action' ? '' : formParams.route_name.trim(),

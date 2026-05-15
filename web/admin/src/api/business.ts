@@ -100,6 +100,7 @@ export interface DataResourcePayload {
 export interface RbacMenuPayload {
   key: string;
   label: string;
+  menu_scope?: 'platform' | 'tenant';
   menu_type: 'directory' | 'page' | 'action';
   path?: string;
   route_name?: string;

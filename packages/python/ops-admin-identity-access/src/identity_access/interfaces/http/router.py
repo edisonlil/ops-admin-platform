@@ -408,6 +408,7 @@ def create_rbac_menu(
     return ok({"item": services.create_menu(
         menu_key=payload.key,
         label=payload.label,
+        menu_scope=payload.menu_scope,
         menu_type=payload.menu_type,
         path=payload.path,
         route_name=payload.route_name,
@@ -430,6 +431,7 @@ def update_rbac_menu(
         menu_id,
         menu_key=payload.key,
         label=payload.label,
+        menu_scope=payload.menu_scope,
         menu_type=payload.menu_type,
         path=payload.path,
         route_name=payload.route_name,

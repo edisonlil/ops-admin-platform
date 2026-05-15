@@ -208,7 +208,7 @@
   }
 
   function openDetail(app: AiApplication) {
-    router.push(`/ai/studio/apps/${encodeURIComponent(app.app_key)}`);
+    router.push({ name: 'ai-studio-app-detail', params: { appKey: app.app_key } });
   }
 
   async function reload() {

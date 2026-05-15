@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import io
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -774,6 +775,92 @@ class ApiTests(unittest.TestCase):
 
         delete_response = self.request("DELETE", f"/api/rbac/menus/{menu_id}")
         self.assertEqual(delete_response.status_code, 200)
+
+    def test_tenant_menu_create_syncs_tenant_overrides(self) -> None:
+        create_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "tenant-reports",
+                "label": "Tenant Reports",
+                "menu_scope": "tenant",
+                "menu_type": "directory",
+                "path": "/tenant-reports",
+                "route_name": "tenant-reports",
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "",
+                "sort_order": 200,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        menu_id = create_response.json()["data"]["item"]["id"]
+
+        db_path = os.environ["FG_AGENT_DB_PATH"]
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            tenant_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM tenants WHERE tenant_key <> ?",
+                ("platform",),
+            ).fetchone()["count"]
+            override_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM tenant_menu_overrides WHERE menu_key = ? AND is_enabled = TRUE",
+                ("tenant-reports",),
+            ).fetchone()["count"]
+        finally:
+            conn.close()
+        self.assertEqual(override_count, tenant_count)
+
+        update_response = self.request(
+            "PUT",
+            f"/api/rbac/menus/{menu_id}",
+            json={
+                "key": "tenant-reports-v2",
+                "label": "Tenant Reports",
+                "menu_scope": "tenant",
+                "menu_type": "directory",
+                "path": "/tenant-reports",
+                "route_name": "tenant-reports",
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "",
+                "sort_order": 200,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            old_override_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM tenant_menu_overrides WHERE menu_key = ?",
+                ("tenant-reports",),
+            ).fetchone()["count"]
+            new_override_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM tenant_menu_overrides WHERE menu_key = ? AND is_enabled = TRUE",
+                ("tenant-reports-v2",),
+            ).fetchone()["count"]
+        finally:
+            conn.close()
+        self.assertEqual(old_override_count, 0)
+        self.assertEqual(new_override_count, tenant_count)
+
+        delete_response = self.request("DELETE", f"/api/rbac/menus/{menu_id}")
+        self.assertEqual(delete_response.status_code, 200)
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            deleted_override_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM tenant_menu_overrides WHERE menu_key = ?",
+                ("tenant-reports-v2",),
+            ).fetchone()["count"]
+        finally:
+            conn.close()
+        self.assertEqual(deleted_override_count, 0)
 
     def test_admin_can_create_action_permission_under_page(self) -> None:
         page_response = self.request(

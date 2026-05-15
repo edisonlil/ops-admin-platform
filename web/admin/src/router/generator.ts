@@ -8,6 +8,7 @@ const Iframe = () => import('@/views/iframe/index.vue');
 const LayoutMap = new Map<string, () => Promise<typeof import('*.vue')>>();
 
 LayoutMap.set('LAYOUT', Layout);
+LayoutMap.set('PARENT_LAYOUT', ParentLayout);
 LayoutMap.set('IFRAME', Iframe);
 
 interface BackendMenu {
@@ -96,6 +97,13 @@ function childPath(path: string, parentPath: string) {
   return stripLeadingSlash(normalized) || 'index';
 }
 
+function absoluteRoutePath(parentPath: string, routePath: string) {
+  if (!parentPath) {
+    return normalizeAbsolutePath(routePath, '/');
+  }
+  return normalizeAbsolutePath(`${stripLeadingSlash(parentPath)}/${stripLeadingSlash(routePath)}`, '/');
+}
+
 function routeName(menu: BackendMenu) {
   return String(menu.route_name || menu.key || '').trim();
 }
@@ -125,6 +133,31 @@ function moduleVisibleMenus(items: BackendMenu[] = []) {
   return filterOpsAdminMenuTree(visibleSortedMenus(items), isOpsAdminMenuAllowed) as BackendMenu[];
 }
 
+function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute[] {
+  const key = String(menu.key || '').trim();
+  if (key !== 'ai-studio') {
+    return [];
+  }
+  return [
+    {
+      path: `${stripLeadingSlash(routePath)}/apps/:appKey`,
+      name: 'ai-studio-app-detail',
+      component: '/ai/studio/detail',
+      meta: {
+        title: 'AI 应用配置',
+        permissions: ['ai_studio:access'],
+        activeMenu: routeName(menu) || key,
+        hidden: true,
+      },
+    },
+  ];
+}
+
+function menuToBackendRoutes(menu: BackendMenu, parentPath = ''): BackendRoute[] {
+  const route = menuToBackendRoute(menu, parentPath);
+  return parentPath ? [route, ...hiddenSiblingRoutes(menu, route.path)] : [route];
+}
+
 function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
   const key = String(menu.key || '').trim();
   const children = visibleSortedMenus(menu.children);
@@ -132,16 +165,20 @@ function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
 
   if (isDirectory) {
     const groupPath = normalizeAbsolutePath(String(menu.path || ''), `/${key}`);
-    const childRoutes = children.map((child) => menuToBackendRoute(child, groupPath));
+    const childRoutes = children.flatMap((child) => menuToBackendRoutes(child, groupPath));
+    const path = parentPath ? childPath(groupPath, parentPath) : groupPath;
     const route: BackendRoute = {
-      path: parentPath ? childPath(groupPath, parentPath) : groupPath,
+      path,
       name: routeName(menu) || key,
-      component: 'LAYOUT',
+      component: parentPath ? 'PARENT_LAYOUT' : 'LAYOUT',
       meta: routeMeta(menu),
       children: childRoutes,
     };
     if (childRoutes.length) {
-      route.redirect = `${groupPath}/${childRoutes[0].path}`.replace('//', '/');
+      route.redirect = `${absoluteRoutePath(parentPath, path)}/${stripLeadingSlash(childRoutes[0].path)}`.replace(
+        '//',
+        '/'
+      );
     }
     return route;
   }
@@ -208,7 +245,7 @@ export const generateRoutes = (routerMap, parent?): any[] => {
 };
 
 export const generateDynamicRoutes = async (menus: BackendMenu[] = []): Promise<RouteRecordRaw[]> => {
-  const backendRoutes = moduleVisibleMenus(menus).map((menu) => menuToBackendRoute(menu));
+  const backendRoutes = moduleVisibleMenus(menus).flatMap((menu) => menuToBackendRoutes(menu));
   const router = generateRoutes(backendRoutes);
   asyncImportRoute(router);
   return router;

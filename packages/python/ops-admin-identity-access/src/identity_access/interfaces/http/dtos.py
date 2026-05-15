@@ -121,6 +121,7 @@ class RbacRoleUpdateRequest(BaseModel):
 class RbacMenuCreateRequest(BaseModel):
     key: str = Field(min_length=1, max_length=120)
     label: str = Field(min_length=1, max_length=120)
+    menu_scope: str = Field(default="platform", max_length=20)
     menu_type: str = Field(min_length=1, max_length=20)
     path: str = Field(default="", max_length=240)
     route_name: str = Field(default="", max_length=120)
@@ -147,6 +148,14 @@ class RbacMenuCreateRequest(BaseModel):
         normalized = value.strip().lower()
         if normalized not in {"directory", "page", "action"}:
             raise ValueError("menu_type must be directory, page or action")
+        return normalized
+
+    @field_validator("menu_scope")
+    @classmethod
+    def validate_menu_scope(cls, value: str) -> str:
+        normalized = value.strip().lower() or "platform"
+        if normalized not in {"platform", "tenant"}:
+            raise ValueError("menu_scope must be platform or tenant")
         return normalized
 
 

@@ -313,6 +313,33 @@ def resolve_role_menu_selection(conn: Any, menu_keys: list[str], *, role_scope: 
     return selected_menus, [int(row["id"]) for row in permission_rows]
 
 
+def sync_tenant_menu_overrides_for_key(conn: Any, menu_key: str) -> None:
+    normalized_key = menu_key.strip()
+    if not normalized_key:
+        return
+    now = now_iso()
+    tenant_rows = conn.execute(
+        """
+        SELECT id
+        FROM tenants
+        WHERE tenant_key <> ?
+        ORDER BY id
+        """,
+        ("platform",),
+    ).fetchall()
+    for tenant in tenant_rows:
+        conn.execute(
+            """
+            INSERT INTO tenant_menu_overrides (tenant_id, menu_key, is_enabled, create_time, update_time)
+            SELECT ?, ?, TRUE, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM tenant_menu_overrides WHERE tenant_id = ? AND menu_key = ?
+            )
+            """,
+            (int(tenant["id"]), normalized_key, now, now, int(tenant["id"]), normalized_key),
+        )
+
+
 def sync_role_access(conn: Any, role_id: int, menu_keys: list[str]) -> None:
     role_row = conn.execute("SELECT role_scope FROM roles WHERE id = ?", (role_id,)).fetchone()
     role_scope = str(role_row["role_scope"] if role_row else "platform" or "platform")
@@ -459,6 +486,7 @@ def validate_menu_payload(
     *,
     menu_key: str,
     label: str,
+    menu_scope: str,
     menu_type: str,
     path: str,
     route_name: str,
@@ -468,6 +496,7 @@ def validate_menu_payload(
 ) -> dict[str, Any]:
     normalized_key = menu_key.strip()
     normalized_label = label.strip()
+    normalized_scope = menu_scope.strip().lower() or "platform"
     normalized_type = menu_type.strip().lower()
     normalized_path = path.strip()
     normalized_route_name = route_name.strip() or normalized_key
@@ -478,6 +507,8 @@ def validate_menu_payload(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu key is required")
     if not normalized_label:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu label is required")
+    if normalized_scope not in {"platform", "tenant"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu scope must be platform or tenant")
     if normalized_type not in {"directory", "page", "action"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu type must be directory, page or action")
     if normalized_type == "page":
@@ -501,11 +532,14 @@ def validate_menu_payload(
 
     if normalized_parent_key:
         parent_row = conn.execute(
-            "SELECT id, menu_key, menu_type FROM menus WHERE menu_key = ?",
+            "SELECT id, menu_key, menu_scope, menu_type FROM menus WHERE menu_key = ?",
             (normalized_parent_key,),
         ).fetchone()
         if not parent_row:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="parent menu not found")
+        parent_scope = str(parent_row["menu_scope"] or "platform")
+        if parent_scope != normalized_scope:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="parent menu scope must match menu scope")
         parent_type = str(parent_row["menu_type"] or "page")
         if normalized_type == "action":
             if parent_type != "page":
@@ -542,6 +576,7 @@ def create_menu(
     menu_key: str,
     label: str,
     menu_type: str,
+    menu_scope: str = "platform",
     path: str = "",
     route_name: str = "",
     component: str = "",
@@ -552,6 +587,9 @@ def create_menu(
     is_visible: bool = True,
 ) -> dict[str, Any]:
     now = now_iso()
+    normalized_scope = menu_scope.strip().lower() or "platform"
+    if normalized_scope not in {"platform", "tenant"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu scope must be platform or tenant")
     normalized_permission = permission_code.strip()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -559,6 +597,7 @@ def create_menu(
             conn,
             menu_key=menu_key,
             label=label,
+            menu_scope=normalized_scope,
             menu_type=menu_type,
             path=path,
             route_name=route_name,
@@ -576,7 +615,7 @@ def create_menu(
             """,
             (
                 payload["menu_key"],
-                "platform",
+                normalized_scope,
                 payload["label"],
                 payload["menu_type"],
                 payload["path"],
@@ -593,6 +632,8 @@ def create_menu(
         if not menu_id:
             row = conn.execute("SELECT id FROM menus WHERE menu_key = ?", (payload["menu_key"],)).fetchone()
             menu_id = int(row["id"])
+        if normalized_scope == "tenant":
+            sync_tenant_menu_overrides_for_key(conn, payload["menu_key"])
         rebuild_all_role_permissions(conn)
 
     menu = next((item for item in list_menus() if int(item["id"]) == menu_id), None)
@@ -607,6 +648,7 @@ def update_menu(
     menu_key: str,
     label: str,
     menu_type: str,
+    menu_scope: str = "platform",
     path: str = "",
     route_name: str = "",
     component: str = "",
@@ -617,12 +659,15 @@ def update_menu(
     is_visible: bool = True,
 ) -> dict[str, Any]:
     now = now_iso()
+    normalized_scope = menu_scope.strip().lower() or "platform"
+    if normalized_scope not in {"platform", "tenant"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu scope must be platform or tenant")
     normalized_permission = permission_code.strip()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
         current = conn.execute(
             """
-            SELECT id, menu_key, menu_type, path, parent_key
+            SELECT id, menu_key, menu_scope, menu_type, path, parent_key
             FROM menus
             WHERE id = ?
             """,
@@ -635,6 +680,7 @@ def update_menu(
             conn,
             menu_key=menu_key,
             label=label,
+            menu_scope=normalized_scope,
             menu_type=menu_type,
             path=path,
             route_name=route_name,
@@ -658,13 +704,14 @@ def update_menu(
         conn.execute(
             """
             UPDATE menus
-            SET menu_key = ?, label = ?, menu_type = ?, path = ?, route_name = ?,
+            SET menu_key = ?, menu_scope = ?, label = ?, menu_type = ?, path = ?, route_name = ?,
                 component = ?, icon = ?, parent_key = ?, permission_code = ?,
                 sort_order = ?, is_visible = ?
             WHERE id = ?
             """,
             (
                 payload["menu_key"],
+                normalized_scope,
                 payload["label"],
                 payload["menu_type"],
                 payload["path"],
@@ -687,6 +734,19 @@ def update_menu(
                 """,
                 (payload["menu_key"], current_key),
             )
+            conn.execute(
+                """
+                UPDATE tenant_menu_overrides
+                SET menu_key = ?, update_time = ?
+                WHERE menu_key = ?
+                """,
+                (payload["menu_key"], now, current_key),
+            )
+        current_scope = str(current["menu_scope"] or "platform")
+        if normalized_scope == "tenant":
+            sync_tenant_menu_overrides_for_key(conn, payload["menu_key"])
+        elif current_scope == "tenant":
+            conn.execute("DELETE FROM tenant_menu_overrides WHERE menu_key = ?", (payload["menu_key"],))
         conn.execute("UPDATE roles SET update_time = ? WHERE id IN (SELECT role_id FROM role_menus)", (now,))
         rebuild_all_role_permissions(conn)
 
@@ -707,7 +767,10 @@ def delete_menu(menu_id: int) -> dict[str, Any]:
         ensure_menu_not_bound(conn, [str(row.get("menu_key", "")) for row in subtree])
         subtree_ids = [int(row["id"]) for row in subtree]
         placeholders = ", ".join("?" for _ in subtree_ids)
+        subtree_keys = [str(row.get("menu_key", "")) for row in subtree]
+        key_placeholders = ", ".join("?" for _ in subtree_keys)
         conn.execute(f"DELETE FROM role_menus WHERE menu_id IN ({placeholders})", tuple(subtree_ids))
+        conn.execute(f"DELETE FROM tenant_menu_overrides WHERE menu_key IN ({key_placeholders})", tuple(subtree_keys))
         conn.execute(f"DELETE FROM menus WHERE id IN ({placeholders})", tuple(subtree_ids))
         rebuild_all_role_permissions(conn)
     return row_to_menu(dict(current))
