@@ -49,6 +49,7 @@
             <n-spin :show="menusLoading">
               <n-tree
                 block-line
+                cascade
                 checkable
                 :data="roleFormMenuTree"
                 :checked-keys="roleForm.menu_keys"
@@ -83,6 +84,7 @@
         <n-spin :show="menusLoading">
           <n-tree
             block-line
+            cascade
             checkable
             :data="currentRoleMenuTree"
             :checked-keys="checkedMenuKeys"
@@ -409,7 +411,7 @@
   }
 
   function handleCheckedMenuKeys(keys: Array<string | number>) {
-    checkedMenuKeys.value = withAncestorMenuKeys(keys);
+    checkedMenuKeys.value = keys.map((key) => String(key));
   }
 
   function handleExpandedMenuKeys(keys: Array<string | number>) {
@@ -430,7 +432,7 @@
   }
 
   function handleRoleMenuKeys(keys: Array<string | number>) {
-    roleForm.menu_keys = withAncestorMenuKeys(keys);
+    roleForm.menu_keys = keys.map((key) => String(key));
   }
 
   async function submitRoleForm() {
@@ -447,7 +449,7 @@
         key: roleForm.key.trim(),
         name: roleForm.name.trim(),
         description: roleForm.description.trim(),
-        menu_keys: roleForm.menu_keys.filter((key) => availableKeys.has(key)),
+        menu_keys: withAncestorMenuKeys(roleForm.menu_keys).filter((key) => availableKeys.has(key)),
       };
 
       if (roleFormMode.value === 'create') {
@@ -474,7 +476,9 @@
     }
     savingMenus.value = true;
     try {
-      await updateRbacRoleMenus(currentRole.value.id, checkedMenuKeys.value);
+      const availableKeys = new Set(collectTreeKeys(currentRoleMenuTree.value));
+      const menuKeys = withAncestorMenuKeys(checkedMenuKeys.value).filter((key) => availableKeys.has(key));
+      await updateRbacRoleMenus(currentRole.value.id, menuKeys);
       await reload();
       message.success('菜单权限保存成功');
       menuModalVisible.value = false;
