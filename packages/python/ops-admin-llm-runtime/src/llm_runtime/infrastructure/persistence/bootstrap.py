@@ -31,6 +31,9 @@ def require_llm_schema(conn: Any) -> None:
         "llm_routing_policies",
         "llm_routing_policy_entries",
         "llm_call_logs",
+        "ai_applications",
+        "tenant_ai_quotas",
+        "prompt_runtime_traces",
     )
     missing_tables = [table_name for table_name in required_tables if not table_exists(conn, table_name)]
     missing_tenant_columns = [
@@ -58,6 +61,9 @@ def ensure_tenant_columns(conn: Any) -> None:
         "llm_routing_policies",
         "llm_routing_policy_entries",
         "llm_call_logs",
+        "ai_applications",
+        "tenant_ai_quotas",
+        "prompt_runtime_traces",
     ):
         ensure_tenant_column(conn, table_name)
 

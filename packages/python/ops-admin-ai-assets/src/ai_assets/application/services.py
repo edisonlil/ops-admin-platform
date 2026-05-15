@@ -16,6 +16,7 @@ from ai_assets.domain.exceptions import (
 )
 from ai_assets.domain.models import (
     PROMPT_ASSET_STATUS_ARCHIVED,
+    PROMPT_ASSET_STATUS_PUBLISHED,
     PROMPT_VERSION_STATUS_DEPRECATED,
     PROMPT_VERSION_STATUS_PUBLISHED,
     PromptAsset,
@@ -52,6 +53,62 @@ def get_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, 
     item = load_prompt_asset(prompt_id, current_user)
     versions = repositories.list_prompt_versions(tenant_id=item.tenant_id, prompt_id=prompt_id)
     return {"item": item.to_dict(), "versions": [version.to_dict() for version in versions]}
+
+
+def list_published_prompt_assets(
+    *,
+    current_user: dict[str, Any],
+    keyword: str = "",
+    page: int = 1,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    return list_prompt_assets(
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        keyword=keyword,
+        status_filter=PROMPT_ASSET_STATUS_PUBLISHED,
+    )
+
+
+def get_published_prompt_asset(prompt_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    return resolve_published_prompt(prompt_key=prompt_key, tenant_id=tenant_id)
+
+
+def resolve_published_prompt(*, prompt_key: str, tenant_id: int) -> dict[str, Any]:
+    normalized_key = str(prompt_key or "").strip()
+    if not normalized_key:
+        raise domain_http_error(PromptAssetNotFound("published prompt asset not found"))
+    try:
+        asset = repositories.get_prompt_asset_by_key(tenant_id=tenant_id, prompt_key=normalized_key)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not asset or asset.status != PROMPT_ASSET_STATUS_PUBLISHED:
+        raise domain_http_error(PromptAssetNotFound("published prompt asset not found"))
+    try:
+        version = repositories.get_published_prompt_version(tenant_id=tenant_id, prompt_id=asset.id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not version:
+        raise domain_http_error(PromptAssetNotFound("published prompt version not found"))
+    version_payload = version.to_dict()
+    return {
+        "asset": asset.to_dict(),
+        "version": version_payload,
+        "prompt_key": asset.prompt_key,
+        "asset_key": asset.prompt_key,
+        "name": asset.name,
+        "description": asset.description,
+        "resolved_version": version.version,
+        "system_prompt": version.system_prompt or version.user_prompt_template,
+        "developer_prompt": version.developer_prompt,
+        "user_prompt_template": version.user_prompt_template,
+        "variables_schema": version.variables_schema,
+        "output_schema": version.output_schema,
+        "model_preferences": version.model_preferences,
+        "published_time": version.published_time,
+    }
 
 
 def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], prompt_id: int | None = None) -> dict[str, Any]:

@@ -106,6 +106,23 @@ def get_prompt_asset(*, tenant_id: int, prompt_id: int) -> PromptAsset | None:
     return row_to_asset(dict(row)) if row else None
 
 
+def get_prompt_asset_by_key(*, tenant_id: int, prompt_key: str) -> PromptAsset | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_ai_assets_schema(conn)
+        row = conn.execute(
+            f"""
+            SELECT pa.*,
+                   (SELECT COUNT(*) FROM prompt_versions pv
+                    WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count,
+                   {effective_prompt_asset_status_sql()} AS effective_status
+            FROM prompt_assets pa
+            WHERE pa.prompt_key = ? AND pa.tenant_id = ? AND pa.deleted = 0
+            """,
+            (prompt_key, tenant_id),
+        ).fetchone()
+    return row_to_asset(dict(row)) if row else None
+
+
 def prompt_key_exists(*, tenant_id: int, prompt_key: str) -> bool:
     with connect(database_target(), readonly=True) as conn:
         require_ai_assets_schema(conn)
@@ -337,6 +354,22 @@ def get_prompt_version(*, tenant_id: int, version_id: int) -> PromptVersion | No
         row = conn.execute(
             "SELECT * FROM prompt_versions WHERE id = ? AND tenant_id = ? AND deleted = 0",
             (version_id, tenant_id),
+        ).fetchone()
+    return row_to_version(dict(row)) if row else None
+
+
+def get_published_prompt_version(*, tenant_id: int, prompt_id: int) -> PromptVersion | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_ai_assets_schema(conn)
+        row = conn.execute(
+            """
+            SELECT *
+            FROM prompt_versions
+            WHERE tenant_id = ? AND prompt_id = ? AND status = ? AND deleted = 0
+            ORDER BY published_time DESC, update_time DESC, id DESC
+            LIMIT 1
+            """,
+            (tenant_id, prompt_id, PROMPT_VERSION_STATUS_PUBLISHED),
         ).fetchone()
     return row_to_version(dict(row)) if row else None
 

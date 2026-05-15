@@ -66,6 +66,23 @@ export interface PromptVersionPayload {
   status?: string;
 }
 
+export interface PublishedPromptAsset {
+  asset: PromptAsset;
+  version: PromptVersion;
+  prompt_key: string;
+  asset_key: string;
+  name: string;
+  description: string;
+  resolved_version: string;
+  system_prompt: string;
+  developer_prompt: string;
+  user_prompt_template: string;
+  variables_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  model_preferences: Record<string, unknown>;
+  published_time?: string | null;
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return {
     ...params,
@@ -86,6 +103,22 @@ export function getPromptAssets(params: {
 
 export function getPromptAsset(promptId: number) {
   return Alova.Get<{ item: PromptAsset; versions: PromptVersion[] }>(`/prompts/${promptId}`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function getPublishedPromptAssets(params: {
+  page?: number;
+  page_size?: number;
+  keyword?: string;
+} = {}) {
+  return Alova.Get<PromptListData<PromptAsset>>('/prompts/published', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getPublishedPromptAsset(promptKey: string) {
+  return Alova.Get<PublishedPromptAsset>(`/prompts/published/${encodeURIComponent(promptKey)}`, {
     params: withNoCacheParams(),
   });
 }

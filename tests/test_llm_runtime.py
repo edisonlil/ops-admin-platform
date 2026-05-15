@@ -8,12 +8,15 @@ from unittest import mock
 import json
 
 from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
+from llm_runtime.application import ai_applications
 from llm_runtime.application import gateway
 from llm_runtime.application import services
 from llm_runtime.infrastructure.persistence.bootstrap import ensure_llm_schema
 from llm_runtime.infrastructure.persistence import repositories
 from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.domain.tenancy import TenantScope
+from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
+from ai_assets.application import services as ai_asset_services
 
 
 class LLMRuntimeTests(unittest.TestCase):
@@ -359,6 +362,188 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_quota_blocks_new_applications(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            tenant = set_tenant_scope(TenantScope(tenant_id=33, tenant_key="quota", tenant_name="Quota Tenant"))
+            try:
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                        ai_applications.save_tenant_ai_quota(
+                            33,
+                            {
+                                "max_applications": 1,
+                                "max_capabilities": 10,
+                                "max_assets": 10,
+                                "daily_run_limit": 10,
+                                "monthly_token_limit": 100,
+                                "enabled": True,
+                            },
+                        )
+                        ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+                        with self.assertRaises(Exception) as raised:
+                            ai_applications.save_ai_application(self._sample_ai_application("translate"))
+            finally:
+                reset_tenant_scope(tenant)
+
+            self.assertIn("quota", str(getattr(raised.exception, "detail", "")).lower())
+        finally:
+            self._unlink_db(db_path)
+
+    def test_platform_admin_can_configure_ai_application_quota_for_tenant(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                saved = ai_applications.save_tenant_ai_quota(
+                    44,
+                    {
+                        "max_applications": 2,
+                        "max_capabilities": 10,
+                        "max_assets": 10,
+                        "daily_run_limit": 10,
+                        "monthly_token_limit": 100,
+                        "enabled": True,
+                    },
+                )
+                visible = ai_applications.get_admin_tenant_ai_quota(44)
+
+            self.assertEqual(saved["tenant_id"], 44)
+            self.assertEqual(visible["max_applications"], 2)
+            self.assertEqual(visible["usage"]["applications"], 0)
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_draft_run_records_prompt_trace(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        self.assertEqual(kwargs["model"], "dashscope.qwen-plus")
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        self.assertEqual(messages[-1]["content"], "请总结：退款流程是什么")
+                        return {
+                            "choices": [{"message": {"content": "退款流程摘要"}}],
+                            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+                        }
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "summarize",
+                            {"variables": {"question": "退款流程是什么"}},
+                        )
+
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            self.assertEqual(result["answer"], "退款流程摘要")
+            self.assertTrue(result["trace_id"].startswith("trace_"))
+            self.assertEqual(len(traces), 1)
+            self.assertEqual(traces[0]["status"], "success")
+            self.assertEqual(traces[0]["input_variables"]["question"], "退款流程是什么")
+            self.assertIn("请总结", traces[0]["rendered_prompt"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_can_resolve_system_prompt_from_published_prompt_asset(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        self._initialize_ai_assets_db(db_path)
+        current_user = {
+            "id": 10,
+            "username": "owner",
+            "current_tenant": {"id": 1, "tenant_key": "default", "name": "Default"},
+            "tenant_id": 1,
+        }
+        try:
+            tenant = set_tenant_scope(TenantScope(tenant_id=1, tenant_key="default", tenant_name="Default"))
+            try:
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                        with mock.patch("ai_assets.infrastructure.persistence.repositories.resolve_db_path", return_value=db_path):
+                            prompt = ai_asset_services.save_prompt_asset(
+                                {
+                                    "prompt_key": "support.system",
+                                    "name": "Support System",
+                                    "description": "",
+                                    "tags": [],
+                                    "status": "draft",
+                                },
+                                current_user,
+                            )["item"]
+                            version = ai_asset_services.save_prompt_version(
+                                int(prompt["id"]),
+                                {
+                                    "version": "v2",
+                                    "system_prompt": "你是退款专家，只回答退款流程。",
+                                    "developer_prompt": "",
+                                    "user_prompt_template": "",
+                                    "variables_schema": {},
+                                    "output_schema": {},
+                                    "render_engine": "simple",
+                                    "status": "draft",
+                                },
+                                current_user,
+                            )["item"]
+                            ai_asset_services.publish_prompt_version(int(prompt["id"]), int(version["id"]), current_user)
+
+                            app_payload = self._sample_ai_application("summarize")
+                            app_payload["system_prompt"] = "inline fallback"
+                            app_payload["runtime_config"] = {
+                                "system_prompt_source": "asset",
+                                "system_prompt_asset_key": "support.system",
+                            }
+                            ai_applications.save_ai_application(app_payload)
+
+                            def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                                messages = kwargs["messages"]
+                                assert isinstance(messages, list)
+                                self.assertEqual(messages[0]["role"], "system")
+                                self.assertEqual(messages[0]["content"], "你是退款专家，只回答退款流程。")
+                                return {"choices": [{"message": {"content": "退款流程摘要"}}], "usage": {}}
+
+                            with mock.patch(
+                                "llm_runtime.application.ai_applications.gateway.chat_completions",
+                                side_effect=fake_chat_completions,
+                            ):
+                                result = ai_applications.run_draft_application(
+                                    "summarize",
+                                    {"variables": {"question": "怎么退款"}},
+                                )
+
+                            trace = result["trace"]
+            finally:
+                reset_tenant_scope(tenant)
+
+            self.assertEqual(result["answer"], "退款流程摘要")
+            self.assertEqual(trace["rendered_messages"][0]["prompt_source"], "prompt_asset")
+            self.assertEqual(trace["rendered_messages"][0]["prompt_asset_key"], "support.system")
+            self.assertEqual(trace["rendered_messages"][0]["prompt_version"], "v2")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_unpublished_ai_application_cannot_run_external_api(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+                    with self.assertRaises(Exception) as raised:
+                        ai_applications.run_published_application("summarize", {"variables": {"question": "hello"}})
+
+            self.assertIn("not published", str(getattr(raised.exception, "detail", "")))
+        finally:
+            self._unlink_db(db_path)
+
     @staticmethod
     def _temporary_db_path() -> Path:
         temp_root = Path(".tmp/test-dbs")
@@ -379,6 +564,32 @@ class LLMRuntimeTests(unittest.TestCase):
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _initialize_ai_assets_db(db_path: Path) -> None:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            ensure_ai_assets_schema(conn)
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _sample_ai_application(app_key: str) -> dict[str, object]:
+        return {
+            "app_key": app_key,
+            "name": app_key.title(),
+            "description": "",
+            "app_type": "single_turn_generation",
+            "status": "draft",
+            "system_prompt": "你是一个简洁的助手",
+            "developer_prompt": "",
+            "user_prompt_template": "请总结：{{question}}",
+            "variables_schema": {"type": "object", "required": ["question"]},
+            "model_preferences": {"model": "dashscope.qwen-plus", "temperature": 0.2},
+            "trace_policy": {"enabled": True},
+        }
 
     @staticmethod
     def _seed_route(db_path: Path) -> None:

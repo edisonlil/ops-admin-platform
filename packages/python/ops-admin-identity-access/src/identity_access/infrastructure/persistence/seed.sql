@@ -213,6 +213,38 @@ INSERT INTO permissions (code, name, description)
 SELECT 'prompt:assets:manage', 'Manage prompt assets', 'Create, update, publish, and archive prompt assets'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:assets:manage');
 
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_studio:access', 'AI Studio access', 'Access tenant AI Studio'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_studio:access');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_applications:read', 'AI application read', 'View tenant AI applications'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_applications:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_applications:manage', 'AI application manage', 'Create and update tenant AI applications'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_applications:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_applications:publish', 'AI application publish', 'Publish tenant AI application APIs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_applications:publish');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_applications:run', 'AI application run', 'Run or debug tenant AI applications'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_applications:run');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_runtime:trace:read', 'AI runtime trace read', 'View AI runtime traces'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_runtime:trace:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_studio:quota:read', 'AI Studio quota read', 'View tenant AI Studio quotas'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_studio:quota:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_studio:quota:manage', 'AI Studio quota manage', 'Manage tenant AI Studio quotas'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_studio:quota:manage');
+
 
 
 
@@ -794,6 +826,34 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-library');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'prompt-library-manage', 'tenant', '管理提示词', 'action', '', '', '', '', 'prompt-library', 'prompt:assets:manage', 8411, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-library-manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio', 'tenant', 'AI Studio', 'page', '/ai/studio', 'ai-studio', '/ai/studio/index', 'robot', '', 'ai_studio:access', 84, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-app-manage', 'tenant', 'Manage AI applications', 'action', '', '', '', '', 'ai-studio', 'ai_applications:manage', 841, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-app-publish', 'tenant', 'Publish AI applications', 'action', '', '', '', '', 'ai-studio', 'ai_applications:publish', 842, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-publish');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-app-run', 'tenant', 'Run AI applications', 'action', '', '', '', '', 'ai-studio', 'ai_applications:run', 843, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-run');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-trace-read', 'tenant', 'View runtime traces', 'action', '', '', '', '', 'ai-studio', 'ai_runtime:trace:read', 844, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-trace-read');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-tenant-quotas', 'platform', 'AI application quotas', 'page', '/ai/tenant-quotas', 'ai-tenant-quotas', '/ai/tenant-quotas/index', 'robot', 'platform-management', 'ai_studio:quota:manage', 1095, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-tenant-quotas');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-tenant-quotas-manage', 'platform', 'Manage AI application quotas', 'action', '', '', '', '', 'ai-tenant-quotas', 'ai_studio:quota:manage', 10951, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-tenant-quotas-manage');
 
 
 

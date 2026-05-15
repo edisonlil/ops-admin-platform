@@ -148,6 +148,36 @@ class AIAssetsTests(unittest.TestCase):
         draft_prompt = services.get_prompt_asset(int(prompt["id"]), self.current_user)["item"]
         self.assertEqual(draft_prompt["status"], "draft")
 
+    def test_published_prompt_asset_resolver_uses_current_published_version(self) -> None:
+        prompt = self.create_prompt(prompt_key="assistant.system")
+        first = self.create_version(int(prompt["id"]), version="1.0.0")
+        second = services.save_prompt_version(
+            int(prompt["id"]),
+            {
+                "version": "2.0.0",
+                "system_prompt": "",
+                "developer_prompt": "",
+                "user_prompt_template": "Use published prompt content for {{topic}}.",
+                "variables_schema": {"type": "object", "required": ["topic"]},
+                "output_schema": {},
+                "render_engine": "simple",
+                "status": "draft",
+            },
+            self.current_user,
+        )["item"]
+
+        services.publish_prompt_version(int(prompt["id"]), int(first["id"]), self.current_user)
+        services.publish_prompt_version(int(prompt["id"]), int(second["id"]), self.current_user)
+
+        published = services.list_published_prompt_assets(current_user=self.current_user)["items"]
+        resolved = services.get_published_prompt_asset("assistant.system", self.current_user)
+
+        self.assertEqual([item["prompt_key"] for item in published], ["assistant.system"])
+        self.assertEqual(resolved["asset_key"], "assistant.system")
+        self.assertEqual(resolved["resolved_version"], "2.0.0")
+        self.assertEqual(resolved["system_prompt"], "Use published prompt content for {{topic}}.")
+        self.assertEqual(resolved["variables_schema"]["required"], ["topic"])
+
     def test_requires_explicit_schema_initialization(self) -> None:
         missing_db = Path(self.temp_dir.name) / "missing-schema.db"
         missing_db.touch()

@@ -43,6 +43,31 @@ def create_prompt_asset(
     return ok(services.save_prompt_asset(payload.model_dump(), current_user))
 
 
+@router.get("/prompts/published")
+def published_prompt_assets(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    keyword: str = "",
+    current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
+) -> dict[str, Any]:
+    return ok(
+        services.list_published_prompt_assets(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            current_user=current_user,
+        )
+    )
+
+
+@router.get("/prompts/published/{prompt_key}")
+def published_prompt_asset(
+    prompt_key: str,
+    current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
+) -> dict[str, Any]:
+    return ok(services.get_published_prompt_asset(prompt_key, current_user))
+
+
 @router.get("/prompts/{prompt_id}")
 def prompt_asset(
     prompt_id: int,
