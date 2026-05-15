@@ -93,18 +93,15 @@
   import { useMessage } from 'naive-ui';
   import {
     createLlmOpenAIChatCompletion,
+    fetchLlmOpenAIChatCompletionStream,
     getLlmOpenAIModels,
     type OpenAIChatMessagePayload,
     type OpenAIChatCompletionPayload,
   } from '@/api/business';
-  import { useGlobSetting } from '@/hooks/setting';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { useUser } from '@/store/modules/user';
 
   const message = useMessage();
   const { hasPermission } = usePermission();
-  const userStore = useUser();
-  const { apiUrl, urlPrefix } = useGlobSetting();
   const loadingModels = ref(false);
   const submitting = ref(false);
   const canSendDebug = computed(() => hasPermission(['llm_debug:send']));
@@ -147,6 +144,8 @@
       if (!form.model && modelRows.value.length) {
         form.model = String(modelRows.value[0].id || '');
       }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
     } finally {
       loadingModels.value = false;
     }
@@ -210,15 +209,7 @@
   onMounted(loadModels);
 
   async function submitStreamingDebug(payload: OpenAIChatCompletionPayload) {
-    const response = await fetch(openAIChatCompletionsUrl(), {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(userStore.getToken ? { Authorization: `Bearer ${userStore.getToken}`, token: userStore.getToken } : {}),
-      },
-      body: JSON.stringify(payload),
-    });
+    const response = await fetchLlmOpenAIChatCompletionStream(payload);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `HTTP ${response.status}`);
@@ -239,10 +230,19 @@
       const events = buffer.split('\n\n');
       buffer = events.pop() || '';
       for (const event of events) {
+        const eventType = event
+          .split('\n')
+          .find((item) => item.startsWith('event: '))
+          ?.slice(7)
+          .trim();
         const line = event.split('\n').find((item) => item.startsWith('data: '));
         if (!line) continue;
         const data = line.slice(6).trim();
         if (!data || data === '[DONE]') continue;
+        if (eventType === 'error') {
+          const errorPayload = JSON.parse(data);
+          throw new Error(errorPayload?.message || 'LLM stream failed');
+        }
         const chunk = JSON.parse(data);
         const delta = chunk?.choices?.[0]?.delta || {};
         const reasoningDelta =
@@ -261,10 +261,6 @@
       }
     }
     rawResponse.value = JSON.stringify({ stream: true, content, reasoning }, null, 2);
-  }
-
-  function openAIChatCompletionsUrl() {
-    return `${apiUrl || ''}${urlPrefix || ''}/llm/openai/v1/chat/completions`;
   }
 
   function splitThinkContent(content: string) {

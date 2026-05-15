@@ -1,4 +1,6 @@
 import { Alova } from '@/utils/http/alova/index';
+import { useGlobSetting } from '@/hooks/setting';
+import { useUser } from '@/store/modules/user';
 
 export interface ListQuery {
   q?: string;
@@ -251,6 +253,51 @@ export function createLlmOpenAIChatCompletion(payload: OpenAIChatCompletionPaylo
   return Alova.Post('/llm/openai/v1/chat/completions', payload, {
     meta: { isReturnNativeResponse: true },
   });
+}
+
+export function fetchLlmOpenAIChatCompletionStream(payload: OpenAIChatCompletionPayload) {
+  return fetch(buildBusinessApiUrl('/llm/openai/v1/chat/completions'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  }).catch((error) => {
+    throw new Error(`LLM debug request failed to reach the backend: ${errorMessage(error)}`);
+  });
+}
+
+function authHeaders() {
+  const token = useUser().getToken;
+  return token
+    ? {
+        token,
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+function buildBusinessApiUrl(path: string) {
+  const { apiUrl, urlPrefix } = useGlobSetting();
+  const base = trimTrailingSlashes(apiUrl || '');
+  const prefix = normalizePathPart(urlPrefix || '');
+  const endpoint = normalizePathPart(path);
+  const relativeUrl = `/${[prefix, endpoint].filter(Boolean).join('/')}`;
+  return base ? `${base}${relativeUrl}` : relativeUrl;
+}
+
+function trimTrailingSlashes(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function normalizePathPart(value: string) {
+  return value.replace(/^\/+|\/+$/g, '');
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function getApiKeys() {

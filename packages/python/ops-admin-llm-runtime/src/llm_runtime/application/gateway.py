@@ -179,7 +179,8 @@ def stream_chat_completions(
                     correlation_id=correlation_id,
                 ),
             )
-            raise
+            yield sse_error(str(exc))
+            yield "data: [DONE]\n\n"
 
 
 def chat_with_entry(
@@ -480,6 +481,10 @@ def split_stream_content(content: str, chunk_size: int = 48) -> list[str]:
 
 def sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def sse_error(message: str) -> str:
+    return f"event: error\ndata: {json.dumps({'message': message}, ensure_ascii=False)}\n\n"
 
 
 def stream_event_content(event: str) -> str:

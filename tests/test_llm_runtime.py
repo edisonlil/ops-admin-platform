@@ -335,6 +335,42 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_openai_stream_completion_returns_error_event_for_provider_error(self) -> None:
+        db_path = self._temporary_db_path()
+        sqlite3.connect(db_path).close()
+        try:
+            self._seed_route(db_path)
+
+            class FakeClient:
+                def stream_chat_completions(
+                    self,
+                    messages: list[dict[str, object]],
+                    *,
+                    extra_body: dict[str, object] | None = None,
+                    enable_think_output: bool | None = None,
+                ) -> object:
+                    raise RuntimeError("provider request failed: HTTP 401")
+                    yield ""
+
+            with mock.patch("llm_runtime.application.gateway.database_target", return_value=db_path):
+                with mock.patch("llm_runtime.application.gateway.client_for_entry", return_value=FakeClient()):
+                    events = list(
+                        services.create_openai_chat_completion_stream(
+                            {
+                                "model": "dashscope.qwen-plus",
+                                "messages": [{"role": "user", "content": "count"}],
+                                "stream": True,
+                            }
+                        )
+                    )
+
+            self.assertEqual(len(events), 2)
+            self.assertTrue(events[0].startswith("event: error\n"))
+            self.assertIn("provider request failed: HTTP 401", events[0])
+            self.assertEqual(events[1], "data: [DONE]\n\n")
+        finally:
+            self._unlink_db(db_path)
+
     def test_openai_chat_completion_can_call_route_key(self) -> None:
         db_path = self._temporary_db_path()
         sqlite3.connect(db_path).close()
