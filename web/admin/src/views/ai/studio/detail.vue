@@ -509,10 +509,46 @@
         <header class="workspace-panel__head">
           <div>
             <h3>设置</h3>
-            <span>应用基础信息、发布策略和危险操作会放在这里。</span>
+            <span>维护应用基础信息，保存后会同步到 AI Studio 应用列表。</span>
           </div>
         </header>
-        <n-empty description="设置工作区将在后续里程碑完善" />
+        <div class="app-settings-layout">
+          <section class="app-settings-card">
+            <div class="app-settings-card__head">
+              <div>
+                <h4>应用信息</h4>
+                <span>这些信息用于应用列表、导航和外部识别，不影响 Prompt Runtime 执行逻辑。</span>
+              </div>
+            </div>
+            <n-form label-placement="top" class="app-settings-form">
+              <n-form-item label="应用名称" required>
+                <n-input v-model:value="form.name" maxlength="80" show-count placeholder="请输入应用名称" />
+              </n-form-item>
+              <n-form-item label="图标">
+                <n-select v-model:value="form.icon" :options="iconOptions" />
+              </n-form-item>
+              <n-form-item label="描述">
+                <n-input
+                  v-model:value="form.description"
+                  type="textarea"
+                  maxlength="500"
+                  show-count
+                  placeholder="简要说明这个应用服务什么场景"
+                  :autosize="{ minRows: 4, maxRows: 7 }"
+                />
+              </n-form-item>
+            </n-form>
+          </section>
+
+          <aside class="app-settings-preview">
+            <span class="app-settings-preview__icon">{{ selectedIconLabel.slice(0, 1) }}</span>
+            <div>
+              <h4>{{ form.name || '未命名应用' }}</h4>
+              <p>{{ form.description || '暂无描述' }}</p>
+              <small>{{ form.app_key }} · {{ form.status === 'published' ? '已发布' : '草稿' }}</small>
+            </div>
+          </aside>
+        </div>
       </section>
     </n-spin>
   </DetailPageRuntime>
@@ -648,6 +684,13 @@
     { label: '视频', value: 'video' },
     { label: '文件', value: 'file' },
   ];
+  const iconOptions: SelectOption[] = [
+    { label: '助手', value: 'robot' },
+    { label: '对话', value: 'chat' },
+    { label: '流程', value: 'workflow' },
+    { label: '实验', value: 'experiment' },
+    { label: '接口', value: 'api' },
+  ];
   const workspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
     { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
     { key: 'api', label: '访问 API', description: '调用方式' },
@@ -682,6 +725,7 @@
   const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
   const selectedRunLog = computed(() => runLogs.value.find((item) => item.run_id === selectedRunLogId.value) || runLogs.value[0] || null);
   const selectedRunLogOutput = computed(() => splitThinkContent(selectedRunLog.value?.answer || ''));
+  const selectedIconLabel = computed(() => String(iconOptions.find((item) => item.value === form.icon)?.label || '助手'));
   const apiEndpoint = computed(() => `/runtime/apps/${form.app_key || '{app_key}'}/run`);
   const apiVariableRows = computed(() =>
     runtimeVariableFields.value.map((field) => ({
@@ -1779,6 +1823,82 @@
     color: var(--app-text-color-2);
     font-size: 13px;
     line-height: 1.6;
+  }
+
+  .app-settings-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 640px) minmax(260px, 360px);
+    gap: 18px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  .app-settings-card,
+  .app-settings-preview {
+    min-width: 0;
+    padding: 16px;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .app-settings-card__head {
+    margin-bottom: 14px;
+  }
+
+  .app-settings-card__head h4,
+  .app-settings-preview h4 {
+    margin: 0;
+    color: var(--app-text-color-1);
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .app-settings-card__head span {
+    display: block;
+    margin-top: 4px;
+    color: var(--app-text-color-3);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .app-settings-form {
+    max-width: 560px;
+  }
+
+  .app-settings-preview {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 48%, var(--app-surface-bg));
+  }
+
+  .app-settings-preview__icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    color: var(--app-primary-color);
+    font-size: 16px;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--app-primary-color) 10%, var(--app-surface-bg));
+    border-radius: 8px;
+  }
+
+  .app-settings-preview p {
+    margin: 8px 0;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .app-settings-preview small {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   .run-log-layout {
