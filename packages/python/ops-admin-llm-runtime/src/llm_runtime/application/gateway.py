@@ -279,8 +279,25 @@ def message_content_as_text(value: Any) -> str:
                 text = item.get("text") or item.get("content")
                 if isinstance(text, str):
                     parts.append(text)
+                elif item.get("type"):
+                    parts.append(content_part_as_text(item))
         return "".join(parts)
     return str(value or "")
+
+
+def content_part_as_text(item: dict[str, Any]) -> str:
+    part_type = str(item.get("type") or "").strip()
+    if part_type == "image_url":
+        return "[image]"
+    if part_type == "input_audio":
+        return "[audio]"
+    if part_type == "video_url":
+        return "[video]"
+    if part_type == "file":
+        file_payload = item.get("file") if isinstance(item.get("file"), dict) else {}
+        filename = str(file_payload.get("filename") or "file")
+        return f"[file:{filename}]"
+    return f"[{part_type}]"
 
 
 def generate_with_resolution(

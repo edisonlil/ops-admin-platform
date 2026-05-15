@@ -19,7 +19,8 @@ from system.interfaces.http import current_request_id
 from .services import require_database
 
 
-VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
+MEDIA_VARIABLE_TYPES = {"image", "file", "audio", "video"}
 
 
 def studio_overview() -> dict[str, Any]:
@@ -248,10 +249,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
     validate_variables(app_for_run, variables)
 
     messages = render_messages(app_for_run, variables)
-    rendered_prompt = gateway.prompt_from_messages(
-        prompt=None,
-        messages=[{"role": item["role"], "content": str(item["content"])} for item in messages],
-    )
+    rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
     model = resolve_model(app_for_run, payload)
     return {
         "app": app_for_run,
@@ -400,7 +398,7 @@ def validate_publishable(app: dict[str, Any]) -> None:
 def validate_variables(app: dict[str, Any], variables: dict[str, Any]) -> None:
     schema = app.get("variables_schema") if isinstance(app.get("variables_schema"), dict) else {}
     required = schema.get("required", []) if isinstance(schema.get("required"), list) else []
-    missing = [name for name in required if name not in variables or variables.get(name) in (None, "")]
+    missing = [name for name in required if variable_missing(resolve_variable_value(variables, str(name)))]
     if missing:
         raise HTTPException(status_code=422, detail=f"Missing required variables: {', '.join(map(str, missing))}")
 
@@ -449,18 +447,107 @@ def render_messages(app: dict[str, Any], variables: dict[str, Any]) -> list[dict
     ):
         content = render_template(str(app.get(field) or ""), variables)
         if content.strip():
-            messages.append({"role": role, "content": content})
+            messages.append({"role": role, "content": render_message_content(role, content, variables)})
     if not messages:
         raise HTTPException(status_code=422, detail="Prompt content is required")
     return messages
 
 
+def render_message_content(role: str, text: str, variables: dict[str, Any]) -> str | list[dict[str, Any]]:
+    if role != "user":
+        return text
+    media_parts = media_content_parts(variables)
+    if not media_parts:
+        return text
+    return [{"type": "text", "text": text}, *media_parts]
+
+
 def render_template(template: str, variables: dict[str, Any]) -> str:
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
-        return str(variables.get(name, ""))
+        return variable_text(resolve_variable_value(variables, name))
 
     return VARIABLE_PATTERN.sub(replace, template)
+
+
+def resolve_variable_value(variables: dict[str, Any], name: str) -> Any:
+    if name in variables:
+        return variables.get(name)
+    current: Any = variables
+    for part in name.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return ""
+        current = current.get(part)
+    return current
+
+
+def variable_missing(value: Any) -> bool:
+    return value in (None, "")
+
+
+def variable_text(value: Any) -> str:
+    if is_media_variable(value):
+        media_type = str(value.get("type") or "file")
+        name = str(value.get("name") or "未命名附件")
+        mime_type = str(value.get("mime_type") or "")
+        size = int(value.get("size") or 0)
+        if value.get("text"):
+            return str(value["text"])
+        return f"[已上传{media_type}：{name}，{mime_type}，{size} bytes]"
+    return str(value or "")
+
+
+def media_content_parts(variables: dict[str, Any]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for key, value in variables.items():
+        if is_media_variable(value):
+            part = media_content_part(str(key), value)
+            if part:
+                parts.append(part)
+    return parts
+
+
+def media_content_part(key: str, value: dict[str, Any]) -> dict[str, Any] | None:
+    media_type = str(value.get("type") or "file").strip().lower()
+    data_url = str(value.get("data_url") or "").strip()
+    name = str(value.get("name") or key)
+    mime_type = str(value.get("mime_type") or "")
+    text = str(value.get("text") or "")
+    if text:
+        return {"type": "text", "text": f"\n\n附件 {name} 内容：\n{text}"}
+    if not data_url:
+        return {"type": "text", "text": variable_text(value)}
+    if media_type == "image":
+        return {"type": "image_url", "image_url": {"url": data_url}}
+    if media_type == "audio":
+        return {
+            "type": "input_audio",
+            "input_audio": {
+                "data": data_url_payload(data_url),
+                "format": media_format(name, mime_type, "mp3"),
+            },
+        }
+    if media_type == "video":
+        return {"type": "video_url", "video_url": {"url": data_url}}
+    if media_type == "file":
+        return {"type": "file", "file": {"filename": name, "file_data": data_url}}
+    return None
+
+
+def is_media_variable(value: Any) -> bool:
+    return isinstance(value, dict) and str(value.get("type") or "").strip().lower() in MEDIA_VARIABLE_TYPES
+
+
+def data_url_payload(data_url: str) -> str:
+    return data_url.split(",", 1)[1] if "," in data_url else data_url
+
+
+def media_format(name: str, mime_type: str, fallback: str) -> str:
+    if "/" in mime_type:
+        return mime_type.rsplit("/", 1)[1].split(";", 1)[0] or fallback
+    if "." in name:
+        return name.rsplit(".", 1)[1].lower() or fallback
+    return fallback
 
 
 def resolve_model(app: dict[str, Any], payload: dict[str, Any]) -> str:

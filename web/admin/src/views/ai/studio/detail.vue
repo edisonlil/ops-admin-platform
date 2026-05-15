@@ -63,6 +63,49 @@
                 />
               </n-form-item>
             </n-form>
+
+            <section v-if="runtimeVariableFields.length" class="variable-schema">
+              <div class="variable-schema__header">
+                <div>
+                  <h4>变量</h4>
+                  <span>定义模板中需要注入的变量 Schema。</span>
+                </div>
+                <n-button size="tiny" text @click="syncRuntimeVariableValues">同步 Schema</n-button>
+              </div>
+              <div class="variable-schema__table">
+                <div class="variable-schema__row variable-schema__row--head">
+                  <span>变量 KEY</span>
+                  <span>变量名</span>
+                  <span>类型</span>
+                  <span>可选</span>
+                </div>
+                <div v-for="field in runtimeVariableFields" :key="field.key" class="variable-schema__row">
+                  <div class="variable-schema__key">
+                    <span>{{ field.key }}</span>
+                  </div>
+                  <n-input
+                    v-model:value="variableLabelOverrides[field.key]"
+                    size="small"
+                    clearable
+                    placeholder="用于调试表单展示"
+                    @update:value="(value) => updateVariableLabel(field.key, value)"
+                  />
+                  <n-select
+                    v-model:value="variableTypeOverrides[field.key]"
+                    :options="variableTypeOptions"
+                    size="small"
+                    :consistent-menu-width="false"
+                    class="variable-schema__type"
+                    @update:value="(value) => updateVariableType(field.key, value as RuntimeVariableType)"
+                  />
+                  <n-switch
+                    v-model:value="variableOptionalOverrides[field.key]"
+                    size="small"
+                    @update:value="(value) => updateVariableOptional(field.key, value)"
+                  />
+                </div>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -79,16 +122,19 @@
             <section v-if="runtimeVariableFields.length" class="runtime-variables">
               <div class="runtime-variables__header">
                 <span>运行变量</span>
-                <n-button size="tiny" text @click="syncRuntimeVariableValues">同步 Schema</n-button>
               </div>
-              <n-grid :cols="1" responsive="screen">
-                <n-form-item-gi v-for="field in runtimeVariableFields" :key="field.key" :show-require-mark="field.required">
-                  <template #label>
-                    <span class="runtime-variable-label">
-                      <span>{{ field.label }}</span>
-                      <span v-if="field.label !== field.key" class="runtime-variable-key">{{ field.key }}</span>
+              <div class="runtime-variable-list">
+                <div v-for="field in runtimeVariableFields" :key="field.key" class="runtime-variable-item">
+                  <div class="runtime-variable-label-row">
+                    <span
+                      class="runtime-variable-label"
+                      :title="field.label !== field.key ? `${field.label} (${field.key})` : field.key"
+                    >
+                      <span class="runtime-variable-name">{{ field.label }}</span>
+                      <span v-if="!field.required" class="runtime-variable-optional">选填</span>
                     </span>
-                  </template>
+                    <span v-if="field.required" class="runtime-variable-required">*</span>
+                  </div>
                   <n-select
                     v-if="field.options?.length"
                     v-model:value="runtimeVariableValues[field.key]"
@@ -104,10 +150,26 @@
                     :placeholder="field.placeholder"
                     class="runtime-variable-number"
                   />
+                  <n-upload
+                    v-else-if="isMediaVariableField(field)"
+                    :accept="mediaVariableAccept(field)"
+                    :default-upload="false"
+                    :max="1"
+                    @change="(options) => handleMediaVariableChange(field, options)"
+                  >
+                    <n-upload-dragger>
+                      <div class="runtime-media-upload__title">{{ mediaVariableUploadTitle(field) }}</div>
+                      <div class="runtime-media-upload__hint">{{ mediaVariableUploadHint(field) }}</div>
+                    </n-upload-dragger>
+                  </n-upload>
                   <n-input v-else v-model:value="runtimeVariableValues[field.key]" clearable :placeholder="field.placeholder" />
+                  <div v-if="isMediaVariableField(field) && mediaVariableValue(field.key)" class="runtime-media-file">
+                    <span>{{ mediaVariableValue(field.key)?.name }}</span>
+                    <span>{{ formatBytes(mediaVariableValue(field.key)?.size || 0) }}</span>
+                  </div>
                   <div v-if="field.description" class="runtime-variable-description">{{ field.description }}</div>
-                </n-form-item-gi>
-              </n-grid>
+                </div>
+              </div>
             </section>
 
             <div class="chat-preview">
@@ -162,7 +224,7 @@
   import { computed, onMounted, reactive, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
-  import type { SelectOption } from 'naive-ui';
+  import type { SelectOption, UploadFileInfo } from 'naive-ui';
   import MarkdownIt from 'markdown-it';
   import { getLlmModels, getLlmRoutingPolicies } from '@/api/business';
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
@@ -181,12 +243,23 @@
     label: string;
     placeholder: string;
     description: string;
-    type: 'text' | 'number' | 'boolean';
+    type: RuntimeVariableType;
     required: boolean;
     options?: SelectOption[];
   }
 
   type SchemaRecord = Record<string, unknown>;
+  type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
+  type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
+
+  interface RuntimeMediaVariableValue {
+    type: 'image' | 'file' | 'audio' | 'video';
+    name: string;
+    mime_type: string;
+    size: number;
+    data_url: string;
+    text?: string;
+  }
 
   const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
   const RESERVED_SCHEMA_KEYS = new Set(['type', 'title', 'label', 'description', 'properties', 'required', 'default', 'example']);
@@ -214,7 +287,10 @@
   const selectedSystemPromptAssetKey = ref('');
   const variablesSchemaText = ref('{\n  "type": "object",\n  "required": ["question"]\n}');
   const outputSchemaText = ref('{}');
-  const runtimeVariableValues = reactive<Record<string, string | number | boolean | null>>({});
+  const runtimeVariableValues = reactive<Record<string, RuntimeVariableValue>>({});
+  const variableTypeOverrides = reactive<Record<string, RuntimeVariableType>>({});
+  const variableLabelOverrides = reactive<Record<string, string>>({});
+  const variableOptionalOverrides = reactive<Record<string, boolean>>({});
   const runResult = ref<AiRunResult | null>(null);
   const streamThinkText = ref('');
   const form = reactive({
@@ -252,6 +328,15 @@
       });
     return options;
   });
+  const variableTypeOptions: SelectOption[] = [
+    { label: '文本', value: 'text' },
+    { label: '数字', value: 'number' },
+    { label: '开关', value: 'boolean' },
+    { label: '图片', value: 'image' },
+    { label: '音频', value: 'audio' },
+    { label: '视频', value: 'video' },
+    { label: '文件', value: 'file' },
+  ];
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const runtimeVariableFields = computed<RuntimeVariableField[]>(() =>
@@ -353,6 +438,10 @@
   }
 
   function selectApp(app: AiApplication) {
+    Object.keys(variableTypeOverrides).forEach((key) => delete variableTypeOverrides[key]);
+    Object.keys(variableLabelOverrides).forEach((key) => delete variableLabelOverrides[key]);
+    Object.keys(variableOptionalOverrides).forEach((key) => delete variableOptionalOverrides[key]);
+    Object.keys(runtimeVariableValues).forEach((key) => delete runtimeVariableValues[key]);
     activeApp.value = app;
     form.app_key = app.app_key;
     form.name = app.name;
@@ -377,33 +466,39 @@
     syncRuntimeVariableValues();
   }
 
-  async function saveCurrent() {
+  async function saveCurrent(options: { silent?: boolean; refresh?: boolean } = {}) {
     if (!form.app_key || !form.name) {
       message.warning('应用 Key 和名称不能为空');
-      return;
+      return null;
     }
     if (!selectedModelKey.value) {
       message.warning('请选择模型配置');
-      return;
+      return null;
     }
     if (systemPromptSource.value === 'asset' && !selectedSystemPromptAssetKey.value) {
       message.warning('请选择已发布的提示词');
-      return;
+      return null;
     }
-    saving.value = true;
+    if (!options.silent) saving.value = true;
     try {
       const saved = await updateAiApplication(form.app_key, buildPayload());
-      message.success('AI 应用已保存');
-      selectApp(saved as AiApplication);
+      if (!options.silent) message.success('AI 应用已保存');
+      if (options.refresh !== false) {
+        selectApp(saved as AiApplication);
+      } else {
+        activeApp.value = saved as AiApplication;
+      }
+      return saved as AiApplication;
     } finally {
-      saving.value = false;
+      if (!options.silent) saving.value = false;
     }
   }
 
   async function publishCurrent() {
     publishing.value = true;
     try {
-      await saveCurrent();
+      const saved = await saveCurrent({ silent: true });
+      if (!saved) return;
       const published = await publishAiApplication(form.app_key);
       message.success('AI 应用已发布');
       selectApp(published as AiApplication);
@@ -420,7 +515,8 @@
     }
     running.value = true;
     try {
-      await saveCurrent();
+      const saved = await saveCurrent({ silent: true, refresh: false });
+      if (!saved) return;
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
       await runDraftStream({
@@ -428,6 +524,33 @@
       });
     } finally {
       running.value = false;
+    }
+  }
+
+  async function handleMediaVariableChange(field: RuntimeVariableField, options: { fileList: UploadFileInfo[] }) {
+    const uploadFile = options.fileList[0]?.file as File | undefined;
+    if (!uploadFile) {
+      runtimeVariableValues[field.key] = null;
+      return;
+    }
+    if (uploadFile.size > maxMediaVariableBytes(field)) {
+      message.warning(`${field.label} 文件过大，请选择 ${formatBytes(maxMediaVariableBytes(field))} 以内的文件`);
+      runtimeVariableValues[field.key] = null;
+      return;
+    }
+    try {
+      const [dataUrl, text] = await Promise.all([readFileAsDataUrl(uploadFile), readTextPreviewIfSupported(uploadFile)]);
+      runtimeVariableValues[field.key] = {
+        type: field.type as RuntimeMediaVariableValue['type'],
+        name: uploadFile.name,
+        mime_type: uploadFile.type || fallbackMimeType(field),
+        size: uploadFile.size,
+        data_url: dataUrl,
+        ...(text ? { text } : {}),
+      };
+    } catch (error) {
+      runtimeVariableValues[field.key] = null;
+      message.error(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -605,16 +728,16 @@
       const description = String(node?.description || node?.help || '');
       const typeValue = String(node?.type || '').toLowerCase();
       const options = buildVariableOptions(node);
-      const fieldType: RuntimeVariableField['type'] =
-        typeValue === 'boolean' ? 'boolean' : typeValue === 'number' || typeValue === 'integer' ? 'number' : 'text';
+      const fieldType = variableTypeOverrides[key] || resolveRuntimeVariableType(typeValue);
+      const optional = variableOptionalOverrides[key] ?? node?.required === false;
 
       return {
         key,
-        label,
+        label: variableLabelOverrides[key] || label,
         description,
         type: fieldType,
-        required: tokenKeys.has(key) || requiredKeys.has(key) || node?.required === true,
-        placeholder: String(node?.placeholder || node?.example || `请输入${label}`),
+        required: !optional && (tokenKeys.has(key) || requiredKeys.has(key) || node?.required === true),
+        placeholder: String(node?.placeholder || node?.example || `请输入${variableLabelOverrides[key] || label}`),
         options,
       };
     });
@@ -624,15 +747,64 @@
     const keys = extractTemplateVariableKeys(template || '');
     if (!keys.length) return {};
     const existingProperties = asSchemaRecord(schema?.properties);
+    const requiredKeys = keys.filter((key) => variableOptionalOverrides[key] !== true);
     const properties = keys.reduce<Record<string, unknown>>((result, key) => {
-      result[key] = existingProperties?.[key] || { type: 'string' };
+      const existing = asSchemaRecord(existingProperties?.[key]) || {};
+      const label = (variableLabelOverrides[key] || String(existing.label || existing.title || '')).trim();
+      result[key] = {
+        ...existing,
+        type: schemaTypeFromRuntimeType(variableTypeOverrides[key] || resolveRuntimeVariableType(String(existing.type || ''))),
+        ...(label ? { label } : {}),
+        ...(variableOptionalOverrides[key] === true ? { required: false } : {}),
+      };
       return result;
     }, {});
     return {
       type: 'object',
-      required: keys,
+      required: requiredKeys,
       properties,
     };
+  }
+
+  function schemaTypeFromRuntimeType(type: RuntimeVariableType) {
+    if (type === 'text') return 'string';
+    return type;
+  }
+
+  function updateVariableType(key: string, type: RuntimeVariableType) {
+    variableTypeOverrides[key] = type;
+    refreshVariablesSchemaText();
+    const currentValue = runtimeVariableValues[key];
+    if (type === 'boolean') {
+      runtimeVariableValues[key] = typeof currentValue === 'boolean' ? currentValue : false;
+    } else if (type === 'number') {
+      runtimeVariableValues[key] = typeof currentValue === 'number' ? currentValue : null;
+    } else if (['image', 'audio', 'video', 'file'].includes(type)) {
+      runtimeVariableValues[key] = isRuntimeMediaVariableValue(currentValue) && currentValue.type === type ? currentValue : null;
+    } else if (isRuntimeMediaVariableValue(currentValue) || typeof currentValue === 'boolean' || typeof currentValue === 'number') {
+      runtimeVariableValues[key] = null;
+    }
+  }
+
+  function updateVariableLabel(key: string, value: string | null) {
+    variableLabelOverrides[key] = String(value || '').trim();
+    refreshVariablesSchemaText();
+  }
+
+  function updateVariableOptional(key: string, optional: boolean) {
+    variableOptionalOverrides[key] = optional;
+    refreshVariablesSchemaText();
+  }
+
+  function refreshVariablesSchemaText() {
+    variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplate(parsedVariablesSchema.value || {}, form.user_prompt_template));
+  }
+
+  function resolveRuntimeVariableType(typeValue: string): RuntimeVariableType {
+    if (typeValue === 'boolean') return 'boolean';
+    if (typeValue === 'number' || typeValue === 'integer') return 'number';
+    if (['image', 'file', 'audio', 'video'].includes(typeValue)) return typeValue as RuntimeVariableType;
+    return 'text';
   }
 
   function buildVariableOptions(node: SchemaRecord | null): SelectOption[] | undefined {
@@ -657,7 +829,25 @@
     Object.keys(runtimeVariableValues).forEach((key) => {
       if (!activeKeys.has(key)) delete runtimeVariableValues[key];
     });
+    Object.keys(variableTypeOverrides).forEach((key) => {
+      if (!activeKeys.has(key)) delete variableTypeOverrides[key];
+    });
+    Object.keys(variableLabelOverrides).forEach((key) => {
+      if (!activeKeys.has(key)) delete variableLabelOverrides[key];
+    });
+    Object.keys(variableOptionalOverrides).forEach((key) => {
+      if (!activeKeys.has(key)) delete variableOptionalOverrides[key];
+    });
     runtimeVariableFields.value.forEach((field) => {
+      if (!variableTypeOverrides[field.key]) {
+        variableTypeOverrides[field.key] = field.type;
+      }
+      if (typeof variableLabelOverrides[field.key] === 'undefined') {
+        variableLabelOverrides[field.key] = field.label === field.key ? '' : field.label;
+      }
+      if (typeof variableOptionalOverrides[field.key] === 'undefined') {
+        variableOptionalOverrides[field.key] = !field.required;
+      }
       if (typeof runtimeVariableValues[field.key] === 'undefined') {
         runtimeVariableValues[field.key] = field.type === 'boolean' ? false : null;
       }
@@ -696,6 +886,85 @@
         return value === null || typeof value === 'undefined' || (typeof value === 'string' && !value.trim());
       })
       .map((field) => field.label);
+  }
+
+  function isMediaVariableField(field: RuntimeVariableField) {
+    return ['image', 'file', 'audio', 'video'].includes(field.type);
+  }
+
+  function mediaVariableValue(key: string) {
+    const value = runtimeVariableValues[key];
+    return isRuntimeMediaVariableValue(value) ? value : null;
+  }
+
+  function isRuntimeMediaVariableValue(value: unknown): value is RuntimeMediaVariableValue {
+    return !!value && typeof value === 'object' && ['image', 'file', 'audio', 'video'].includes(String((value as any).type || ''));
+  }
+
+  function mediaVariableAccept(field: RuntimeVariableField) {
+    if (field.type === 'image') return 'image/*';
+    if (field.type === 'audio') return 'audio/*';
+    if (field.type === 'video') return 'video/*';
+    return '';
+  }
+
+  function mediaVariableUploadTitle(field: RuntimeVariableField) {
+    const labels: Record<string, string> = {
+      image: '上传图片',
+      audio: '上传音频',
+      video: '上传视频',
+      file: '上传文件',
+    };
+    return labels[field.type] || '上传文件';
+  }
+
+  function mediaVariableUploadHint(field: RuntimeVariableField) {
+    if (field.type === 'image') return '支持图片理解模型分析图片内容';
+    if (field.type === 'audio') return '支持音频理解模型分析或转写音频';
+    if (field.type === 'video') return '支持视频理解模型分析视频内容';
+    return '文本类文件会作为内容传入，其他文件会作为附件传入';
+  }
+
+  function maxMediaVariableBytes(field: RuntimeVariableField) {
+    if (field.type === 'image') return 8 * 1024 * 1024;
+    if (field.type === 'audio') return 20 * 1024 * 1024;
+    if (field.type === 'video') return 32 * 1024 * 1024;
+    return 10 * 1024 * 1024;
+  }
+
+  function fallbackMimeType(field: RuntimeVariableField) {
+    if (field.type === 'image') return 'image/png';
+    if (field.type === 'audio') return 'audio/mpeg';
+    if (field.type === 'video') return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function readTextPreviewIfSupported(file: File) {
+    const textLike =
+      file.type.startsWith('text/') || /\.(txt|md|json|csv|xml|yaml|yml|log)$/i.test(file.name || '');
+    if (!textLike || file.size > 512 * 1024) return Promise.resolve('');
+    return new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').slice(0, 20000));
+      reader.onerror = () => resolve('');
+      reader.readAsText(file);
+    });
+  }
+
+  function formatBytes(value: number) {
+    if (!value) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+    return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
   }
 
   function parseJsonObject(value: string): Record<string, unknown> {
@@ -806,6 +1075,95 @@
     font-size: 12px;
   }
 
+  .variable-schema {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+  }
+
+  .variable-schema__header {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .variable-schema__header h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .variable-schema__header span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .variable-schema__table {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .variable-schema__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 0.8fr) 112px 58px;
+    gap: 12px;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px 10px;
+    background: var(--app-surface-bg);
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 55%, transparent);
+  }
+
+  .variable-schema__row:first-child {
+    border-top: 0;
+  }
+
+  .variable-schema__row--head {
+    min-height: 34px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 82%, var(--app-surface-bg));
+  }
+
+  .variable-schema__key {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .variable-schema__key span,
+  .variable-schema__key small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .variable-schema__key span {
+    color: var(--app-text-color-1);
+    font-weight: 600;
+  }
+
+  .variable-schema__key small {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .variable-schema__type {
+    width: 112px;
+  }
+
+  .variable-schema__row :deep(.n-switch) {
+    justify-self: start;
+  }
+
   .studio-preview {
     position: sticky;
     top: 12px;
@@ -819,7 +1177,7 @@
 
   .runtime-variables {
     min-width: 0;
-    padding: 12px 12px 0;
+    padding: 14px;
     background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 78%, var(--app-surface-bg));
     border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
     border-radius: var(--app-card-radius);
@@ -827,31 +1185,69 @@
 
   .runtime-variables__header {
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
     color: var(--app-text-color-1);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 650;
+  }
+
+  .runtime-variable-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .runtime-variable-item {
+    display: grid;
+    gap: 6px;
   }
 
   .runtime-variable-label {
     display: inline-flex;
     gap: 8px;
     align-items: center;
+    min-width: 0;
     max-width: 100%;
   }
 
-  .runtime-variable-key,
+  .runtime-variable-label-row {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .runtime-variable-name {
+    max-width: 260px;
+    overflow: hidden;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    font-weight: 520;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .runtime-variable-optional,
   .runtime-variable-description {
     color: var(--app-text-color-3);
     font-size: 12px;
     font-weight: 400;
   }
 
-  .runtime-variable-key {
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .runtime-variable-optional {
+    padding: 0 6px;
+    color: var(--app-text-color-3);
+    line-height: 18px;
+    background: color-mix(in srgb, var(--app-surface-bg) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 65%, transparent);
+    border-radius: 999px;
+  }
+
+  .runtime-variable-required {
+    color: var(--app-error-color, #d03050);
+    font-weight: 650;
+    line-height: 1;
   }
 
   .runtime-variable-description {
@@ -861,6 +1257,35 @@
 
   .runtime-variable-number {
     width: 100%;
+  }
+
+  .runtime-media-upload__title {
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .runtime-media-upload__hint,
+  .runtime-media-file {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .runtime-media-file {
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-top: 6px;
+    min-width: 0;
+  }
+
+  .runtime-media-file span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chat-preview {

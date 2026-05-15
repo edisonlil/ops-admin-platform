@@ -527,6 +527,92 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_multimodal_variable_renders_openai_content_parts(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("vision")
+                    app_payload["user_prompt_template"] = "请分析图片：{{image}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["image"],
+                        "properties": {"image": {"type": "image"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        content = messages[-1]["content"]
+                        assert isinstance(content, list)
+                        self.assertEqual(content[0]["type"], "text")
+                        self.assertIn("已上传image", content[0]["text"])
+                        self.assertEqual(content[1]["type"], "image_url")
+                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,abc")
+                        return {"choices": [{"message": {"content": "图片里有一个按钮"}}], "usage": {}}
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "vision",
+                            {
+                                "variables": {
+                                    "image": {
+                                        "type": "image",
+                                        "name": "screen.png",
+                                        "mime_type": "image/png",
+                                        "size": 12,
+                                        "data_url": "data:image/png;base64,abc",
+                                    }
+                                }
+                            },
+                        )
+
+            self.assertEqual(result["answer"], "图片里有一个按钮")
+            self.assertIn("[image]", result["trace"]["rendered_prompt"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_replaces_numeric_template_variable_names(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("numeric_var")
+                    app_payload["user_prompt_template"] = "会议内容：{{11}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["11"],
+                        "properties": {"11": {"type": "string", "label": "会议内容"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        self.assertIn("会议内容：邓柯炳发言", messages[-1]["content"])
+                        return {"choices": [{"message": {"content": "已解析变量"}}], "usage": {}}
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "numeric_var",
+                            {"variables": {"11": "邓柯炳发言"}},
+                        )
+
+            self.assertEqual(result["answer"], "已解析变量")
+            self.assertIn("会议内容：邓柯炳发言", result["trace"]["rendered_prompt"])
+            self.assertNotIn("{{11}}", result["trace"]["rendered_prompt"])
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_can_resolve_system_prompt_from_published_prompt_asset(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
