@@ -64,23 +64,6 @@
               </n-form-item>
             </n-form>
           </div>
-
-          <div class="studio-section studio-section--advanced">
-            <header class="studio-section__head">
-              <div>
-                <h3>高级配置</h3>
-                <span>管理运行变量和结构化输出契约；日常调试优先使用右侧预览区。</span>
-              </div>
-            </header>
-            <n-collapse class="advanced-collapse" arrow-placement="right">
-              <n-collapse-item title="输出 Schema" name="output">
-                <template #header-extra>
-                  <n-button size="tiny" text @click.stop="resetOutputSchema">清空</n-button>
-                </template>
-                <n-input v-model:value="outputSchemaText" type="textarea" :autosize="{ minRows: 7, maxRows: 10 }" />
-              </n-collapse-item>
-            </n-collapse>
-          </div>
         </section>
 
         <aside class="studio-preview">
@@ -555,10 +538,6 @@
     };
   }
 
-  function resetOutputSchema() {
-    outputSchemaText.value = '{}';
-  }
-
   function generatePromptHint() {
     message.info('后续会接入提示词生成能力');
   }
@@ -802,14 +781,6 @@
     min-width: 0;
   }
 
-  .studio-section--advanced {
-    padding-bottom: 8px;
-  }
-
-  .advanced-collapse {
-    min-width: 0;
-  }
-
   .system-prompt-source {
     display: grid;
     width: 100%;
@@ -894,9 +865,7 @@
 
   .chat-preview {
     min-height: 150px;
-    padding: 12px;
-    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 76%, var(--app-surface-bg));
-    border-radius: var(--app-card-radius);
+    background: transparent;
   }
 
   .chat-preview__bubble {
