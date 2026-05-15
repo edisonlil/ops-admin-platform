@@ -127,7 +127,13 @@
                 <h3>调试与预览</h3>
                 <span>{{ form.status === 'published' ? '已发布' : '草稿' }}</span>
               </div>
-              <n-button type="primary" :loading="running" @click="runDraft">运行</n-button>
+              <div class="preview-panel__actions">
+                <div v-if="runStatusText" class="preview-run-status" :class="{ 'is-running': running }">
+                  <span class="preview-run-status__dot"></span>
+                  <span>{{ runStatusText }}</span>
+                </div>
+                <n-button type="primary" :loading="running" @click="runDraft">运行</n-button>
+              </div>
             </header>
 
             <section v-if="runtimeVariableFields.length" class="runtime-variables">
@@ -184,10 +190,6 @@
             </section>
 
             <div class="chat-preview">
-              <div v-if="runElapsedSeconds" class="run-metrics">
-                <span>执行耗时</span>
-                <strong>{{ runElapsedSeconds }} 秒</strong>
-              </div>
               <div class="chat-preview__bubble">
                 <n-collapse v-if="previewThinkText" class="think-collapse" arrow-placement="right">
                   <n-collapse-item name="think">
@@ -236,7 +238,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, onMounted, reactive, ref, watch } from 'vue';
+  import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { SelectOption, UploadFileInfo } from 'naive-ui';
@@ -311,6 +313,9 @@
   const variableOptionalOverrides = reactive<Record<string, boolean>>({});
   const runResult = ref<AiRunResult | null>(null);
   const streamThinkText = ref('');
+  const runningElapsedMs = ref(0);
+  const lastRunElapsedMs = ref(0);
+  let runStopwatchTimer: number | null = null;
   const form = reactive({
     app_key: '',
     name: '',
@@ -384,6 +389,16 @@
     const elapsedMs = Number(runResult.value?.trace?.elapsed_ms || 0);
     return elapsedMs > 0 ? formatElapsedSeconds(elapsedMs) : '';
   });
+  const fallbackRunElapsedSeconds = computed(() =>
+    !runElapsedSeconds.value && lastRunElapsedMs.value > 0 ? formatElapsedSeconds(lastRunElapsedMs.value) : ''
+  );
+  const runStatusText = computed(() => {
+    if (running.value) {
+      return `运行中 · ${formatStopwatchSeconds(runningElapsedMs.value)} 秒`;
+    }
+    const elapsedSeconds = runElapsedSeconds.value || fallbackRunElapsedSeconds.value;
+    return elapsedSeconds ? `执行耗时 ${elapsedSeconds} 秒` : '';
+  });
   const workbenchStyle = computed(() => ({
     '--studio-preview-width': `${previewWidthPercent.value}%`,
   }));
@@ -422,6 +437,7 @@
 
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
   watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
+  onBeforeUnmount(stopRunStopwatch);
 
   async function reload() {
     const appKey = String(route.params.appKey || '');
@@ -541,6 +557,7 @@
       return;
     }
     running.value = true;
+    startRunStopwatch();
     try {
       const saved = await saveCurrent({ silent: true, refresh: false });
       if (!saved) return;
@@ -550,6 +567,7 @@
         variables: buildRuntimeVariables(),
       });
     } finally {
+      finishRunStopwatch();
       running.value = false;
     }
   }
@@ -1003,6 +1021,27 @@
     return 10 * 1024 * 1024;
   }
 
+  function startRunStopwatch() {
+    stopRunStopwatch();
+    runningElapsedMs.value = 0;
+    lastRunElapsedMs.value = 0;
+    const startedAt = Date.now();
+    runStopwatchTimer = window.setInterval(() => {
+      runningElapsedMs.value = Date.now() - startedAt;
+    }, 100);
+  }
+
+  function finishRunStopwatch() {
+    lastRunElapsedMs.value = runningElapsedMs.value;
+    stopRunStopwatch();
+  }
+
+  function stopRunStopwatch() {
+    if (runStopwatchTimer === null) return;
+    window.clearInterval(runStopwatchTimer);
+    runStopwatchTimer = null;
+  }
+
   function fallbackMimeType(field: RuntimeVariableField) {
     if (field.type === 'image') return 'image/png';
     if (field.type === 'audio') return 'audio/mpeg';
@@ -1042,6 +1081,12 @@
     const seconds = Number(elapsedMs || 0) / 1000;
     if (!Number.isFinite(seconds) || seconds <= 0) return '0.00';
     return seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
+  }
+
+  function formatStopwatchSeconds(elapsedMs: unknown) {
+    const seconds = Number(elapsedMs || 0) / 1000;
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0.0';
+    return seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0);
   }
 
   function parseJsonObject(value: string): Record<string, unknown> {
@@ -1166,6 +1211,64 @@
   .preview-panel__head span,
   .studio-form {
     min-width: 0;
+  }
+
+  .preview-panel__head {
+    align-items: center;
+  }
+
+  .preview-panel__actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 10px;
+    align-items: center;
+    margin-left: auto;
+  }
+
+  .preview-run-status {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    max-width: 180px;
+    padding: 4px 9px;
+    overflow: hidden;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 64%, transparent);
+    border-radius: 999px;
+  }
+
+  .preview-run-status span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .preview-run-status__dot {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    background: var(--app-success-color, #18a058);
+    border-radius: 999px;
+  }
+
+  .preview-run-status.is-running .preview-run-status__dot {
+    background: var(--app-primary-color);
+    animation: preview-run-pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes preview-run-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+
+    50% {
+      opacity: 1;
+    }
   }
 
   .system-prompt-source {
@@ -1411,21 +1514,6 @@
     gap: 8px;
     min-height: 150px;
     background: transparent;
-  }
-
-  .run-metrics {
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-    width: fit-content;
-    color: var(--app-text-color-3);
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .run-metrics strong {
-    color: var(--app-text-color-1);
-    font-weight: 650;
   }
 
   .chat-preview__bubble {
