@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException, status
 
 from ai_assets.domain.exceptions import (
     AIAssetsError,
+    PromptAssetInUse,
     PromptAssetNameConflict,
     PromptAssetNotFound,
     PromptVersionImmutable,
@@ -22,6 +23,10 @@ from ai_assets.domain.models import (
     PromptAsset,
 )
 from ai_assets.infrastructure.persistence import repositories
+
+PromptAssetReferenceChecker = Callable[[int, str], bool]
+
+_prompt_asset_reference_checkers: list[PromptAssetReferenceChecker] = []
 
 
 def list_prompt_assets(
@@ -109,6 +114,16 @@ def resolve_published_prompt(*, prompt_key: str, tenant_id: int) -> dict[str, An
         "model_preferences": version.model_preferences,
         "published_time": version.published_time,
     }
+
+
+def register_prompt_asset_reference_checker(checker: PromptAssetReferenceChecker) -> None:
+    if checker not in _prompt_asset_reference_checkers:
+        _prompt_asset_reference_checkers.append(checker)
+
+
+def unregister_prompt_asset_reference_checker(checker: PromptAssetReferenceChecker) -> None:
+    if checker in _prompt_asset_reference_checkers:
+        _prompt_asset_reference_checkers.remove(checker)
 
 
 def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], prompt_id: int | None = None) -> dict[str, Any]:
@@ -204,6 +219,7 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
             raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
         return {"id": prompt_id, "archived": False, "deleted": True}
 
+    ensure_prompt_asset_not_in_use(tenant_id=tenant_id, prompt_key=item.prompt_key)
     try:
         archived = repositories.archive_prompt_asset(
             tenant_id=tenant_id,
@@ -216,6 +232,12 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
     if not archived:
         raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
     return {"id": prompt_id, "archived": True, "deleted": False}
+
+
+def ensure_prompt_asset_not_in_use(*, tenant_id: int, prompt_key: str) -> None:
+    for checker in list(_prompt_asset_reference_checkers):
+        if checker(tenant_id, prompt_key):
+            raise domain_http_error(PromptAssetInUse("prompt asset is referenced by AI applications and cannot be archived"))
 
 
 def list_prompt_versions(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:

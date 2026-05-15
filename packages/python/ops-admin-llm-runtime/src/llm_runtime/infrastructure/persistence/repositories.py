@@ -667,6 +667,23 @@ def count_ai_applications(conn: Any, tenant_id: int | None = None) -> int:
     return int(row["total"] if row else 0)
 
 
+def prompt_asset_is_referenced_by_ai_application(conn: Any, *, tenant_id: int, prompt_key: str) -> bool:
+    rows = conn.execute(
+        """
+        SELECT runtime_config_json
+        FROM ai_applications
+        WHERE tenant_id = ? AND deleted = 0
+        """,
+        (tenant_id,),
+    ).fetchall()
+    normalized_prompt_key = str(prompt_key or "").strip()
+    for row in rows:
+        runtime_config = parse_json_object(row["runtime_config_json"])
+        if str(runtime_config.get("system_prompt_asset_key") or "").strip() == normalized_prompt_key:
+            return True
+    return False
+
+
 def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id()
     app_key = normalize_key(payload.get("app_key"))

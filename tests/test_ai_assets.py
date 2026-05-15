@@ -290,6 +290,21 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(archived_items[0]["id"], prompt["id"])
         self.assertEqual(archived_items[0]["status"], "archived")
 
+    def test_prompt_asset_cannot_be_archived_when_referenced(self) -> None:
+        prompt = self.create_prompt(prompt_key="meeting.summary")
+
+        def referenced(tenant_id: int, prompt_key: str) -> bool:
+            return tenant_id == 7 and prompt_key == "meeting.summary"
+
+        services.register_prompt_asset_reference_checker(referenced)
+        try:
+            with self.assertRaises(Exception) as caught:
+                services.delete_prompt_asset(int(prompt["id"]), self.current_user)
+        finally:
+            services.unregister_prompt_asset_reference_checker(referenced)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
     def test_delete_archived_prompt_asset_removes_it_from_lists(self) -> None:
         prompt = self.create_prompt()
 

@@ -119,6 +119,29 @@ def list_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any
     return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit))
 
 
+def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=True) as conn:
+            require_llm_schema(conn)
+            return repositories.prompt_asset_is_referenced_by_ai_application(
+                conn,
+                tenant_id=tenant_id,
+                prompt_key=prompt_key,
+            )
+    except RuntimeError as exc:
+        if "llm_runtime storage is not initialized" in str(exc):
+            return False
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+prompt_asset_services.register_prompt_asset_reference_checker(
+    lambda tenant_id, prompt_key: prompt_asset_is_referenced(tenant_id=tenant_id, prompt_key=prompt_key)
+)
+
+
 def get_prompt_runtime_trace(trace_id: str) -> dict[str, Any]:
     trace = read_one(lambda conn: repositories.get_prompt_runtime_trace(conn, trace_id))
     if not trace:

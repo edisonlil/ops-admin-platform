@@ -596,6 +596,34 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_prompt_asset_reference_checker_finds_ai_application_usage(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("summarize")
+                    app_payload["runtime_config"] = {
+                        **app_payload.get("runtime_config", {}),
+                        "system_prompt_source": "asset",
+                        "system_prompt_asset_key": "meeting.summary",
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    referenced = ai_applications.prompt_asset_is_referenced(
+                        tenant_id=1,
+                        prompt_key="meeting.summary",
+                    )
+                    unrelated = ai_applications.prompt_asset_is_referenced(
+                        tenant_id=1,
+                        prompt_key="other.prompt",
+                    )
+
+            self.assertTrue(referenced)
+            self.assertFalse(unrelated)
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_multimodal_variable_renders_openai_content_parts(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
