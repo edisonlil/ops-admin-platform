@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from basic_data.application import services
 from basic_data.domain.exceptions import BasicDataDomainError, BasicDataNotFoundError, BasicDataStorageNotReadyError
-from basic_data.interfaces.http.dtos import DictionaryItemRequest, DictionaryTypeRequest
+from basic_data.interfaces.http.dtos import DictionaryItemRequest, DictionaryTypeRequest, RegionRequest
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import error_response, ok
 
@@ -116,6 +116,100 @@ def dictionary_items_by_code(
     current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:read")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.list_items_by_type_code(type_code=type_code, active_only=active_only, current_user=current_user))
+
+
+@router.get("/regions")
+def regions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=500),
+    keyword: str = "",
+    status: str | None = Query(default=None),
+    level: str | None = Query(default=None),
+    parent_id: int | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
+) -> dict[str, Any]:
+    return ok_or_error(
+        lambda: services.list_regions(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status=status,
+            level=level,
+            parent_id=parent_id,
+            current_user=current_user,
+        )
+    )
+
+
+@router.get("/regions/tree")
+def region_tree(
+    include_disabled: bool = False,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_region_tree(include_disabled=include_disabled, current_user=current_user))
+
+
+@router.get("/regions/children")
+def root_region_children(
+    active_only: bool = True,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_region_children(parent_id=None, active_only=active_only, current_user=current_user))
+
+
+@router.get("/regions/{region_id}/children")
+def region_children(
+    region_id: int,
+    active_only: bool = True,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_region_children(parent_id=region_id, active_only=active_only, current_user=current_user))
+
+
+@router.get("/region-options")
+def region_options(
+    parent_id: int | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_region_options(parent_id=parent_id, current_user=current_user))
+
+
+@router.post("/regions")
+def create_region(
+    payload: RegionRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:manage")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.save_region(payload.model_dump(), current_user))
+
+
+@router.put("/regions/{region_id}")
+def update_region(
+    region_id: int,
+    payload: RegionRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:manage")),
+) -> dict[str, Any]:
+    data = payload.model_dump()
+    data["id"] = region_id
+    return ok_or_error(lambda: services.save_region(data, current_user))
+
+
+@router.delete("/regions/{region_id}")
+def delete_region(
+    region_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:manage")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.delete_region(region_id=region_id, current_user=current_user))
+
+
+@router.post("/regions/import")
+async def import_regions(
+    upload: UploadFile = File(...),
+    dry_run: bool = Query(default=True),
+    mode: str = Query(default="upsert"),
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:import")),
+) -> dict[str, Any]:
+    content = await upload.read()
+    return ok_or_error(lambda: services.import_regions(content=content, filename=upload.filename or "regions.csv", dry_run=dry_run, mode=mode, current_user=current_user))
 
 
 def ok_or_error(action: Any) -> dict[str, Any]:

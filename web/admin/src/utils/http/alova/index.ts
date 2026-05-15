@@ -89,7 +89,23 @@ export const Alova = createAlova({
     onSuccess: async (response, method) => {
       let res: any = response.body;
       try {
-        res = (response.json && (await response.json())) || response.body;
+        const isParsedBody =
+          res &&
+          typeof res === 'object' &&
+          !('getReader' in res) &&
+          !('pipeTo' in res) &&
+          ('success' in res || 'code' in res || 'data' in res || 'result' in res || 'message' in res);
+
+        if (isParsedBody) {
+          // Some adapters expose the parsed JSON on body. Reading json() again can fail.
+          res = response.body;
+        } else if (typeof res === 'string' && res.length > 0) {
+          res = JSON.parse(res);
+        } else if (response.json) {
+          res = await response.json();
+        } else {
+          res = response.body;
+        }
       } catch (error) {
         const errorMessage = response.status >= 500 ? '服务器内部错误，请稍后重试' : response.statusText || 'Request failed';
         // @ts-ignore

@@ -295,6 +295,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("file-tenant-quotas", menu_keys)
         self.assertIn("basic-data", menu_keys)
         self.assertIn("basic-data-dictionaries", menu_keys)
+        self.assertIn("basic-data-regions", menu_keys)
         self.assertIn("llm-debug", menu_keys)
         self.assertNotIn("recommend", menu_keys)
         self.assertNotIn("function-points", menu_keys)
@@ -306,6 +307,9 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(any(item["code"] == "file:preview_profiles:manage" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "basic-data:dictionary:read" for item in permission_response.json()["data"]["items"]))
         self.assertTrue(any(item["code"] == "basic-data:dictionary:manage" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "basic-data:region:read" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "basic-data:region:manage" for item in permission_response.json()["data"]["items"]))
+        self.assertTrue(any(item["code"] == "basic-data:region:import" for item in permission_response.json()["data"]["items"]))
 
         menus_by_key = {item["key"]: item for item in menu_response.json()["data"]["items"]}
         self.assertEqual(menus_by_key["platform-management"]["menu_type"], "directory")
@@ -353,6 +357,9 @@ class ApiTests(unittest.TestCase):
         self.assertIn("file:library:manage", permissions)
         self.assertIn("basic-data:dictionary:read", permissions)
         self.assertIn("basic-data:dictionary:manage", permissions)
+        self.assertIn("basic-data:region:read", permissions)
+        self.assertIn("basic-data:region:manage", permissions)
+        self.assertIn("basic-data:region:import", permissions)
         self.assertIn("authorization:data-scope:read", permissions)
         self.assertIn("authorization:data-scope:manage", permissions)
         self.assertIn("llm-config", keys)
@@ -361,6 +368,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("file-management", keys)
         self.assertIn("basic-data", keys)
         self.assertIn("basic-data-dictionaries", keys)
+        self.assertIn("basic-data-regions", keys)
         self.assertIn("organization", keys)
         self.assertIn("organization-departments", keys)
         self.assertIn("data-scope-management", keys)
@@ -591,20 +599,27 @@ class ApiTests(unittest.TestCase):
                 DELETE FROM role_menus
                 WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
                   AND menu_id IN (
-                      SELECT id FROM menus WHERE menu_key IN (?, ?)
+                      SELECT id FROM menus WHERE menu_key IN (?, ?, ?)
                   )
                 """,
-                ("tenant-admin", "basic-data", "basic-data-dictionaries"),
+                ("tenant-admin", "basic-data", "basic-data-dictionaries", "basic-data-regions"),
             )
             conn.execute(
                 """
                 DELETE FROM role_permissions
                 WHERE role_id = (SELECT id FROM roles WHERE role_key = ?)
                   AND permission_id IN (
-                      SELECT id FROM permissions WHERE code IN (?, ?)
+                      SELECT id FROM permissions WHERE code IN (?, ?, ?, ?, ?)
                   )
                 """,
-                ("tenant-admin", "basic-data:dictionary:read", "basic-data:dictionary:manage"),
+                (
+                    "tenant-admin",
+                    "basic-data:dictionary:read",
+                    "basic-data:dictionary:manage",
+                    "basic-data:region:read",
+                    "basic-data:region:manage",
+                    "basic-data:region:import",
+                ),
             )
 
             initialize_auth_storage(conn)
@@ -616,10 +631,10 @@ class ApiTests(unittest.TestCase):
                 JOIN roles r ON r.id = rm.role_id
                 JOIN menus m ON m.id = rm.menu_id
                 WHERE r.role_key = ?
-                  AND m.menu_key IN (?, ?)
+                  AND m.menu_key IN (?, ?, ?)
                 ORDER BY m.menu_key
                 """,
-                ("tenant-admin", "basic-data", "basic-data-dictionaries"),
+                ("tenant-admin", "basic-data", "basic-data-dictionaries", "basic-data-regions"),
             ).fetchall()
             repaired_permissions = conn.execute(
                 """
@@ -628,16 +643,29 @@ class ApiTests(unittest.TestCase):
                 JOIN roles r ON r.id = rp.role_id
                 JOIN permissions p ON p.id = rp.permission_id
                 WHERE r.role_key = ?
-                  AND p.code IN (?, ?)
+                  AND p.code IN (?, ?, ?, ?, ?)
                 ORDER BY p.code
                 """,
-                ("tenant-admin", "basic-data:dictionary:read", "basic-data:dictionary:manage"),
+                (
+                    "tenant-admin",
+                    "basic-data:dictionary:read",
+                    "basic-data:dictionary:manage",
+                    "basic-data:region:read",
+                    "basic-data:region:manage",
+                    "basic-data:region:import",
+                ),
             ).fetchall()
 
-        self.assertEqual({row["menu_key"] for row in repaired_menus}, {"basic-data", "basic-data-dictionaries"})
+        self.assertEqual({row["menu_key"] for row in repaired_menus}, {"basic-data", "basic-data-dictionaries", "basic-data-regions"})
         self.assertEqual(
             {row["code"] for row in repaired_permissions},
-            {"basic-data:dictionary:manage", "basic-data:dictionary:read"},
+            {
+                "basic-data:dictionary:manage",
+                "basic-data:dictionary:read",
+                "basic-data:region:read",
+                "basic-data:region:manage",
+                "basic-data:region:import",
+            },
         )
 
     def test_identity_initialization_repairs_tenant_admin_data_scope_menus_and_permissions(self) -> None:

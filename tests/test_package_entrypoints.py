@@ -41,18 +41,22 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("ai_assets", "ai_assets.entrypoints:router", fake_router("ai_assets")),
             FakeEntryPoint("messaging", "messaging.entrypoints:router", fake_router("messaging")),
             FakeEntryPoint("identity_access", "identity_access.entrypoints:router", fake_router("identity_access")),
+            FakeEntryPoint("organization", "organization.entrypoints:router", fake_router("organization")),
+            FakeEntryPoint("authorization", "authorization.entrypoints:router", fake_router("authorization")),
         ]
 
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 9)
+        self.assertEqual(len(routers), 11)
         self.assertEqual(
             loaded,
             [
                 "system",
                 "cron",
                 "identity_access",
+                "organization",
+                "authorization",
                 "basic_data",
                 "file_management",
                 "messaging",
@@ -75,6 +79,16 @@ class PackageEntrypointTests(unittest.TestCase):
                 "identity_access",
                 "identity_access.entrypoints:init_tasks",
                 lambda: (lambda: {"identity_access": lambda conn: None}),
+            ),
+            FakeEntryPoint(
+                "organization",
+                "organization.entrypoints:init_tasks",
+                lambda: (lambda: {"organization": lambda conn: None}),
+            ),
+            FakeEntryPoint(
+                "authorization",
+                "authorization.entrypoints:init_tasks",
+                lambda: (lambda: {"authorization": lambda conn: None}),
             ),
             FakeEntryPoint(
                 "basic_data",
@@ -108,7 +122,18 @@ class PackageEntrypointTests(unittest.TestCase):
 
         self.assertEqual(
             set(tasks),
-            {"cron", "identity_access", "basic_data", "file_management", "appearance", "messaging", "llm_runtime", "ai_assets"},
+            {
+                "cron",
+                "identity_access",
+                "organization",
+                "authorization",
+                "basic_data",
+                "file_management",
+                "appearance",
+                "messaging",
+                "llm_runtime",
+                "ai_assets",
+            },
         )
 
 

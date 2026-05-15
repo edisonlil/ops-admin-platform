@@ -51,3 +51,32 @@ CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_code ON business_dictio
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_owner_department ON business_dictionary_types(tenant_id, owner_department_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_items_type ON business_dictionary_items(tenant_id, type_id, deleted, status);
 CREATE INDEX IF NOT EXISTS idx_business_dictionary_items_owner_department ON business_dictionary_items(tenant_id, owner_department_id, deleted);
+
+CREATE TABLE IF NOT EXISTS business_regions (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    parent_id BIGINT DEFAULT NULL,
+    parent_code VARCHAR(120) NOT NULL DEFAULT '',
+    code VARCHAR(120) NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    short_name VARCHAR(200) NOT NULL DEFAULT '',
+    level VARCHAR(40) NOT NULL,
+    path VARCHAR(1000) NOT NULL DEFAULT '',
+    status VARCHAR(40) NOT NULL DEFAULT 'active',
+    sort_order BIGINT NOT NULL DEFAULT 0,
+    extra_json TEXT NOT NULL DEFAULT '{}',
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator VARCHAR(64) DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor VARCHAR(64) DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, code, deleted)
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_regions_parent ON business_regions(tenant_id, parent_id, deleted, status, sort_order);
+CREATE INDEX IF NOT EXISTS idx_business_regions_code ON business_regions(tenant_id, code, deleted);
+CREATE INDEX IF NOT EXISTS idx_business_regions_level ON business_regions(tenant_id, level, deleted, status);
+CREATE INDEX IF NOT EXISTS idx_business_regions_path ON business_regions(tenant_id, path);

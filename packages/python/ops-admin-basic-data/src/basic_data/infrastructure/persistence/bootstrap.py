@@ -24,13 +24,18 @@ def ensure_basic_data_schema(conn: Any) -> None:
         "idx_business_dictionary_types_parent",
         "CREATE INDEX IF NOT EXISTS idx_business_dictionary_types_parent ON business_dictionary_types(tenant_id, parent_id, deleted)",
     )
+    ensure_index(
+        conn,
+        "idx_business_regions_parent",
+        "CREATE INDEX IF NOT EXISTS idx_business_regions_parent ON business_regions(tenant_id, parent_id, deleted, status, sort_order)",
+    )
     seed_path = PERSISTENCE_DIR / "seed.sql"
     if seed_path.exists():
         apply_sql_script(conn, seed_path)
 
 
 def require_basic_data_schema(conn: Any) -> None:
-    required_tables = ("business_dictionary_types", "business_dictionary_items")
+    required_tables = ("business_dictionary_types", "business_dictionary_items", "business_regions")
     missing = [table_name for table_name in required_tables if not table_exists(conn, table_name)]
     if missing:
         raise RuntimeError(
@@ -39,6 +44,8 @@ def require_basic_data_schema(conn: Any) -> None:
         )
     if not column_exists(conn, "business_dictionary_types", "parent_id"):
         raise RuntimeError("basic data storage is not initialized; run `python scripts/init_basic_data.py` (missing columns: business_dictionary_types.parent_id)")
+    if not column_exists(conn, "business_regions", "path"):
+        raise RuntimeError("basic data storage is not initialized; run `python scripts/init_basic_data.py` (missing columns: business_regions.path)")
 
 
 def ensure_basic_data_columns(conn: Any) -> None:

@@ -9,6 +9,7 @@ description = "Basic data bounded context for ops-admin-platform."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "python-multipart",
     "ops-admin-system",
     "ops-admin-identity-access",
 ]

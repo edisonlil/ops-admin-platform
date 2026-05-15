@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from basic_data.domain.models import DictionaryItem, DictionaryType
+from basic_data.domain.models import DictionaryItem, DictionaryType, Region
 from system.application.data_access import DataAccessPredicate
 
 
@@ -81,3 +81,48 @@ class BasicDataRepository(Protocol):
         type_code: str,
         active_only: bool,
     ) -> list[DictionaryItem]: ...
+
+    def list_regions(
+        self,
+        *,
+        tenant_id: int,
+        page: int,
+        page_size: int,
+        keyword: str,
+        status: str | None,
+        level: str | None,
+        parent_id: int | None,
+        data_scope: DataAccessPredicate | None = None,
+    ) -> tuple[list[Region], int]: ...
+
+    def list_all_regions(self, *, tenant_id: int, include_disabled: bool = True) -> list[Region]: ...
+
+    def get_region(self, *, tenant_id: int, region_id: int) -> Region | None: ...
+
+    def get_region_by_code(self, *, tenant_id: int, code: str) -> Region | None: ...
+
+    def save_region(
+        self,
+        *,
+        tenant_id: int,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> Region: ...
+
+    def delete_region(
+        self,
+        *,
+        tenant_id: int,
+        region_id: int,
+        actor: str,
+        actor_id: int | None,
+    ) -> Region | None: ...
+
+    def list_region_children(
+        self,
+        *,
+        tenant_id: int,
+        parent_id: int | None,
+        active_only: bool,
+    ) -> list[Region]: ...

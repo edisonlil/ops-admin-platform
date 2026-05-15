@@ -225,6 +225,18 @@ SELECT 'basic-data:dictionary:manage', 'Manage business dictionaries', 'Create, 
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:region:read', 'Read regions', 'View and consume tenant regions'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:region:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:region:manage', 'Manage regions', 'Create, update, disable, and delete tenant regions'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:region:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:region:import', 'Import regions', 'Import tenant region data'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:region:import');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'tenant:user:manage', 'Tenant user manage', 'Manage users inside platform tenants'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'tenant:user:manage');
 
@@ -819,6 +831,26 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-update'
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'basic-data-items-delete', 'tenant', '删除字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8416, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-regions', 'tenant', '区域管理', 'page', '/basic-data/regions', 'basic-data-regions', '/basic-data/regions/index', 'environment', 'basic-data', 'basic-data:region:read', 842, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-regions');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-regions-create', 'tenant', '新建区域', 'action', '', '', '', '', 'basic-data-regions', 'basic-data:region:manage', 8421, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-regions-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-regions-update', 'tenant', '编辑区域', 'action', '', '', '', '', 'basic-data-regions', 'basic-data:region:manage', 8422, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-regions-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-regions-delete', 'tenant', '删除区域', 'action', '', '', '', '', 'basic-data-regions', 'basic-data:region:manage', 8423, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-regions-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-regions-import', 'tenant', '导入区域', 'action', '', '', '', '', 'basic-data-regions', 'basic-data:region:import', 8424, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-regions-import');
 
 DELETE FROM role_menus
 WHERE menu_id IN (

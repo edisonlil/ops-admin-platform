@@ -139,6 +139,11 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'basic-data-items-create',
     'basic-data-items-update',
     'basic-data-items-delete',
+    'basic-data-regions',
+    'basic-data-regions-create',
+    'basic-data-regions-update',
+    'basic-data-regions-delete',
+    'basic-data-regions-import',
   ],
 };
 

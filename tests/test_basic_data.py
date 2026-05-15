@@ -35,7 +35,13 @@ class BasicDataTests(unittest.TestCase):
             "tenant_id": 1,
             "current_tenant": {"id": 1, "tenant_key": "platform"},
             "is_platform_admin": True,
-            "permissions": ["basic-data:dictionary:read", "basic-data:dictionary:manage"],
+            "permissions": [
+                "basic-data:dictionary:read",
+                "basic-data:dictionary:manage",
+                "basic-data:region:read",
+                "basic-data:region:manage",
+                "basic-data:region:import",
+            ],
         }
         self.access_token: str | None = None
         self.initialize_identity_db()
@@ -227,6 +233,92 @@ class BasicDataTests(unittest.TestCase):
         duplicate_payload = duplicate_response.json()
         self.assertFalse(duplicate_payload["success"])
         self.assertEqual(duplicate_payload["code"], "BASIC_DATA_VALIDATION_ERROR")
+
+    def test_region_service_crud_generates_path_and_tree(self) -> None:
+        from basic_data.application import services
+
+        province = services.save_region(
+            {"code": "110000", "name": "北京市", "short_name": "北京", "level": "省"},
+            self.current_user,
+        )["item"]
+        self.assertEqual(province["level"], "province")
+        self.assertEqual(province["path"], "/110000/")
+
+        city = services.save_region(
+            {"code": "110100", "name": "北京市", "level": "市", "parent_id": province["id"], "path": "/bad/"},
+            self.current_user,
+        )["item"]
+        self.assertEqual(city["path"], "/110000/110100/")
+
+        district = services.save_region(
+            {"code": "110101", "name": "东城区", "level": "区县", "parent_id": city["id"]},
+            self.current_user,
+        )["item"]
+        self.assertEqual(district["level"], "district")
+        self.assertEqual(district["path"], "/110000/110100/110101/")
+
+        tree = services.list_region_tree(include_disabled=True, current_user=self.current_user)
+        self.assertEqual(tree["items"][0]["children"][0]["children"][0]["code"], "110101")
+
+        with self.assertRaisesRegex(Exception, "parent must be city"):
+            services.save_region({"code": "120101", "name": "非法区", "level": "区", "parent_id": province["id"]}, self.current_user)
+
+    def test_region_import_supports_chinese_level_dry_run_and_ignores_path(self) -> None:
+        from basic_data.application import services
+
+        csv_content = (
+            "code,parent_code,name,short_name,level,sort_order,status,path\n"
+            "110101,110100,东城区,东城,区,3,active,/bad/path/\n"
+            "110100,110000,北京市,北京,市,2,active,/bad/path/\n"
+            "110000,,北京市,北京,省,1,active,/bad/path/\n"
+        ).encode("utf-8")
+
+        dry_run = services.import_regions(
+            content=csv_content,
+            filename="regions.csv",
+            dry_run=True,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(dry_run["created_count"], 3)
+        self.assertEqual(dry_run["error_count"], 0)
+        self.assertEqual(len(dry_run["warnings"]), 3)
+        self.assertEqual(services.list_region_tree(include_disabled=True, current_user=self.current_user)["items"], [])
+
+        imported = services.import_regions(
+            content=csv_content,
+            filename="regions.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(imported["created_count"], 3)
+        districts = services.list_regions(page=1, page_size=20, keyword="东城", status=None, level="区县", parent_id=None, current_user=self.current_user)
+        self.assertEqual(districts["items"][0]["path"], "/110000/110100/110101/")
+
+        repeated = services.import_regions(
+            content=csv_content,
+            filename="regions.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(repeated["updated_count"], 3)
+
+    def test_region_http_import_endpoint(self) -> None:
+        content = "code,parent_code,name,short_name,level\n310000,,上海市,上海,省份\n".encode("utf-8")
+        response = self.request(
+            "POST",
+            "/api/basic-data/regions/import?dry_run=false",
+            files={"upload": ("regions.csv", content, "text/csv")},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["created_count"], 1)
+
+        tree_response = self.request("GET", "/api/basic-data/regions/tree")
+        self.assertEqual(tree_response.json()["data"]["items"][0]["path"], "/310000/")
 
     def test_missing_schema_returns_operational_error(self) -> None:
         from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema

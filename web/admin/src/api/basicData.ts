@@ -41,6 +41,48 @@ export interface DictionaryItem {
   update_time?: string;
 }
 
+export interface Region {
+  id: number;
+  tenant_id: number;
+  parent_id?: number | null;
+  parent_code: string;
+  code: string;
+  name: string;
+  short_name: string;
+  level: 'province' | 'city' | 'district' | string;
+  level_label?: string;
+  path: string;
+  status: string;
+  sort_order: number;
+  extra: Record<string, unknown>;
+  children?: Region[];
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface RegionPayload {
+  id?: number;
+  parent_id?: number | null;
+  code: string;
+  name: string;
+  short_name?: string;
+  level: string;
+  status?: string;
+  sort_order?: number;
+  extra?: Record<string, unknown>;
+}
+
+export interface RegionImportSummary {
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  error_count: number;
+  errors: Array<{ row?: number | null; message: string }>;
+  warnings: Array<{ row?: number | null; message: string }>;
+  dry_run: boolean;
+  mode: string;
+}
+
 export interface DictionaryTypePayload {
   id?: number;
   parent_id?: number | null;
@@ -128,4 +170,71 @@ export function saveDictionaryItem(typeId: number, payload: Partial<DictionaryIt
 
 export function deleteDictionaryItem(itemId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/basic-data/dictionary-items/${itemId}`);
+}
+
+export function getRegions(
+  params: {
+    page?: number;
+    page_size?: number;
+    keyword?: string;
+    status?: string | null;
+    level?: string | null;
+    parent_id?: number | null;
+  } = {}
+) {
+  return Alova.Get<BasicDataListData<Region>>('/basic-data/regions', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getRegionTree(params: { include_disabled?: boolean } = {}) {
+  return Alova.Get<{ items: Region[] }>('/basic-data/regions/tree', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getRegionChildren(parentId?: number | null, params: { active_only?: boolean } = {}) {
+  const path = parentId ? `/basic-data/regions/${parentId}/children` : '/basic-data/regions/children';
+  return Alova.Get<{ items: Region[] }>(path, {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getRegionOptions(parentId?: number | null) {
+  return Alova.Get<{ items: Array<{ label: string; value: number; code: string; level: string; is_leaf: boolean }> }>(
+    '/basic-data/region-options',
+    { params: withNoCacheParams({ parent_id: parentId }) }
+  );
+}
+
+export function saveRegion(payload: Partial<RegionPayload> & { id?: number }) {
+  const body: RegionPayload = {
+    parent_id: payload.parent_id || null,
+    code: String(payload.code || '').trim(),
+    name: String(payload.name || '').trim(),
+    short_name: payload.short_name || '',
+    level: payload.level || 'province',
+    status: payload.status || 'active',
+    sort_order: Number(payload.sort_order || 0),
+    extra: payload.extra || {},
+  };
+  if (payload.id) {
+    return Alova.Put<{ item: Region }>(`/basic-data/regions/${payload.id}`, body);
+  }
+  return Alova.Post<{ item: Region }>('/basic-data/regions', body);
+}
+
+export function deleteRegion(regionId: number) {
+  return Alova.Delete<{ id: number; deleted: boolean }>(`/basic-data/regions/${regionId}`);
+}
+
+export function importRegions(file: File, options: { dry_run?: boolean; mode?: string } = {}) {
+  const form = new FormData();
+  form.append('upload', file);
+  return Alova.Post<RegionImportSummary>('/basic-data/regions/import', form, {
+    params: withNoCacheParams({
+      dry_run: options.dry_run !== false,
+      mode: options.mode || 'upsert',
+    }),
+  });
 }
