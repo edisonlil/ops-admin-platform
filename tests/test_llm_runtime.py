@@ -527,6 +527,75 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_draft_stream_records_trace_without_done_event(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+
+                    def fake_stream_chat_completions(**kwargs: object) -> object:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        self.assertEqual(messages[-1]["content"], "请总结：流自然结束")
+                        yield 'data: {"choices":[{"delta":{"content":"自然"}}]}\n\n'
+                        yield 'data: {"choices":[{"delta":{"content":"完成"}}]}\n\n'
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.stream_chat_completions",
+                        side_effect=fake_stream_chat_completions,
+                    ):
+                        events = list(
+                            ai_applications.stream_draft_application(
+                                "summarize",
+                                {"variables": {"question": "流自然结束"}},
+                            )
+                        )
+
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+                    logs = ai_applications.list_ai_application_run_logs("summarize")["items"]
+
+            self.assertTrue(any(event.startswith("event: trace\n") for event in events))
+            self.assertEqual(events[-1], "data: [DONE]\n\n")
+            self.assertEqual(len(traces), 1)
+            self.assertEqual(traces[0]["status"], "success")
+            self.assertEqual(traces[0]["answer"], "自然完成")
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0]["answer"], "自然完成")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_run_logs_are_scoped_to_application(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+                    ai_applications.save_ai_application(self._sample_ai_application("translate"))
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        return {"choices": [{"message": {"content": str(messages[-1]["content"])}}], "usage": {}}
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        ai_applications.run_draft_application("summarize", {"variables": {"question": "A"}})
+                        ai_applications.run_draft_application("translate", {"variables": {"question": "B"}})
+
+                    logs = ai_applications.list_ai_application_run_logs("summarize")["items"]
+
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0]["app_key"], "summarize")
+            self.assertEqual(logs[0]["run_mode"], "studio_draft")
+            self.assertTrue(logs[0]["run_id"].startswith("trace_"))
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_multimodal_variable_renders_openai_content_parts(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

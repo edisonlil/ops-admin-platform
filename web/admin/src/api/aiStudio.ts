@@ -73,6 +73,24 @@ export interface RuntimeTrace {
   create_time?: string;
 }
 
+export interface AiApplicationRunLog {
+  run_id: string;
+  trace_id: string;
+  app_key: string;
+  app_version: string;
+  run_mode: string;
+  status: string;
+  model: string;
+  input_variables: Record<string, unknown>;
+  answer: string;
+  usage: Record<string, unknown>;
+  elapsed_ms: number;
+  error_code: string;
+  error_message: string;
+  request_id: string;
+  create_time?: string;
+}
+
 export interface AiStudioOverview {
   stats: {
     applications: number;
@@ -147,6 +165,12 @@ export function getAiApplications() {
 
 export function getAiApplication(appKey: string) {
   return Alova.Get<AiApplication>(`/llm/ai-applications/${appKey}`, { params: withNoCacheParams() });
+}
+
+export function getAiApplicationRunLogs(appKey: string, limit = 50) {
+  return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/applications/${appKey}/run-logs`, {
+    params: withNoCacheParams({ limit }),
+  });
 }
 
 export function saveAiApplication(payload: AiApplicationPayload) {

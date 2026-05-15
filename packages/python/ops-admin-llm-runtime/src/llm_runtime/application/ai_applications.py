@@ -114,6 +114,11 @@ def list_prompt_runtime_traces(limit: int = 50) -> dict[str, Any]:
     return read_list(lambda conn: repositories.list_prompt_runtime_traces(conn, limit=limit))
 
 
+def list_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any]:
+    app = get_ai_application(app_key)
+    return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit))
+
+
 def get_prompt_runtime_trace(trace_id: str) -> dict[str, Any]:
     trace = read_one(lambda conn: repositories.get_prompt_runtime_trace(conn, trace_id))
     if not trace:
@@ -279,8 +284,33 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
 
     def events() -> Any:
         answer_parts: list[str] = []
-        error_message = ""
         error: Exception | None = None
+        trace_recorded = False
+
+        def finish_trace(status: str, trace_error: Exception | None) -> dict[str, Any]:
+            nonlocal trace_recorded
+            trace_recorded = True
+            return record_trace(
+                trace_id=trace_id,
+                app=app,
+                caller_type=caller_type,
+                model=model,
+                status=status,
+                variables=variables,
+                messages=messages,
+                rendered_prompt=rendered_prompt,
+                answer="".join(answer_parts),
+                usage={},
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                error=trace_error,
+                prompt_refs=prompt_refs,
+            )
+
+        def trace_event(trace: dict[str, Any]) -> str:
+            return gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
+                "data: ", "event: trace\ndata: ", 1
+            )
+
         yield gateway.sse_data({"trace_id": trace_id, "model": model, "object": "ai_application.run.start"}).replace(
             "data: ", "event: meta\ndata: ", 1
         )
@@ -296,76 +326,29 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
             ):
                 event_type, event_data = parse_sse_event(event)
                 if event_type == "error":
-                    error_message = event_data.get("message") or "LLM stream failed"
-                    error = RuntimeError(error_message)
+                    error = RuntimeError(event_data.get("message") or "LLM stream failed")
                     yield event
                     continue
                 if event.strip() == "data: [DONE]":
-                    trace = record_trace(
-                        trace_id=trace_id,
-                        app=app,
-                        caller_type=caller_type,
-                        model=model,
-                        status="failed" if error else "success",
-                        variables=variables,
-                        messages=messages,
-                        rendered_prompt=rendered_prompt,
-                        answer="".join(answer_parts),
-                        usage={},
-                        elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-                        error=error,
-                        prompt_refs=prompt_refs,
-                    )
-                    yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
-                        "data: ", "event: trace\ndata: ", 1
-                    )
+                    trace = finish_trace("failed" if error else "success", error)
+                    yield trace_event(trace)
                     yield event
-                    continue
+                    break
                 answer_parts.append(gateway.stream_event_content(event))
                 yield event
+            if not trace_recorded:
+                trace = finish_trace("failed" if error else "success", error)
+                yield trace_event(trace)
+                yield "data: [DONE]\n\n"
         except gateway.LLMRoutingError as exc:
-            error_message = str(exc)
-            trace = record_trace(
-                trace_id=trace_id,
-                app=app,
-                caller_type=caller_type,
-                model=model,
-                status="failed",
-                variables=variables,
-                messages=messages,
-                rendered_prompt=rendered_prompt,
-                answer="".join(answer_parts),
-                usage={},
-                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-                error=exc,
-                prompt_refs=prompt_refs,
-            )
-            yield gateway.sse_error(error_message)
-            yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
-                "data: ", "event: trace\ndata: ", 1
-            )
+            trace = finish_trace("failed", exc)
+            yield gateway.sse_error(str(exc))
+            yield trace_event(trace)
             yield "data: [DONE]\n\n"
         except RuntimeError as exc:
-            error_message = str(exc)
-            trace = record_trace(
-                trace_id=trace_id,
-                app=app,
-                caller_type=caller_type,
-                model=model,
-                status="failed",
-                variables=variables,
-                messages=messages,
-                rendered_prompt=rendered_prompt,
-                answer="".join(answer_parts),
-                usage={},
-                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-                error=exc,
-                prompt_refs=prompt_refs,
-            )
-            yield gateway.sse_error(error_message)
-            yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
-                "data: ", "event: trace\ndata: ", 1
-            )
+            trace = finish_trace("failed", exc)
+            yield gateway.sse_error(str(exc))
+            yield trace_event(trace)
             yield "data: [DONE]\n\n"
 
     return events()

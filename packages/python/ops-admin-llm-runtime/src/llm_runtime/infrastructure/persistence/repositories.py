@@ -919,6 +919,41 @@ def list_prompt_runtime_traces(conn: Any, limit: int = 50) -> list[dict[str, Any
     return [prompt_runtime_trace_from_row(dict(row)) for row in rows]
 
 
+def list_ai_application_run_logs(conn: Any, app_key: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM prompt_runtime_traces
+        WHERE tenant_id = ? AND app_key = ? AND deleted = 0
+        ORDER BY create_time DESC, id DESC
+        LIMIT ?
+        """,
+        (current_tenant_id(), app_key, limit),
+    ).fetchall()
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+
+
+def ai_application_run_log_from_trace(row: dict[str, Any]) -> dict[str, Any]:
+    trace = prompt_runtime_trace_from_row(row)
+    return {
+        "run_id": trace["trace_id"],
+        "trace_id": trace["trace_id"],
+        "app_key": trace["app_key"],
+        "app_version": trace["app_version"],
+        "run_mode": trace["caller_type"],
+        "status": trace["status"],
+        "model": trace["model_key"] or trace["route_key"],
+        "input_variables": trace["input_variables"],
+        "answer": trace["answer"],
+        "usage": trace["usage"],
+        "elapsed_ms": trace["elapsed_ms"],
+        "error_code": trace["error_code"],
+        "error_message": trace["error_message"],
+        "request_id": trace["request_id"],
+        "create_time": trace["create_time"],
+    }
+
+
 def prompt_runtime_trace_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "trace_id": str(row.get("trace_id") or ""),

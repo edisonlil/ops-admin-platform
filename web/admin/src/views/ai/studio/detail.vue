@@ -1,7 +1,26 @@
 <template>
   <DetailPageRuntime :schema="detailPage">
     <n-spin :show="loading">
-      <div ref="workbenchRef" class="studio-workbench" :style="workbenchStyle">
+      <nav class="studio-workspace-nav" aria-label="AI 应用工作区">
+        <button
+          v-for="item in workspaceTabs"
+          :key="item.key"
+          class="studio-workspace-nav__item"
+          :class="{ 'is-active': activeWorkspace === item.key }"
+          type="button"
+          @click="switchWorkspace(item.key)"
+        >
+          <span>{{ item.label }}</span>
+          <small>{{ item.description }}</small>
+        </button>
+      </nav>
+
+      <div
+        v-if="activeWorkspace === 'orchestration'"
+        ref="workbenchRef"
+        class="studio-workbench"
+        :style="workbenchStyle"
+      >
         <section class="studio-builder">
           <div class="studio-section studio-section--prompt">
             <header class="studio-section__head">
@@ -233,6 +252,258 @@
           </div>
         </aside>
       </div>
+
+      <section v-else-if="activeWorkspace === 'api'" class="studio-workspace-panel">
+        <header class="workspace-panel__head">
+          <div>
+            <h3>访问 API</h3>
+            <span>外部系统可通过租户 API Key 调用已发布的 AI 应用能力。</span>
+          </div>
+        </header>
+        <div class="api-doc-layout">
+          <main class="api-doc-main">
+            <section class="api-doc-hero">
+              <div class="api-endpoint-line">
+                <span class="api-method">POST</span>
+                <code>{{ apiEndpoint }}</code>
+                <n-button size="tiny" quaternary @click="copyText(apiEndpoint, '调用地址')">复制</n-button>
+              </div>
+              <p>同步执行当前应用，返回模型输出、Trace ID 和用量信息。应用必须处于已发布状态。</p>
+            </section>
+
+            <section class="api-doc-section">
+              <h4>请求体</h4>
+              <div class="api-field-table">
+                <div class="api-field-row api-field-row--head">
+                  <span>字段</span>
+                  <span>类型</span>
+                  <span>必填</span>
+                  <span>说明</span>
+                </div>
+                <div class="api-field-row">
+                  <code>variables</code>
+                  <span>object</span>
+                  <span>是</span>
+                  <span>应用运行变量，字段由下方变量表定义。</span>
+                </div>
+                <div class="api-field-row">
+                  <code>temperature</code>
+                  <span>number</span>
+                  <span>否</span>
+                  <span>本次调用覆盖温度参数，不传则使用应用配置。</span>
+                </div>
+                <div class="api-field-row">
+                  <code>enable_think_output</code>
+                  <span>boolean</span>
+                  <span>否</span>
+                  <span>是否返回模型思考过程，取决于模型能力。</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="api-doc-section">
+              <h4>运行变量</h4>
+              <div v-if="apiVariableRows.length" class="api-field-table">
+                <div class="api-field-row api-field-row--head">
+                  <span>变量</span>
+                  <span>类型</span>
+                  <span>状态</span>
+                  <span>说明</span>
+                </div>
+                <div v-for="field in apiVariableRows" :key="field.key" class="api-field-row">
+                  <code>{{ field.key }}</code>
+                  <span>{{ field.typeLabel }}</span>
+                  <span>{{ field.required ? '必填' : '可选' }}</span>
+                  <span>{{ field.description || field.label || '-' }}</span>
+                </div>
+              </div>
+              <n-empty v-else description="当前应用未定义运行变量" />
+            </section>
+
+            <section class="api-doc-section">
+              <div class="api-doc-section__head">
+                <h4>请求示例</h4>
+                <n-button size="tiny" quaternary @click="copyText(apiRequestExample, '请求示例')">复制</n-button>
+              </div>
+              <pre class="api-code-block">{{ apiRequestExample }}</pre>
+            </section>
+
+            <section class="api-doc-section">
+              <div class="api-doc-section__head">
+                <h4>响应示例</h4>
+                <n-button size="tiny" quaternary @click="copyText(apiResponseExample, '响应示例')">复制</n-button>
+              </div>
+              <pre class="api-code-block">{{ apiResponseExample }}</pre>
+            </section>
+
+            <section class="api-doc-section">
+              <h4>错误说明</h4>
+              <div class="api-field-table api-field-table--compact">
+                <div class="api-field-row api-field-row--head">
+                  <span>HTTP</span>
+                  <span>场景</span>
+                  <span>处理建议</span>
+                </div>
+                <div class="api-field-row">
+                  <code>401</code>
+                  <span>API Key 无效或缺失</span>
+                  <span>检查租户 API Key 是否正确、是否已撤销。</span>
+                </div>
+                <div class="api-field-row">
+                  <code>409</code>
+                  <span>应用未发布</span>
+                  <span>先在 AI Studio 发布应用后再调用。</span>
+                </div>
+                <div class="api-field-row">
+                  <code>422</code>
+                  <span>变量或模型配置不合法</span>
+                  <span>检查请求体变量、模型路由和运行配置。</span>
+                </div>
+                <div class="api-field-row">
+                  <code>502</code>
+                  <span>模型执行失败</span>
+                  <span>根据返回的 Trace ID 在运行日志中排查。</span>
+                </div>
+              </div>
+            </section>
+          </main>
+
+          <aside class="api-doc-aside">
+            <section class="api-info-panel">
+              <h4>接口信息</h4>
+              <dl>
+                <dt>状态</dt>
+                <dd>{{ form.status === 'published' ? '已发布' : '未发布' }}</dd>
+                <dt>认证方式</dt>
+                <dd><code>X-API-Key</code></dd>
+                <dt>Content-Type</dt>
+                <dd><code>application/json</code></dd>
+                <dt>调用模式</dt>
+                <dd>同步执行</dd>
+              </dl>
+            </section>
+
+            <section class="api-info-panel">
+              <div class="api-doc-section__head">
+                <h4>cURL</h4>
+                <n-button size="tiny" quaternary @click="copyText(apiCurlExample, 'cURL 示例')">复制</n-button>
+              </div>
+              <pre class="api-code-block api-code-block--curl">{{ apiCurlExample }}</pre>
+            </section>
+
+            <section class="api-info-panel">
+              <h4>接入提示</h4>
+              <ul class="api-note-list">
+                <li>API Key 需在当前租户下创建，调用时会自动使用该租户的数据范围。</li>
+                <li>每次调用都会生成 Trace，可在运行日志中查看输入、输出和耗时。</li>
+                <li>生产环境建议在外部系统侧设置超时与重试策略。</li>
+              </ul>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section v-else-if="activeWorkspace === 'logs'" class="studio-workspace-panel">
+        <header class="workspace-panel__head">
+          <div>
+            <h3>运行日志</h3>
+            <span>查看当前 AI 应用的调试运行和 API 调用记录。</span>
+          </div>
+          <n-button size="small" :loading="runLogsLoading" @click="loadRunLogs">刷新</n-button>
+        </header>
+        <div class="run-log-layout">
+          <div class="run-log-list">
+            <button
+              v-for="item in runLogs"
+              :key="item.run_id"
+              class="run-log-item"
+              :class="{ 'is-active': selectedRunLog?.run_id === item.run_id }"
+              type="button"
+              @click="selectedRunLogId = item.run_id"
+            >
+              <span class="run-log-item__top">
+                <n-tag size="small" :type="item.status === 'success' ? 'success' : 'error'">
+                  {{ item.status === 'success' ? '成功' : '失败' }}
+                </n-tag>
+                <span>{{ formatDateTime(item.create_time) }}</span>
+              </span>
+              <strong>{{ runModeLabel(item.run_mode) }}</strong>
+              <span class="run-log-item__meta">
+                {{ item.model || '未记录模型' }} · {{ formatElapsedSeconds(item.elapsed_ms) }} 秒
+              </span>
+            </button>
+            <n-empty v-if="!runLogsLoading && !runLogs.length" description="暂无运行日志" />
+          </div>
+          <div class="run-log-detail">
+            <template v-if="selectedRunLog">
+              <div class="run-log-detail__summary">
+                <div>
+                  <span>状态</span>
+                  <strong>{{ selectedRunLog.status === 'success' ? '成功' : '失败' }}</strong>
+                </div>
+                <div>
+                  <span>耗时</span>
+                  <strong>{{ formatElapsedSeconds(selectedRunLog.elapsed_ms) }} 秒</strong>
+                </div>
+                <div>
+                  <span>模型</span>
+                  <strong>{{ selectedRunLog.model || '-' }}</strong>
+                </div>
+              </div>
+              <div v-if="selectedRunLog.error_message" class="run-log-error">
+                {{ selectedRunLog.error_message }}
+              </div>
+              <section>
+                <h4>输入变量</h4>
+                <pre>{{ stringifyJson(selectedRunLog.input_variables) }}</pre>
+              </section>
+              <section>
+                <h4>输出结果</h4>
+                <div
+                  v-if="selectedRunLog.answer"
+                  class="markdown-answer run-log-answer"
+                  v-html="renderMarkdown(selectedRunLog.answer)"
+                ></div>
+                <n-empty v-else description="本次运行没有输出内容" />
+              </section>
+              <section>
+                <h4>运行信息</h4>
+                <dl class="trace-list">
+                  <dt>Run ID</dt>
+                  <dd>{{ selectedRunLog.run_id }}</dd>
+                  <dt>Trace ID</dt>
+                  <dd>{{ selectedRunLog.trace_id }}</dd>
+                  <dt>Request ID</dt>
+                  <dd>{{ selectedRunLog.request_id || '-' }}</dd>
+                  <dt>Token</dt>
+                  <dd>{{ tokenUsageText(selectedRunLog.usage) }}</dd>
+                </dl>
+              </section>
+            </template>
+            <n-empty v-else description="选择一条运行日志查看详情" />
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeWorkspace === 'monitoring'" class="studio-workspace-panel">
+        <header class="workspace-panel__head">
+          <div>
+            <h3>监测</h3>
+            <span>后续这里展示调用量、成功率、耗时和 Token 用量趋势。</span>
+          </div>
+        </header>
+        <n-empty description="监测能力将在运行日志稳定后接入" />
+      </section>
+
+      <section v-else class="studio-workspace-panel">
+        <header class="workspace-panel__head">
+          <div>
+            <h3>设置</h3>
+            <span>应用基础信息、发布策略和危险操作会放在这里。</span>
+          </div>
+        </header>
+        <n-empty description="设置工作区将在后续里程碑完善" />
+      </section>
     </n-spin>
   </DetailPageRuntime>
 </template>
@@ -249,9 +520,11 @@
   import {
     fetchAiApplicationDraftStream,
     getAiApplication,
+    getAiApplicationRunLogs,
     publishAiApplication,
     updateAiApplication,
     type AiApplication,
+    type AiApplicationRunLog,
     type AiRunResult,
   } from '@/api/aiStudio';
 
@@ -268,6 +541,7 @@
   type SchemaRecord = Record<string, unknown>;
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
+  type WorkspaceKey = 'orchestration' | 'api' | 'logs' | 'monitoring' | 'settings';
 
   interface RuntimeMediaVariableValue {
     type: 'image' | 'file' | 'audio' | 'video';
@@ -292,6 +566,7 @@
   const saving = ref(false);
   const publishing = ref(false);
   const running = ref(false);
+  const activeWorkspace = ref<WorkspaceKey>('orchestration');
   const workbenchRef = ref<HTMLElement | null>(null);
   const previewWidthPercent = ref(42);
   const previewResizeDragged = ref(false);
@@ -312,6 +587,9 @@
   const variableLabelOverrides = reactive<Record<string, string>>({});
   const variableOptionalOverrides = reactive<Record<string, boolean>>({});
   const runResult = ref<AiRunResult | null>(null);
+  const runLogs = ref<AiApplicationRunLog[]>([]);
+  const runLogsLoading = ref(false);
+  const selectedRunLogId = ref('');
   const streamThinkText = ref('');
   const runningElapsedMs = ref(0);
   const lastRunElapsedMs = ref(0);
@@ -360,6 +638,13 @@
     { label: '视频', value: 'video' },
     { label: '文件', value: 'file' },
   ];
+  const workspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
+    { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
+    { key: 'api', label: '访问 API', description: '调用方式' },
+    { key: 'logs', label: '运行日志', description: '执行记录' },
+    { key: 'monitoring', label: '监测', description: '指标趋势' },
+    { key: 'settings', label: '设置', description: '应用信息' },
+  ];
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const templateVariableKeys = computed(() => extractTemplateVariableKeys(form.user_prompt_template || ''));
@@ -385,6 +670,30 @@
   const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
   const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
+  const selectedRunLog = computed(() => runLogs.value.find((item) => item.run_id === selectedRunLogId.value) || runLogs.value[0] || null);
+  const apiEndpoint = computed(() => `/runtime/apps/${form.app_key || '{app_key}'}/run`);
+  const apiVariableRows = computed(() =>
+    runtimeVariableFields.value.map((field) => ({
+      ...field,
+      typeLabel: variableTypeOptions.find((option) => option.value === field.type)?.label || field.type,
+    }))
+  );
+  const apiRequestExample = computed(() => stringifyJson({ variables: sampleRuntimeVariables() }));
+  const apiResponseExample = computed(() =>
+    stringifyJson({
+      answer: '模型输出内容',
+      trace_id: 'trace_xxx',
+      usage: {
+        prompt_tokens: 128,
+        completion_tokens: 256,
+        total_tokens: 384,
+      },
+    })
+  );
+  const apiCurlExample = computed(
+    () =>
+      `curl -X POST "${apiEndpoint.value}" \\\n  -H "Content-Type: application/json" \\\n  -H "X-API-Key: $AI_STUDIO_API_KEY" \\\n  -d '${apiRequestExample.value.replace(/'/g, "'\\''")}'`
+  );
   const runElapsedSeconds = computed(() => {
     const elapsedMs = Number(runResult.value?.trace?.elapsed_ms || 0);
     return elapsedMs > 0 ? formatElapsedSeconds(elapsedMs) : '';
@@ -437,6 +746,9 @@
 
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
   watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
+  watch(activeWorkspace, (value) => {
+    if (value === 'logs') void loadRunLogs();
+  });
   onBeforeUnmount(stopRunStopwatch);
 
   async function reload() {
@@ -480,6 +792,24 @@
     publishedPromptDetails[promptKey] = await getPublishedPromptAsset(promptKey);
   }
 
+  async function loadRunLogs() {
+    if (!form.app_key) return;
+    runLogsLoading.value = true;
+    try {
+      const payload = await getAiApplicationRunLogs(form.app_key, 50);
+      runLogs.value = payload.items || [];
+      if (!runLogs.value.some((item) => item.run_id === selectedRunLogId.value)) {
+        selectedRunLogId.value = runLogs.value[0]?.run_id || '';
+      }
+    } finally {
+      runLogsLoading.value = false;
+    }
+  }
+
+  function switchWorkspace(key: WorkspaceKey) {
+    activeWorkspace.value = key;
+  }
+
   function selectApp(app: AiApplication) {
     Object.keys(variableTypeOverrides).forEach((key) => delete variableTypeOverrides[key]);
     Object.keys(variableLabelOverrides).forEach((key) => delete variableLabelOverrides[key]);
@@ -505,6 +835,8 @@
     variablesSchemaText.value = stringifyJson(app.variables_schema || {});
     outputSchemaText.value = stringifyJson(app.output_schema || {});
     runResult.value = null;
+    runLogs.value = [];
+    selectedRunLogId.value = '';
     streamThinkText.value = '';
     syncRuntimeVariableValues();
   }
@@ -566,6 +898,9 @@
       await runDraftStream({
         variables: buildRuntimeVariables(),
       });
+      if (activeWorkspace.value === 'logs') {
+        await loadRunLogs();
+      }
     } finally {
       finishRunStopwatch();
       running.value = false;
@@ -708,6 +1043,17 @@
 
   function generatePromptHint() {
     message.info('后续会接入提示词生成能力');
+  }
+
+  async function copyText(value: string, label = '内容') {
+    const text = String(value || '');
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success(`${label}已复制`);
+    } catch {
+      message.error('复制失败，请手动复制');
+    }
   }
 
   function togglePreviewWidth() {
@@ -953,6 +1299,15 @@
     return variables;
   }
 
+  function sampleRuntimeVariables() {
+    const variables: Record<string, unknown> = {};
+    runtimeVariableFields.value.forEach((field) => {
+      const value = field.type === 'number' ? 123 : field.type === 'boolean' ? true : isMediaVariableField(field) ? `<${field.type}>` : field.label;
+      assignVariableValue(variables, field.key, value);
+    });
+    return variables;
+  }
+
   function assignVariableValue(target: Record<string, unknown>, key: string, value: unknown) {
     const parts = key.split('.').filter(Boolean);
     let current = target;
@@ -1083,10 +1438,39 @@
     return seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1);
   }
 
+  function formatDateTime(value: unknown) {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    const date = new Date(text.includes('T') ? text : text.replace(' ', 'T'));
+    if (Number.isNaN(date.getTime())) return text;
+    const pad = (item: number) => String(item).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
   function formatStopwatchSeconds(elapsedMs: unknown) {
     const seconds = Number(elapsedMs || 0) / 1000;
     if (!Number.isFinite(seconds) || seconds <= 0) return '0.0';
     return seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0);
+  }
+
+  function runModeLabel(value: string) {
+    if (value === 'studio_draft') return '调试运行';
+    if (value === 'application_api') return 'API 调用';
+    return value || '未知来源';
+  }
+
+  function tokenUsageText(usage: Record<string, unknown>) {
+    const total = usage?.total_tokens ?? usage?.total ?? '';
+    const prompt = usage?.prompt_tokens ?? '';
+    const completion = usage?.completion_tokens ?? '';
+    if (total || prompt || completion) {
+      return `total ${total || '-'} / prompt ${prompt || '-'} / completion ${completion || '-'}`;
+    }
+    return '-';
+  }
+
+  function renderMarkdown(value: string) {
+    return markdownRenderer.render(value || '');
   }
 
   function parseJsonObject(value: string): Record<string, unknown> {
@@ -1126,6 +1510,375 @@
     gap: 10px;
     align-items: start;
     min-width: 0;
+  }
+
+  .studio-workspace-nav {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    min-width: 0;
+    margin-bottom: 12px;
+    padding: 4px;
+    overflow-x: auto;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 74%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: var(--app-card-radius);
+  }
+
+  .studio-workspace-nav__item {
+    display: grid;
+    gap: 1px;
+    min-width: 92px;
+    padding: 7px 12px;
+    color: var(--app-text-color-2);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+  }
+
+  .studio-workspace-nav__item span {
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .studio-workspace-nav__item small {
+    color: var(--app-text-color-3);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .studio-workspace-nav__item:hover,
+  .studio-workspace-nav__item.is-active {
+    color: var(--app-primary-color);
+    background: var(--app-surface-bg);
+    box-shadow: 0 1px 3px color-mix(in srgb, #000 8%, transparent);
+  }
+
+  .studio-workspace-panel {
+    min-width: 0;
+    padding: 16px;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: var(--app-card-radius);
+  }
+
+  .workspace-panel__head {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .workspace-panel__head h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .workspace-panel__head span {
+    color: var(--app-text-color-3);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .api-doc-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    gap: 18px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  .api-doc-main,
+  .api-doc-aside {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .api-doc-hero,
+  .api-doc-section,
+  .api-info-panel {
+    min-width: 0;
+    padding: 14px;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .api-doc-hero {
+    display: grid;
+    gap: 10px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 52%, var(--app-surface-bg));
+  }
+
+  .api-doc-hero p {
+    margin: 0;
+    color: var(--app-text-color-3);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .api-endpoint-line {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .api-endpoint-line code {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 6px;
+  }
+
+  .api-method {
+    padding: 5px 9px;
+    color: var(--app-success-color, #18a058);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    background: color-mix(in srgb, var(--app-success-color, #18a058) 10%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-success-color, #18a058) 28%, transparent);
+    border-radius: 5px;
+  }
+
+  .api-doc-section h4,
+  .api-info-panel h4 {
+    margin: 0 0 10px;
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .api-doc-section__head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .api-doc-section__head h4 {
+    margin: 0;
+  }
+
+  .api-field-table {
+    display: grid;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 7px;
+  }
+
+  .api-field-row {
+    display: grid;
+    grid-template-columns: minmax(128px, 0.9fr) minmax(92px, 0.55fr) minmax(62px, 0.36fr) minmax(220px, 1.6fr);
+    gap: 12px;
+    align-items: center;
+    min-width: 0;
+    padding: 10px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 62%, transparent);
+  }
+
+  .api-field-table--compact .api-field-row {
+    grid-template-columns: 72px minmax(150px, 0.8fr) minmax(260px, 1.3fr);
+  }
+
+  .api-field-row:first-child {
+    border-top: 0;
+  }
+
+  .api-field-row--head {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    font-weight: 650;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+  }
+
+  .api-field-row span,
+  .api-field-row code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .api-field-row code {
+    color: var(--app-text-color-1);
+    font-weight: 650;
+  }
+
+  .api-code-block {
+    max-height: 360px;
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    line-height: 1.65;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 64%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 64%, transparent);
+    border-radius: 7px;
+  }
+
+  .api-code-block--curl {
+    max-height: 260px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .api-info-panel dl {
+    display: grid;
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 8px 10px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .api-info-panel dt {
+    color: var(--app-text-color-3);
+  }
+
+  .api-info-panel dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .api-note-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .run-log-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .run-log-list {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .run-log-item {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    padding: 10px 12px;
+    color: var(--app-text-color-2);
+    text-align: left;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 46%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .run-log-item:hover,
+  .run-log-item.is-active {
+    background: var(--app-surface-bg);
+    border-color: color-mix(in srgb, var(--app-primary-color) 54%, var(--app-border-color, #d9e1ec));
+  }
+
+  .run-log-item__top,
+  .run-log-item__meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .run-log-item strong {
+    overflow: hidden;
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-log-detail {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .run-log-detail__summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .run-log-detail__summary > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    padding: 10px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 64%, var(--app-surface-bg));
+    border-radius: 7px;
+  }
+
+  .run-log-detail__summary span,
+  .run-log-detail h4 {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .run-log-detail__summary strong {
+    overflow: hidden;
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-log-detail h4 {
+    margin: 0 0 8px;
+    font-weight: 650;
+  }
+
+  .run-log-error {
+    padding: 9px 10px;
+    color: var(--app-error-color, #d03050);
+    background: color-mix(in srgb, var(--app-error-color, #d03050) 8%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-error-color, #d03050) 22%, transparent);
+    border-radius: 7px;
+  }
+
+  .run-log-answer {
+    max-height: 360px;
+    padding: 10px 12px;
+    overflow: auto;
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 60%, transparent);
+    border-radius: 7px;
   }
 
   .studio-resizer {
@@ -1699,6 +2452,10 @@
 
   @media (max-width: 1180px) {
     .studio-workbench {
+      grid-template-columns: 1fr;
+    }
+
+    .run-log-layout {
       grid-template-columns: 1fr;
     }
 

@@ -126,6 +126,11 @@ def llm_ai_application(app_key: str) -> dict[str, Any]:
     return ok(ai_applications.get_ai_application(app_key))
 
 
+@router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
+def llm_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any]:
+    return ok(ai_applications.list_ai_application_run_logs(app_key, limit=limit))
+
+
 @router.post("/llm/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
 def save_llm_ai_application(payload: AIApplicationRequest) -> dict[str, Any]:
     return ok(ai_applications.save_ai_application(payload.model_dump()))
