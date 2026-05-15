@@ -339,8 +339,9 @@
   ];
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
+  const templateVariableKeys = computed(() => extractTemplateVariableKeys(form.user_prompt_template || ''));
   const runtimeVariableFields = computed<RuntimeVariableField[]>(() =>
-    buildRuntimeVariableFields(parsedVariablesSchema.value, form.user_prompt_template)
+    buildRuntimeVariableFields(parsedVariablesSchema.value, templateVariableKeys.value)
   );
   const publishedPromptOptions = computed<SelectOption[]>(() =>
     publishedPrompts.value.map((item) => ({
@@ -395,6 +396,7 @@
   );
 
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
+  watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
 
   async function reload() {
     const appKey = String(route.params.appKey || '');
@@ -715,12 +717,12 @@
     return { entries, requiredKeys };
   }
 
-  function buildRuntimeVariableFields(schema: SchemaRecord | null, template: string): RuntimeVariableField[] {
-    const tokenKeys = new Set(extractTemplateVariableKeys(template || ''));
+  function buildRuntimeVariableFields(schema: SchemaRecord | null, keys: string[]): RuntimeVariableField[] {
+    const tokenKeys = new Set(keys);
     const { entries, requiredKeys } = collectSchemaEntries(schema || undefined);
-    const keys = [...new Set([...entries.keys(), ...tokenKeys])];
+    const activeKeys = [...new Set(keys)];
 
-    return keys.map((key) => {
+    return activeKeys.map((key) => {
       const raw = entries.get(key);
       const node = asSchemaRecord(raw);
       const rawLabel = typeof raw === 'string' ? raw : undefined;
@@ -798,6 +800,11 @@
 
   function refreshVariablesSchemaText() {
     variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplate(parsedVariablesSchema.value || {}, form.user_prompt_template));
+  }
+
+  function syncVariablesSchemaFromTemplate() {
+    syncRuntimeVariableValues();
+    refreshVariablesSchemaText();
   }
 
   function resolveRuntimeVariableType(typeValue: string): RuntimeVariableType {
