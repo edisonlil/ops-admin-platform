@@ -148,6 +148,14 @@ def run_llm_ai_application_draft(app_key: str, payload: AIApplicationRunRequest)
     return ok(ai_applications.run_draft_application(app_key, payload.model_dump()))
 
 
+@router.post("/llm/ai-applications/{app_key}/run-draft/stream", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
+def stream_llm_ai_application_draft(app_key: str, payload: AIApplicationRunRequest) -> StreamingResponse:
+    return StreamingResponse(
+        ai_applications.stream_draft_application(app_key, payload.model_dump()),
+        media_type="text/event-stream",
+    )
+
+
 @router.post("/runtime/apps/{app_key}/run", dependencies=[Depends(auth.require_business_api_key_or_permission("ai_applications:run"))])
 def run_published_ai_application(app_key: str, payload: AIApplicationRunRequest) -> dict[str, Any]:
     return ai_applications.run_published_application(app_key, payload.model_dump())

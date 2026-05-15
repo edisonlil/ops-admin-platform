@@ -1,4 +1,6 @@
 import { Alova } from '@/utils/http/alova/index';
+import { useGlobSetting } from '@/hooks/setting';
+import { useUser } from '@/store/modules/user';
 
 export interface AiPagination {
   page: number;
@@ -192,6 +194,20 @@ export function runAiApplicationDraft(appKey: string, payload: AiRunPayload) {
   return Alova.Post<AiRunResult>(`/llm/ai-applications/${appKey}/run-draft`, payload);
 }
 
+export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayload) {
+  return fetch(buildAiStudioApiUrl(`/llm/ai-applications/${encodeURIComponent(appKey)}/run-draft/stream`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  }).catch((error) => {
+    throw new Error(`AI application stream request failed: ${errorMessage(error)}`);
+  });
+}
+
 export function getAiRuntimeTraces(limit = 50) {
   return Alova.Get<AiListData<RuntimeTrace>>('/llm/prompt-runtime/traces', {
     params: withNoCacheParams({ limit }),
@@ -208,4 +224,35 @@ export function getAdminTenantAiQuota(tenantId: number) {
 
 export function saveAdminTenantAiQuota(tenantId: number, payload: TenantAiQuotaPayload) {
   return Alova.Put<AiQuota>(`/llm/admin/tenants/${tenantId}/ai-quota`, payload);
+}
+
+function authHeaders() {
+  const token = useUser().getToken;
+  return token
+    ? {
+        token,
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+function buildAiStudioApiUrl(path: string) {
+  const { apiUrl, urlPrefix } = useGlobSetting();
+  const base = trimTrailingSlashes(apiUrl || '');
+  const prefix = normalizePathPart(urlPrefix || '');
+  const endpoint = normalizePathPart(path);
+  const relativeUrl = `/${[prefix, endpoint].filter(Boolean).join('/')}`;
+  return base ? `${base}${relativeUrl}` : relativeUrl;
+}
+
+function trimTrailingSlashes(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function normalizePathPart(value: string) {
+  return value.replace(/^\/+|\/+$/g, '');
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }

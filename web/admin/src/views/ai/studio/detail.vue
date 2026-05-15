@@ -90,7 +90,7 @@
                 <h3>调试与预览</h3>
                 <span>{{ form.status === 'published' ? '已发布' : '草稿' }}</span>
               </div>
-              <n-button type="primary" :loading="running" @click="runDraft">Run Prompt</n-button>
+              <n-button type="primary" :loading="running" @click="runDraft">运行</n-button>
             </header>
 
             <section v-if="runtimeVariableFields.length" class="runtime-variables">
@@ -129,7 +129,20 @@
 
             <div class="chat-preview">
               <div class="chat-preview__bubble">
-                <pre>{{ runResult?.answer || '运行后将在这里预览模型输出。' }}</pre>
+                <n-collapse v-if="previewThinkText" class="think-collapse" arrow-placement="right">
+                  <n-collapse-item name="think">
+                    <template #header>
+                      <span class="think-collapse__title">已生成思考过程</span>
+                    </template>
+                    <pre class="think-box">{{ previewThinkText }}</pre>
+                  </n-collapse-item>
+                </n-collapse>
+                <div
+                  v-if="previewAnswerText"
+                  class="markdown-answer"
+                  v-html="previewAnswerHtml"
+                ></div>
+                <div v-else class="chat-preview__empty">运行后将在这里预览模型输出。</div>
               </div>
             </div>
 
@@ -167,13 +180,14 @@
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { SelectOption } from 'naive-ui';
+  import MarkdownIt from 'markdown-it';
   import { getLlmModels, getLlmRoutingPolicies } from '@/api/business';
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
   import {
+    fetchAiApplicationDraftStream,
     getAiApplication,
     publishAiApplication,
-    runAiApplicationDraft,
     updateAiApplication,
     type AiApplication,
     type AiRunResult,
@@ -193,6 +207,11 @@
 
   const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
   const RESERVED_SCHEMA_KEYS = new Set(['type', 'title', 'label', 'description', 'properties', 'required', 'default', 'example']);
+  const markdownRenderer = new MarkdownIt({
+    html: false,
+    linkify: true,
+    breaks: true,
+  });
   const route = useRoute();
   const router = useRouter();
   const message = useMessage();
@@ -214,6 +233,7 @@
   const outputSchemaText = ref('{}');
   const runtimeVariableValues = reactive<Record<string, string | number | boolean | null>>({});
   const runResult = ref<AiRunResult | null>(null);
+  const streamThinkText = ref('');
   const form = reactive({
     app_key: '',
     name: '',
@@ -269,6 +289,10 @@
     const systemMessage = messages.find((item) => item.role === 'system' && item.prompt_source === 'prompt_asset');
     return systemMessage || null;
   });
+  const parsedPreviewOutput = computed(() => splitThinkContent(runResult.value?.answer || ''));
+  const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
+  const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
+  const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
 
   const detailPage = computed(() =>
     defineDetailPage<AiApplication>({
@@ -366,6 +390,7 @@
     variablesSchemaText.value = stringifyJson(app.variables_schema || {});
     outputSchemaText.value = stringifyJson(app.output_schema || {});
     runResult.value = null;
+    streamThinkText.value = '';
     syncRuntimeVariableValues();
   }
 
@@ -413,12 +438,105 @@
     running.value = true;
     try {
       await saveCurrent();
-      runResult.value = await runAiApplicationDraft(form.app_key, {
+      runResult.value = { answer: '', trace_id: '', usage: {} };
+      streamThinkText.value = '';
+      await runDraftStream({
         variables: buildRuntimeVariables(),
       });
     } finally {
       running.value = false;
     }
+  }
+
+  async function runDraftStream(payload: { variables: Record<string, unknown> }) {
+    const response = await fetchAiApplicationDraftStream(form.app_key, payload);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    if (!response.body) {
+      throw new Error('当前浏览器不支持流式响应');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let content = '';
+    let reasoning = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+      for (const event of events) {
+        const parsed = parseStreamEvent(event);
+        if (!parsed.data || parsed.data === '[DONE]') continue;
+        if (parsed.type === 'error') {
+          const errorPayload = JSON.parse(parsed.data);
+          throw new Error(errorPayload?.message || 'AI 应用运行失败');
+        }
+        const payloadData = JSON.parse(parsed.data);
+        if (parsed.type === 'meta') {
+          runResult.value = {
+            ...(runResult.value || { answer: '', usage: {} }),
+            trace_id: payloadData.trace_id || '',
+          };
+          continue;
+        }
+        if (parsed.type === 'trace') {
+          runResult.value = {
+            ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
+            trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
+            trace: payloadData.trace,
+          };
+          continue;
+        }
+        const delta = payloadData?.choices?.[0]?.delta || {};
+        const reasoningDelta = delta.reasoning_content || delta.reasoning || delta.think || delta.thinking || '';
+        const contentDelta = delta.content || '';
+        if (reasoningDelta) {
+          reasoning += reasoningDelta;
+          streamThinkText.value = reasoning;
+        }
+        if (contentDelta) {
+          content += contentDelta;
+          const parsedContent = splitThinkContent(content);
+          streamThinkText.value = reasoning || parsedContent.think;
+          runResult.value = {
+            ...(runResult.value || { trace_id: '', usage: {} }),
+            answer: content,
+          };
+        }
+      }
+    }
+  }
+
+  function parseStreamEvent(event: string) {
+    const type =
+      event
+        .split('\n')
+        .find((line) => line.startsWith('event: '))
+        ?.slice(7)
+        .trim() || 'message';
+    const data =
+      event
+        .split('\n')
+        .find((line) => line.startsWith('data: '))
+        ?.slice(6)
+        .trim() || '';
+    return { type, data };
+  }
+
+  function splitThinkContent(content: string) {
+    const match = content.match(/<think\b[^>]*>([\s\S]*?)(?:<\/think>|$)/i);
+    if (!match) {
+      return { think: '', answer: content.trim() };
+    }
+    const answer = content.replace(match[0], '').trim();
+    return {
+      think: match[1].trim(),
+      answer,
+    };
   }
 
   function buildPayload() {
@@ -783,10 +901,152 @@
 
   .chat-preview__bubble {
     min-width: 0;
+    max-height: min(560px, calc(100vh - 340px));
     padding: 10px 12px;
+    overflow: auto;
     background: var(--app-surface-bg);
     border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 60%, transparent);
     border-radius: var(--app-card-radius);
+  }
+
+  .chat-preview__empty {
+    color: var(--app-text-color-3);
+    line-height: 1.7;
+  }
+
+  .think-collapse {
+    margin: 0 0 12px;
+    color: var(--app-text-color-3);
+    font-size: 13px;
+  }
+
+  .think-collapse__title {
+    color: var(--app-text-color-3);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .think-box {
+    max-height: 160px;
+    margin: 4px 0 2px;
+    padding: 2px 0 2px 12px;
+    overflow: auto;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.7;
+    background: transparent;
+    border-left: 2px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 80%, transparent);
+  }
+
+  :deep(.think-collapse .n-collapse-item) {
+    margin: 0;
+  }
+
+  :deep(.think-collapse .n-collapse-item__header) {
+    min-height: 24px;
+    padding: 0;
+  }
+
+  :deep(.think-collapse .n-collapse-item__header-main) {
+    gap: 4px;
+  }
+
+  :deep(.think-collapse .n-collapse-item__content-inner) {
+    padding: 0;
+  }
+
+  .markdown-answer {
+    min-width: 0;
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+  }
+
+  :deep(.markdown-answer h1),
+  :deep(.markdown-answer h2),
+  :deep(.markdown-answer h3),
+  :deep(.markdown-answer h4) {
+    margin: 18px 0 8px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  :deep(.markdown-answer h1:first-child),
+  :deep(.markdown-answer h2:first-child),
+  :deep(.markdown-answer h3:first-child),
+  :deep(.markdown-answer h4:first-child),
+  :deep(.markdown-answer p:first-child) {
+    margin-top: 0;
+  }
+
+  :deep(.markdown-answer h1) {
+    font-size: 20px;
+  }
+
+  :deep(.markdown-answer h2) {
+    font-size: 18px;
+  }
+
+  :deep(.markdown-answer h3) {
+    font-size: 16px;
+  }
+
+  :deep(.markdown-answer p),
+  :deep(.markdown-answer ul),
+  :deep(.markdown-answer ol),
+  :deep(.markdown-answer blockquote),
+  :deep(.markdown-answer pre) {
+    margin: 0 0 10px;
+  }
+
+  :deep(.markdown-answer ul),
+  :deep(.markdown-answer ol) {
+    padding-left: 22px;
+  }
+
+  :deep(.markdown-answer li + li) {
+    margin-top: 4px;
+  }
+
+  :deep(.markdown-answer code) {
+    padding: 2px 5px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 86%, var(--app-surface-bg));
+    border-radius: 4px;
+  }
+
+  :deep(.markdown-answer pre) {
+    padding: 10px 12px;
+    overflow: auto;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 86%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
+    border-radius: 8px;
+  }
+
+  :deep(.markdown-answer pre code) {
+    padding: 0;
+    background: transparent;
+  }
+
+  :deep(.markdown-answer blockquote) {
+    padding: 8px 12px;
+    color: var(--app-text-color-2);
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+    border-left: 3px solid var(--app-primary-color);
+    border-radius: 6px;
+  }
+
+  :deep(.markdown-answer table) {
+    width: 100%;
+    margin-bottom: 10px;
+    border-collapse: collapse;
+  }
+
+  :deep(.markdown-answer th),
+  :deep(.markdown-answer td) {
+    padding: 8px;
+    border: 1px solid var(--app-border-color, #d9e1ec);
   }
 
   .preview-collapse {

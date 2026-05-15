@@ -98,6 +98,12 @@ def run_draft_application(app_key: str, payload: dict[str, Any]) -> dict[str, An
     return execute_single_turn_application(app, payload, caller_type="studio_draft", require_published=False)
 
 
+def stream_draft_application(app_key: str, payload: dict[str, Any]) -> Any:
+    app = get_ai_application(app_key)
+    prepared = prepare_single_turn_run(app, payload, require_published=False)
+    return stream_single_turn_application(prepared, caller_type="studio_draft")
+
+
 def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     app = get_ai_application(app_key)
     return execute_single_turn_application(app, payload, caller_type="application_api", require_published=True)
@@ -148,20 +154,16 @@ def execute_single_turn_application(
     if require_published and app.get("status") != "published":
         raise HTTPException(status_code=409, detail="AI application is not published")
 
-    app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
+    prepared = prepare_single_turn_run(app, payload, require_published=require_published)
+    app_for_run = prepared["app"]
+    variables = prepared["variables"]
+    messages = prepared["messages"]
+    rendered_prompt = prepared["rendered_prompt"]
+    model = prepared["model"]
+    temperature = prepared["temperature"]
+    response_format = prepared["response_format"]
+    prompt_refs = prepared["prompt_refs"]
 
-    variables = payload.get("variables")
-    if variables is None:
-        variables = {key: value for key, value in payload.items() if key not in {"model", "temperature", "response_format"}}
-    if not isinstance(variables, dict):
-        raise HTTPException(status_code=422, detail="variables must be an object")
-    validate_variables(app_for_run, variables)
-
-    messages = render_messages(app_for_run, variables)
-    rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=[{"role": item["role"], "content": str(item["content"])} for item in messages])
-    model = resolve_model(app_for_run, payload)
-    temperature = resolve_temperature(app_for_run, payload)
-    response_format = resolve_response_format(app_for_run, payload)
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     answer = ""
@@ -229,6 +231,146 @@ def execute_single_turn_application(
             prompt_refs=prompt_refs,
         )
         raise HTTPException(status_code=502, detail={"message": str(exc), "trace_id": trace.get("trace_id")}) from exc
+
+
+def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, require_published: bool) -> dict[str, Any]:
+    if app.get("app_type") != "single_turn_generation":
+        raise HTTPException(status_code=422, detail="Only single_turn_generation is supported in milestone 1")
+    if require_published and app.get("status") != "published":
+        raise HTTPException(status_code=409, detail="AI application is not published")
+
+    app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
+    variables = payload.get("variables")
+    if variables is None:
+        variables = {key: value for key, value in payload.items() if key not in {"model", "temperature", "response_format"}}
+    if not isinstance(variables, dict):
+        raise HTTPException(status_code=422, detail="variables must be an object")
+    validate_variables(app_for_run, variables)
+
+    messages = render_messages(app_for_run, variables)
+    rendered_prompt = gateway.prompt_from_messages(
+        prompt=None,
+        messages=[{"role": item["role"], "content": str(item["content"])} for item in messages],
+    )
+    model = resolve_model(app_for_run, payload)
+    return {
+        "app": app_for_run,
+        "payload": payload,
+        "variables": variables,
+        "messages": messages,
+        "rendered_prompt": rendered_prompt,
+        "model": model,
+        "temperature": resolve_temperature(app_for_run, payload),
+        "response_format": resolve_response_format(app_for_run, payload),
+        "prompt_refs": prompt_refs,
+    }
+
+
+def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str) -> Any:
+    app = prepared["app"]
+    payload = prepared["payload"]
+    variables = prepared["variables"]
+    messages = prepared["messages"]
+    rendered_prompt = prepared["rendered_prompt"]
+    model = prepared["model"]
+    temperature = prepared["temperature"]
+    response_format = prepared["response_format"]
+    prompt_refs = prepared["prompt_refs"]
+    trace_id = f"trace_{uuid.uuid4().hex}"
+    started_at = time.perf_counter()
+
+    def events() -> Any:
+        answer_parts: list[str] = []
+        error_message = ""
+        error: Exception | None = None
+        yield gateway.sse_data({"trace_id": trace_id, "model": model, "object": "ai_application.run.start"}).replace(
+            "data: ", "event: meta\ndata: ", 1
+        )
+        try:
+            for event in gateway.stream_chat_completions(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+                extra_body=resolve_extra_body(app, payload),
+                enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+                correlation_id=trace_id,
+            ):
+                event_type, event_data = parse_sse_event(event)
+                if event_type == "error":
+                    error_message = event_data.get("message") or "LLM stream failed"
+                    error = RuntimeError(error_message)
+                    yield event
+                    continue
+                if event.strip() == "data: [DONE]":
+                    trace = record_trace(
+                        trace_id=trace_id,
+                        app=app,
+                        caller_type=caller_type,
+                        model=model,
+                        status="failed" if error else "success",
+                        variables=variables,
+                        messages=messages,
+                        rendered_prompt=rendered_prompt,
+                        answer="".join(answer_parts),
+                        usage={},
+                        elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                        error=error,
+                        prompt_refs=prompt_refs,
+                    )
+                    yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
+                        "data: ", "event: trace\ndata: ", 1
+                    )
+                    yield event
+                    continue
+                answer_parts.append(gateway.stream_event_content(event))
+                yield event
+        except gateway.LLMRoutingError as exc:
+            error_message = str(exc)
+            trace = record_trace(
+                trace_id=trace_id,
+                app=app,
+                caller_type=caller_type,
+                model=model,
+                status="failed",
+                variables=variables,
+                messages=messages,
+                rendered_prompt=rendered_prompt,
+                answer="".join(answer_parts),
+                usage={},
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                error=exc,
+                prompt_refs=prompt_refs,
+            )
+            yield gateway.sse_error(error_message)
+            yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
+                "data: ", "event: trace\ndata: ", 1
+            )
+            yield "data: [DONE]\n\n"
+        except RuntimeError as exc:
+            error_message = str(exc)
+            trace = record_trace(
+                trace_id=trace_id,
+                app=app,
+                caller_type=caller_type,
+                model=model,
+                status="failed",
+                variables=variables,
+                messages=messages,
+                rendered_prompt=rendered_prompt,
+                answer="".join(answer_parts),
+                usage={},
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                error=exc,
+                prompt_refs=prompt_refs,
+            )
+            yield gateway.sse_error(error_message)
+            yield gateway.sse_data({"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"}).replace(
+                "data: ", "event: trace\ndata: ", 1
+            )
+            yield "data: [DONE]\n\n"
+
+    return events()
 
 
 def enforce_application_quota(conn: Any) -> None:
@@ -429,6 +571,23 @@ def trace_messages(messages: list[dict[str, Any]], prompt_refs: list[dict[str, A
             message["prompt_published_time"] = prompt_ref.get("published_time")
             break
     return result
+
+
+def parse_sse_event(event: str) -> tuple[str, dict[str, Any]]:
+    event_type = "message"
+    data = ""
+    for line in event.splitlines():
+        if line.startswith("event: "):
+            event_type = line.removeprefix("event: ").strip() or "message"
+        elif line.startswith("data: "):
+            data = line.removeprefix("data: ").strip()
+    if not data or data == "[DONE]":
+        return event_type, {}
+    try:
+        payload = gateway.json.loads(data)
+    except Exception:
+        return event_type, {}
+    return event_type, payload if isinstance(payload, dict) else {}
 
 
 def read_list(loader: Any) -> dict[str, Any]:

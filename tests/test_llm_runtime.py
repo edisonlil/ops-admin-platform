@@ -489,6 +489,44 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_draft_stream_records_prompt_trace(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("summarize"))
+
+                    def fake_stream_chat_completions(**kwargs: object) -> object:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        self.assertEqual(messages[-1]["content"], "请总结：流式输出")
+                        yield 'data: {"choices":[{"delta":{"content":"流式"}}]}\n\n'
+                        yield 'data: {"choices":[{"delta":{"content":"摘要"}}]}\n\n'
+                        yield "data: [DONE]\n\n"
+
+                    with mock.patch(
+                        "llm_runtime.application.ai_applications.gateway.stream_chat_completions",
+                        side_effect=fake_stream_chat_completions,
+                    ):
+                        events = list(
+                            ai_applications.stream_draft_application(
+                                "summarize",
+                                {"variables": {"question": "流式输出"}},
+                            )
+                        )
+
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            self.assertTrue(events[0].startswith("event: meta\n"))
+            self.assertIn('"content":"流式"', "".join(events))
+            self.assertTrue(any(event.startswith("event: trace\n") for event in events))
+            self.assertEqual(events[-1], "data: [DONE]\n\n")
+            self.assertEqual(len(traces), 1)
+            self.assertEqual(traces[0]["answer"], "流式摘要")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_can_resolve_system_prompt_from_published_prompt_asset(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
