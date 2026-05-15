@@ -111,7 +111,7 @@ export const useAsyncRouteStore = defineStore({
           console.log(error);
         }
       }
-      accessedRouters = accessedRouters.filter(routeFilter);
+      accessedRouters = (accessedRouters || []).filter(routeFilter);
       this.setRouters(accessedRouters);
       this.setMenus(accessedRouters);
       return toRaw(accessedRouters);

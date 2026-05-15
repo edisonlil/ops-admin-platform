@@ -33,6 +33,8 @@ interface BackendRoute {
     title: string;
     icon?: string;
     permissions?: string[];
+    activeMenu?: string;
+    hidden?: boolean;
   };
   children?: BackendRoute[];
 }
@@ -156,13 +158,28 @@ function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
     return leaf;
   }
 
+  const pageChildren = [leaf];
+  if (key === 'ai-studio') {
+    pageChildren.push({
+      path: 'apps/:appKey',
+      name: 'ai-studio-app-detail',
+      component: '/ai/studio/detail',
+      meta: {
+        title: 'AI 应用配置',
+        permissions: ['ai_studio:access'],
+        activeMenu: routeName(menu) || key,
+        hidden: true,
+      },
+    });
+  }
+
   return {
     path: pagePath,
     name: `${routeName(menu) || key}_root`,
     component: 'LAYOUT',
     redirect: `${pagePath}/index`,
     meta: routeMeta(menu),
-    children: [leaf],
+    children: pageChildren,
   };
 }
 

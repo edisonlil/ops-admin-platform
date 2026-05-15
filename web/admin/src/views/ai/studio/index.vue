@@ -74,7 +74,6 @@
 <script lang="ts" setup>
   import { computed, onMounted, reactive, ref } from 'vue';
   import { useRouter } from 'vue-router';
-  import type { RouteRecordRaw } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
@@ -209,35 +208,7 @@
   }
 
   function openDetail(app: AiApplication) {
-    ensureDetailRoute();
     router.push(`/ai/studio/apps/${encodeURIComponent(app.app_key)}`);
-  }
-
-  function ensureDetailRoute() {
-    if (router.hasRoute('ai-studio-app-detail')) {
-      return;
-    }
-    const detailRoute: RouteRecordRaw = {
-      path: 'apps/:appKey',
-      name: 'ai-studio-app-detail',
-      meta: {
-        title: 'AI 应用配置',
-        permissions: ['ai_studio:access'],
-        activeMenu: 'ai-studio',
-        hidden: true,
-      },
-      component: () => import('@/views/ai/studio/detail.vue'),
-    };
-    if (router.hasRoute('ai-studio_root')) {
-      router.addRoute('ai-studio_root', detailRoute);
-      return;
-    }
-    router.addRoute({
-      path: '/ai/studio/apps/:appKey',
-      name: 'ai-studio-app-detail',
-      meta: detailRoute.meta,
-      component: () => import('@/views/ai/studio/detail.vue'),
-    });
   }
 
   async function reload() {
