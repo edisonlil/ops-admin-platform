@@ -4,6 +4,8 @@
 
 This repository is the platform baseline. Business modules should be added as bounded contexts instead of being implemented in the `api` entrypoint package.
 
+Reusable backend framework packages live under `packages/python/framework/`. They are shared internal libraries, not bounded contexts. See [Backend Framework Layer](docs/backend-framework-layer.md).
+
 ## Current Modules
 
 | Module | Responsibility |
@@ -12,6 +14,8 @@ This repository is the platform baseline. Business modules should be added as bo
 | `identity_access` | Users, login, tenants, roles, permissions, menus, and API keys. |
 | `appearance` | Platform and tenant appearance themes and branding. |
 | `llm_runtime` | LLM providers, models, tasks, routing policies, logs, and OpenAI-compatible debug endpoints. |
+| `ai_applications` | Tenant AI applications, published runtime API, quotas, and runtime traces. |
+| `ai_capabilities` | Internal AI capabilities for platform modules, callable through `aiService.execute`. |
 | `web/admin` | Vue admin application using the shared alova request client. |
 
 ## Backend Setup
@@ -28,6 +32,8 @@ Initialize required storage explicitly:
 python scripts/init_identity_access.py
 python scripts/init_appearance.py
 python scripts/init_llm_runtime.py
+python scripts/init_ai_applications.py
+python scripts/init_ai_capabilities.py
 ```
 
 Run the API:

@@ -22,6 +22,8 @@ MODULE_ORDER = (
     "messaging",
     "llm_runtime",
     "ai_assets",
+    "ai_applications",
+    "ai_capabilities",
     "appearance",
 )
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +38,9 @@ LOCAL_PACKAGE_SRC = {
     "messaging": REPO_ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     "llm_runtime": REPO_ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
     "ai_assets": REPO_ROOT / "packages" / "python" / "ops-admin-ai-assets" / "src",
+    "ai_applications": REPO_ROOT / "packages" / "python" / "ops-admin-ai-applications" / "src",
+    "ai_capabilities": REPO_ROOT / "packages" / "python" / "ops-admin-ai-capabilities" / "src",
+    "ai_runtime_core": REPO_ROOT / "packages" / "python" / "framework" / "ops-admin-ai-runtime-core" / "src",
     "appearance": REPO_ROOT / "packages" / "python" / "ops-admin-appearance" / "src",
 }
 LOCAL_ENTRYPOINTS = {
@@ -50,6 +55,8 @@ LOCAL_ENTRYPOINTS = {
         "messaging": "messaging.entrypoints:router",
         "llm_runtime": "llm_runtime.entrypoints:router",
         "ai_assets": "ai_assets.entrypoints:router",
+        "ai_applications": "ai_applications.entrypoints:router",
+        "ai_capabilities": "ai_capabilities.entrypoints:router",
         "appearance": "appearance.entrypoints:router",
     },
     INIT_TASK_GROUP: {
@@ -63,6 +70,8 @@ LOCAL_ENTRYPOINTS = {
         "messaging": "messaging.entrypoints:init_tasks",
         "llm_runtime": "llm_runtime.entrypoints:init_tasks",
         "ai_assets": "ai_assets.entrypoints:init_tasks",
+        "ai_applications": "ai_applications.entrypoints:init_tasks",
+        "ai_capabilities": "ai_capabilities.entrypoints:init_tasks",
         "appearance": "appearance.entrypoints:init_tasks",
     },
 }

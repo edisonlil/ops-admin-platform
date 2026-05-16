@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 import time
 import uuid
@@ -10,24 +9,24 @@ from typing import Any
 from fastapi import HTTPException
 
 from ai_assets.application import services as prompt_asset_services
+from ai_runtime_core.prompt_runtime import media_content_parts
+from ai_runtime_core.prompt_runtime import render_template
+from ai_runtime_core.prompt_runtime import resolve_variable_value
+from ai_runtime_core.prompt_runtime import variable_missing
 from llm_runtime.application import gateway
-from llm_runtime.infrastructure.persistence import repositories
-from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
+from ai_applications.infrastructure.persistence import repositories
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
 from system.application.database import connect
 from system.interfaces.http import current_request_id
 
-from .services import require_database
-
-
-VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
-MEDIA_VARIABLE_TYPES = {"image", "file", "audio", "video"}
+from llm_runtime.application.services import require_database
 
 
 def studio_overview() -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             apps = repositories.list_ai_applications(conn)
             quota = repositories.get_tenant_ai_quota(conn)
             traces = repositories.list_prompt_runtime_traces(conn, limit=10)
@@ -66,7 +65,7 @@ def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             existing = repositories.get_ai_application(conn, str(payload.get("app_key") or ""))
             if not existing:
                 enforce_application_quota(conn)
@@ -82,7 +81,7 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             app = repositories.get_ai_application(conn, app_key)
             if not app:
                 raise HTTPException(status_code=404, detail="AI application not found")
@@ -123,14 +122,14 @@ def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             return repositories.prompt_asset_is_referenced_by_ai_application(
                 conn,
                 tenant_id=tenant_id,
                 prompt_key=prompt_key,
             )
     except RuntimeError as exc:
-        if "llm_runtime storage is not initialized" in str(exc):
+        if "ai_applications storage is not initialized" in str(exc):
             return False
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     except (sqlite3.Error, ValueError) as exc:
@@ -165,7 +164,7 @@ def save_tenant_ai_quota(tenant_id: int, payload: dict[str, Any]) -> dict[str, A
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             return repositories.upsert_tenant_ai_quota(conn, tenant_id, payload)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
@@ -473,94 +472,6 @@ def render_message_content(role: str, text: str, variables: dict[str, Any]) -> s
     return [{"type": "text", "text": text}, *media_parts]
 
 
-def render_template(template: str, variables: dict[str, Any]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        return variable_text(resolve_variable_value(variables, name))
-
-    return VARIABLE_PATTERN.sub(replace, template)
-
-
-def resolve_variable_value(variables: dict[str, Any], name: str) -> Any:
-    if name in variables:
-        return variables.get(name)
-    current: Any = variables
-    for part in name.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return ""
-        current = current.get(part)
-    return current
-
-
-def variable_missing(value: Any) -> bool:
-    return value in (None, "")
-
-
-def variable_text(value: Any) -> str:
-    if is_media_variable(value):
-        media_type = str(value.get("type") or "file")
-        name = str(value.get("name") or "未命名附件")
-        mime_type = str(value.get("mime_type") or "")
-        size = int(value.get("size") or 0)
-        if value.get("text"):
-            return str(value["text"])
-        return f"[已上传{media_type}：{name}，{mime_type}，{size} bytes]"
-    return str(value or "")
-
-
-def media_content_parts(variables: dict[str, Any]) -> list[dict[str, Any]]:
-    parts: list[dict[str, Any]] = []
-    for key, value in variables.items():
-        if is_media_variable(value):
-            part = media_content_part(str(key), value)
-            if part:
-                parts.append(part)
-    return parts
-
-
-def media_content_part(key: str, value: dict[str, Any]) -> dict[str, Any] | None:
-    media_type = str(value.get("type") or "file").strip().lower()
-    data_url = str(value.get("data_url") or "").strip()
-    name = str(value.get("name") or key)
-    mime_type = str(value.get("mime_type") or "")
-    text = str(value.get("text") or "")
-    if text:
-        return {"type": "text", "text": f"\n\n附件 {name} 内容：\n{text}"}
-    if not data_url:
-        return {"type": "text", "text": variable_text(value)}
-    if media_type == "image":
-        return {"type": "image_url", "image_url": {"url": data_url}}
-    if media_type == "audio":
-        return {
-            "type": "input_audio",
-            "input_audio": {
-                "data": data_url_payload(data_url),
-                "format": media_format(name, mime_type, "mp3"),
-            },
-        }
-    if media_type == "video":
-        return {"type": "video_url", "video_url": {"url": data_url}}
-    if media_type == "file":
-        return {"type": "file", "file": {"filename": name, "file_data": data_url}}
-    return None
-
-
-def is_media_variable(value: Any) -> bool:
-    return isinstance(value, dict) and str(value.get("type") or "").strip().lower() in MEDIA_VARIABLE_TYPES
-
-
-def data_url_payload(data_url: str) -> str:
-    return data_url.split(",", 1)[1] if "," in data_url else data_url
-
-
-def media_format(name: str, mime_type: str, fallback: str) -> str:
-    if "/" in mime_type:
-        return mime_type.rsplit("/", 1)[1].split(";", 1)[0] or fallback
-    if "." in name:
-        return name.rsplit(".", 1)[1].lower() or fallback
-    return fallback
-
-
 def resolve_model(app: dict[str, Any], payload: dict[str, Any]) -> str:
     if payload.get("model"):
         return str(payload["model"]).strip()
@@ -645,7 +556,7 @@ def record_trace(
     }
     try:
         with connect(database_target, readonly=False) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             return repositories.record_prompt_runtime_trace(conn, payload)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         if error:
@@ -693,7 +604,7 @@ def read_list(loader: Any) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             items = loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
@@ -704,7 +615,7 @@ def read_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_applications_schema(conn)
             return loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc

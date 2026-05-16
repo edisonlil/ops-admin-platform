@@ -39,6 +39,8 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
             FakeEntryPoint("llm_runtime", "llm_runtime.entrypoints:router", fake_router("llm_runtime")),
             FakeEntryPoint("ai_assets", "ai_assets.entrypoints:router", fake_router("ai_assets")),
+            FakeEntryPoint("ai_applications", "ai_applications.entrypoints:router", fake_router("ai_applications")),
+            FakeEntryPoint("ai_capabilities", "ai_capabilities.entrypoints:router", fake_router("ai_capabilities")),
             FakeEntryPoint("messaging", "messaging.entrypoints:router", fake_router("messaging")),
             FakeEntryPoint("identity_access", "identity_access.entrypoints:router", fake_router("identity_access")),
             FakeEntryPoint("organization", "organization.entrypoints:router", fake_router("organization")),
@@ -48,7 +50,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 11)
+        self.assertEqual(len(routers), 13)
         self.assertEqual(
             loaded,
             [
@@ -62,6 +64,8 @@ class PackageEntrypointTests(unittest.TestCase):
                 "messaging",
                 "llm_runtime",
                 "ai_assets",
+                "ai_applications",
+                "ai_capabilities",
                 "appearance",
             ],
         )
@@ -115,6 +119,16 @@ class PackageEntrypointTests(unittest.TestCase):
                 "ai_assets.entrypoints:init_tasks",
                 lambda: (lambda: {"ai_assets": lambda conn: None}),
             ),
+            FakeEntryPoint(
+                "ai_applications",
+                "ai_applications.entrypoints:init_tasks",
+                lambda: (lambda: {"ai_applications": lambda conn: None}),
+            ),
+            FakeEntryPoint(
+                "ai_capabilities",
+                "ai_capabilities.entrypoints:init_tasks",
+                lambda: (lambda: {"ai_capabilities": lambda conn: None}),
+            ),
         ]
 
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
@@ -133,6 +147,8 @@ class PackageEntrypointTests(unittest.TestCase):
                 "messaging",
                 "llm_runtime",
                 "ai_assets",
+                "ai_applications",
+                "ai_capabilities",
             },
         )
 

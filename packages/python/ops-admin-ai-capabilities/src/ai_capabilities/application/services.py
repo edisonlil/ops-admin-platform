@@ -5,12 +5,13 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from llm_runtime.infrastructure.persistence import repositories
-from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
+from ai_applications.application import services as ai_application_services
+from ai_capabilities.infrastructure.persistence import repositories
+from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capabilities_schema
+from llm_runtime.application import services as llm_services
 from system.application.database import connect
 
-from .services import require_database
-from . import ai_applications
+from llm_runtime.application.services import require_database
 
 
 def list_ai_capabilities() -> dict[str, Any]:
@@ -18,7 +19,8 @@ def list_ai_capabilities() -> dict[str, Any]:
 
 
 def list_capability_model_options() -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_models(conn))
+    items = llm_services.list_models()
+    return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
 
 
 def get_ai_capability(capability_key: str) -> dict[str, Any]:
@@ -30,14 +32,14 @@ def get_ai_capability(capability_key: str) -> dict[str, Any]:
 
 def list_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
     capability = get_ai_capability(capability_key)
-    return read_list(lambda conn: repositories.list_ai_capability_run_logs(conn, capability["capability_key"], limit=limit))
+    return ai_application_services.list_ai_capability_run_logs(capability["capability_key"], limit=limit)
 
 
 def save_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_llm_schema(conn)
+            require_ai_capabilities_schema(conn)
             existing = repositories.get_ai_capability(conn, str(payload.get("capability_key") or ""))
             if not existing:
                 enforce_capability_quota(conn)
@@ -58,7 +60,7 @@ def execute_ai_capability(capability_key: str, payload: dict[str, Any]) -> dict[
     validate_executable_capability(capability)
     run_payload = payload if "variables" in payload else {"variables": payload}
     app = capability_runtime_app(capability)
-    return ai_applications.execute_single_turn_application(
+    return ai_application_services.execute_single_turn_application(
         app,
         run_payload,
         caller_type="ai_capability",
@@ -76,8 +78,8 @@ def stream_ai_capability(capability_key: str, payload: dict[str, Any]) -> Any:
     validate_executable_capability(capability)
     run_payload = payload if "variables" in payload else {"variables": payload}
     app = capability_runtime_app(capability)
-    prepared = ai_applications.prepare_single_turn_run(app, run_payload, require_published=True)
-    return ai_applications.stream_single_turn_application(
+    prepared = ai_application_services.prepare_single_turn_run(app, run_payload, require_published=True)
+    return ai_application_services.stream_single_turn_application(
         prepared,
         caller_type="ai_capability",
         caller_key=capability["capability_key"],
@@ -128,7 +130,7 @@ def normalize_capability_payload(conn: Any, payload: dict[str, Any]) -> None:
 
 
 def enforce_capability_quota(conn: Any) -> None:
-    quota = repositories.get_tenant_ai_quota(conn)
+    quota = ai_application_services.get_tenant_ai_quota()
     if not quota.get("enabled", True):
         raise ValueError("AI Studio is disabled for this tenant")
     usage = quota.get("usage") if isinstance(quota.get("usage"), dict) else {}
@@ -140,7 +142,7 @@ def read_list(loader: Any) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_capabilities_schema(conn)
             items = loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
@@ -151,7 +153,7 @@ def read_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_llm_schema(conn)
+            require_ai_capabilities_schema(conn)
             return loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc

@@ -16,6 +16,11 @@
 - Cross-context collaboration should use application ports or domain events. Do not import another context's `infrastructure` package directly.
 - Each bounded context owns its persistence resources under `infrastructure/persistence`: `ddl.sqlite.sql`, `ddl.postgres.sql`, and `seed.sql`.
 - `api` is only an entrypoint/composition compatibility layer. New business capability must be implemented inside a bounded context and exposed through that context's `interfaces/http` router.
+- Shared backend framework and reusable capability packages live under `packages/python/framework/`.
+- Framework packages are not bounded contexts. They may provide pure runtime engines, shared contracts, value objects, helpers, and ports that multiple bounded contexts reuse.
+- Framework packages must not own business tables, HTTP routers, menu/permission seed data, tenant policy, RBAC rules, or product concepts such as AI applications and AI capabilities.
+- Framework packages must not import bounded context `infrastructure` packages. When they need external execution, storage, or model calls, define ports/interfaces and let bounded contexts or composition layers provide adapters.
+- AI runtime shared primitives should live in `packages/python/framework/ops-admin-ai-runtime-core/`. This package is the common runtime core for `ai_applications`, `ai_capabilities`, and future workflow or agent runtimes; it must not depend on `llm_runtime` directly.
 
 ## API Contract
 - All business HTTP responses must use the unified envelope:

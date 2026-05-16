@@ -272,6 +272,8 @@ missing = [
         "identity_access",
         "appearance",
         "llm_runtime",
+        "ai_applications",
+        "ai_capabilities",
     )
     if importlib.util.find_spec(name) is None
 ]
@@ -347,7 +349,7 @@ function Initialize-DatabaseStorage {
     }
   }
 
-  foreach ($scriptName in @("init_identity_access.py", "init_messaging.py", "init_appearance.py", "init_llm_runtime.py")) {
+  foreach ($scriptName in @("init_identity_access.py", "init_messaging.py", "init_appearance.py", "init_llm_runtime.py", "init_ai_applications.py", "init_ai_capabilities.py")) {
     Invoke-Checked `
       -FilePath $Python `
       -ArgumentList @((Join-Path "scripts" $scriptName)) `

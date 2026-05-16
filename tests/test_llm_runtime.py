@@ -8,8 +8,10 @@ from unittest import mock
 import json
 
 from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
-from llm_runtime.application import ai_capabilities
-from llm_runtime.application import ai_applications
+from ai_capabilities.application import services as ai_capabilities
+from ai_applications.application import services as ai_applications
+from ai_applications.infrastructure.persistence.bootstrap import ensure_ai_applications_schema
+from ai_capabilities.infrastructure.persistence.bootstrap import ensure_ai_capabilities_schema
 from llm_runtime.application import gateway
 from llm_runtime.application import services
 from llm_runtime.infrastructure.persistence.bootstrap import ensure_llm_schema
@@ -406,7 +408,7 @@ class LLMRuntimeTests(unittest.TestCase):
             tenant = set_tenant_scope(TenantScope(tenant_id=33, tenant_key="quota", tenant_name="Quota Tenant"))
             try:
                 with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                    with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                         ai_applications.save_tenant_ai_quota(
                             33,
                             {
@@ -432,7 +434,7 @@ class LLMRuntimeTests(unittest.TestCase):
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
         try:
-            with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+            with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                 saved = ai_applications.save_tenant_ai_quota(
                     44,
                     {
@@ -457,7 +459,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     ai_applications.save_ai_application(self._sample_ai_application("summarize"))
 
                     def fake_chat_completions(**kwargs: object) -> dict[str, object]:
@@ -471,7 +473,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         }
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        "ai_applications.application.services.gateway.chat_completions",
                         side_effect=fake_chat_completions,
                     ):
                         result = ai_applications.run_draft_application(
@@ -495,7 +497,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     ai_applications.save_ai_application(self._sample_ai_application("summarize"))
 
                     def fake_stream_chat_completions(**kwargs: object) -> object:
@@ -507,7 +509,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         yield "data: [DONE]\n\n"
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.stream_chat_completions",
+                        "ai_applications.application.services.gateway.stream_chat_completions",
                         side_effect=fake_stream_chat_completions,
                     ):
                         events = list(
@@ -533,7 +535,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     ai_applications.save_ai_application(self._sample_ai_application("summarize"))
 
                     def fake_stream_chat_completions(**kwargs: object) -> object:
@@ -544,7 +546,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         yield 'data: {"choices":[{"delta":{"content":"完成"}}]}\n\n'
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.stream_chat_completions",
+                        "ai_applications.application.services.gateway.stream_chat_completions",
                         side_effect=fake_stream_chat_completions,
                     ):
                         events = list(
@@ -572,7 +574,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     ai_applications.save_ai_application(self._sample_ai_application("summarize"))
                     ai_applications.save_ai_application(self._sample_ai_application("translate"))
 
@@ -582,7 +584,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         return {"choices": [{"message": {"content": str(messages[-1]["content"])}}], "usage": {}}
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        "ai_applications.application.services.gateway.chat_completions",
                         side_effect=fake_chat_completions,
                     ):
                         ai_applications.run_draft_application("summarize", {"variables": {"question": "A"}})
@@ -602,7 +604,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     app_payload = self._sample_ai_application("summarize")
                     app_payload["runtime_config"] = {
                         **app_payload.get("runtime_config", {}),
@@ -630,7 +632,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     app_payload = self._sample_ai_application("vision")
                     app_payload["user_prompt_template"] = "请分析图片：{{image}}"
                     app_payload["variables_schema"] = {
@@ -652,7 +654,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         return {"choices": [{"message": {"content": "图片里有一个按钮"}}], "usage": {}}
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        "ai_applications.application.services.gateway.chat_completions",
                         side_effect=fake_chat_completions,
                     ):
                         result = ai_applications.run_draft_application(
@@ -680,7 +682,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     app_payload = self._sample_ai_application("numeric_var")
                     app_payload["user_prompt_template"] = "会议内容：{{11}}"
                     app_payload["variables_schema"] = {
@@ -697,7 +699,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         return {"choices": [{"message": {"content": "已解析变量"}}], "usage": {}}
 
                     with mock.patch(
-                        "llm_runtime.application.ai_applications.gateway.chat_completions",
+                        "ai_applications.application.services.gateway.chat_completions",
                         side_effect=fake_chat_completions,
                     ):
                         result = ai_applications.run_draft_application(
@@ -725,7 +727,7 @@ class LLMRuntimeTests(unittest.TestCase):
             tenant = set_tenant_scope(TenantScope(tenant_id=1, tenant_key="default", tenant_name="Default"))
             try:
                 with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                    with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                         with mock.patch("ai_assets.infrastructure.persistence.repositories.resolve_db_path", return_value=db_path):
                             prompt = ai_asset_services.save_prompt_asset(
                                 {
@@ -769,7 +771,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                 return {"choices": [{"message": {"content": "退款流程摘要"}}], "usage": {}}
 
                             with mock.patch(
-                                "llm_runtime.application.ai_applications.gateway.chat_completions",
+                                "ai_applications.application.services.gateway.chat_completions",
                                 side_effect=fake_chat_completions,
                             ):
                                 result = ai_applications.run_draft_application(
@@ -793,7 +795,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
                     ai_applications.save_ai_application(self._sample_ai_application("summarize"))
                     with self.assertRaises(Exception) as raised:
                         ai_applications.run_published_application("summarize", {"variables": {"question": "hello"}})
@@ -807,8 +809,8 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
-                    with mock.patch("llm_runtime.application.ai_capabilities.require_database", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    with mock.patch("ai_capabilities.application.services.require_database", return_value=db_path):
                         capability = ai_capabilities.save_ai_capability(
                             {
                                 "capability_key": "summarize",
@@ -831,7 +833,7 @@ class LLMRuntimeTests(unittest.TestCase):
                             return {"choices": [{"message": {"content": "会议摘要"}}], "usage": {"total_tokens": 9}}
 
                         with mock.patch(
-                            "llm_runtime.application.ai_applications.gateway.chat_completions",
+                            "ai_applications.application.services.gateway.chat_completions",
                             side_effect=fake_chat_completions,
                         ):
                             result = ai_capabilities.execute_ai_capability(
@@ -860,7 +862,7 @@ class LLMRuntimeTests(unittest.TestCase):
         self._initialize_llm_db(db_path)
         try:
             with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
-                with mock.patch("llm_runtime.application.ai_capabilities.require_database", return_value=db_path):
+                with mock.patch("ai_capabilities.application.services.require_database", return_value=db_path):
                     ai_capabilities.save_ai_capability(
                         {
                             "capability_key": "summarize",
@@ -893,6 +895,8 @@ class LLMRuntimeTests(unittest.TestCase):
         conn.row_factory = sqlite3.Row
         try:
             ensure_llm_schema(conn)
+            ensure_ai_applications_schema(conn)
+            ensure_ai_capabilities_schema(conn)
             conn.commit()
         finally:
             conn.close()

@@ -31,10 +31,6 @@ def require_llm_schema(conn: Any) -> None:
         "llm_routing_policies",
         "llm_routing_policy_entries",
         "llm_call_logs",
-        "ai_applications",
-        "ai_capabilities",
-        "tenant_ai_quotas",
-        "prompt_runtime_traces",
     )
     missing_tables = [table_name for table_name in required_tables if not table_exists(conn, table_name)]
     missing_tenant_columns = [
@@ -62,10 +58,6 @@ def ensure_tenant_columns(conn: Any) -> None:
         "llm_routing_policies",
         "llm_routing_policy_entries",
         "llm_call_logs",
-        "ai_applications",
-        "ai_capabilities",
-        "tenant_ai_quotas",
-        "prompt_runtime_traces",
     ):
         ensure_tenant_column(conn, table_name)
 
@@ -79,4 +71,3 @@ def ensure_tenant_column(conn: Any, table_name: str) -> None:
 
 def has_tenant_column(conn: Any, table_name: str) -> bool:
     return column_exists(conn, table_name, "tenant_id")
-
