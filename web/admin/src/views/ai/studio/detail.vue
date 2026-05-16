@@ -232,6 +232,7 @@
         v-else-if="activeWorkspace === 'orchestration'"
         ref="workbenchRef"
         class="studio-workbench"
+        :class="{ 'is-preview-focus': previewFocusMode }"
         :style="workbenchStyle"
       >
         <section class="studio-builder">
@@ -360,19 +361,36 @@
                 <span>{{ form.status === 'published' ? '已发布' : '草稿' }}</span>
               </div>
               <div class="preview-panel__actions">
+                <n-button size="small" tertiary @click="togglePreviewFocusMode">
+                  {{ previewFocusMode ? '显示提示词' : '隐藏提示词' }}
+                </n-button>
                 <div v-if="runStatusText" class="preview-run-status" :class="{ 'is-running': running }">
                   <span class="preview-run-status__dot"></span>
                   <span>{{ runStatusText }}</span>
                 </div>
+                <n-select
+                  v-model:value="selectedOutputFormat"
+                  size="small"
+                  :options="outputFormatOptions"
+                  :consistent-menu-width="false"
+                  class="preview-output-format"
+                />
                 <n-button type="primary" :loading="running" @click="runDraft">运行</n-button>
               </div>
             </header>
 
-            <section v-if="runtimeVariableFields.length" class="runtime-variables">
-              <div class="runtime-variables__header">
+            <section v-if="runtimeVariableFields.length" class="runtime-variables" :class="{ 'is-collapsed': runtimeVariablesCollapsed }">
+              <button
+                class="runtime-variables__header"
+                type="button"
+                :aria-expanded="!runtimeVariablesCollapsed"
+                @click="toggleRuntimeVariablesCollapsed"
+              >
                 <span>运行变量</span>
-              </div>
-              <div class="runtime-variable-list">
+                <span class="runtime-variables__meta">{{ runtimeVariableFields.length }} 个变量</span>
+                <span class="runtime-variables__chevron" aria-hidden="true">›</span>
+              </button>
+              <div v-if="!runtimeVariablesCollapsed" class="runtime-variable-list">
                 <div v-for="field in runtimeVariableFields" :key="field.key" class="runtime-variable-item">
                   <div class="runtime-variable-label-row">
                     <span
@@ -431,12 +449,40 @@
                     <pre class="think-box">{{ previewThinkText }}</pre>
                   </n-collapse-item>
                 </n-collapse>
-                <div
-                  v-if="previewAnswerText"
-                  class="markdown-answer"
-                  v-html="previewAnswerHtml"
-                ></div>
-                <div v-else class="chat-preview__empty">运行后将在这里预览模型输出。</div>
+                <div v-if="previewAnswerText" class="answer-renderer">
+                  <template v-if="previewRenderedOutput.kind === 'html'">
+                    <div class="html-preview-toolbar">
+                      <span>静态预览已移除脚本，避免调试页执行模型生成代码。</span>
+                      <div class="html-preview-toolbar__actions">
+                        <n-button size="tiny" secondary @click="openCurrentHtmlPreviewInNewTab">新标签预览</n-button>
+                        <n-switch v-model:value="allowHtmlScripts" size="small">
+                          <template #checked>执行脚本</template>
+                          <template #unchecked>静态</template>
+                        </n-switch>
+                      </div>
+                    </div>
+                    <iframe
+                      class="html-answer-frame"
+                      title="HTML 输出预览"
+                      :sandbox="htmlPreviewSandbox"
+                      :srcdoc="htmlPreviewSrcdoc"
+                    ></iframe>
+                    <details class="html-source-fallback">
+                      <summary>预览为空时查看原始 HTML 源码</summary>
+                      <pre>{{ previewRenderedOutput.rawContent || previewRenderedOutput.content }}</pre>
+                    </details>
+                  </template>
+                  <pre v-else-if="previewRenderedOutput.kind === 'json'" class="json-answer">{{ previewRenderedOutput.content }}</pre>
+                  <div v-else class="markdown-answer" v-html="previewRenderedOutput.content"></div>
+                </div>
+                <div v-else-if="running && selectedOutputFormat === 'html'" class="rendering-state">
+                  <span class="rendering-spinner"></span>
+                  <div>
+                    <strong>{{ outputRenderingTitle }}</strong>
+                    <span>{{ outputRenderingHint }}</span>
+                  </div>
+                </div>
+                <div v-else-if="!running" class="chat-preview__empty">运行后将在这里预览模型输出。</div>
               </div>
             </div>
 
@@ -681,11 +727,22 @@
                       <pre class="think-box">{{ selectedRunLogOutput.think }}</pre>
                     </n-collapse-item>
                   </n-collapse>
-                  <div
-                    v-if="selectedRunLogOutput.answer"
-                    class="markdown-answer"
-                    v-html="renderMarkdown(selectedRunLogOutput.answer)"
-                  ></div>
+                  <div v-if="selectedRunLogOutput.answer" class="answer-renderer">
+                    <template v-if="selectedRunLogRenderedOutput.kind === 'html'">
+                      <iframe
+                        class="html-answer-frame"
+                        title="HTML 输出预览"
+                        sandbox="allow-popups allow-popups-to-escape-sandbox"
+                        :srcdoc="selectedRunLogRenderedOutput.content"
+                      ></iframe>
+                      <details class="html-source-fallback">
+                        <summary>预览为空时查看 HTML 源码</summary>
+                        <pre>{{ selectedRunLogRenderedOutput.content }}</pre>
+                      </details>
+                    </template>
+                    <pre v-else-if="selectedRunLogRenderedOutput.kind === 'json'" class="json-answer">{{ selectedRunLogRenderedOutput.content }}</pre>
+                    <div v-else class="markdown-answer" v-html="selectedRunLogRenderedOutput.content"></div>
+                  </div>
                 </div>
                 <n-empty v-else description="本次运行没有输出内容" />
               </section>
@@ -815,6 +872,8 @@
   type WorkflowNodeType = 'start' | 'llm' | 'condition' | 'end';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
+  type OutputFormat = 'markdown' | 'html' | 'json';
+  type RenderedOutput = { kind: OutputFormat; content: string; rawContent?: string };
 
   interface RuntimeMediaVariableValue {
     type: 'image' | 'file' | 'audio' | 'video';
@@ -842,7 +901,9 @@
   const activeWorkspace = ref<WorkspaceKey>('orchestration');
   const workbenchRef = ref<HTMLElement | null>(null);
   const previewWidthPercent = ref(42);
+  const previewFocusMode = ref(false);
   const previewResizeDragged = ref(false);
+  const runtimeVariablesCollapsed = ref(false);
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
@@ -854,6 +915,7 @@
   const selectedModelKey = ref('');
   const systemPromptSource = ref<'inline' | 'asset'>('inline');
   const selectedSystemPromptAssetKey = ref('');
+  const selectedOutputFormat = ref<OutputFormat>('markdown');
   const variablesSchemaText = ref('{\n  "type": "object",\n  "required": ["question"]\n}');
   const outputSchemaText = ref('{}');
   const runtimeVariableValues = reactive<Record<string, RuntimeVariableValue>>({});
@@ -870,9 +932,11 @@
   const runLogsLoading = ref(false);
   const selectedRunLogId = ref('');
   const streamThinkText = ref('');
+  const allowHtmlScripts = ref(false);
   const runningElapsedMs = ref(0);
   const lastRunElapsedMs = ref(0);
   let runStopwatchTimer: number | null = null;
+  let htmlPreviewObjectUrl = '';
   const form = reactive({
     app_key: '',
     name: '',
@@ -924,6 +988,11 @@
     { label: '实验', value: 'experiment' },
     { label: '接口', value: 'api' },
   ];
+  const outputFormatOptions: SelectOption[] = [
+    { label: 'Markdown', value: 'markdown' },
+    { label: 'HTML', value: 'html' },
+    { label: 'JSON', value: 'json' },
+  ];
   const baseWorkspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
     { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
     { key: 'api', label: '访问 API', description: '调用方式' },
@@ -972,9 +1041,18 @@
   const parsedPreviewOutput = computed(() => splitThinkContent(runResult.value?.answer || ''));
   const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
-  const previewAnswerHtml = computed(() => markdownRenderer.render(previewAnswerText.value || ''));
+  const previewRenderedOutput = computed(() => renderAnswer(previewAnswerText.value, selectedOutputFormat.value));
+  const htmlPreviewSrcdoc = computed(() =>
+    allowHtmlScripts.value ? previewRenderedOutput.value.rawContent || previewRenderedOutput.value.content : previewRenderedOutput.value.content
+  );
+  const htmlPreviewSandbox = computed(() =>
+    allowHtmlScripts.value
+      ? 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
+      : 'allow-popups allow-popups-to-escape-sandbox'
+  );
   const selectedRunLog = computed(() => runLogs.value.find((item) => item.run_id === selectedRunLogId.value) || runLogs.value[0] || null);
   const selectedRunLogOutput = computed(() => splitThinkContent(selectedRunLog.value?.answer || ''));
+  const selectedRunLogRenderedOutput = computed(() => renderAnswer(selectedRunLogOutput.value.answer, selectedOutputFormat.value));
   const selectedIconLabel = computed(() => String(iconOptions.find((item) => item.value === form.icon)?.label || '助手'));
   const resourceType = computed<StudioResourceType>(() => (route.name === 'ai-studio-capability-detail' ? 'capability' : 'application'));
   const isCapability = computed(() => resourceType.value === 'capability');
@@ -1022,6 +1100,8 @@
     const elapsedSeconds = runElapsedSeconds.value || fallbackRunElapsedSeconds.value;
     return elapsedSeconds ? `执行耗时 ${elapsedSeconds} 秒` : '';
   });
+  const outputRenderingTitle = computed(() => '正在生成 HTML 输出');
+  const outputRenderingHint = computed(() => '收到内容后会进入隔离预览并保留源码兜底。');
   const workbenchStyle = computed(() => ({
     '--studio-preview-width': `${previewWidthPercent.value}%`,
   }));
@@ -1080,7 +1160,10 @@
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
   });
-  onBeforeUnmount(stopRunStopwatch);
+  onBeforeUnmount(() => {
+    stopRunStopwatch();
+    revokeHtmlPreviewObjectUrl();
+  });
 
   async function reload() {
     const key = String(isCapability.value ? route.params.capabilityKey || '' : route.params.appKey || '');
@@ -1170,6 +1253,7 @@
     loadWorkflowDefinition(app.runtime_config?.workflow);
     systemPromptSource.value = app.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(app.runtime_config?.system_prompt_asset_key || '');
+    selectedOutputFormat.value = normalizeOutputFormat(app.runtime_config?.output_format);
     if (selectedSystemPromptAssetKey.value) {
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
@@ -1203,6 +1287,7 @@
     loadWorkflowDefinition(capability.runtime_config?.workflow);
     systemPromptSource.value = capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(capability.runtime_config?.system_prompt_asset_key || '');
+    selectedOutputFormat.value = normalizeOutputFormat(capability.runtime_config?.output_format);
     if (selectedSystemPromptAssetKey.value) {
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
@@ -1275,6 +1360,7 @@
       streamThinkText.value = '';
       await runDraftStream({
         variables: buildRuntimeVariables(),
+        ...runOutputFormatPayload(),
       });
       if (activeWorkspace.value === 'logs') {
         await loadRunLogs();
@@ -1554,7 +1640,7 @@
     }
   }
 
-  async function runDraftStream(payload: { variables: Record<string, unknown> }) {
+  async function runDraftStream(payload: { variables: Record<string, unknown>; response_format?: Record<string, unknown> }) {
     const response = isCapability.value
       ? await fetchAiCapabilityStream(form.app_key, payload)
       : await fetchAiApplicationDraftStream(form.app_key, payload);
@@ -1647,6 +1733,104 @@
     };
   }
 
+  function runOutputFormatPayload() {
+    if (selectedOutputFormat.value !== 'json') return {};
+    return {
+      response_format: { type: 'json_object' },
+    };
+  }
+
+  function normalizeOutputFormat(value: unknown): OutputFormat {
+    return value === 'html' || value === 'json' ? value : 'markdown';
+  }
+
+  function renderAnswer(value: string, format: OutputFormat): RenderedOutput {
+    if (format === 'html') {
+      const rawContent = normalizeHtmlOutput(value);
+      return {
+        kind: 'html',
+        content: allowHtmlScripts.value ? rawContent : staticHtmlOutput(rawContent),
+        rawContent,
+      };
+    }
+    if (format === 'json') {
+      return { kind: 'json', content: normalizeJsonOutput(value) };
+    }
+    return { kind: 'markdown', content: renderMarkdown(value) };
+  }
+
+  function normalizeHtmlOutput(value: string) {
+    const content = extractFencedBlock(value, ['html']) || extractHtmlDocument(value) || value.trim();
+    if (!content) return '';
+    if (/<!doctype\s+html|<html[\s>]/i.test(content)) {
+      return content;
+    }
+    return `<!doctype html><html><head><meta charset="UTF-8"><base target="_blank"></head><body>${content}</body></html>`;
+  }
+
+  function staticHtmlOutput(value: string) {
+    if (!value) return '';
+    return value
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
+      .replace(/\s+(src|href)\s*=\s*(['"])(?!https?:|data:|mailto:|tel:|#|\/\/)(.*?)\2/gi, ' $1="#"');
+  }
+
+  function normalizeJsonOutput(value: string) {
+    const content = extractFencedBlock(value, ['json']) || extractJsonCandidate(value) || value.trim();
+    if (!content) return '';
+    try {
+      return JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      return content;
+    }
+  }
+
+  function extractFencedBlock(value: string, languages: string[]) {
+    const pattern = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
+    let fallback = '';
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(value))) {
+      const lang = match[1].toLowerCase();
+      const body = match[2].trim();
+      if (!fallback) fallback = body;
+      if (languages.includes(lang)) return body;
+    }
+    return fallback;
+  }
+
+  function extractHtmlDocument(value: string) {
+    const documentMatch = value.match(/(?:<!doctype\s+html[^>]*>\s*)?<html[\s\S]*<\/html>/i);
+    if (documentMatch) return documentMatch[0].trim();
+    const bodyMatch = value.match(/<body[\s\S]*<\/body>/i);
+    if (bodyMatch) return bodyMatch[0].trim();
+    const tagMatch = value.match(/<([a-z][a-z0-9-]*)(?:\s[^>]*)?>[\s\S]*<\/\1>/i);
+    return tagMatch ? tagMatch[0].trim() : '';
+  }
+
+  function extractJsonCandidate(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const start = findFirstJsonBoundary(trimmed);
+    if (start < 0) return '';
+    const end = findLastJsonBoundary(trimmed);
+    return end > start ? trimmed.slice(start, end + 1) : '';
+  }
+
+  function findFirstJsonBoundary(value: string) {
+    const objectIndex = value.indexOf('{');
+    const arrayIndex = value.indexOf('[');
+    if (objectIndex < 0) return arrayIndex;
+    if (arrayIndex < 0) return objectIndex;
+    return Math.min(objectIndex, arrayIndex);
+  }
+
+  function findLastJsonBoundary(value: string) {
+    return Math.max(value.lastIndexOf('}'), value.lastIndexOf(']'));
+  }
+
   function buildPayload() {
     const workflow = isWorkflowMode.value ? workflowDefinitionPayload() : undefined;
     return {
@@ -1660,6 +1844,7 @@
         icon: form.icon,
         system_prompt_source: systemPromptSource.value,
         system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+        output_format: selectedOutputFormat.value,
         ...(workflow ? { workflow } : {}),
       },
     };
@@ -1672,6 +1857,7 @@
       icon: form.icon,
       system_prompt_source: systemPromptSource.value,
       system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+      output_format: selectedOutputFormat.value,
       ...(workflow ? { workflow } : {}),
     };
     return {
@@ -1708,7 +1894,37 @@
     }
   }
 
+  function revokeHtmlPreviewObjectUrl() {
+    if (!htmlPreviewObjectUrl) return;
+    URL.revokeObjectURL(htmlPreviewObjectUrl);
+    htmlPreviewObjectUrl = '';
+  }
+
+  function openCurrentHtmlPreviewInNewTab() {
+    const html = htmlPreviewSrcdoc.value;
+    if (!html) {
+      message.warning('暂无可预览的 HTML 内容');
+      return;
+    }
+    revokeHtmlPreviewObjectUrl();
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    htmlPreviewObjectUrl = URL.createObjectURL(blob);
+    const opened = window.open(htmlPreviewObjectUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      message.warning('浏览器阻止了新标签页，请允许弹出窗口后重试');
+    }
+  }
+
+  function togglePreviewFocusMode() {
+    previewFocusMode.value = !previewFocusMode.value;
+  }
+
+  function toggleRuntimeVariablesCollapsed() {
+    runtimeVariablesCollapsed.value = !runtimeVariablesCollapsed.value;
+  }
+
   function togglePreviewWidth() {
+    if (previewFocusMode.value) return;
     if (previewResizeDragged.value) {
       previewResizeDragged.value = false;
       return;
@@ -1717,6 +1933,7 @@
   }
 
   function startPreviewResize(event: PointerEvent) {
+    if (previewFocusMode.value) return;
     const target = event.currentTarget as HTMLElement;
     const container = workbenchRef.value;
     if (!container) return;
@@ -2166,6 +2383,27 @@
     gap: 10px;
     align-items: start;
     min-width: 0;
+  }
+
+  .studio-workbench.is-preview-focus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-workbench.is-preview-focus .studio-builder,
+  .studio-workbench.is-preview-focus .studio-resizer {
+    display: none;
+  }
+
+  .studio-workbench.is-preview-focus .studio-preview {
+    position: static;
+  }
+
+  .studio-workbench.is-preview-focus .chat-preview__bubble {
+    max-height: min(760px, calc(100vh - 320px));
+  }
+
+  .studio-workbench.is-preview-focus .html-answer-frame {
+    min-height: 620px;
   }
 
   .studio-workspace-nav {
@@ -2926,6 +3164,7 @@
     display: grid;
     grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
     gap: 14px;
+    align-items: start;
     min-width: 0;
   }
 
@@ -2977,6 +3216,8 @@
   .run-log-detail {
     display: grid;
     gap: 14px;
+    align-self: start;
+    align-content: start;
     min-width: 0;
     padding: 14px;
     border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
@@ -2987,12 +3228,15 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
+    align-items: start;
   }
 
   .run-log-detail__summary > div {
     display: grid;
+    align-content: start;
     gap: 3px;
     min-width: 0;
+    min-height: 72px;
     padding: 10px;
     background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 64%, var(--app-surface-bg));
     border-radius: 7px;
@@ -3145,6 +3389,10 @@
     margin-left: auto;
   }
 
+  .preview-output-format {
+    width: 118px;
+  }
+
   .preview-run-status {
     display: inline-flex;
     gap: 6px;
@@ -3214,6 +3462,19 @@
     margin-bottom: 8px;
     color: var(--app-text-color-2);
     font-size: 12px;
+  }
+
+  .prompt-asset-preview pre {
+    max-height: min(360px, calc(100vh - 360px));
+    margin: 0;
+    padding-right: 8px;
+    overflow: auto;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    scrollbar-gutter: stable;
   }
 
   .variable-schema {
@@ -3324,12 +3585,54 @@
     border-radius: var(--app-card-radius);
   }
 
+  .runtime-variables.is-collapsed {
+    padding: 0;
+    background: var(--app-surface-bg);
+  }
+
   .runtime-variables__header {
+    width: 100%;
+    padding: 0;
     align-items: center;
     margin-bottom: 12px;
+    text-align: left;
+    background: transparent;
+    border: 0;
     color: var(--app-text-color-1);
+    cursor: pointer;
     font-size: 14px;
     font-weight: 650;
+  }
+
+  .runtime-variables.is-collapsed .runtime-variables__header {
+    min-height: 42px;
+    padding: 0 14px;
+    margin-bottom: 0;
+  }
+
+  .runtime-variables__meta {
+    margin-left: auto;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .runtime-variables__chevron {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    color: var(--app-text-color-3);
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1;
+    transform: rotate(90deg);
+    transition: transform 0.16s ease;
+  }
+
+  .runtime-variables.is-collapsed .runtime-variables__chevron {
+    transform: rotate(0deg);
   }
 
   .runtime-variable-list {
@@ -3498,6 +3801,131 @@
     font-size: 14px;
     line-height: 1.75;
     overflow-wrap: anywhere;
+  }
+
+  .answer-renderer {
+    position: relative;
+    min-width: 0;
+  }
+
+  .html-preview-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 34px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 76%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 8px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .html-preview-toolbar > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .html-preview-toolbar__actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .html-preview-toolbar__actions :deep(.n-switch) {
+    flex: 0 0 auto;
+  }
+
+  .html-answer-frame {
+    width: 100%;
+    min-height: 420px;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 8px;
+  }
+
+  .rendering-state {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    color: var(--app-text-color-2);
+  }
+
+  .rendering-state {
+    min-height: 180px;
+    justify-content: center;
+    padding: 20px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+    border: 1px dashed color-mix(in srgb, var(--app-border-color, #d9e1ec) 76%, transparent);
+    border-radius: 8px;
+  }
+
+  .rendering-state strong,
+  .rendering-state span {
+    display: block;
+  }
+
+  .rendering-state strong {
+    margin-bottom: 2px;
+    color: var(--app-text-color-1);
+    font-weight: 650;
+  }
+
+  .rendering-spinner {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border: 2px solid color-mix(in srgb, var(--app-primary-color) 18%, var(--app-border-color, #d9e1ec));
+    border-top-color: var(--app-primary-color);
+    border-radius: 999px;
+    animation: ai-output-spin 0.8s linear infinite;
+  }
+
+  .html-source-fallback {
+    margin-top: 10px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .html-source-fallback summary {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .html-source-fallback pre {
+    max-height: 260px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    overflow: auto;
+    color: var(--app-text-color-2);
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 86%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
+    border-radius: 8px;
+  }
+
+  @keyframes ai-output-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .json-answer {
+    max-height: 520px;
+    padding: 12px 14px;
+    overflow: auto;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    line-height: 1.65;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 86%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
+    border-radius: 8px;
   }
 
   :deep(.markdown-answer h1),
