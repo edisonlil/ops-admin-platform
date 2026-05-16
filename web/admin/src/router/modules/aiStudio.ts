@@ -36,6 +36,17 @@ const routes: Array<RouteRecordRaw> = [
         },
         component: () => import('@/views/ai/studio/detail.vue'),
       },
+      {
+        path: 'studio/capabilities/:capabilityKey',
+        name: 'ai-studio-capability-detail',
+        meta: {
+          title: 'AI 能力配置',
+          permissions: ['ai_studio:access'],
+          activeMenu: 'ai-studio',
+          hidden: true,
+        },
+        component: () => import('@/views/ai/studio/detail.vue'),
+      },
     ],
   },
 ];

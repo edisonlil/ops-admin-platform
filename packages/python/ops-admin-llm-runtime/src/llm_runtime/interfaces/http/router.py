@@ -6,9 +6,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from identity_access.interfaces.http import dependencies as auth
+from llm_runtime.application import ai_capabilities
 from llm_runtime.application import ai_applications
 from llm_runtime.application import services
 from llm_runtime.interfaces.http.dtos import (
+    AICapabilityRequest,
+    AICapabilityRunRequest,
     AIApplicationRequest,
     AIApplicationRunRequest,
     LLMConfigRequest,
@@ -106,7 +109,7 @@ def ai_studio_overview() -> dict[str, Any]:
     return ok(ai_applications.studio_overview())
 
 
-@router.get("/ai-studio/items", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
+@router.get("/ai-studio/items", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def ai_studio_items() -> dict[str, Any]:
     return ok(ai_applications.list_ai_applications())
 
@@ -116,19 +119,70 @@ def ai_studio_traces(limit: int = 50) -> dict[str, Any]:
     return ok(ai_applications.list_prompt_runtime_traces(limit=limit))
 
 
-@router.get("/llm/ai-applications", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
+@router.get("/llm/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def llm_ai_applications() -> dict[str, Any]:
     return ok(ai_applications.list_ai_applications())
 
 
-@router.get("/llm/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
+@router.get("/llm/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def llm_ai_application(app_key: str) -> dict[str, Any]:
     return ok(ai_applications.get_ai_application(app_key))
 
 
-@router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
+@router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def llm_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any]:
     return ok(ai_applications.list_ai_application_run_logs(app_key, limit=limit))
+
+
+@router.get("/llm/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
+def llm_ai_capabilities() -> dict[str, Any]:
+    return ok(ai_capabilities.list_ai_capabilities())
+
+
+@router.get("/llm/ai-capabilities/model-options", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])
+def llm_ai_capability_model_options() -> dict[str, Any]:
+    return ok(ai_capabilities.list_capability_model_options())
+
+
+@router.get("/llm/ai-capabilities/{capability_key}", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
+def llm_ai_capability(capability_key: str) -> dict[str, Any]:
+    return ok(ai_capabilities.get_ai_capability(capability_key))
+
+
+@router.get("/ai-studio/capabilities/{capability_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
+def llm_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+    return ok(ai_capabilities.list_ai_capability_run_logs(capability_key, limit=limit))
+
+
+@router.post("/llm/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])
+def save_llm_ai_capability(payload: AICapabilityRequest) -> dict[str, Any]:
+    return ok(ai_capabilities.save_ai_capability(payload.model_dump()))
+
+
+@router.put("/llm/ai-capabilities/{capability_key}", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])
+def update_llm_ai_capability(capability_key: str, payload: AICapabilityRequest) -> dict[str, Any]:
+    data = payload.model_dump()
+    data["capability_key"] = capability_key
+    return ok(ai_capabilities.save_ai_capability(data))
+
+
+@router.post(
+    "/llm/ai-capabilities/{capability_key}/execute",
+    dependencies=[Depends(auth.require_business_api_key_or_permission("ai_capabilities:execute"))],
+)
+def execute_llm_ai_capability(capability_key: str, payload: AICapabilityRunRequest) -> dict[str, Any]:
+    return ok(ai_capabilities.execute_ai_capability(capability_key, payload.model_dump()))
+
+
+@router.post(
+    "/llm/ai-capabilities/{capability_key}/execute/stream",
+    dependencies=[Depends(auth.require_permission("ai_capabilities:execute"))],
+)
+def stream_llm_ai_capability(capability_key: str, payload: AICapabilityRunRequest) -> StreamingResponse:
+    return StreamingResponse(
+        ai_capabilities.stream_ai_capability(capability_key, payload.model_dump()),
+        media_type="text/event-stream",
+    )
 
 
 @router.post("/llm/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])

@@ -516,8 +516,8 @@
           <section class="app-settings-card">
             <div class="app-settings-card__head">
               <div>
-                <h4>应用信息</h4>
-                <span>这些信息用于应用列表、导航和外部识别，不影响 Prompt Runtime 执行逻辑。</span>
+                <h4>{{ settingsTitle }}</h4>
+                <span>{{ settingsHint }}</span>
               </div>
             </div>
             <n-form label-placement="top" class="app-settings-form">
@@ -564,11 +564,16 @@
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
   import {
+    fetchAiCapabilityStream,
     fetchAiApplicationDraftStream,
+    getAiCapability,
+    getAiCapabilityRunLogs,
     getAiApplication,
     getAiApplicationRunLogs,
     publishAiApplication,
+    updateAiCapability,
     updateAiApplication,
+    type AiCapability,
     type AiApplication,
     type AiApplicationRunLog,
     type AiRunResult,
@@ -588,6 +593,7 @@
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
   type WorkspaceKey = 'orchestration' | 'api' | 'logs' | 'monitoring' | 'settings';
+  type StudioResourceType = 'application' | 'capability';
 
   interface RuntimeMediaVariableValue {
     type: 'image' | 'file' | 'audio' | 'video';
@@ -619,6 +625,7 @@
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
+  const activeCapability = ref<AiCapability | null>(null);
   const models = ref<Recordable[]>([]);
   const policies = ref<Recordable[]>([]);
   const publishedPrompts = ref<PromptAsset[]>([]);
@@ -691,13 +698,14 @@
     { label: '实验', value: 'experiment' },
     { label: '接口', value: 'api' },
   ];
-  const workspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
+  const baseWorkspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
     { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
     { key: 'api', label: '访问 API', description: '调用方式' },
     { key: 'logs', label: '运行日志', description: '执行记录' },
     { key: 'monitoring', label: '监测', description: '指标趋势' },
     { key: 'settings', label: '设置', description: '应用信息' },
   ];
+  const workspaceTabs = computed(() => baseWorkspaceTabs.filter((item) => !isCapability.value || item.key !== 'api'));
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const templateVariableKeys = computed(() => extractTemplateVariableKeys(form.user_prompt_template || ''));
@@ -726,6 +734,15 @@
   const selectedRunLog = computed(() => runLogs.value.find((item) => item.run_id === selectedRunLogId.value) || runLogs.value[0] || null);
   const selectedRunLogOutput = computed(() => splitThinkContent(selectedRunLog.value?.answer || ''));
   const selectedIconLabel = computed(() => String(iconOptions.find((item) => item.value === form.icon)?.label || '助手'));
+  const resourceType = computed<StudioResourceType>(() => (route.name === 'ai-studio-capability-detail' ? 'capability' : 'application'));
+  const isCapability = computed(() => resourceType.value === 'capability');
+  const resourceLabel = computed(() => (isCapability.value ? 'AI 能力' : 'AI 应用'));
+  const settingsTitle = computed(() => (isCapability.value ? '能力信息' : '应用信息'));
+  const settingsHint = computed(() =>
+    isCapability.value
+      ? '这些信息用于 AI Studio 能力列表和内部调用识别，不影响 Prompt Runtime 执行逻辑。'
+      : '这些信息用于应用列表、导航和外部识别，不影响 Prompt Runtime 执行逻辑。'
+  );
   const apiEndpoint = computed(() => `/runtime/apps/${form.app_key || '{app_key}'}/run`);
   const apiVariableRows = computed(() =>
     runtimeVariableFields.value.map((field) => ({
@@ -768,10 +785,10 @@
   }));
 
   const detailPage = computed(() =>
-    defineDetailPage<AiApplication>({
+    defineDetailPage<AiApplication | AiCapability>({
       id: 'ai.studio.detail',
-      title: form.name || 'AI 应用配置',
-      description: form.app_key ? `${form.app_key} · ${form.status === 'published' ? '已发布' : '草稿'}` : '配置应用运行时并在 Playground 调试。',
+      title: form.name || `${resourceLabel.value}配置`,
+      description: form.app_key ? `${form.app_key} · ${isCapability.value ? '内部调用' : form.status === 'published' ? '已发布' : '草稿'}` : `配置${resourceLabel.value}运行时并在 Playground 调试。`,
       kind: 'workspace-detail',
       variant: 'dense-data',
       density: 'compact',
@@ -787,14 +804,18 @@
           loading: saving.value,
           onClick: saveCurrent,
         },
-        {
-          key: 'publish',
-          label: '发布',
-          type: 'primary',
-          disabled: activeApp.value?.status === 'published',
-          loading: publishing.value,
-          onClick: publishCurrent,
-        },
+        ...(isCapability.value
+          ? []
+          : [
+              {
+                key: 'publish',
+                label: '发布',
+                type: 'primary',
+                disabled: activeApp.value?.status === 'published',
+                loading: publishing.value,
+                onClick: publishCurrent,
+              },
+            ]),
       ],
     })
   );
@@ -807,20 +828,24 @@
   onBeforeUnmount(stopRunStopwatch);
 
   async function reload() {
-    const appKey = String(route.params.appKey || '');
-    if (!appKey) {
-      message.error('应用 Key 缺失');
+    const key = String(isCapability.value ? route.params.capabilityKey || '' : route.params.appKey || '');
+    if (!key) {
+      message.error(`${resourceLabel.value} Key 缺失`);
       return;
     }
     loading.value = true;
     try {
-      const [app] = await Promise.all([getAiApplication(appKey), loadModelConfigs(), loadPublishedPrompts()]);
-      selectApp(app);
+      if (isCapability.value) {
+        const [capability] = await Promise.all([getAiCapability(key), loadModelConfigs(), loadPublishedPrompts()]);
+        selectCapability(capability);
+      } else {
+        const [app] = await Promise.all([getAiApplication(key), loadModelConfigs(), loadPublishedPrompts()]);
+        selectApp(app);
+      }
     } finally {
       loading.value = false;
     }
   }
-
   async function loadModelConfigs() {
     modelConfigLoading.value = true;
     try {
@@ -851,7 +876,9 @@
     if (!form.app_key) return;
     runLogsLoading.value = true;
     try {
-      const payload = await getAiApplicationRunLogs(form.app_key, 50);
+      const payload = isCapability.value
+        ? await getAiCapabilityRunLogs(form.app_key, 50)
+        : await getAiApplicationRunLogs(form.app_key, 50);
       runLogs.value = payload.items || [];
       if (!runLogs.value.some((item) => item.run_id === selectedRunLogId.value)) {
         selectedRunLogId.value = runLogs.value[0]?.run_id || '';
@@ -862,6 +889,10 @@
   }
 
   function switchWorkspace(key: WorkspaceKey) {
+    if (isCapability.value && key === 'api') {
+      activeWorkspace.value = 'orchestration';
+      return;
+    }
     activeWorkspace.value = key;
   }
 
@@ -896,9 +927,41 @@
     syncRuntimeVariableValues();
   }
 
+  function selectCapability(capability: AiCapability) {
+    Object.keys(variableTypeOverrides).forEach((key) => delete variableTypeOverrides[key]);
+    Object.keys(variableLabelOverrides).forEach((key) => delete variableLabelOverrides[key]);
+    Object.keys(variableOptionalOverrides).forEach((key) => delete variableOptionalOverrides[key]);
+    Object.keys(runtimeVariableValues).forEach((key) => delete runtimeVariableValues[key]);
+    activeCapability.value = capability;
+    activeApp.value = null;
+    form.app_key = capability.capability_key;
+    form.name = capability.name;
+    form.icon = String(capability.runtime_config?.icon || 'api');
+    form.description = capability.description || '';
+    form.app_type = 'single_turn_generation';
+    form.status = capability.enabled ? 'published' : 'draft';
+    form.endpoint_slug = capability.capability_key;
+    form.system_prompt = capability.system_prompt || '';
+    form.developer_prompt = capability.developer_prompt || '';
+    form.user_prompt_template = capability.user_prompt_template || '';
+    systemPromptSource.value = capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
+    selectedSystemPromptAssetKey.value = String(capability.runtime_config?.system_prompt_asset_key || '');
+    if (selectedSystemPromptAssetKey.value) {
+      void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
+    }
+    selectedModelKey.value = String(capability.model_preferences?.model || capability.model_preferences?.route_key || '');
+    variablesSchemaText.value = stringifyJson(capability.input_schema || {});
+    outputSchemaText.value = stringifyJson(capability.output_schema || {});
+    runResult.value = null;
+    runLogs.value = [];
+    selectedRunLogId.value = '';
+    streamThinkText.value = '';
+    syncRuntimeVariableValues();
+  }
+
   async function saveCurrent(options: { silent?: boolean; refresh?: boolean } = {}) {
     if (!form.app_key || !form.name) {
-      message.warning('应用 Key 和名称不能为空');
+      message.warning(`${resourceLabel.value} Key 和名称不能为空`);
       return null;
     }
     if (!selectedModelKey.value) {
@@ -911,19 +974,22 @@
     }
     if (!options.silent) saving.value = true;
     try {
-      const saved = await updateAiApplication(form.app_key, buildPayload());
-      if (!options.silent) message.success('AI 应用已保存');
+      const saved = isCapability.value
+        ? await updateAiCapability(form.app_key, buildCapabilityPayload())
+        : await updateAiApplication(form.app_key, buildPayload());
+      if (!options.silent) message.success(`${resourceLabel.value}已保存`);
       if (options.refresh !== false) {
-        selectApp(saved as AiApplication);
+        if (isCapability.value) selectCapability(saved as AiCapability);
+        else selectApp(saved as AiApplication);
       } else {
-        activeApp.value = saved as AiApplication;
+        if (isCapability.value) activeCapability.value = saved as AiCapability;
+        else activeApp.value = saved as AiApplication;
       }
-      return saved as AiApplication;
+      return saved as AiApplication | AiCapability;
     } finally {
       if (!options.silent) saving.value = false;
     }
   }
-
   async function publishCurrent() {
     publishing.value = true;
     try {
@@ -990,7 +1056,9 @@
   }
 
   async function runDraftStream(payload: { variables: Record<string, unknown> }) {
-    const response = await fetchAiApplicationDraftStream(form.app_key, payload);
+    const response = isCapability.value
+      ? await fetchAiCapabilityStream(form.app_key, payload)
+      : await fetchAiApplicationDraftStream(form.app_key, payload);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `HTTP ${response.status}`);
@@ -1093,6 +1161,32 @@
         system_prompt_source: systemPromptSource.value,
         system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
       },
+    };
+  }
+
+  function buildCapabilityPayload() {
+    const runtimeConfig = {
+      ...(activeCapability.value?.runtime_config || {}),
+      icon: form.icon,
+      system_prompt_source: systemPromptSource.value,
+      system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+    };
+    return {
+      capability_key: form.app_key,
+      name: form.name,
+      description: form.description,
+      scope: activeCapability.value?.scope || 'tenant',
+      binding_type: 'prompt_runtime',
+      binding_key: form.app_key,
+      call_method: activeCapability.value?.call_method || 'aiService.execute',
+      system_prompt: form.system_prompt,
+      developer_prompt: form.developer_prompt,
+      user_prompt_template: form.user_prompt_template,
+      input_schema: buildVariablesSchemaFromTemplate(parsedVariablesSchema.value, form.user_prompt_template),
+      output_schema: parseJsonObject(outputSchemaText.value),
+      model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
+      runtime_config: runtimeConfig,
+      enabled: activeCapability.value?.enabled ?? true,
     };
   }
 
@@ -1511,6 +1605,7 @@
   function runModeLabel(value: string) {
     if (value === 'studio_draft') return '调试运行';
     if (value === 'application_api') return 'API 调用';
+    if (value === 'ai_capability') return '内部能力调用';
     return value || '未知来源';
   }
 

@@ -32,6 +32,7 @@ def require_llm_schema(conn: Any) -> None:
         "llm_routing_policy_entries",
         "llm_call_logs",
         "ai_applications",
+        "ai_capabilities",
         "tenant_ai_quotas",
         "prompt_runtime_traces",
     )
@@ -62,6 +63,7 @@ def ensure_tenant_columns(conn: Any) -> None:
         "llm_routing_policy_entries",
         "llm_call_logs",
         "ai_applications",
+        "ai_capabilities",
         "tenant_ai_quotas",
         "prompt_runtime_traces",
     ):
@@ -77,3 +79,4 @@ def ensure_tenant_column(conn: Any, table_name: str) -> None:
 
 def has_tenant_column(conn: Any, table_name: str) -> bool:
     return column_exists(conn, table_name, "tenant_id")
+

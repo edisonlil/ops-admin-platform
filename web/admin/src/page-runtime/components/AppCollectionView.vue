@@ -99,7 +99,11 @@
   );
 
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
-  const resolvedRowKey = computed(() => props.schema.rowKey || props.schema.itemKey || 'id');
+  const resolvedRowKey = computed(() => {
+    const key = props.schema.rowKey || props.schema.itemKey || 'id';
+    if (typeof key === 'function') return key;
+    return (row: Row) => row[key] as string | number;
+  });
   const isCardCollection = computed(() => ['card-list', 'product-list', 'gallery'].includes(props.schema.type));
   const tableClass = computed(() => {
     if (props.schema.type !== 'table') return undefined;

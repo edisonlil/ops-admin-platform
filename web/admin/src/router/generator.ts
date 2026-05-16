@@ -150,6 +150,17 @@ function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute
         hidden: true,
       },
     },
+    {
+      path: `${stripLeadingSlash(routePath)}/capabilities/:capabilityKey`,
+      name: 'ai-studio-capability-detail',
+      component: '/ai/studio/detail',
+      meta: {
+        title: 'AI 能力配置',
+        permissions: ['ai_studio:access'],
+        activeMenu: routeName(menu) || key,
+        hidden: true,
+      },
+    },
   ];
 }
 
@@ -203,6 +214,17 @@ function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
       component: '/ai/studio/detail',
       meta: {
         title: 'AI 应用配置',
+        permissions: ['ai_studio:access'],
+        activeMenu: routeName(menu) || key,
+        hidden: true,
+      },
+    });
+    pageChildren.push({
+      path: 'capabilities/:capabilityKey',
+      name: 'ai-studio-capability-detail',
+      component: '/ai/studio/detail',
+      meta: {
+        title: 'AI 能力配置',
         permissions: ['ai_studio:access'],
         activeMenu: routeName(menu) || key,
         hidden: true,

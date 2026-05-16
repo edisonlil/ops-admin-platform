@@ -1,9 +1,27 @@
 <template>
   <div class="ai-studio-page">
-    <ListPageRuntime :schema="studioPage" :rows="filteredApplications" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" @refresh="reload">
+      <template #toolbar-left>
+        <n-radio-group v-model:value="activeView" size="small" class="ai-studio-page__views">
+          <n-radio-button v-if="canReadApplications" value="applications">AI 应用</n-radio-button>
+          <n-radio-button v-if="canReadCapabilities" value="capabilities">AI 能力</n-radio-button>
+        </n-radio-group>
+      </template>
+
       <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索应用名称或 Key" class="ai-studio-page__search" />
-        <n-select v-model:value="statusFilter" :options="statusOptions" class="ai-studio-page__status" />
+        <n-input v-model:value="keyword" clearable :placeholder="searchPlaceholder" class="ai-studio-page__search" />
+        <n-select
+          v-if="activeView === 'applications'"
+          v-model:value="statusFilter"
+          :options="statusOptions"
+          class="ai-studio-page__status"
+        />
+        <n-select
+          v-else
+          v-model:value="capabilityStatusFilter"
+          :options="capabilityStatusOptions"
+          class="ai-studio-page__status"
+        />
       </template>
 
       <template #item="{ row }">
@@ -68,38 +86,96 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-modal
+      v-model:show="capabilityModalVisible"
+      preset="card"
+      title="创建能力"
+      class="ai-create-modal"
+      :style="{ width: 'min(560px, calc(100vw - 32px))' }"
+    >
+      <n-form label-placement="top" class="ai-create-form">
+        <n-form-item label="能力 Key" required>
+          <n-input v-model:value="capabilityForm.capability_key" placeholder="例如：summarize" />
+        </n-form-item>
+        <n-form-item label="能力名称" required>
+          <n-input v-model:value="capabilityForm.name" placeholder="例如：摘要生成" />
+        </n-form-item>
+        <n-form-item label="图标">
+          <n-select v-model:value="capabilityForm.icon" :options="iconOptions" />
+        </n-form-item>
+        <n-form-item label="描述">
+          <n-input
+            v-model:value="capabilityForm.description"
+            type="textarea"
+            placeholder="简要说明这个能力服务什么内部场景"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="capabilityModalVisible = false">取消</n-button>
+          <n-button type="primary" :loading="creatingCapability" @click="createCapability">创建</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, onMounted, reactive, ref } from 'vue';
+  import { computed, h, onMounted, reactive, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
-  import { useMessage } from 'naive-ui';
+  import { NButton, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui';
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
+    getAiCapabilities,
+    getAiCapabilityModelOptions,
     getAiApplications,
     getTenantAiQuota,
+    saveAiCapability,
     saveAiApplication,
+    type AiCapability,
     type AiApplication,
     type AiQuota,
   } from '@/api/aiStudio';
 
   const router = useRouter();
   const message = useMessage();
+  const { hasPermission } = usePermission();
   const loading = ref(false);
   const creating = ref(false);
+  const creatingCapability = ref(false);
   const keyword = ref('');
   const statusFilter = ref('all');
+  const capabilityStatusFilter = ref('all');
+  const activeView = ref<'applications' | 'capabilities'>('applications');
   const createModalVisible = ref(false);
+  const capabilityModalVisible = ref(false);
   const applications = ref<AiApplication[]>([]);
+  const models = ref<Recordable[]>([]);
+  const capabilities = ref<AiCapability[]>([]);
   const quota = ref<AiQuota | null>(null);
   const createForm = reactive({
     name: '',
     icon: 'robot',
     description: '',
   });
+  const capabilityForm = reactive({
+    capability_key: '',
+    name: '',
+    icon: 'api',
+    description: '',
+    scope: 'tenant',
+  });
+
+  const canReadApplications = computed(() => hasPermission(['ai_applications:read']));
+  const canManageApplications = computed(() => hasPermission(['ai_applications:manage']));
+  const canReadCapabilities = computed(() => hasPermission(['ai_capabilities:read']));
+  const canManageCapabilities = computed(() => hasPermission(['ai_capabilities:manage']));
 
   const iconMap = {
     robot: RobotOutlined,
@@ -122,9 +198,18 @@
     { label: '草稿', value: 'draft' },
     { label: '已发布', value: 'published' },
   ];
-
+  const capabilityStatusOptions = [
+    { label: '全部状态', value: 'all' },
+    { label: '启用', value: 'enabled' },
+    { label: '停用', value: 'disabled' },
+  ];
   const appCount = computed(() => quota.value?.usage?.applications ?? applications.value.length);
+  const capabilityCount = computed(() => quota.value?.usage?.capabilities ?? capabilities.value.length);
   const quotaReached = computed(() => !!quota.value && appCount.value >= quota.value.max_applications);
+  const capabilityQuotaReached = computed(() => !!quota.value && capabilityCount.value >= quota.value.max_capabilities);
+  const searchPlaceholder = computed(() =>
+    activeView.value === 'applications' ? '搜索应用名称或 Key' : '搜索能力 Key、名称或模型'
+  );
   const filteredApplications = computed(() => {
     const q = keyword.value.trim().toLowerCase();
     return applications.value.filter((app) => {
@@ -133,30 +218,140 @@
       return statusMatched && keywordMatched;
     });
   });
+  const filteredCapabilities = computed(() => {
+    const q = keyword.value.trim().toLowerCase();
+    return capabilities.value.filter((capability) => {
+      const statusMatched =
+        capabilityStatusFilter.value === 'all' ||
+        (capabilityStatusFilter.value === 'enabled' ? capability.enabled : !capability.enabled);
+      const keywordMatched =
+        !q ||
+        `${capability.capability_key} ${capability.name} ${capability.model_preferences?.model || ''}`
+          .toLowerCase()
+          .includes(q);
+      return statusMatched && keywordMatched;
+    });
+  });
+  const activeRows = computed(() =>
+    activeView.value === 'applications' ? filteredApplications.value : filteredCapabilities.value
+  );
+  const modelOptions = computed(() =>
+    models.value.map((item) => ({
+      label: `${item.display_name || item.model_name || item.model_key} (${item.model_key})`,
+      value: item.model_key,
+    }))
+  );
+
+  const capabilityColumns = computed<DataTableColumns<AiCapability>>(() => [
+    {
+      title: '能力 Key',
+      key: 'capability_key',
+      width: 180,
+      render: (row) => h('strong', { class: 'ai-capability-key' }, row.capability_key),
+    },
+    { title: '名称', key: 'name', width: 180 },
+    {
+      title: '模型或路由',
+      key: 'model',
+      minWidth: 220,
+      render: (row) => String(row.model_preferences?.model || row.model_preferences?.route_key || '-'),
+    },
+    { title: 'Scope', key: 'scope', width: 100 },
+    {
+      title: '状态',
+      key: 'enabled',
+      width: 100,
+      render: (row) =>
+        h(
+          NTag,
+          { size: 'small', type: row.enabled ? 'success' : 'default' },
+          { default: () => (row.enabled ? '启用' : '停用') }
+        ),
+    },
+    { title: '调用方式', key: 'call_method', width: 170 },
+    {
+      title: '更新时间',
+      key: 'update_time',
+      width: 170,
+      render: (row) => formatAppTime(row.update_time || row.create_time),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 150,
+      fixed: 'right',
+      render: (row) =>
+        h(NSpace, { size: 4 }, () => [
+          h(
+            NButton,
+            {
+              size: 'tiny',
+              quaternary: true,
+              type: 'primary',
+              onClick: () => openCapabilityDetail(row),
+            },
+            { default: () => '配置' }
+          ),
+          h(
+            NButton,
+            {
+              size: 'tiny',
+              quaternary: true,
+              onClick: () => copyCapabilityCall(row),
+            },
+            { default: () => '复制调用' }
+          ),
+        ]),
+    },
+  ]);
 
   const studioPage = computed(() =>
-    defineListPage<AiApplication>({
+    defineListPage<AiApplication | AiCapability>({
       id: 'ai.studio',
       title: 'AI Studio',
-      description: '构建、调试并发布租户级 AI 应用。',
+      description: '统一管理 AI 应用与平台内部 AI 能力。',
       variant: 'dense-data',
       density: 'compact',
       toolbar: {
-        primaryAction: {
-          key: 'create-application',
-          label: '创建应用',
-          type: 'primary',
-          disabled: quotaReached.value,
-          onClick: openCreateModal,
-        },
+        primaryAction:
+          activeView.value === 'applications'
+            ? canManageApplications.value
+              ? {
+                  key: 'create-application',
+                  label: '创建应用',
+                  type: 'primary',
+                  disabled: quotaReached.value,
+                  onClick: openCreateModal,
+                }
+              : undefined
+            : canManageCapabilities.value
+              ? {
+                  key: 'create-capability',
+                  label: '创建能力',
+                  type: 'primary',
+                  disabled: capabilityQuotaReached.value,
+                  onClick: openCapabilityModal,
+                }
+              : undefined,
+        batchActions: [],
         rightTools: ['refresh'],
       },
-      view: {
-        type: 'card-list',
-        itemKey: 'app_key',
-        cardMinWidth: '320px',
-      },
-      pagination: { pageSize: 12 },
+      view:
+        activeView.value === 'applications'
+          ? {
+              type: 'card-list',
+              itemKey: 'app_key',
+              cardMinWidth: '320px',
+            }
+          : {
+              type: 'table',
+              rowKey: 'capability_key',
+              columns: capabilityColumns.value as DataTableColumns<AiApplication | AiCapability>,
+              selectable: false,
+              scrollX: 1180,
+              tableLayout: { rowDensity: 'medium', maxHeight: 'calc(100vh - 360px)' },
+            },
+      pagination: { pageSize: activeView.value === 'applications' ? 12 : 20 },
     })
   );
 
@@ -169,6 +364,52 @@
     createForm.icon = 'robot';
     createForm.description = '';
     createModalVisible.value = true;
+  }
+
+  function openCapabilityModal() {
+    if (capabilityQuotaReached.value) {
+      message.warning('当前租户能力数量已达上限');
+      return;
+    }
+    capabilityForm.capability_key = '';
+    capabilityForm.name = '';
+    capabilityForm.icon = 'api';
+    capabilityForm.description = '';
+    capabilityForm.scope = 'tenant';
+    capabilityModalVisible.value = true;
+  }
+
+  async function createCapability() {
+    const capabilityKey = capabilityForm.capability_key.trim();
+    const name = capabilityForm.name.trim();
+    if (!capabilityKey || !name) {
+      message.warning('请填写能力 Key 和名称');
+      return;
+    }
+    creatingCapability.value = true;
+    try {
+      await saveAiCapability({
+        capability_key: capabilityKey,
+        name,
+        description: capabilityForm.description.trim(),
+        scope: capabilityForm.scope,
+        binding_type: 'prompt_runtime',
+        binding_key: capabilityKey,
+        call_method: 'aiService.execute',
+        system_prompt: '',
+        user_prompt_template: '',
+        input_schema: {},
+        output_schema: {},
+        model_preferences: {},
+        runtime_config: { icon: capabilityForm.icon },
+        enabled: true,
+      });
+      message.success('能力已创建');
+      capabilityModalVisible.value = false;
+      await reload();
+    } finally {
+      creatingCapability.value = false;
+    }
   }
 
   async function createApplication() {
@@ -211,12 +452,40 @@
     router.push({ name: 'ai-studio-app-detail', params: { appKey: app.app_key } });
   }
 
+  function openCapabilityDetail(capability: AiCapability) {
+    router.push({ name: 'ai-studio-capability-detail', params: { capabilityKey: capability.capability_key } });
+  }
+
   async function reload() {
     loading.value = true;
     try {
-      const [appPayload, quotaPayload] = await Promise.all([getAiApplications(), getTenantAiQuota()]);
-      applications.value = appPayload.items || [];
-      quota.value = quotaPayload;
+      const tasks: Promise<unknown>[] = [getTenantAiQuota()];
+      applications.value = canReadApplications.value ? applications.value : [];
+      capabilities.value = canReadCapabilities.value ? capabilities.value : [];
+      if (canReadApplications.value) {
+        tasks.push(getAiApplications());
+      }
+      if (canManageCapabilities.value) {
+        tasks.push(getAiCapabilityModelOptions());
+      }
+      if (canReadCapabilities.value) {
+        tasks.push(getAiCapabilities());
+      }
+      const [quotaPayload, ...payloads] = await Promise.all(tasks);
+      quota.value = quotaPayload as AiQuota;
+      let payloadIndex = 0;
+      if (canReadApplications.value) {
+        const appPayload = payloads[payloadIndex++] as { items?: AiApplication[] };
+        applications.value = appPayload.items || [];
+      }
+      if (canManageCapabilities.value) {
+        const modelPayload = payloads[payloadIndex++] as { items?: Recordable[] };
+        models.value = modelPayload.items || [];
+      }
+      if (canReadCapabilities.value) {
+        const capabilityPayload = payloads[payloadIndex++] as { items?: AiCapability[] };
+        capabilities.value = capabilityPayload.items || [];
+      }
     } finally {
       loading.value = false;
     }
@@ -244,6 +513,27 @@
     return `${normalized || 'single-turn'}-${Date.now().toString(36)}`;
   }
 
+  async function copyCapabilityCall(row: AiCapability) {
+    const snippet = `aiService.execute("${row.capability_key}", variables)`;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(snippet);
+    }
+    message.success('调用方式已复制');
+  }
+
+  watch(
+    [canReadApplications, canReadCapabilities],
+    () => {
+      if (activeView.value === 'applications' && !canReadApplications.value && canReadCapabilities.value) {
+        activeView.value = 'capabilities';
+      }
+      if (activeView.value === 'capabilities' && !canReadCapabilities.value && canReadApplications.value) {
+        activeView.value = 'applications';
+      }
+    },
+    { immediate: true }
+  );
+
   onMounted(reload);
 </script>
 
@@ -254,6 +544,10 @@
 
   .ai-studio-page__search {
     width: 280px;
+  }
+
+  .ai-studio-page__views {
+    min-width: 220px;
   }
 
   .ai-studio-page__status {
@@ -341,6 +635,28 @@
 
   .ai-create-form {
     padding-top: 4px;
+  }
+
+  :deep(.ai-capability-key) {
+    font-weight: 650;
+  }
+
+  :deep(.ai-capability-binding) {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  :deep(.ai-capability-binding span),
+  :deep(.ai-capability-binding small) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :deep(.ai-capability-binding small) {
+    color: var(--app-text-color-2);
+    font-size: 12px;
   }
 
   @media (max-width: 900px) {

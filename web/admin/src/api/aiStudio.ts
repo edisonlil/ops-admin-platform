@@ -23,6 +23,7 @@ export interface AiQuota {
   enabled: boolean;
   usage: {
     applications: number;
+    capabilities?: number;
   };
 }
 
@@ -123,6 +124,46 @@ export interface AiApplicationPayload {
   runtime_config?: Record<string, unknown>;
 }
 
+export interface AiCapability {
+  id: number;
+  tenant_id: number;
+  capability_key: string;
+  name: string;
+  description: string;
+  scope: string;
+  binding_type: string;
+  binding_key: string;
+  call_method: string;
+  system_prompt: string;
+  developer_prompt: string;
+  user_prompt_template: string;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  model_preferences: Record<string, unknown>;
+  runtime_config: Record<string, unknown>;
+  enabled: boolean;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface AiCapabilityPayload {
+  capability_key: string;
+  name: string;
+  description?: string;
+  scope?: string;
+  binding_type?: string;
+  binding_key?: string;
+  call_method?: string;
+  system_prompt?: string;
+  developer_prompt?: string;
+  user_prompt_template?: string;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  model_preferences?: Record<string, unknown>;
+  runtime_config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
 export interface AiRunPayload {
   variables: Record<string, unknown>;
   model?: string;
@@ -163,12 +204,32 @@ export function getAiApplications() {
   return Alova.Get<AiListData<AiApplication>>('/llm/ai-applications', { params: withNoCacheParams() });
 }
 
+export function getAiCapabilities() {
+  return Alova.Get<AiListData<AiCapability>>('/llm/ai-capabilities', { params: withNoCacheParams() });
+}
+
+export function getAiCapability(capabilityKey: string) {
+  return Alova.Get<AiCapability>(`/llm/ai-capabilities/${capabilityKey}`, { params: withNoCacheParams() });
+}
+
+export function getAiCapabilityModelOptions() {
+  return Alova.Get<AiListData<Record<string, unknown>>>('/llm/ai-capabilities/model-options', {
+    params: withNoCacheParams(),
+  });
+}
+
 export function getAiApplication(appKey: string) {
   return Alova.Get<AiApplication>(`/llm/ai-applications/${appKey}`, { params: withNoCacheParams() });
 }
 
 export function getAiApplicationRunLogs(appKey: string, limit = 50) {
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/applications/${appKey}/run-logs`, {
+    params: withNoCacheParams({ limit }),
+  });
+}
+
+export function getAiCapabilityRunLogs(capabilityKey: string, limit = 50) {
+  return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/capabilities/${capabilityKey}/run-logs`, {
     params: withNoCacheParams({ limit }),
   });
 }
@@ -210,6 +271,31 @@ export function updateAiApplication(appKey: string, payload: AiApplicationPayloa
   return Alova.Put<AiApplication>(`/llm/ai-applications/${appKey}`, body);
 }
 
+export function saveAiCapability(payload: AiCapabilityPayload) {
+  const body: AiCapabilityPayload = {
+    capability_key: String(payload.capability_key || '').trim(),
+    name: String(payload.name || '').trim(),
+    description: payload.description || '',
+    scope: payload.scope || 'tenant',
+    binding_type: payload.binding_type || 'prompt_runtime',
+    binding_key: String(payload.binding_key || payload.capability_key || '').trim(),
+    call_method: payload.call_method || 'aiService.execute',
+    system_prompt: payload.system_prompt || '',
+    developer_prompt: payload.developer_prompt || '',
+    user_prompt_template: payload.user_prompt_template || '',
+    input_schema: payload.input_schema || {},
+    output_schema: payload.output_schema || {},
+    model_preferences: payload.model_preferences || {},
+    runtime_config: payload.runtime_config || {},
+    enabled: payload.enabled ?? true,
+  };
+  return Alova.Post<AiCapability>('/llm/ai-capabilities', body);
+}
+
+export function updateAiCapability(capabilityKey: string, payload: AiCapabilityPayload) {
+  return Alova.Put<AiCapability>(`/llm/ai-capabilities/${capabilityKey}`, payload);
+}
+
 export function publishAiApplication(appKey: string) {
   return Alova.Post<AiApplication>(`/llm/ai-applications/${appKey}/publish`);
 }
@@ -229,6 +315,20 @@ export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayl
     body: JSON.stringify(payload),
   }).catch((error) => {
     throw new Error(`AI application stream request failed: ${errorMessage(error)}`);
+  });
+}
+
+export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPayload) {
+  return fetch(buildAiStudioApiUrl(`/llm/ai-capabilities/${encodeURIComponent(capabilityKey)}/execute/stream`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  }).catch((error) => {
+    throw new Error(`AI capability stream request failed: ${errorMessage(error)}`);
   });
 }
 

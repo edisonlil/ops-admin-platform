@@ -8,6 +8,7 @@ from unittest import mock
 import json
 
 from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
+from llm_runtime.application import ai_capabilities
 from llm_runtime.application import ai_applications
 from llm_runtime.application import gateway
 from llm_runtime.application import services
@@ -798,6 +799,80 @@ class LLMRuntimeTests(unittest.TestCase):
                         ai_applications.run_published_application("summarize", {"variables": {"question": "hello"}})
 
             self.assertIn("not published", str(getattr(raised.exception, "detail", "")))
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_capability_owns_prompt_runtime_and_executes(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_applications.require_database", return_value=db_path):
+                    with mock.patch("llm_runtime.application.ai_capabilities.require_database", return_value=db_path):
+                        capability = ai_capabilities.save_ai_capability(
+                            {
+                                "capability_key": "summarize",
+                                "name": "摘要生成",
+                                "description": "平台内部摘要生成能力",
+                                "scope": "tenant",
+                                "system_prompt": "你是摘要助手",
+                                "user_prompt_template": "请总结：{{question}}",
+                                "input_schema": {"type": "object", "required": ["question"]},
+                                "model_preferences": {"model": "dashscope.qwen-plus", "temperature": 0.2},
+                                "enabled": True,
+                            }
+                        )
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertEqual(messages[0]["content"], "你是摘要助手")
+                            self.assertEqual(messages[-1]["content"], "请总结：会议内容")
+                            return {"choices": [{"message": {"content": "会议摘要"}}], "usage": {"total_tokens": 9}}
+
+                        with mock.patch(
+                            "llm_runtime.application.ai_applications.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_capabilities.execute_ai_capability(
+                                "summarize",
+                                {"variables": {"question": "会议内容"}},
+                            )
+
+                        capabilities = ai_capabilities.list_ai_capabilities()["items"]
+                        traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            self.assertEqual(capability["binding_type"], "prompt_runtime")
+            self.assertEqual(capability["binding_key"], "summarize")
+            self.assertEqual(capability["model_preferences"]["model"], "dashscope.qwen-plus")
+            self.assertEqual(capabilities[0]["user_prompt_template"], "请总结：{{question}}")
+            self.assertEqual(capabilities[0]["call_method"], "aiService.execute")
+            self.assertEqual(result["answer"], "会议摘要")
+            self.assertEqual(result["trace"]["caller_type"], "ai_capability")
+            self.assertEqual(result["trace"]["caller_key"], "summarize")
+            self.assertEqual(traces[0]["caller_type"], "ai_capability")
+            self.assertEqual(traces[0]["caller_key"], "summarize")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_capability_requires_prompt_runtime_config_before_execute(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("llm_runtime.application.ai_capabilities.require_database", return_value=db_path):
+                    ai_capabilities.save_ai_capability(
+                        {
+                            "capability_key": "summarize",
+                            "name": "摘要生成",
+                            "user_prompt_template": "",
+                            "model_preferences": {},
+                        }
+                    )
+                    with self.assertRaises(Exception) as raised:
+                        ai_capabilities.execute_ai_capability("summarize", {"variables": {"question": "会议内容"}})
+
+            self.assertIn("user_prompt_template is required before execute", str(getattr(raised.exception, "detail", "")))
         finally:
             self._unlink_db(db_path)
 

@@ -234,6 +234,18 @@ SELECT 'ai_applications:run', 'AI application run', 'Run or debug tenant AI appl
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_applications:run');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'ai_capabilities:read', 'AI capability read', 'View tenant AI capabilities'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_capabilities:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_capabilities:manage', 'AI capability manage', 'Create and update tenant AI capabilities'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_capabilities:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'ai_capabilities:execute', 'AI capability execute', 'Execute tenant AI capabilities'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_capabilities:execute');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'ai_runtime:trace:read', 'AI runtime trace read', 'View AI runtime traces'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_runtime:trace:read');
 
@@ -832,6 +844,10 @@ SELECT 'ai-studio', 'tenant', 'AI Studio', 'page', '/ai/studio', 'ai-studio', '/
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-app-read', 'tenant', 'View AI applications', 'action', '', '', '', '', 'ai-studio', 'ai_applications:read', 840, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-read');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'ai-studio-app-manage', 'tenant', 'Manage AI applications', 'action', '', '', '', '', 'ai-studio', 'ai_applications:manage', 841, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-manage');
 
@@ -846,6 +862,18 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-app-run');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'ai-studio-trace-read', 'tenant', 'View runtime traces', 'action', '', '', '', '', 'ai-studio', 'ai_runtime:trace:read', 844, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-trace-read');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-capability-read', 'tenant', 'View AI capabilities', 'action', '', '', '', '', 'ai-studio', 'ai_capabilities:read', 845, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-capability-read');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-capability-manage', 'tenant', 'Manage AI capabilities', 'action', '', '', '', '', 'ai-studio', 'ai_capabilities:manage', 846, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-capability-manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'ai-studio-capability-execute', 'tenant', 'Execute AI capabilities', 'action', '', '', '', '', 'ai-studio', 'ai_capabilities:execute', 847, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'ai-studio-capability-execute');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'ai-tenant-quotas', 'platform', 'AI application quotas', 'page', '/ai/tenant-quotas', 'ai-tenant-quotas', '/ai/tenant-quotas/index', 'robot', 'platform-management', 'ai_studio:quota:manage', 1095, TRUE

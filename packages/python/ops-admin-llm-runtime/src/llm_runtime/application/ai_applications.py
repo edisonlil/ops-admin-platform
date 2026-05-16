@@ -177,6 +177,7 @@ def execute_single_turn_application(
     *,
     caller_type: str,
     require_published: bool,
+    caller_key: str | None = None,
 ) -> dict[str, Any]:
     if app.get("app_type") != "single_turn_generation":
         raise HTTPException(status_code=422, detail="Only single_turn_generation is supported in milestone 1")
@@ -215,6 +216,7 @@ def execute_single_turn_application(
             trace_id=trace_id,
             app=app_for_run,
             caller_type=caller_type,
+            caller_key=caller_key,
             model=model,
             status="success",
             variables=variables,
@@ -231,6 +233,7 @@ def execute_single_turn_application(
             trace_id=trace_id,
             app=app_for_run,
             caller_type=caller_type,
+            caller_key=caller_key,
             model=model,
             status="failed",
             variables=variables,
@@ -248,6 +251,7 @@ def execute_single_turn_application(
             trace_id=trace_id,
             app=app_for_run,
             caller_type=caller_type,
+            caller_key=caller_key,
             model=model,
             status="failed",
             variables=variables,
@@ -292,7 +296,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
     }
 
 
-def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str) -> Any:
+def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str, caller_key: str | None = None) -> Any:
     app = prepared["app"]
     payload = prepared["payload"]
     variables = prepared["variables"]
@@ -317,6 +321,7 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
                 trace_id=trace_id,
                 app=app,
                 caller_type=caller_type,
+                caller_key=caller_key,
                 model=model,
                 status=status,
                 variables=variables,
@@ -605,6 +610,7 @@ def record_trace(
     trace_id: str,
     app: dict[str, Any],
     caller_type: str,
+    caller_key: str | None = None,
     model: str,
     status: str,
     variables: dict[str, Any],
@@ -620,7 +626,7 @@ def record_trace(
     payload = {
         "trace_id": trace_id,
         "caller_type": caller_type,
-        "caller_key": app.get("app_key"),
+        "caller_key": caller_key or app.get("app_key"),
         "app_key": app.get("app_key"),
         "app_version": str(app.get("lock_version") or ""),
         "route_key": model,

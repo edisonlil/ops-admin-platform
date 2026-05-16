@@ -684,6 +684,145 @@ def prompt_asset_is_referenced_by_ai_application(conn: Any, *, tenant_id: int, p
     return False
 
 
+def list_ai_capabilities(conn: Any) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM ai_capabilities
+        WHERE tenant_id = ? AND deleted = 0
+        ORDER BY update_time DESC, id DESC
+        """,
+        (current_tenant_id(),),
+    ).fetchall()
+    return [ai_capability_from_row(dict(row)) for row in rows]
+
+
+def get_ai_capability(conn: Any, capability_key: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM ai_capabilities
+        WHERE tenant_id = ? AND capability_key = ? AND deleted = 0
+        """,
+        (current_tenant_id(), normalize_key(capability_key)),
+    ).fetchone()
+    return ai_capability_from_row(dict(row)) if row else None
+
+
+def count_ai_capabilities(conn: Any, tenant_id: int | None = None) -> int:
+    effective_tenant_id = current_tenant_id() if tenant_id is None else int(tenant_id)
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM ai_capabilities
+        WHERE tenant_id = ? AND deleted = 0
+        """,
+        (effective_tenant_id,),
+    ).fetchone()
+    return int(row["total"] if row else 0)
+
+
+def upsert_ai_capability(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id()
+    capability_key = normalize_key(payload.get("capability_key"))
+    if not capability_key:
+        raise ValueError("capability_key is required")
+    name = str(payload.get("name") or capability_key).strip()
+    if not name:
+        raise ValueError("name is required")
+    binding_type = str(payload.get("binding_type") or "prompt_runtime").strip()
+    if binding_type != "prompt_runtime":
+        raise ValueError("Only prompt_runtime capability is supported in v1")
+    binding_key = normalize_key(payload.get("binding_key"))
+    if not binding_key:
+        binding_key = capability_key
+    existing = conn.execute(
+        "SELECT * FROM ai_capabilities WHERE tenant_id = ? AND capability_key = ? AND deleted = 0",
+        (tenant_id, capability_key),
+    ).fetchone()
+    timestamp = now_text()
+    values = (
+        name,
+        str(payload.get("description") or "").strip(),
+        str(payload.get("scope") or "tenant").strip() or "tenant",
+        binding_type,
+        binding_key,
+        str(payload.get("call_method") or "aiService.execute").strip() or "aiService.execute",
+        str(payload.get("system_prompt") or ""),
+        str(payload.get("developer_prompt") or ""),
+        str(payload.get("user_prompt_template") or ""),
+        json_text(payload.get("input_schema")),
+        json_text(payload.get("output_schema")),
+        json_text(payload.get("model_preferences")),
+        json_text(payload.get("runtime_config")),
+        1 if bool(payload.get("enabled", True)) else 0,
+        timestamp,
+    )
+    if existing:
+        conn.execute(
+            """
+            UPDATE ai_capabilities
+            SET name = ?,
+                description = ?,
+                scope = ?,
+                binding_type = ?,
+                binding_key = ?,
+                call_method = ?,
+                system_prompt = ?,
+                developer_prompt = ?,
+                user_prompt_template = ?,
+                input_schema_json = ?,
+                output_schema_json = ?,
+                model_preferences_json = ?,
+                runtime_config_json = ?,
+                enabled = ?,
+                update_time = ?,
+                lock_version = lock_version + 1
+            WHERE tenant_id = ? AND capability_key = ?
+            """,
+            (*values, tenant_id, capability_key),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO ai_capabilities (
+                tenant_id, capability_key, name, description, scope, binding_type,
+                binding_key, call_method, system_prompt, developer_prompt,
+                user_prompt_template, input_schema_json, output_schema_json,
+                model_preferences_json, runtime_config_json, enabled, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (tenant_id, capability_key, *values[:-1], timestamp, timestamp),
+        )
+    return get_ai_capability(conn, capability_key) or {}
+
+
+def ai_capability_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "tenant_id": int(row["tenant_id"]),
+        "capability_key": str(row.get("capability_key") or ""),
+        "name": str(row.get("name") or ""),
+        "description": str(row.get("description") or ""),
+        "scope": str(row.get("scope") or "tenant"),
+        "binding_type": str(row.get("binding_type") or "prompt_runtime"),
+        "binding_key": str(row.get("binding_key") or ""),
+        "call_method": str(row.get("call_method") or "aiService.execute"),
+        "system_prompt": str(row.get("system_prompt") or ""),
+        "developer_prompt": str(row.get("developer_prompt") or ""),
+        "user_prompt_template": str(row.get("user_prompt_template") or ""),
+        "input_schema": parse_json_object(row.get("input_schema_json")),
+        "output_schema": parse_json_object(row.get("output_schema_json")),
+        "model_preferences": parse_json_object(row.get("model_preferences_json")),
+        "runtime_config": parse_json_object(row.get("runtime_config_json")),
+        "enabled": bool_value(row.get("enabled", True)),
+        "lock_version": int(row.get("lock_version") or 0),
+        "create_time": str(row.get("create_time") or ""),
+        "update_time": str(row.get("update_time") or ""),
+    }
+
+
 def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id()
     app_key = normalize_key(payload.get("app_key"))
@@ -820,7 +959,10 @@ def get_tenant_ai_quota(conn: Any, tenant_id: int | None = None) -> dict[str, An
                 "enabled": bool_value(payload.get("enabled", True)),
             }
         )
-    quota["usage"] = {"applications": count_ai_applications(conn, tenant_id=tenant_id)}
+    quota["usage"] = {
+        "applications": count_ai_applications(conn, tenant_id=tenant_id),
+        "capabilities": count_ai_capabilities(conn, tenant_id=tenant_id),
+    }
     return quota
 
 
@@ -946,6 +1088,20 @@ def list_ai_application_run_logs(conn: Any, app_key: str, limit: int = 50) -> li
         LIMIT ?
         """,
         (current_tenant_id(), app_key, limit),
+    ).fetchall()
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+
+
+def list_ai_capability_run_logs(conn: Any, capability_key: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM prompt_runtime_traces
+        WHERE tenant_id = ? AND caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0
+        ORDER BY create_time DESC, id DESC
+        LIMIT ?
+        """,
+        (current_tenant_id(), normalize_key(capability_key), limit),
     ).fetchall()
     return [ai_application_run_log_from_trace(dict(row)) for row in rows]
 
