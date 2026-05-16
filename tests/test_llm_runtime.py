@@ -209,6 +209,44 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual(body["model"], "qwen-plus")
         self.assertEqual(body["response_format"], {"type": "json_object"})
 
+    def test_siliconflow_client_maps_audio_input_to_audio_url_part(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="siliconflow",
+            api_key="sk-test",
+            model="Qwen/Qwen3-Omni-30B-A3B-Thinking",
+            base_url="https://api.siliconflow.cn/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            response = client.generate_chat_response(
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "请转写"},
+                            {"type": "input_audio", "input_audio": {"data": "abc", "format": "mp3"}},
+                        ],
+                    }
+                ]
+            )
+
+        self.assertEqual(response.content, "ok")
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        content = body["messages"][0]["content"]
+        self.assertEqual(content[0]["type"], "audio_url")
+        self.assertEqual(content[0]["audio_url"]["url"], "data:audio/mpeg;base64,abc")
+        self.assertEqual(content[1]["type"], "text")
+
     def test_openai_chat_completion_can_call_configured_model_key(self) -> None:
         db_path = self._temporary_db_path()
         sqlite3.connect(db_path).close()

@@ -195,7 +195,7 @@ class OpenAICompatibleLLMClient:
         think_output_enabled = self.enable_think_output if enable_think_output is None else enable_think_output
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": normalize_chat_messages(messages),
+            "messages": normalize_provider_chat_messages(self.provider_name, messages),
             "temperature": self.temperature,
             "stream": False,
         }
@@ -261,7 +261,7 @@ class OpenAICompatibleLLMClient:
     ) -> Iterator[str]:
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": normalize_chat_messages(messages),
+            "messages": normalize_provider_chat_messages(self.provider_name, messages),
             "temperature": self.temperature,
             "stream": True,
         }
@@ -331,6 +331,49 @@ def normalize_chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, An
             }
         )
     return normalized or [{"role": "user", "content": ""}]
+
+
+def normalize_provider_chat_messages(provider_name: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized = normalize_chat_messages(messages)
+    if provider_name.strip().lower() != "siliconflow":
+        return normalized
+    return [
+        {
+            **message,
+            "content": siliconflow_content_parts(message.get("content", "")),
+        }
+        for message in normalized
+    ]
+
+
+def siliconflow_content_parts(content: Any) -> Any:
+    if not isinstance(content, list):
+        return content
+    parts = [siliconflow_content_part(part) if isinstance(part, dict) else part for part in content]
+    media_parts = [part for part in parts if isinstance(part, dict) and str(part.get("type") or "") in {"image_url", "audio_url", "video_url"}]
+    other_parts = [part for part in parts if part not in media_parts]
+    return [*media_parts, *other_parts]
+
+
+def siliconflow_content_part(part: dict[str, Any]) -> dict[str, Any]:
+    if part.get("type") != "input_audio":
+        return part
+    input_audio = part.get("input_audio") if isinstance(part.get("input_audio"), dict) else {}
+    data = str(input_audio.get("data") or "")
+    audio_format = str(input_audio.get("format") or "mpeg").strip().lower() or "mpeg"
+    return {
+        "type": "audio_url",
+        "audio_url": {
+            "url": audio_data_url(data, audio_format),
+        },
+    }
+
+
+def audio_data_url(data: str, audio_format: str) -> str:
+    if data.startswith("data:"):
+        return data
+    mime_subtype = {"mp3": "mpeg", "m4a": "x-m4a"}.get(audio_format, audio_format)
+    return f"data:audio/{mime_subtype};base64,{data}"
 
 
 def provider_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
