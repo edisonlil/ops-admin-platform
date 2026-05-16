@@ -6,6 +6,7 @@ from typing import Any
 
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 MEDIA_VARIABLE_TYPES = {"image", "file", "audio", "video"}
+BINARY_MEDIA_VARIABLE_TYPES = {"image", "audio", "video"}
 
 
 def render_template(template: str, variables: dict[str, Any]) -> str:
@@ -75,13 +76,25 @@ def media_content_part(key: str, value: dict[str, Any]) -> dict[str, Any] | None
         }
     if media_type == "video":
         return {"type": "video_url", "video_url": {"url": data_url}}
-    if media_type == "file":
-        return {"type": "file", "file": {"filename": name, "file_data": data_url}}
     return None
+
+
+def contains_binary_media(value: Any) -> bool:
+    if is_binary_media_variable(value):
+        return True
+    if isinstance(value, dict):
+        return any(contains_binary_media(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_binary_media(item) for item in value)
+    return False
 
 
 def is_media_variable(value: Any) -> bool:
     return isinstance(value, dict) and str(value.get("type") or "").strip().lower() in MEDIA_VARIABLE_TYPES
+
+
+def is_binary_media_variable(value: Any) -> bool:
+    return isinstance(value, dict) and str(value.get("type") or "").strip().lower() in BINARY_MEDIA_VARIABLE_TYPES
 
 
 def data_url_payload(data_url: str) -> str:

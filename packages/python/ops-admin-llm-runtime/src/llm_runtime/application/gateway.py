@@ -80,15 +80,16 @@ def chat_completions(
                 correlation_id=correlation_id,
             )
             return openai_chat_response(model=entry.model_key, response=response)
-        response_format_name = openai_response_format_name(response_format)
         resolution = repositories.resolve_route(conn, model_key_or_route)
         if not resolution:
             raise LLMRoutingError(f"LLM route not configured for task: {model_key_or_route}")
-        response = generate_with_resolution(
+        response = chat_with_resolution(
             conn=conn,
             resolution=resolution,
-            prompt=prompt_from_messages(prompt=None, messages=messages_as_text_messages(messages)),
-            response_format=response_format_name,
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
+            extra_body=extra_body,
             enable_think_output=enable_think_output,
             correlation_id=correlation_id,
         )
@@ -113,10 +114,24 @@ def stream_chat_completions(
     with connect(target, readonly=False) as conn:
         require_llm_schema(conn)
         entry = repositories.entry_for_model(conn, model_key_or_route)
+        resolution: RouteResolution | None = None
+        is_fallback = False
         if not entry:
             resolution = repositories.resolve_route(conn, model_key_or_route)
             if not resolution or not resolution.policy.entries:
                 raise LLMRoutingError(f"LLM route not configured for task: {model_key_or_route}")
+            response = chat_with_resolution(
+                conn=conn,
+                resolution=resolution,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+                extra_body=extra_body,
+                enable_think_output=enable_think_output,
+                correlation_id=correlation_id,
+            )
+            yield from openai_chat_completion_stream_events(openai_chat_response(model=model_key_or_route, response=response))
+            return
             entry = resolution.policy.entries[0]
         if temperature is not None:
             entry = replace_entry_temperature(entry, temperature)
@@ -134,6 +149,8 @@ def stream_chat_completions(
                 extra_body=extra_body,
                 enable_think_output=enable_think_output,
                 correlation_id=correlation_id,
+                resolution_override=resolution,
+                is_fallback=is_fallback,
             )
             yield from openai_chat_completion_stream_events(openai_chat_response(model=model_key_or_route, response=response))
             return
@@ -155,10 +172,12 @@ def stream_chat_completions(
                         task_key=f"debug.model.{entry.model_key}",
                         route_key=entry.model_key,
                         policy=single_entry_policy(entry),
-                    ),
+                    )
+                    if resolution is None
+                    else resolution,
                     entry=entry,
                     status="success",
-                    is_fallback=False,
+                    is_fallback=is_fallback,
                     response=response,
                     correlation_id=correlation_id,
                 ),
@@ -171,10 +190,12 @@ def stream_chat_completions(
                         task_key=f"debug.model.{entry.model_key}",
                         route_key=entry.model_key,
                         policy=single_entry_policy(entry),
-                    ),
+                    )
+                    if resolution is None
+                    else resolution,
                     entry=entry,
                     status="failed",
-                    is_fallback=False,
+                    is_fallback=is_fallback,
                     error=exc,
                     correlation_id=correlation_id,
                 ),
@@ -193,6 +214,8 @@ def chat_with_entry(
     extra_body: dict[str, Any] | None,
     enable_think_output: bool | None,
     correlation_id: str | None,
+    resolution_override: RouteResolution | None = None,
+    is_fallback: bool = False,
 ) -> LLMResponse:
     request_extra_body = dict(extra_body or {})
     if response_format:
@@ -202,6 +225,8 @@ def chat_with_entry(
     try:
         client = client_for_entry(entry)
         if not hasattr(client, "generate_chat_response"):
+            if messages_have_binary_media(messages):
+                raise LLMRoutingError(f"model {entry.model_key} does not support multimodal chat messages")
             response = client.generate_response(prompt_from_messages(prompt=None, messages=messages_as_text_messages(messages)))  # type: ignore[attr-defined]
         else:
             response = client.generate_chat_response(  # type: ignore[attr-defined]
@@ -212,14 +237,14 @@ def chat_with_entry(
         repositories.record_call_log(
             conn,
             call_log_payload(
-                resolution=RouteResolution(
+                resolution=resolution_override or RouteResolution(
                     task_key=f"debug.model.{entry.model_key}",
                     route_key=entry.model_key,
                     policy=single_entry_policy(entry),
                 ),
                 entry=entry,
                 status="success",
-                is_fallback=False,
+                is_fallback=is_fallback,
                 response=response,
                 correlation_id=correlation_id,
             ),
@@ -229,19 +254,54 @@ def chat_with_entry(
         repositories.record_call_log(
             conn,
             call_log_payload(
-                resolution=RouteResolution(
+                resolution=resolution_override or RouteResolution(
                     task_key=f"debug.model.{entry.model_key}",
                     route_key=entry.model_key,
                     policy=single_entry_policy(entry),
                 ),
                 entry=entry,
                 status="failed",
-                is_fallback=False,
+                is_fallback=is_fallback,
                 error=exc,
                 correlation_id=correlation_id,
             ),
         )
         raise
+
+
+def chat_with_resolution(
+    *,
+    conn: Any,
+    resolution: RouteResolution,
+    messages: list[dict[str, Any]],
+    temperature: float | None,
+    response_format: dict[str, Any] | None,
+    extra_body: dict[str, Any] | None,
+    enable_think_output: bool | None = None,
+    correlation_id: str | None,
+) -> LLMResponse:
+    failures: list[str] = []
+    for index, entry in enumerate(resolution.policy.entries):
+        try:
+            response = chat_with_entry(
+                conn=conn,
+                entry=entry,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+                extra_body=extra_body,
+                enable_think_output=enable_think_output,
+                correlation_id=correlation_id,
+                resolution_override=resolution,
+                is_fallback=index > 0,
+            )
+            return response
+        except Exception as exc:
+            failures.append(f"{entry.model_key}: {exc}")
+            if not is_recoverable_error(exc):
+                break
+            continue
+    raise LLMRoutingError(f"LLM route failed for task {resolution.task_key}: {'; '.join(failures)}")
 
 
 def prompt_from_messages(*, prompt: str | None, messages: list[dict[str, str]] | None) -> str:
@@ -265,6 +325,22 @@ def messages_as_text_messages(messages: list[dict[str, Any]]) -> list[dict[str, 
         }
         for message in messages
     ]
+
+
+def messages_have_binary_media(messages: list[dict[str, Any]]) -> bool:
+    return any(content_has_binary_media(message.get("content")) for message in messages)
+
+
+def content_has_binary_media(value: Any) -> bool:
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict) and str(item.get("type") or "").strip() in {"image_url", "input_audio", "video_url"}:
+                return True
+            if content_has_binary_media(item):
+                return True
+    if isinstance(value, dict):
+        return any(content_has_binary_media(item) for item in value.values())
+    return False
 
 
 def message_content_as_text(value: Any) -> str:
@@ -519,7 +595,25 @@ def stream_event_content(event: str) -> str:
 
 def is_recoverable_error(exc: Exception) -> bool:
     text = str(exc).lower()
-    return any(token in text for token in ("timeout", "timed out", "429", "5xx", " 5", "temporar", "rate limit", "unavailable"))
+    return any(
+        token in text
+        for token in (
+            "timeout",
+            "timed out",
+            "429",
+            "5xx",
+            " 5",
+            "temporar",
+            "rate limit",
+            "unavailable",
+            "does not support multimodal chat messages",
+            "not support",
+            "unsupported",
+            "input_audio",
+            "image_url",
+            "video_url",
+        )
+    )
 
 
 def call_log_payload(

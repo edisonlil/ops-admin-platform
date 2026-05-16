@@ -677,6 +677,172 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_audio_and_video_variables_render_multimodal_parts(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("media")
+                    app_payload["user_prompt_template"] = "请分析媒体：{{audio}} {{video}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["audio", "video"],
+                        "properties": {"audio": {"type": "audio"}, "video": {"type": "video"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        content = messages[-1]["content"]
+                        assert isinstance(content, list)
+                        self.assertEqual([part["type"] for part in content], ["text", "input_audio", "video_url"])
+                        self.assertEqual(content[1]["input_audio"]["data"], "abc")
+                        self.assertEqual(content[1]["input_audio"]["format"], "mpeg")
+                        self.assertEqual(content[2]["video_url"]["url"], "data:video/mp4;base64,def")
+                        return {"choices": [{"message": {"content": "媒体分析完成"}}], "usage": {}}
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "media",
+                            {
+                                "variables": {
+                                    "audio": {
+                                        "type": "audio",
+                                        "name": "meeting.mp3",
+                                        "mime_type": "audio/mpeg",
+                                        "size": 12,
+                                        "data_url": "data:audio/mpeg;base64,abc",
+                                    },
+                                    "video": {
+                                        "type": "video",
+                                        "name": "demo.mp4",
+                                        "mime_type": "video/mp4",
+                                        "size": 24,
+                                        "data_url": "data:video/mp4;base64,def",
+                                    },
+                                }
+                            },
+                        )
+
+            self.assertEqual(result["answer"], "媒体分析完成")
+            self.assertIn("[audio]", result["trace"]["rendered_prompt"])
+            self.assertIn("[video]", result["trace"]["rendered_prompt"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_file_variable_stays_text_placeholder_for_now(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("file-only")
+                    app_payload["user_prompt_template"] = "请查看附件：{{attachment}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["attachment"],
+                        "properties": {"attachment": {"type": "file"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        content = messages[-1]["content"]
+                        assert isinstance(content, str)
+                        self.assertIn("已上传file", content)
+                        self.assertNotIn("file_data", content)
+                        return {"choices": [{"message": {"content": "请提供文件文本内容"}}], "usage": {}}
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "file-only",
+                            {
+                                "variables": {
+                                    "attachment": {
+                                        "type": "file",
+                                        "name": "report.pdf",
+                                        "mime_type": "application/pdf",
+                                        "size": 24,
+                                        "data_url": "data:application/pdf;base64,abc",
+                                    }
+                                }
+                            },
+                        )
+
+            self.assertEqual(result["answer"], "请提供文件文本内容")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_chat_route_falls_back_when_text_client_receives_multimodal_messages(self) -> None:
+        db_path = self._temporary_db_path()
+        sqlite3.connect(db_path).close()
+        try:
+            self._seed_route(db_path)
+            calls: list[str] = []
+
+            def fake_client_for_entry(entry: object, *, response_format: str | None = None) -> object:
+                model_key = str(getattr(entry, "model_key"))
+                calls.append(model_key)
+
+                if model_key == "dashscope.qwen-plus":
+                    class TextClient:
+                        def generate_response(self, prompt: str, *, enable_think_output: bool | None = None) -> LLMResponse:
+                            return LLMResponse(content="text only", elapsed_seconds=0.01)
+
+                    return TextClient()
+
+                class ChatClient:
+                    def generate_chat_response(
+                        self_client,
+                        messages: list[dict[str, object]],
+                        *,
+                        extra_body: dict[str, object] | None = None,
+                        enable_think_output: bool | None = None,
+                    ) -> LLMResponse:
+                        content = messages[-1]["content"]
+                        assert isinstance(content, list)
+                        self.assertEqual(content[1]["type"], "input_audio")
+                        return LLMResponse(content="audio accepted", elapsed_seconds=0.02)
+
+                return ChatClient()
+
+            with mock.patch("llm_runtime.application.gateway.client_for_entry", side_effect=fake_client_for_entry):
+                response = gateway.chat_completions(
+                    model="ops.sample.rank",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "请转写"},
+                                {"type": "input_audio", "input_audio": {"data": "abc", "format": "mp3"}},
+                            ],
+                        }
+                    ],
+                    database_target_override=db_path,
+                )
+
+            self.assertEqual(response["choices"][0]["message"]["content"], "audio accepted")
+            self.assertEqual(calls, ["dashscope.qwen-plus", "siliconflow.qwen3-32b"])
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                logs = [dict(row) for row in conn.execute("SELECT * FROM llm_call_logs ORDER BY id").fetchall()]
+            finally:
+                conn.close()
+            self.assertEqual([item["status"] for item in logs], ["failed", "success"])
+            self.assertEqual(logs[1]["is_fallback"], 1)
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_replaces_numeric_template_variable_names(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
