@@ -304,7 +304,7 @@ export function runAiApplicationDraft(appKey: string, payload: AiRunPayload) {
   return Alova.Post<AiRunResult>(`/ai-applications/${appKey}/run-draft`, payload);
 }
 
-export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayload) {
+export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayload, signal?: AbortSignal) {
   return fetch(buildAiStudioApiUrl(`/ai-applications/${encodeURIComponent(appKey)}/run-draft/stream`), {
     method: 'POST',
     credentials: 'include',
@@ -313,12 +313,14 @@ export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayl
       ...authHeaders(),
     },
     body: JSON.stringify(payload),
+    signal,
   }).catch((error) => {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new Error(`AI application stream request failed: ${errorMessage(error)}`);
   });
 }
 
-export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPayload) {
+export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPayload, signal?: AbortSignal) {
   return fetch(buildAiStudioApiUrl(`/ai-capabilities/${encodeURIComponent(capabilityKey)}/execute/stream`), {
     method: 'POST',
     credentials: 'include',
@@ -327,7 +329,9 @@ export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPay
       ...authHeaders(),
     },
     body: JSON.stringify(payload),
+    signal,
   }).catch((error) => {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new Error(`AI capability stream request failed: ${errorMessage(error)}`);
   });
 }

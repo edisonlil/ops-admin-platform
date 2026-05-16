@@ -375,7 +375,9 @@
                   :consistent-menu-width="false"
                   class="preview-output-format"
                 />
-                <n-button type="primary" :loading="running" @click="runDraft">运行</n-button>
+                <n-button :type="running ? 'warning' : 'primary'" @click="running ? cancelRunDraft() : runDraft()">
+                  {{ running ? '取消' : '运行' }}
+                </n-button>
               </div>
             </header>
 
@@ -472,7 +474,9 @@
                       <pre>{{ previewRenderedOutput.rawContent || previewRenderedOutput.content }}</pre>
                     </details>
                   </template>
-                  <pre v-else-if="previewRenderedOutput.kind === 'json'" class="json-answer">{{ previewRenderedOutput.content }}</pre>
+                  <div v-else-if="previewRenderedOutput.kind === 'json'" class="json-answer">
+                    <CodePreview :value="previewRenderedOutput.content" language="json" height="min(520px, calc(100vh - 360px))" />
+                  </div>
                   <div v-else class="markdown-answer" v-html="previewRenderedOutput.content"></div>
                 </div>
                 <div v-else-if="running && selectedOutputFormat === 'html'" class="rendering-state">
@@ -740,7 +744,9 @@
                         <pre>{{ selectedRunLogRenderedOutput.content }}</pre>
                       </details>
                     </template>
-                    <pre v-else-if="selectedRunLogRenderedOutput.kind === 'json'" class="json-answer">{{ selectedRunLogRenderedOutput.content }}</pre>
+                    <div v-else-if="selectedRunLogRenderedOutput.kind === 'json'" class="json-answer">
+                      <CodePreview :value="selectedRunLogRenderedOutput.content" language="json" height="420px" />
+                    </div>
                     <div v-else class="markdown-answer" v-html="selectedRunLogRenderedOutput.content"></div>
                   </div>
                 </div>
@@ -837,6 +843,7 @@
   import MarkdownIt from 'markdown-it';
   import { getLlmModels, getLlmRoutingPolicies } from '@/api/business';
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
+  import CodePreview from '@/components/CodePreview/index.vue';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
   import {
     fetchAiCapabilityStream,
@@ -937,6 +944,7 @@
   const lastRunElapsedMs = ref(0);
   let runStopwatchTimer: number | null = null;
   let htmlPreviewObjectUrl = '';
+  let runAbortController: AbortController | null = null;
   const form = reactive({
     app_key: '',
     name: '',
@@ -1161,6 +1169,7 @@
     if (value === 'logs') void loadRunLogs();
   });
   onBeforeUnmount(() => {
+    cancelRunDraft({ silent: true });
     stopRunStopwatch();
     revokeHtmlPreviewObjectUrl();
   });
@@ -1346,12 +1355,14 @@
   }
 
   async function runDraft() {
+    if (running.value) return;
     const missingRequired = findUnfilledRequiredVariables();
     if (missingRequired.length) {
       message.warning(`请填写运行变量：${missingRequired.join('、')}`);
       return;
     }
     running.value = true;
+    runAbortController = new AbortController();
     startRunStopwatch();
     try {
       const saved = await saveCurrent({ silent: true, refresh: false });
@@ -1361,14 +1372,27 @@
       await runDraftStream({
         variables: buildRuntimeVariables(),
         ...runOutputFormatPayload(),
-      });
+      }, runAbortController.signal);
       if (activeWorkspace.value === 'logs') {
         await loadRunLogs();
       }
+    } catch (error) {
+      if (isAbortError(error)) {
+        message.info('已取消本次运行');
+        return;
+      }
+      throw error;
     } finally {
       finishRunStopwatch();
       running.value = false;
+      runAbortController = null;
     }
+  }
+
+  function cancelRunDraft(options: { silent?: boolean } = {}) {
+    if (!runAbortController) return;
+    runAbortController.abort();
+    if (!options.silent) message.info('正在取消运行');
   }
 
   function loadWorkflowDefinition(definition: unknown) {
@@ -1640,10 +1664,10 @@
     }
   }
 
-  async function runDraftStream(payload: { variables: Record<string, unknown>; response_format?: Record<string, unknown> }) {
+  async function runDraftStream(payload: { variables: Record<string, unknown>; response_format?: Record<string, unknown> }, signal?: AbortSignal) {
     const response = isCapability.value
-      ? await fetchAiCapabilityStream(form.app_key, payload)
-      : await fetchAiApplicationDraftStream(form.app_key, payload);
+      ? await fetchAiCapabilityStream(form.app_key, payload, signal)
+      : await fetchAiApplicationDraftStream(form.app_key, payload, signal);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `HTTP ${response.status}`);
@@ -1719,6 +1743,10 @@
         ?.slice(6)
         .trim() || '';
     return { type, data };
+  }
+
+  function isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === 'AbortError';
   }
 
   function splitThinkContent(content: string) {
@@ -3918,14 +3946,16 @@
 
   .json-answer {
     max-height: 520px;
-    padding: 12px 14px;
-    overflow: auto;
-    color: var(--app-text-color-1);
-    font-size: 13px;
-    line-height: 1.65;
-    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 86%, var(--app-surface-bg));
+    overflow: hidden;
+    background: var(--app-surface-bg);
     border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
     border-radius: 8px;
+  }
+
+  .json-answer :deep(.monaco-editor),
+  .json-answer :deep(.monaco-editor-background),
+  .json-answer :deep(.monaco-editor .margin) {
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 70%, var(--app-surface-bg));
   }
 
   :deep(.markdown-answer h1),
