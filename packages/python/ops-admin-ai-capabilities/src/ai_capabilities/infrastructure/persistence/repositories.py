@@ -100,8 +100,8 @@ def upsert_ai_capability(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ValueError("name is required")
     binding_type = str(payload.get("binding_type") or "prompt_runtime").strip()
-    if binding_type != "prompt_runtime":
-        raise ValueError("Only prompt_runtime capability is supported in v1")
+    if binding_type not in {"prompt_runtime", "workflow_runtime"}:
+        raise ValueError("binding_type must be prompt_runtime or workflow_runtime")
     binding_key = normalize_key(payload.get("binding_key"))
     if not binding_key:
         binding_key = capability_key

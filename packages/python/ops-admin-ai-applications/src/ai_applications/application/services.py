@@ -13,6 +13,10 @@ from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_runtime_core.prompt_runtime import render_template
 from ai_runtime_core.prompt_runtime import resolve_variable_value
 from ai_runtime_core.prompt_runtime import variable_missing
+from ai_runtime_core.workflow_runtime import WorkflowLLMRequest
+from ai_runtime_core.workflow_runtime import WorkflowLLMResult
+from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
+from ai_runtime_core.workflow_runtime import execute_workflow
 from llm_runtime.application import gateway
 from ai_applications.infrastructure.persistence import repositories
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
@@ -44,7 +48,7 @@ def studio_overview() -> dict[str, Any]:
         "app_types": [
             {"type": "single_turn_generation", "label": "单轮生成", "enabled": True},
             {"type": "chat", "label": "多轮对话", "enabled": False},
-            {"type": "workflow", "label": "Workflow", "enabled": False},
+            {"type": "workflow", "label": "Workflow", "enabled": True},
             {"type": "agent", "label": "Agent", "enabled": False},
         ],
     }
@@ -95,18 +99,20 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
 
 def run_draft_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return execute_single_turn_application(app, payload, caller_type="studio_draft", require_published=False)
+    return execute_application(app, payload, caller_type="studio_draft", require_published=False)
 
 
 def stream_draft_application(app_key: str, payload: dict[str, Any]) -> Any:
     app = get_ai_application(app_key)
+    if app.get("app_type") == "workflow":
+        return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False)
     prepared = prepare_single_turn_run(app, payload, require_published=False)
     return stream_single_turn_application(prepared, caller_type="studio_draft")
 
 
 def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return execute_single_turn_application(app, payload, caller_type="application_api", require_published=True)
+    return execute_application(app, payload, caller_type="application_api", require_published=True)
 
 
 def list_prompt_runtime_traces(limit: int = 50) -> dict[str, Any]:
@@ -265,6 +271,144 @@ def execute_single_turn_application(
         raise HTTPException(status_code=502, detail={"message": str(exc), "trace_id": trace.get("trace_id")}) from exc
 
 
+def execute_application(
+    app: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    caller_type: str,
+    require_published: bool,
+    caller_key: str | None = None,
+) -> dict[str, Any]:
+    app_type = str(app.get("app_type") or "single_turn_generation")
+    if app_type == "workflow":
+        return execute_workflow_application(
+            app,
+            payload,
+            caller_type=caller_type,
+            caller_key=caller_key,
+            require_published=require_published,
+        )
+    return execute_single_turn_application(
+        app,
+        payload,
+        caller_type=caller_type,
+        caller_key=caller_key,
+        require_published=require_published,
+    )
+
+
+def execute_workflow_application(
+    app: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    caller_type: str,
+    require_published: bool,
+    caller_key: str | None = None,
+) -> dict[str, Any]:
+    if require_published and app.get("status") != "published":
+        raise HTTPException(status_code=409, detail="AI application is not published")
+    variables = extract_run_variables(payload)
+    validate_variables(app, variables)
+    definition = workflow_definition_from_app(app)
+    trace_id = f"trace_{uuid.uuid4().hex}"
+    started_at = time.perf_counter()
+    answer = ""
+    usage: dict[str, Any] = {}
+    rendered_messages: list[dict[str, Any]] = []
+    rendered_prompt = ""
+    model = resolve_workflow_default_model(app, payload, definition)
+
+    def llm_executor(request: WorkflowLLMRequest) -> WorkflowLLMResult:
+        nonlocal rendered_messages, rendered_prompt, model
+        rendered_messages.append(
+            {
+                "role": "workflow_node",
+                "node_id": request.node_id,
+                "model": request.model,
+                "messages": request.messages,
+            }
+        )
+        rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(request.messages))
+        model = request.model
+        response = gateway.chat_completions(
+            model=request.model,
+            messages=request.messages,
+            temperature=request.temperature,
+            response_format=request.response_format,
+            extra_body={**resolve_extra_body(app, payload), **request.extra_body},
+            enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+            correlation_id=trace_id,
+        )
+        response_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        return WorkflowLLMResult(answer=extract_answer(response), usage=response_usage, model=str(response.get("model") or request.model))
+
+    try:
+        workflow_result = execute_workflow(definition, variables, llm_executor=llm_executor)
+        answer = workflow_result.answer
+        usage = workflow_result.usage
+        elapsed = int((time.perf_counter() - started_at) * 1000)
+        trace = record_trace(
+            trace_id=trace_id,
+            app=app,
+            caller_type=caller_type,
+            caller_key=caller_key,
+            model=model,
+            status="success",
+            variables=variables,
+            messages=workflow_trace_messages(rendered_messages, workflow_result.trace),
+            rendered_prompt=rendered_prompt,
+            answer=answer,
+            usage=usage,
+            elapsed_ms=elapsed,
+        )
+        return {"answer": answer, "trace_id": trace_id, "usage": usage, "trace": trace}
+    except (WorkflowRuntimeError, gateway.LLMRoutingError, RuntimeError) as exc:
+        trace = record_trace(
+            trace_id=trace_id,
+            app=app,
+            caller_type=caller_type,
+            caller_key=caller_key,
+            model=model,
+            status="failed",
+            variables=variables,
+            messages=workflow_trace_messages(rendered_messages, {}),
+            rendered_prompt=rendered_prompt,
+            answer=answer,
+            usage=usage,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise HTTPException(status_code=422, detail={"message": str(exc), "trace_id": trace.get("trace_id")}) from exc
+
+
+def stream_workflow_application(app: dict[str, Any], payload: dict[str, Any], *, caller_type: str, require_published: bool) -> Any:
+    def events() -> Any:
+        try:
+            result = execute_workflow_application(
+                app,
+                payload,
+                caller_type=caller_type,
+                require_published=require_published,
+            )
+            trace_id = str(result.get("trace_id") or "")
+            yield gateway.sse_data({"trace_id": trace_id, "object": "ai_application.workflow.start"}).replace(
+                "data: ", "event: meta\ndata: ", 1
+            )
+            answer = str(result.get("answer") or "")
+            if answer:
+                yield gateway.sse_data({"choices": [{"delta": {"content": answer}}]})
+            yield gateway.sse_data({"trace_id": trace_id, "trace": result.get("trace"), "object": "ai_application.run.trace"}).replace(
+                "data: ", "event: trace\ndata: ", 1
+            )
+            yield "data: [DONE]\n\n"
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+            yield gateway.sse_error(str(detail.get("message") or exc.detail))
+            yield "data: [DONE]\n\n"
+
+    return events()
+
+
 def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, require_published: bool) -> dict[str, Any]:
     if app.get("app_type") != "single_turn_generation":
         raise HTTPException(status_code=422, detail="Only single_turn_generation is supported in milestone 1")
@@ -272,11 +416,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         raise HTTPException(status_code=409, detail="AI application is not published")
 
     app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
-    variables = payload.get("variables")
-    if variables is None:
-        variables = {key: value for key, value in payload.items() if key not in {"model", "temperature", "response_format"}}
-    if not isinstance(variables, dict):
-        raise HTTPException(status_code=422, detail="variables must be an object")
+    variables = extract_run_variables(payload)
     validate_variables(app_for_run, variables)
 
     messages = render_messages(app_for_run, variables)
@@ -392,17 +532,62 @@ def enforce_application_quota(conn: Any) -> None:
 
 def normalize_single_turn_payload(payload: dict[str, Any]) -> None:
     payload["app_type"] = payload.get("app_type") or "single_turn_generation"
-    if payload["app_type"] != "single_turn_generation":
-        raise ValueError("Only single_turn_generation is supported in milestone 1")
+    if payload["app_type"] not in {"single_turn_generation", "workflow"}:
+        raise ValueError("app_type must be single_turn_generation or workflow")
     payload.setdefault("variables_schema", {})
     payload.setdefault("model_preferences", {})
     payload.setdefault("trace_policy", {"enabled": True})
 
 
 def validate_publishable(app: dict[str, Any]) -> None:
+    if app.get("app_type") == "workflow":
+        workflow_definition_from_app(app)
+        return
     if not str(app.get("user_prompt_template") or "").strip():
         raise HTTPException(status_code=422, detail="user_prompt_template is required before publish")
     resolve_model(app, {})
+
+
+def extract_run_variables(payload: dict[str, Any]) -> dict[str, Any]:
+    variables = payload.get("variables")
+    if variables is None:
+        variables = {key: value for key, value in payload.items() if key not in {"model", "temperature", "response_format"}}
+    if not isinstance(variables, dict):
+        raise HTTPException(status_code=422, detail="variables must be an object")
+    return variables
+
+
+def workflow_definition_from_app(app: dict[str, Any]) -> dict[str, Any]:
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
+    workflow = runtime_config.get("workflow") if isinstance(runtime_config.get("workflow"), dict) else {}
+    if not workflow:
+        raise HTTPException(status_code=422, detail="workflow runtime_config.workflow is required")
+    return workflow
+
+
+def resolve_workflow_default_model(app: dict[str, Any], payload: dict[str, Any], definition: dict[str, Any]) -> str:
+    if payload.get("model"):
+        return str(payload["model"]).strip()
+    preferences = app.get("model_preferences") if isinstance(app.get("model_preferences"), dict) else {}
+    model = str(preferences.get("model") or preferences.get("route_key") or "").strip()
+    if model:
+        return model
+    nodes = definition.get("nodes") if isinstance(definition.get("nodes"), list) else []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        node_model = str(data.get("model") or data.get("route_key") or "").strip()
+        if node_model:
+            return node_model
+    raise HTTPException(status_code=422, detail="workflow LLM node model is required")
+
+
+def workflow_trace_messages(rendered_messages: list[dict[str, Any]], workflow_trace: dict[str, Any]) -> list[dict[str, Any]]:
+    result = [dict(item) for item in rendered_messages]
+    if workflow_trace:
+        result.append({"role": "workflow_trace", "content": workflow_trace})
+    return result
 
 
 def validate_variables(app: dict[str, Any], variables: dict[str, Any]) -> None:

@@ -15,8 +15,114 @@
         </button>
       </nav>
 
+      <div v-if="activeWorkspace === 'orchestration' && isWorkflowMode" class="workflow-fullscreen">
+        <aside class="workflow-toolbox">
+          <aside class="workflow-node-palette">
+            <h3>节点</h3>
+            <button type="button" @click="addWorkflowNode('llm')">
+              <strong>LLM</strong>
+              <span>调用模型生成文本</span>
+            </button>
+            <button type="button" @click="addWorkflowNode('condition')">
+              <strong>条件判断</strong>
+              <span>按变量选择分支</span>
+            </button>
+            <button type="button" @click="addWorkflowNode('end')">
+              <strong>结束</strong>
+              <span>输出最终结果</span>
+            </button>
+          </aside>
+        </aside>
+
+        <main class="workflow-canvas-shell">
+          <section class="workflow-canvas-toolbar">
+            <div>
+              <span>Workflow 编排</span>
+              <small>拖动画布节点连接运行路径</small>
+            </div>
+            <n-space size="small">
+              <n-button size="small" secondary @click="addWorkflowNode('llm')">添加 LLM</n-button>
+              <n-button size="small" secondary @click="addWorkflowNode('condition')">添加条件</n-button>
+              <n-button size="small" tertiary @click="runDraft">预览运行</n-button>
+            </n-space>
+          </section>
+          <section class="workflow-canvas-panel">
+            <VueFlow
+              v-model:nodes="workflowNodes"
+              v-model:edges="workflowEdges"
+              class="workflow-canvas"
+              fit-view-on-init
+              :default-edge-options="{ type: 'smoothstep' }"
+              @node-click="handleWorkflowNodeClick"
+            >
+              <Background />
+              <Controls />
+            </VueFlow>
+          </section>
+
+          <section v-if="selectedWorkflowNode" class="workflow-floating-panel">
+            <template v-if="selectedWorkflowNode">
+              <header>
+                <div>
+                  <h3>{{ workflowNodeTitle(selectedWorkflowNode) }}</h3>
+                  <span>{{ workflowNodeTypeLabel(selectedWorkflowNode.type || 'llm') }} · {{ selectedWorkflowNode.id }}</span>
+                </div>
+                <button type="button" aria-label="关闭节点配置" @click="selectedWorkflowNodeId = ''">×</button>
+              </header>
+              <n-form label-placement="top" class="studio-form">
+                <n-form-item label="节点名称">
+                  <n-input v-model:value="selectedWorkflowNode.data.label" />
+                </n-form-item>
+                <template v-if="selectedWorkflowNode.type === 'llm'">
+                  <n-form-item label="模型配置">
+                    <n-select
+                      v-model:value="selectedWorkflowNode.data.model"
+                      :options="modelConfigOptions"
+                      :loading="modelConfigLoading"
+                      filterable
+                      placeholder="选择模型或路由配置"
+                    />
+                  </n-form-item>
+                  <n-form-item label="系统提示词">
+                    <n-input v-model:value="selectedWorkflowNode.data.system_prompt" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" />
+                  </n-form-item>
+                  <n-form-item label="用户提示词模板">
+                    <n-input
+                      v-model:value="selectedWorkflowNode.data.user_prompt_template"
+                      type="textarea"
+                      placeholder="例如：请总结：{{content}}"
+                      :autosize="{ minRows: 5, maxRows: 10 }"
+                    />
+                  </n-form-item>
+                  <n-form-item label="输出变量">
+                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：summary" />
+                  </n-form-item>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'condition'">
+                  <n-form-item label="左值">
+                    <n-input v-model:value="selectedWorkflowNode.data.left" placeholder="例如：{{score}}" />
+                  </n-form-item>
+                  <n-form-item label="判断方式">
+                    <n-select v-model:value="selectedWorkflowNode.data.operator" :options="conditionOperatorOptions" />
+                  </n-form-item>
+                  <n-form-item label="右值">
+                    <n-input v-model:value="selectedWorkflowNode.data.right" placeholder="例如：90" />
+                  </n-form-item>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'end'">
+                  <n-form-item label="输出">
+                    <n-input v-model:value="selectedWorkflowNode.data.output" placeholder="例如：{{summary}}" />
+                  </n-form-item>
+                </template>
+              </n-form>
+            </template>
+          </section>
+        </main>
+
+      </div>
+
       <div
-        v-if="activeWorkspace === 'orchestration'"
+        v-else-if="activeWorkspace === 'orchestration'"
         ref="workbenchRef"
         class="studio-workbench"
         :style="workbenchStyle"
@@ -556,6 +662,11 @@
 
 <script lang="ts" setup>
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+  import { Background } from '@vue-flow/background';
+  import { Controls } from '@vue-flow/controls';
+  import { VueFlow, type Edge, type Node } from '@vue-flow/core';
+  import '@vue-flow/core/dist/style.css';
+  import '@vue-flow/core/dist/theme-default.css';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { SelectOption, UploadFileInfo } from 'naive-ui';
@@ -594,6 +705,9 @@
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
   type WorkspaceKey = 'orchestration' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
+  type WorkflowNodeType = 'start' | 'llm' | 'condition' | 'end';
+  type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
+  type WorkflowEdge = Edge<Record<string, any>>;
 
   interface RuntimeMediaVariableValue {
     type: 'image' | 'file' | 'audio' | 'video';
@@ -639,6 +753,9 @@
   const variableTypeOverrides = reactive<Record<string, RuntimeVariableType>>({});
   const variableLabelOverrides = reactive<Record<string, string>>({});
   const variableOptionalOverrides = reactive<Record<string, boolean>>({});
+  const workflowNodes = ref<WorkflowNode[]>([]);
+  const workflowEdges = ref<WorkflowEdge[]>([]);
+  const selectedWorkflowNodeId = ref('');
   const runResult = ref<AiRunResult | null>(null);
   const runLogs = ref<AiApplicationRunLog[]>([]);
   const runLogsLoading = ref(false);
@@ -706,9 +823,25 @@
     { key: 'settings', label: '设置', description: '应用信息' },
   ];
   const workspaceTabs = computed(() => baseWorkspaceTabs.filter((item) => !isCapability.value || item.key !== 'api'));
+  const isWorkflowMode = computed(() => form.app_type === 'workflow');
+  const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
-  const templateVariableKeys = computed(() => extractTemplateVariableKeys(form.user_prompt_template || ''));
+  const workflowTemplateVariableKeys = computed(() => {
+    if (!isWorkflowMode.value) return [];
+    return [
+      ...new Set(
+        workflowNodes.value.flatMap((node) =>
+          [node.data?.system_prompt, node.data?.developer_prompt, node.data?.user_prompt_template, node.data?.left, node.data?.right, node.data?.output]
+            .map((value) => String(value || ''))
+            .flatMap(extractTemplateVariableKeys)
+        )
+      ),
+    ];
+  });
+  const templateVariableKeys = computed(() =>
+    isWorkflowMode.value ? workflowTemplateVariableKeys.value : extractTemplateVariableKeys(form.user_prompt_template || '')
+  );
   const runtimeVariableFields = computed<RuntimeVariableField[]>(() =>
     buildRuntimeVariableFields(parsedVariablesSchema.value, templateVariableKeys.value)
   );
@@ -783,6 +916,18 @@
   const workbenchStyle = computed(() => ({
     '--studio-preview-width': `${previewWidthPercent.value}%`,
   }));
+  const conditionOperatorOptions: SelectOption[] = [
+    { label: '存在', value: 'exists' },
+    { label: '为空', value: 'empty' },
+    { label: '等于', value: 'equals' },
+    { label: '不等于', value: 'not_equals' },
+    { label: '包含', value: 'contains' },
+    { label: '不包含', value: 'not_contains' },
+    { label: '大于', value: 'gt' },
+    { label: '大于等于', value: 'gte' },
+    { label: '小于', value: 'lt' },
+    { label: '小于等于', value: 'lte' },
+  ];
 
   const detailPage = computed(() =>
     defineDetailPage<AiApplication | AiCapability>({
@@ -822,6 +967,7 @@
 
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
   watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
+  watch(workflowNodes, syncVariablesSchemaFromTemplate, { deep: true });
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
   });
@@ -912,6 +1058,7 @@
     form.system_prompt = app.system_prompt || '';
     form.developer_prompt = app.developer_prompt || '';
     form.user_prompt_template = app.user_prompt_template || '';
+    loadWorkflowDefinition(app.runtime_config?.workflow);
     systemPromptSource.value = app.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(app.runtime_config?.system_prompt_asset_key || '');
     if (selectedSystemPromptAssetKey.value) {
@@ -938,12 +1085,13 @@
     form.name = capability.name;
     form.icon = String(capability.runtime_config?.icon || 'api');
     form.description = capability.description || '';
-    form.app_type = 'single_turn_generation';
+    form.app_type = capability.binding_type === 'workflow_runtime' ? 'workflow' : 'single_turn_generation';
     form.status = capability.enabled ? 'published' : 'draft';
     form.endpoint_slug = capability.capability_key;
     form.system_prompt = capability.system_prompt || '';
     form.developer_prompt = capability.developer_prompt || '';
     form.user_prompt_template = capability.user_prompt_template || '';
+    loadWorkflowDefinition(capability.runtime_config?.workflow);
     systemPromptSource.value = capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(capability.runtime_config?.system_prompt_asset_key || '');
     if (selectedSystemPromptAssetKey.value) {
@@ -964,17 +1112,17 @@
       message.warning(`${resourceLabel.value} Key 和名称不能为空`);
       return null;
     }
-    if (!selectedModelKey.value) {
+    if (!isWorkflowMode.value && !selectedModelKey.value) {
       message.warning('请选择模型配置');
       return null;
     }
-    if (systemPromptSource.value === 'asset' && !selectedSystemPromptAssetKey.value) {
+    if (!isWorkflowMode.value && systemPromptSource.value === 'asset' && !selectedSystemPromptAssetKey.value) {
       message.warning('请选择已发布的提示词');
       return null;
     }
     if (!options.silent) saving.value = true;
     try {
-      const saved = isCapability.value
+    const saved = isCapability.value
         ? await updateAiCapability(form.app_key, buildCapabilityPayload())
         : await updateAiApplication(form.app_key, buildPayload());
       if (!options.silent) message.success(`${resourceLabel.value}已保存`);
@@ -1026,6 +1174,139 @@
       finishRunStopwatch();
       running.value = false;
     }
+  }
+
+  function loadWorkflowDefinition(definition: unknown) {
+    const workflow = asSchemaRecord(definition) || defaultWorkflowDefinition();
+    const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : defaultWorkflowDefinition().nodes;
+    const edges = Array.isArray(workflow.edges) ? workflow.edges : defaultWorkflowDefinition().edges;
+    workflowNodes.value = nodes.map((node, index) => normalizeWorkflowNode(node, index));
+    workflowEdges.value = edges.map((edge, index) => normalizeWorkflowEdge(edge, index));
+    selectedWorkflowNodeId.value = workflowNodes.value[0]?.id || '';
+  }
+
+  function normalizeWorkflowNode(node: unknown, index: number): WorkflowNode {
+    const record = asSchemaRecord(node) || {};
+    const data = asSchemaRecord(record.data) || {};
+    const type = String(record.type || 'llm') as WorkflowNodeType;
+    return {
+      id: String(record.id || `${type}_${index + 1}`),
+      type,
+      label: String(data.label || workflowNodeTypeLabel(type)),
+      position: asWorkflowPosition(record.position, index),
+      data: {
+        label: String(data.label || workflowNodeTypeLabel(type)),
+        ...data,
+      },
+    };
+  }
+
+  function normalizeWorkflowEdge(edge: unknown, index: number): WorkflowEdge {
+    const record = asSchemaRecord(edge) || {};
+    const source = String(record.source || '');
+    const target = String(record.target || '');
+    return {
+      id: String(record.id || `${source}-${target}-${index}`),
+      source,
+      target,
+      sourceHandle: String(record.sourceHandle || record.source_handle || '') || undefined,
+      type: String(record.type || 'smoothstep'),
+      label: record.sourceHandle === 'true' ? '是' : record.sourceHandle === 'false' ? '否' : undefined,
+    };
+  }
+
+  function asWorkflowPosition(value: unknown, index: number) {
+    const record = asSchemaRecord(value);
+    if (record && typeof record.x === 'number' && typeof record.y === 'number') {
+      return { x: record.x, y: record.y };
+    }
+    return { x: 80 + index * 260, y: index % 2 ? 90 : 180 };
+  }
+
+  function workflowDefinitionPayload() {
+    return {
+      nodes: workflowNodes.value.map((node) => ({
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        data: { ...(node.data || {}), label: node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType) },
+      })),
+      edges: workflowEdges.value.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+      })),
+    };
+  }
+
+  function defaultWorkflowDefinition() {
+    return {
+      nodes: [
+        { id: 'start', type: 'start', position: { x: 80, y: 160 }, data: { label: '开始' } },
+        {
+          id: 'llm_1',
+          type: 'llm',
+          position: { x: 360, y: 120 },
+          data: {
+            label: 'LLM',
+            model: selectedModelKey.value || 'dashscope.qwen-plus',
+            system_prompt: '你是一个专业、简洁的助手。',
+            user_prompt_template: '请回答：{{question}}',
+            output_key: 'answer',
+          },
+        },
+        { id: 'end', type: 'end', position: { x: 660, y: 160 }, data: { label: '结束', output: '{{answer}}' } },
+      ],
+      edges: [
+        { id: 'start-llm_1', source: 'start', target: 'llm_1' },
+        { id: 'llm_1-end', source: 'llm_1', target: 'end' },
+      ],
+    };
+  }
+
+  function addWorkflowNode(type: Exclude<WorkflowNodeType, 'start'>) {
+    const count = workflowNodes.value.filter((node) => node.type === type).length + 1;
+    const id = `${type}_${Date.now().toString(36)}`;
+    const data: Record<string, any> = { label: `${workflowNodeTypeLabel(type)} ${count}` };
+    if (type === 'llm') {
+      data.model = selectedModelKey.value || modelConfigOptions.value[0]?.value || '';
+      data.system_prompt = '你是一个专业、简洁的助手。';
+      data.user_prompt_template = '请处理：{{input}}';
+      data.output_key = `llm_${count}_output`;
+    }
+    if (type === 'condition') {
+      data.left = '{{input}}';
+      data.operator = 'exists';
+      data.right = '';
+    }
+    if (type === 'end') {
+      data.output = '{{last.answer}}';
+    }
+    workflowNodes.value.push({
+      id,
+      type,
+      label: data.label,
+      position: { x: 260 + count * 80, y: 120 + count * 40 },
+      data,
+    });
+    selectedWorkflowNodeId.value = id;
+  }
+
+  function handleWorkflowNodeClick(event: { node: WorkflowNode }) {
+    selectedWorkflowNodeId.value = event.node.id;
+  }
+
+  function workflowNodeTitle(node: WorkflowNode) {
+    return String(node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType));
+  }
+
+  function workflowNodeTypeLabel(type: WorkflowNodeType | string) {
+    if (type === 'start') return '开始';
+    if (type === 'llm') return 'LLM';
+    if (type === 'condition') return '条件判断';
+    if (type === 'end') return '结束';
+    return String(type);
   }
 
   async function handleMediaVariableChange(field: RuntimeVariableField, options: { fileList: UploadFileInfo[] }) {
@@ -1149,10 +1430,11 @@
   }
 
   function buildPayload() {
+    const workflow = isWorkflowMode.value ? workflowDefinitionPayload() : undefined;
     return {
       ...form,
       model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
-      variables_schema: buildVariablesSchemaFromTemplate(parsedVariablesSchema.value, form.user_prompt_template),
+      variables_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
       trace_policy: { enabled: true },
       runtime_config: {
@@ -1160,29 +1442,32 @@
         icon: form.icon,
         system_prompt_source: systemPromptSource.value,
         system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+        ...(workflow ? { workflow } : {}),
       },
     };
   }
 
   function buildCapabilityPayload() {
+    const workflow = isWorkflowMode.value ? workflowDefinitionPayload() : undefined;
     const runtimeConfig = {
       ...(activeCapability.value?.runtime_config || {}),
       icon: form.icon,
       system_prompt_source: systemPromptSource.value,
       system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+      ...(workflow ? { workflow } : {}),
     };
     return {
       capability_key: form.app_key,
       name: form.name,
       description: form.description,
       scope: activeCapability.value?.scope || 'tenant',
-      binding_type: 'prompt_runtime',
+      binding_type: isWorkflowMode.value ? 'workflow_runtime' : 'prompt_runtime',
       binding_key: form.app_key,
       call_method: activeCapability.value?.call_method || 'aiService.execute',
       system_prompt: form.system_prompt,
       developer_prompt: form.developer_prompt,
       user_prompt_template: form.user_prompt_template,
-      input_schema: buildVariablesSchemaFromTemplate(parsedVariablesSchema.value, form.user_prompt_template),
+      input_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
       model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
       runtime_config: runtimeConfig,
@@ -1323,7 +1608,10 @@
   }
 
   function buildVariablesSchemaFromTemplate(schema: SchemaRecord | null, template: string): Record<string, unknown> {
-    const keys = extractTemplateVariableKeys(template || '');
+    return buildVariablesSchemaFromTemplateFromKeys(schema, extractTemplateVariableKeys(template || ''));
+  }
+
+  function buildVariablesSchemaFromTemplateFromKeys(schema: SchemaRecord | null, keys: string[]): Record<string, unknown> {
     if (!keys.length) return {};
     const existingProperties = asSchemaRecord(schema?.properties);
     const requiredKeys = keys.filter((key) => variableOptionalOverrides[key] !== true);
@@ -1376,7 +1664,7 @@
   }
 
   function refreshVariablesSchemaText() {
-    variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplate(parsedVariablesSchema.value || {}, form.user_prompt_template));
+    variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value || {}, templateVariableKeys.value));
   }
 
   function syncVariablesSchemaFromTemplate() {
@@ -1714,6 +2002,222 @@
     background: var(--app-surface-bg);
     border: 1px solid var(--app-border-color, #d9e1ec);
     border-radius: var(--app-card-radius);
+  }
+
+  .workflow-fullscreen {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 12px;
+    min-width: 0;
+    height: calc(100vh - 250px);
+    min-height: 620px;
+  }
+
+  .workflow-toolbox,
+  .workflow-canvas-shell {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workflow-toolbox {
+    overflow: auto;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: var(--app-card-radius);
+  }
+
+  .workflow-node-palette {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .workflow-node-palette h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .workflow-node-palette button {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    min-height: 76px;
+    padding: 12px 13px;
+    color: var(--app-text-color-2);
+    text-align: left;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 54%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 7px;
+  }
+
+  .workflow-node-palette button:hover,
+  .workflow-node-palette button:focus-visible {
+    color: var(--app-primary-color);
+    border-color: color-mix(in srgb, var(--app-primary-color) 48%, var(--app-border-color, #d9e1ec));
+    outline: none;
+  }
+
+  .workflow-node-palette button span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .workflow-canvas-shell {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: var(--app-card-radius);
+  }
+
+  .workflow-canvas-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+  }
+
+  .workflow-canvas-toolbar div {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .workflow-canvas-toolbar span {
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .workflow-canvas-toolbar small {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .workflow-canvas-panel {
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle, color-mix(in srgb, var(--app-border-color, #d9e1ec) 46%, transparent) 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--app-surface-bg);
+  }
+
+  .workflow-canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  :deep(.vue-flow__node) {
+    min-width: 148px;
+    padding: 10px 13px;
+    color: var(--app-text-color-1);
+    font-weight: 650;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 86%, transparent);
+    border-radius: 8px;
+    box-shadow: 0 8px 18px color-mix(in srgb, #0f172a 8%, transparent);
+  }
+
+  :deep(.vue-flow__node.selected) {
+    border-color: var(--app-primary-color);
+    box-shadow:
+      0 0 0 2px var(--app-primary-soft-bg),
+      0 12px 24px color-mix(in srgb, var(--app-primary-color) 14%, transparent);
+  }
+
+  :deep(.vue-flow__controls) {
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 8px;
+    box-shadow: 0 8px 18px color-mix(in srgb, #0f172a 10%, transparent);
+  }
+
+  :deep(.vue-flow__edge-path) {
+    stroke: color-mix(in srgb, var(--app-primary-color) 72%, #64748b);
+    stroke-width: 2;
+  }
+
+  .workflow-floating-panel {
+    position: absolute;
+    top: 60px;
+    right: 14px;
+    z-index: 8;
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    width: min(420px, calc(100% - 28px));
+    max-height: calc(100% - 76px);
+    padding: 14px;
+    overflow: auto;
+    background: var(--app-surface-bg);
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: var(--app-card-radius);
+    box-shadow: 0 18px 42px color-mix(in srgb, #0f172a 18%, transparent);
+  }
+
+  .workflow-floating-panel header {
+    position: sticky;
+    top: -14px;
+    z-index: 1;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 0 0 10px;
+    background: var(--app-surface-bg);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 60%, transparent);
+  }
+
+  .workflow-floating-panel header div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .workflow-floating-panel header button {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    color: var(--app-text-color-3);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+  }
+
+  .workflow-floating-panel header button:hover,
+  .workflow-floating-panel header button:focus-visible {
+    color: var(--app-text-color-1);
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 82%, var(--app-surface-bg));
+    outline: none;
+  }
+
+  .workflow-floating-panel h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .workflow-floating-panel header span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   .workspace-panel__head {
@@ -2698,6 +3202,34 @@
 
     .run-log-layout {
       grid-template-columns: 1fr;
+    }
+
+    .workflow-fullscreen {
+      grid-template-columns: 1fr;
+      height: auto;
+      min-height: 0;
+    }
+
+    .workflow-toolbox {
+      overflow: visible;
+    }
+
+    .workflow-node-palette {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .workflow-node-palette h3 {
+      grid-column: 1 / -1;
+    }
+
+    .workflow-canvas-panel {
+      height: 520px;
+    }
+
+    .workflow-floating-panel {
+      top: 58px;
+      right: 10px;
+      width: min(390px, calc(100% - 20px));
     }
 
     .studio-resizer {

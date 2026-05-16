@@ -55,12 +55,12 @@ def execute_ai_capability(capability_key: str, payload: dict[str, Any]) -> dict[
     capability = get_ai_capability(capability_key)
     if not capability.get("enabled", True):
         raise HTTPException(status_code=409, detail="AI capability is disabled")
-    if capability.get("binding_type") != "prompt_runtime":
-        raise HTTPException(status_code=422, detail="Only prompt_runtime capability is supported in v1")
+    if capability.get("binding_type") not in {"prompt_runtime", "workflow_runtime"}:
+        raise HTTPException(status_code=422, detail="Only prompt_runtime and workflow_runtime capabilities are supported")
     validate_executable_capability(capability)
     run_payload = payload if "variables" in payload else {"variables": payload}
     app = capability_runtime_app(capability)
-    return ai_application_services.execute_single_turn_application(
+    return ai_application_services.execute_application(
         app,
         run_payload,
         caller_type="ai_capability",
@@ -73,11 +73,18 @@ def stream_ai_capability(capability_key: str, payload: dict[str, Any]) -> Any:
     capability = get_ai_capability(capability_key)
     if not capability.get("enabled", True):
         raise HTTPException(status_code=409, detail="AI capability is disabled")
-    if capability.get("binding_type") != "prompt_runtime":
-        raise HTTPException(status_code=422, detail="Only prompt_runtime capability is supported in v1")
+    if capability.get("binding_type") not in {"prompt_runtime", "workflow_runtime"}:
+        raise HTTPException(status_code=422, detail="Only prompt_runtime and workflow_runtime capabilities are supported")
     validate_executable_capability(capability)
     run_payload = payload if "variables" in payload else {"variables": payload}
     app = capability_runtime_app(capability)
+    if app["app_type"] == "workflow":
+        return ai_application_services.stream_workflow_application(
+            app,
+            run_payload,
+            caller_type="ai_capability",
+            require_published=True,
+        )
     prepared = ai_application_services.prepare_single_turn_run(app, run_payload, require_published=True)
     return ai_application_services.stream_single_turn_application(
         prepared,
@@ -87,11 +94,12 @@ def stream_ai_capability(capability_key: str, payload: dict[str, Any]) -> Any:
 
 
 def capability_runtime_app(capability: dict[str, Any]) -> dict[str, Any]:
+    binding_type = str(capability.get("binding_type") or "prompt_runtime")
     return {
         "tenant_id": capability.get("tenant_id"),
         "app_key": capability["capability_key"],
         "name": capability.get("name") or capability["capability_key"],
-        "app_type": "single_turn_generation",
+        "app_type": "workflow" if binding_type == "workflow_runtime" else "single_turn_generation",
         "status": "published",
         "lock_version": capability.get("lock_version") or 0,
         "system_prompt": capability.get("system_prompt") or "",
@@ -105,6 +113,11 @@ def capability_runtime_app(capability: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_executable_capability(capability: dict[str, Any]) -> None:
+    if capability.get("binding_type") == "workflow_runtime":
+        runtime_config = capability.get("runtime_config") if isinstance(capability.get("runtime_config"), dict) else {}
+        if not isinstance(runtime_config.get("workflow"), dict):
+            raise HTTPException(status_code=422, detail="runtime_config.workflow is required before execute")
+        return
     if not str(capability.get("user_prompt_template") or "").strip():
         raise HTTPException(status_code=422, detail="user_prompt_template is required before execute")
     model_preferences = capability.get("model_preferences") if isinstance(capability.get("model_preferences"), dict) else {}
@@ -118,7 +131,10 @@ def normalize_capability_payload(conn: Any, payload: dict[str, Any]) -> None:
         raise ValueError("scope must be tenant or platform")
     if payload["scope"] != "tenant":
         raise ValueError("tenant AI Studio can only create tenant scoped capabilities")
-    payload["binding_type"] = "prompt_runtime"
+    binding_type = str(payload.get("binding_type") or "prompt_runtime").strip()
+    if binding_type not in {"prompt_runtime", "workflow_runtime"}:
+        raise ValueError("binding_type must be prompt_runtime or workflow_runtime")
+    payload["binding_type"] = binding_type
     payload["binding_key"] = repositories.normalize_key(payload.get("binding_key") or payload.get("capability_key"))
     model_preferences = payload.get("model_preferences") if isinstance(payload.get("model_preferences"), dict) else {}
     payload["model_preferences"] = model_preferences

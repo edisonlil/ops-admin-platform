@@ -67,6 +67,9 @@
         <n-form-item label="应用名称" required>
           <n-input v-model:value="createForm.name" placeholder="例如：退款说明生成" />
         </n-form-item>
+        <n-form-item label="应用类型" required>
+          <n-select v-model:value="createForm.app_type" :options="appTypeOptions" placeholder="请选择应用类型" />
+        </n-form-item>
         <n-form-item label="图标">
           <n-select v-model:value="createForm.icon" :options="iconOptions" />
         </n-form-item>
@@ -162,6 +165,7 @@
   const createForm = reactive({
     name: '',
     icon: 'robot',
+    app_type: 'single_turn_generation',
     description: '',
   });
   const capabilityForm = reactive({
@@ -197,6 +201,10 @@
     { label: '全部状态', value: 'all' },
     { label: '草稿', value: 'draft' },
     { label: '已发布', value: 'published' },
+  ];
+  const appTypeOptions = [
+    { label: '单轮生成', value: 'single_turn_generation' },
+    { label: 'Workflow', value: 'workflow' },
   ];
   const capabilityStatusOptions = [
     { label: '全部状态', value: 'all' },
@@ -362,6 +370,7 @@
     }
     createForm.name = '';
     createForm.icon = 'robot';
+    createForm.app_type = 'single_turn_generation';
     createForm.description = '';
     createModalVisible.value = true;
   }
@@ -426,19 +435,22 @@
         name,
         icon: createForm.icon,
         description: createForm.description.trim(),
-        app_type: 'single_turn_generation',
+        app_type: createForm.app_type,
         status: 'draft',
         endpoint_slug: appKey,
-        system_prompt: '你是一个专业、简洁的助手。',
+        system_prompt: createForm.app_type === 'workflow' ? '' : '你是一个专业、简洁的助手。',
         developer_prompt: '',
-        user_prompt_template: '请回答：{{question}}',
-        variables_schema: { type: 'object', required: ['question'] },
+        user_prompt_template: createForm.app_type === 'workflow' ? '' : '请回答：{{question}}',
+        variables_schema: createForm.app_type === 'workflow' ? { type: 'object', required: [] } : { type: 'object', required: ['question'] },
         output_schema: {},
-        model_preferences: { model: 'dashscope.qwen-plus', temperature: 0.2 },
+        model_preferences: createForm.app_type === 'workflow' ? {} : { model: 'dashscope.qwen-plus', temperature: 0.2 },
         auth_policy: {},
         quota_policy: {},
         trace_policy: { enabled: true },
-        runtime_config: { icon: createForm.icon },
+        runtime_config: {
+          icon: createForm.icon,
+          ...(createForm.app_type === 'workflow' ? { workflow: defaultWorkflowDefinition() } : {}),
+        },
       });
       message.success('应用已创建');
       createModalVisible.value = false;
@@ -497,7 +509,9 @@
   }
 
   function appTypeLabel(type: string) {
-    return type === 'single_turn_generation' ? '单轮生成' : type;
+    if (type === 'single_turn_generation') return '单轮生成';
+    if (type === 'workflow') return 'Workflow';
+    return type;
   }
 
   function formatAppTime(value?: string) {
@@ -510,7 +524,32 @@
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
-    return `${normalized || 'single-turn'}-${Date.now().toString(36)}`;
+    return `${normalized || (createForm.app_type === 'workflow' ? 'workflow' : 'single-turn')}-${Date.now().toString(36)}`;
+  }
+
+  function defaultWorkflowDefinition() {
+    return {
+      nodes: [
+        { id: 'start', type: 'start', data: { label: '开始' }, position: { x: 80, y: 160 } },
+        {
+          id: 'llm_1',
+          type: 'llm',
+          data: {
+            label: 'LLM',
+            model: 'dashscope.qwen-plus',
+            system_prompt: '你是一个专业、简洁的助手。',
+            user_prompt_template: '请回答：{{question}}',
+            output_key: 'answer',
+          },
+          position: { x: 360, y: 120 },
+        },
+        { id: 'end', type: 'end', data: { label: '结束', output: '{{answer}}' }, position: { x: 660, y: 160 } },
+      ],
+      edges: [
+        { id: 'start-llm_1', source: 'start', target: 'llm_1' },
+        { id: 'llm_1-end', source: 'llm_1', target: 'end' },
+      ],
+    };
   }
 
   async function copyCapabilityCall(row: AiCapability) {

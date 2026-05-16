@@ -804,6 +804,60 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_ai_application_runs_without_new_storage(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("meeting-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["variables_schema"] = {"type": "object", "required": ["content"]}
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "llm_1",
+                                    "type": "llm",
+                                    "data": {
+                                        "model": "dashscope.qwen-plus",
+                                        "system_prompt": "你是会议纪要助手",
+                                        "user_prompt_template": "请整理：{{content}}",
+                                        "output_key": "summary",
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {"output": "{{summary}}"}},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "llm_1"},
+                                {"source": "llm_1", "target": "end"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        self.assertEqual(messages[-1]["content"], "请整理：会议内容")
+                        return {"choices": [{"message": {"content": "会议纪要"}}], "usage": {"total_tokens": 11}}
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "meeting-workflow",
+                            {"variables": {"content": "会议内容"}},
+                        )
+
+            self.assertEqual(result["answer"], "会议纪要")
+            self.assertEqual(result["usage"]["total_tokens"], 11)
+            self.assertEqual(result["trace"]["rendered_messages"][-1]["role"], "workflow_trace")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_capability_owns_prompt_runtime_and_executes(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
@@ -875,6 +929,57 @@ class LLMRuntimeTests(unittest.TestCase):
                         ai_capabilities.execute_ai_capability("summarize", {"variables": {"question": "会议内容"}})
 
             self.assertIn("user_prompt_template is required before execute", str(getattr(raised.exception, "detail", "")))
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_capability_can_execute_workflow_runtime(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    with mock.patch("ai_capabilities.application.services.require_database", return_value=db_path):
+                        ai_capabilities.save_ai_capability(
+                            {
+                                "capability_key": "meeting-summary",
+                                "name": "会议纪要",
+                                "binding_type": "workflow_runtime",
+                                "input_schema": {"type": "object", "required": ["content"]},
+                                "runtime_config": {
+                                    "workflow": {
+                                        "nodes": [
+                                            {"id": "start", "type": "start", "data": {}},
+                                            {
+                                                "id": "llm_1",
+                                                "type": "llm",
+                                                "data": {
+                                                    "model": "dashscope.qwen-plus",
+                                                    "system_prompt": "你是会议纪要助手",
+                                                    "user_prompt_template": "请整理：{{content}}",
+                                                },
+                                            },
+                                            {"id": "end", "type": "end", "data": {}},
+                                        ],
+                                        "edges": [
+                                            {"source": "start", "target": "llm_1"},
+                                            {"source": "llm_1", "target": "end"},
+                                        ],
+                                    }
+                                },
+                            }
+                        )
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            return_value={"choices": [{"message": {"content": "能力会议纪要"}}], "usage": {}},
+                        ):
+                            result = ai_capabilities.execute_ai_capability(
+                                "meeting-summary",
+                                {"variables": {"content": "会议内容"}},
+                            )
+
+            self.assertEqual(result["answer"], "能力会议纪要")
+            self.assertEqual(result["trace"]["caller_type"], "ai_capability")
         finally:
             self._unlink_db(db_path)
 
