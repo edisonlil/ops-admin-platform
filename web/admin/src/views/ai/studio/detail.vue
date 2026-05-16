@@ -475,7 +475,7 @@
                     </details>
                   </template>
                   <div v-else-if="previewRenderedOutput.kind === 'json'" class="json-answer">
-                    <CodePreview :value="previewRenderedOutput.content" language="json" height="min(520px, calc(100vh - 360px))" />
+                    <CodePreview :value="previewRenderedOutput.content" language="json" :min-height="140" :max-height="520" />
                   </div>
                   <div v-else class="markdown-answer" v-html="previewRenderedOutput.content"></div>
                 </div>
@@ -745,7 +745,7 @@
                       </details>
                     </template>
                     <div v-else-if="selectedRunLogRenderedOutput.kind === 'json'" class="json-answer">
-                      <CodePreview :value="selectedRunLogRenderedOutput.content" language="json" height="420px" />
+                      <CodePreview :value="selectedRunLogRenderedOutput.content" language="json" :min-height="140" :max-height="420" />
                     </div>
                     <div v-else class="markdown-answer" v-html="selectedRunLogRenderedOutput.content"></div>
                   </div>
