@@ -43,6 +43,7 @@
             <n-space size="small">
               <n-button size="small" secondary @click="addWorkflowNode('llm')">添加 LLM</n-button>
               <n-button size="small" secondary @click="addWorkflowNode('condition')">添加条件</n-button>
+              <n-button v-if="selectedWorkflowEdgeId" size="small" secondary type="error" @click="deleteWorkflowEdge()">删除连线</n-button>
               <n-button size="small" tertiary @click="runDraft">预览运行</n-button>
             </n-space>
           </section>
@@ -53,8 +54,114 @@
               class="workflow-canvas"
               fit-view-on-init
               :default-edge-options="{ type: 'smoothstep' }"
+              @connect="handleWorkflowConnect"
+              @edge-click="handleWorkflowEdgeClick"
               @node-click="handleWorkflowNodeClick"
+              @pane-click="handleWorkflowPaneClick"
             >
+              <template #node-start="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--start" :class="{ 'is-selected': selected }">
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">S</span>
+                    <strong>{{ data.label || '开始' }}</strong>
+                  </div>
+                  <p>定义运行入口变量</p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" disabled>删除</button>
+                  </div>
+                </div>
+              </template>
+
+              <template #node-llm="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--llm" :class="{ 'is-selected': selected }">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">AI</span>
+                    <strong>{{ data.label || 'LLM' }}</strong>
+                  </div>
+                  <div class="workflow-node-card__meta">{{ data.model || '未选择模型' }}</div>
+                  <p>{{ data.user_prompt_template || '调用大模型生成文本' }}</p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
+              <template #node-condition="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--condition" :class="{ 'is-selected': selected }">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle
+                    id="true"
+                    type="source"
+                    :position="Position.Right"
+                    class="workflow-node-card__branch-handle workflow-node-card__branch-handle--true"
+                  />
+                  <Handle
+                    id="false"
+                    type="source"
+                    :position="Position.Right"
+                    class="workflow-node-card__branch-handle workflow-node-card__branch-handle--false"
+                  />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">IF</span>
+                    <strong>{{ data.label || '条件判断' }}</strong>
+                  </div>
+                  <div class="workflow-node-branch">
+                    <strong>是</strong>
+                    <span>{{ data.left || '变量' }} {{ conditionOperatorLabel(data.operator) }} {{ data.right || '' }}</span>
+                  </div>
+                  <div class="workflow-node-branch">
+                    <strong>否</strong>
+                    <span>不满足条件时进入此分支</span>
+                  </div>
+                  <p>按变量结果选择后续路径</p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
+              <template #node-end="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--end" :class="{ 'is-selected': selected }">
+                  <Handle type="target" :position="Position.Left" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">E</span>
+                    <strong>{{ data.label || '结束' }}</strong>
+                  </div>
+                  <p>{{ data.output || '输出最终结果' }}</p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
               <Background />
               <Controls />
             </VueFlow>
@@ -664,7 +771,7 @@
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
   import { Background } from '@vue-flow/background';
   import { Controls } from '@vue-flow/controls';
-  import { VueFlow, type Edge, type Node } from '@vue-flow/core';
+  import { Handle, Position, VueFlow, type Connection, type Edge, type Node } from '@vue-flow/core';
   import '@vue-flow/core/dist/style.css';
   import '@vue-flow/core/dist/theme-default.css';
   import { useRoute, useRouter } from 'vue-router';
@@ -756,6 +863,8 @@
   const workflowNodes = ref<WorkflowNode[]>([]);
   const workflowEdges = ref<WorkflowEdge[]>([]);
   const selectedWorkflowNodeId = ref('');
+  const selectedWorkflowEdgeId = ref('');
+  const openWorkflowNodeMenuId = ref('');
   const runResult = ref<AiRunResult | null>(null);
   const runLogs = ref<AiApplicationRunLog[]>([]);
   const runLogsLoading = ref(false);
@@ -1183,6 +1292,8 @@
     workflowNodes.value = nodes.map((node, index) => normalizeWorkflowNode(node, index));
     workflowEdges.value = edges.map((edge, index) => normalizeWorkflowEdge(edge, index));
     selectedWorkflowNodeId.value = workflowNodes.value[0]?.id || '';
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
   }
 
   function normalizeWorkflowNode(node: unknown, index: number): WorkflowNode {
@@ -1210,8 +1321,9 @@
       source,
       target,
       sourceHandle: String(record.sourceHandle || record.source_handle || '') || undefined,
+      targetHandle: String(record.targetHandle || record.target_handle || '') || undefined,
       type: String(record.type || 'smoothstep'),
-      label: record.sourceHandle === 'true' ? '是' : record.sourceHandle === 'false' ? '否' : undefined,
+      label: workflowEdgeLabel(String(record.sourceHandle || record.source_handle || '')),
     };
   }
 
@@ -1236,6 +1348,7 @@
         source: edge.source,
         target: edge.target,
         ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+        ...(edge.targetHandle ? { targetHandle: edge.targetHandle } : {}),
       })),
     };
   }
@@ -1291,14 +1404,119 @@
       data,
     });
     selectedWorkflowNodeId.value = id;
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
   }
 
   function handleWorkflowNodeClick(event: { node: WorkflowNode }) {
     selectedWorkflowNodeId.value = event.node.id;
+    selectedWorkflowEdgeId.value = '';
+  }
+
+  function handleWorkflowEdgeClick(event: { edge: WorkflowEdge }) {
+    selectedWorkflowEdgeId.value = event.edge.id;
+    selectedWorkflowNodeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+  }
+
+  function handleWorkflowPaneClick() {
+    selectedWorkflowNodeId.value = '';
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+  }
+
+  function handleWorkflowConnect(connection: Connection) {
+    if (!connection.source || !connection.target || connection.source === connection.target) return;
+    const exists = workflowEdges.value.some(
+      (edge) =>
+        edge.source === connection.source &&
+        edge.target === connection.target &&
+        (edge.sourceHandle || '') === (connection.sourceHandle || '') &&
+        (edge.targetHandle || '') === (connection.targetHandle || '')
+    );
+    if (exists) return;
+    workflowEdges.value.push({
+      id: `edge_${connection.source}_${connection.target}_${Date.now().toString(36)}`,
+      source: connection.source,
+      target: connection.target,
+      sourceHandle: connection.sourceHandle || undefined,
+      targetHandle: connection.targetHandle || undefined,
+      type: 'smoothstep',
+      label: workflowEdgeLabel(connection.sourceHandle || ''),
+    });
+    selectedWorkflowEdgeId.value = workflowEdges.value[workflowEdges.value.length - 1]?.id || '';
+    selectedWorkflowNodeId.value = '';
+  }
+
+  function toggleWorkflowNodeMenu(nodeId: string) {
+    openWorkflowNodeMenuId.value = openWorkflowNodeMenuId.value === nodeId ? '' : nodeId;
+    selectedWorkflowNodeId.value = nodeId;
+    selectedWorkflowEdgeId.value = '';
+  }
+
+  function openWorkflowNodeConfig(nodeId: string) {
+    selectedWorkflowNodeId.value = nodeId;
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+  }
+
+  function runWorkflowNode(nodeId: string) {
+    openWorkflowNodeConfig(nodeId);
+    message.info('节点单步运行将在 Workflow Runtime 执行链路接入后启用');
+  }
+
+  function duplicateWorkflowNode(nodeId: string) {
+    const source = workflowNodes.value.find((node) => node.id === nodeId);
+    if (!source || source.type === 'start') return;
+    const id = `${source.type}_${Date.now().toString(36)}`;
+    const data = { ...(source.data || {}), label: `${workflowNodeTitle(source)} 副本` };
+    workflowNodes.value.push({
+      id,
+      type: source.type,
+      label: data.label,
+      position: {
+        x: Number(source.position?.x || 0) + 44,
+        y: Number(source.position?.y || 0) + 44,
+      },
+      data,
+    });
+    selectedWorkflowNodeId.value = id;
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+  }
+
+  function deleteWorkflowNode(nodeId: string) {
+    const node = workflowNodes.value.find((item) => item.id === nodeId);
+    if (!node) return;
+    if (node.type === 'start') {
+      message.warning('开始节点不能删除');
+      return;
+    }
+    workflowNodes.value = workflowNodes.value.filter((item) => item.id !== nodeId);
+    workflowEdges.value = workflowEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+    if (selectedWorkflowNodeId.value === nodeId) selectedWorkflowNodeId.value = '';
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+  }
+
+  function deleteWorkflowEdge(edgeId = selectedWorkflowEdgeId.value) {
+    if (!edgeId) return;
+    workflowEdges.value = workflowEdges.value.filter((edge) => edge.id !== edgeId);
+    if (selectedWorkflowEdgeId.value === edgeId) selectedWorkflowEdgeId.value = '';
+  }
+
+  function workflowEdgeLabel(sourceHandle?: string) {
+    if (sourceHandle === 'true') return '是';
+    if (sourceHandle === 'false') return '否';
+    return undefined;
   }
 
   function workflowNodeTitle(node: WorkflowNode) {
     return String(node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType));
+  }
+
+  function conditionOperatorLabel(operator: unknown) {
+    return String(conditionOperatorOptions.find((item) => item.value === operator)?.label || operator || '存在');
   }
 
   function workflowNodeTypeLabel(type: WorkflowNodeType | string) {
@@ -2122,21 +2340,220 @@
   }
 
   :deep(.vue-flow__node) {
-    min-width: 148px;
-    padding: 10px 13px;
     color: var(--app-text-color-1);
-    font-weight: 650;
-    background: var(--app-surface-bg);
-    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 86%, transparent);
-    border-radius: 8px;
-    box-shadow: 0 8px 18px color-mix(in srgb, #0f172a 8%, transparent);
+    background: transparent;
+    border: 0;
+    box-shadow: none;
   }
 
   :deep(.vue-flow__node.selected) {
+    box-shadow: none;
+  }
+
+  .workflow-node-card {
+    position: relative;
+    display: grid;
+    gap: 10px;
+    width: 245px;
+    min-height: 120px;
+    padding: 14px;
+    color: var(--app-text-color-1);
+    background: color-mix(in srgb, var(--app-surface-bg) 94%, var(--app-primary-soft-bg, #eef4ff));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 86%, transparent);
+    border-radius: 14px;
+    box-shadow: 0 14px 30px color-mix(in srgb, #0f172a 10%, transparent);
+  }
+
+  .workflow-node-card.is-selected {
     border-color: var(--app-primary-color);
     box-shadow:
-      0 0 0 2px var(--app-primary-soft-bg),
-      0 12px 24px color-mix(in srgb, var(--app-primary-color) 14%, transparent);
+      0 0 0 2px color-mix(in srgb, var(--app-primary-color) 18%, transparent),
+      0 18px 36px color-mix(in srgb, var(--app-primary-color) 16%, transparent);
+  }
+
+  .workflow-node-card--condition {
+    width: 286px;
+  }
+
+  .workflow-node-card__head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .workflow-node-card__head strong {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 750;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workflow-node-card__icon {
+    display: grid;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    background: color-mix(in srgb, var(--app-primary-color) 82%, #10b981);
+    border-radius: 10px;
+  }
+
+  .workflow-node-card__meta,
+  .workflow-node-branch {
+    min-width: 0;
+    padding: 7px 10px;
+    overflow: hidden;
+    color: var(--app-text-color-2);
+    font-size: 12px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 78%, var(--app-surface-bg));
+    border-radius: 8px;
+  }
+
+  .workflow-node-branch {
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    white-space: normal;
+  }
+
+  .workflow-node-branch strong {
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .workflow-node-branch span {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--app-text-color-3);
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .workflow-node-card p {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+
+  .workflow-node-card__actions {
+    position: absolute;
+    top: -38px;
+    right: 4px;
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    padding: 4px;
+    pointer-events: auto;
+    opacity: 0;
+    background: color-mix(in srgb, var(--app-surface-bg) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+    border-radius: 12px;
+    box-shadow: 0 10px 24px color-mix(in srgb, #0f172a 14%, transparent);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    transform: translateY(4px);
+  }
+
+  .workflow-node-card:hover .workflow-node-card__actions,
+  .workflow-node-card.is-selected .workflow-node-card__actions {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .workflow-node-card__actions button,
+  .workflow-node-menu button {
+    color: var(--app-text-color-2);
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+  }
+
+  .workflow-node-card__actions button {
+    display: grid;
+    width: 28px;
+    height: 26px;
+    place-items: center;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .workflow-node-card__actions button:hover,
+  .workflow-node-card__actions button:focus-visible {
+    color: var(--app-primary-color);
+    background: var(--app-primary-soft-bg, #eef4ff);
+    outline: none;
+  }
+
+  .workflow-node-menu {
+    position: absolute;
+    top: 4px;
+    right: 10px;
+    z-index: 20;
+    display: grid;
+    min-width: 172px;
+    padding: 7px;
+    background: color-mix(in srgb, var(--app-surface-bg) 94%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 78%, transparent);
+    border-radius: 12px;
+    box-shadow: 0 20px 46px color-mix(in srgb, #0f172a 22%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .workflow-node-menu button {
+    width: 100%;
+    padding: 9px 10px;
+    font-size: 13px;
+    line-height: 1.25;
+    text-align: left;
+    border-radius: 8px;
+  }
+
+  .workflow-node-menu button:hover,
+  .workflow-node-menu button:focus-visible {
+    color: var(--app-text-color-1);
+    background: var(--app-surface-muted-bg, #f5f7fb);
+    outline: none;
+  }
+
+  .workflow-node-menu button.is-danger {
+    color: var(--app-error-color, #d03050);
+  }
+
+  .workflow-node-menu button:disabled {
+    color: var(--app-text-color-4, #c0c4cc);
+    cursor: not-allowed;
+  }
+
+  :deep(.workflow-node-card .vue-flow__handle) {
+    width: 10px;
+    height: 10px;
+    background: var(--app-primary-color);
+    border: 2px solid var(--app-surface-bg);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--app-primary-color) 28%, transparent);
+  }
+
+  :deep(.workflow-node-card__branch-handle--true) {
+    top: 42%;
+  }
+
+  :deep(.workflow-node-card__branch-handle--false) {
+    top: 62%;
   }
 
   :deep(.vue-flow__controls) {
@@ -2148,6 +2565,11 @@
   :deep(.vue-flow__edge-path) {
     stroke: color-mix(in srgb, var(--app-primary-color) 72%, #64748b);
     stroke-width: 2;
+  }
+
+  :deep(.vue-flow__edge.selected .vue-flow__edge-path) {
+    stroke: var(--app-primary-color);
+    stroke-width: 3;
   }
 
   .workflow-floating-panel {
