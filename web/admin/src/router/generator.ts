@@ -158,7 +158,7 @@ function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute
     name: key === 'ai-platform-capabilities' ? 'ai-platform-capability-detail' : 'ai-studio-capability-detail',
     component: '/ai/studio/detail',
     meta: {
-      title: 'AI 能力配置',
+      title: key === 'ai-platform-capabilities' ? '平台AI能力配置' : 'AI 能力配置',
       permissions: [permissionCode],
       activeMenu: routeName(menu) || key,
       hidden: true,
@@ -238,7 +238,7 @@ function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
       name: key === 'ai-platform-capabilities' ? 'ai-platform-capability-detail' : 'ai-studio-capability-detail',
       component: '/ai/studio/detail',
       meta: {
-        title: 'AI 能力配置',
+        title: key === 'ai-platform-capabilities' ? '平台AI能力配置' : 'AI 能力配置',
         permissions: [permissionCode],
         activeMenu: routeName(menu) || key,
         hidden: true,

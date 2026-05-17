@@ -257,9 +257,6 @@
                   v-model:value="selectedModelKey"
                   placeholder="例如：default-chat"
                 />
-                <div v-if="isPlatformCapabilityRoute" class="studio-form__hint">
-                  租户调用平台能力时，会用当前租户的同名 LLM 路由解析真实模型。
-                </div>
                 <n-select
                   v-else
                   v-model:value="selectedModelKey"
@@ -1088,7 +1085,14 @@
   const isCapability = computed(() => resourceType.value === 'capability');
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const editingPlatformCapability = computed(() => isCapability.value && activeCapability.value?.scope === 'platform' && isPlatformAdmin.value);
-  const resourceLabel = computed(() => (isCapability.value ? 'AI 能力' : 'AI 应用'));
+  const resourceLabel = computed(() => {
+    if (isPlatformCapabilityRoute.value) return '平台AI能力';
+    return isCapability.value ? 'AI 能力' : 'AI 应用';
+  });
+  const resourceFallbackDescription = computed(() => {
+    if (isPlatformCapabilityRoute.value) return '维护平台内置 AI 能力，租户可直接启用或覆盖配置。';
+    return `配置${resourceLabel.value}运行时并在 Playground 调试。`;
+  });
   const settingsTitle = computed(() => (isCapability.value ? '能力信息' : '应用信息'));
   const settingsHint = computed(() =>
     isCapability.value
@@ -1154,7 +1158,9 @@
     defineDetailPage<AiApplication | AiCapability>({
       id: 'ai.studio.detail',
       title: form.name || `${resourceLabel.value}配置`,
-      description: form.app_key ? `${form.app_key} · ${isCapability.value ? '内部调用' : form.status === 'published' ? '已发布' : '草稿'}` : `配置${resourceLabel.value}运行时并在 Playground 调试。`,
+      description: form.app_key
+        ? `${form.app_key} · ${isCapability.value ? '内部调用' : form.status === 'published' ? '已发布' : '草稿'}`
+        : resourceFallbackDescription.value,
       kind: 'workspace-detail',
       variant: 'dense-data',
       density: 'compact',
@@ -1162,7 +1168,7 @@
         {
           key: 'back',
           label: '返回',
-          onClick: () => router.push({ name: 'ai-studio' }),
+          onClick: () => router.push({ name: isPlatformCapabilityRoute.value ? 'ai-platform-capabilities' : 'ai-studio' }),
         },
         {
           key: 'save',
@@ -3446,13 +3452,6 @@
   .preview-panel__head span,
   .studio-form {
     min-width: 0;
-  }
-
-  .studio-form__hint {
-    margin-top: 6px;
-    color: var(--text-color-3);
-    font-size: 12px;
-    line-height: 1.5;
   }
 
   .preview-panel__head {

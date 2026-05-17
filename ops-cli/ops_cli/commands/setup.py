@@ -607,9 +607,48 @@ def run_setup(args) -> None:
     # Check for command line args first, otherwise use existing config or ask
     config_file = project_path / "config" / "database.local.json"
     
+    # Check if already configured (for linked projects)
+    if config_file.exists() and not args.database and not args.database_url:
+        print("Database config already exists:")
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            print(f"  Backend: {existing.get('backend', 'unknown')}")
+            if existing.get('database_url'):
+                print(f"  URL: {existing.get('database_url')}")
+            elif existing.get('sqlite_path'):
+                print(f"  Path: {existing.get('sqlite_path')}")
+        except Exception:
+            pass
+        
+        use_existing = input("\nUse existing config? [Y/n]: ").strip().lower()
+        if use_existing not in ('n', 'no'):
+            # Skip database config, go to init scripts
+            print("Using existing database config.")
+            # Continue to init scripts section
+            _continue_to_init_scripts = True
+        else:
+            _continue_to_init_scripts = False
+            # Fall through to reconfigure
+    else:
+        _continue_to_init_scripts = False
+    
     # Determine backend
-    if args.database:
+    if _continue_to_init_scripts:
+        # Use existing config, don't ask
+        if config_file.exists():
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+                    backend = existing.get("backend", "sqlite")
+            except Exception:
+                backend = "sqlite"
+        else:
+            backend = "sqlite"
+        db_kwargs = {}
+    elif args.database:
         backend = args.database
+        db_kwargs = {}
     elif config_file.exists():
         try:
             with open(config_file, "r", encoding="utf-8") as f:
@@ -636,57 +675,59 @@ def run_setup(args) -> None:
     
     db_kwargs = {}
     
-    # Step 2: Get connection details for non-sqlite
-    if backend in ("mysql", "postgres"):
-        if args.database_url:
-            db_kwargs["database_url"] = args.database_url
-        elif config_file.exists():
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                    db_kwargs["database_url"] = existing.get("database_url", "")
-            except Exception:
-                pass
+    # Skip db config if using existing
+    if not _continue_to_init_scripts:
+        # Step 2: Get connection details for non-sqlite
+        if backend in ("mysql", "postgres"):
+            if args.database_url:
+                db_kwargs["database_url"] = args.database_url
+            elif config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                        db_kwargs["database_url"] = existing.get("database_url", "")
+                except Exception:
+                    pass
+            
+            if "database_url" not in db_kwargs or not db_kwargs["database_url"]:
+                print("\nStep 2: Database Connection")
+                print("-" * 40)
+                while True:
+                    url = input("Database URL (e.g., mysql://user:pass@localhost:3306/db): ").strip()
+                    if url:
+                        db_kwargs["database_url"] = url
+                        break
+                    print("Database URL is required.")
+        else:
+            # SQLite path
+            if args.sqlite_path:
+                db_kwargs["sqlite_path"] = args.sqlite_path
+            elif config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                        db_kwargs["sqlite_path"] = existing.get("sqlite_path", "ops_admin.db")
+                except Exception:
+                    pass
+            
+            if "sqlite_path" not in db_kwargs:
+                print("\nStep 2: SQLite Database Path")
+                print("-" * 40)
+                db_path = input("SQLite database path [ops_admin.db]: ").strip()
+                db_kwargs["sqlite_path"] = db_path or "ops_admin.db"
         
-        if "database_url" not in db_kwargs or not db_kwargs["database_url"]:
-            print("\nStep 2: Database Connection")
-            print("-" * 40)
-            while True:
-                url = input("Database URL (e.g., mysql://user:pass@localhost:3306/db): ").strip()
-                if url:
-                    db_kwargs["database_url"] = url
-                    break
-                print("Database URL is required.")
-    else:
-        # SQLite path
-        if args.sqlite_path:
-            db_kwargs["sqlite_path"] = args.sqlite_path
-        elif config_file.exists():
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                    db_kwargs["sqlite_path"] = existing.get("sqlite_path", "ops_admin.db")
-            except Exception:
-                pass
+        print()
         
-        if "sqlite_path" not in db_kwargs:
-            print("\nStep 2: SQLite Database Path")
-            print("-" * 40)
-            db_path = input("SQLite database path [ops_admin.db]: ").strip()
-            db_kwargs["sqlite_path"] = db_path or "ops_admin.db"
-    
-    print()
-    
-    # Step 3: Write config
-    print("\nStep 3: Writing Configuration")
-    print("-" * 40)
-    write_database_config(project_path, backend, **db_kwargs)
-    
-    # Step 4: Create database if needed (for MySQL/PostgreSQL)
-    if backend in ("mysql", "postgres") and "database_url" in db_kwargs:
-        print("\nStep 4: Creating Database")
+        # Step 3: Write config
+        print("\nStep 3: Writing Configuration")
         print("-" * 40)
-        create_database_if_not_exists(backend, db_kwargs["database_url"])
+        write_database_config(project_path, backend, **db_kwargs)
+        
+        # Step 4: Create database if needed (for MySQL/PostgreSQL)
+        if backend in ("mysql", "postgres") and "database_url" in db_kwargs:
+            print("\nStep 4: Creating Database")
+            print("-" * 40)
+            create_database_if_not_exists(backend, db_kwargs["database_url"])
     
     # Step 5: Init script mode selection
     print("\nStep 5: Initialization Scripts")
@@ -697,40 +738,19 @@ def run_setup(args) -> None:
     
     init_mode = input("Choice [1]: ").strip() or "1"
     
-    if init_mode == "1":
-        print("Init scripts skipped. Database config saved.")
-        print("\n" + "=" * 50)
-        print("Setup Complete!")
-        print("=" * 50)
-        print(f"Database: {backend}")
-        if backend == "sqlite":
-            print(f"Path: {db_kwargs.get('sqlite_path')}")
-        else:
-            url = db_kwargs.get('database_url', '')
-            if '@' in url:
-                parts = url.split('@')
-                if ':' in parts[0]:
-                    user_part = parts[0].split(':')[0] + ':***'
-                    url = user_part + '@' + parts[1]
-            print(f"URL: {url}")
-        print()
-        print("Run 'ops-cli deploy' to deploy to server.")
-        return
-    
-    # Continue with init scripts if user chose option 2
-    print("Running init scripts...")
-    
-    # Check Python and venv
+    # Step 6: Create venv (always, for linked projects too)
+    print("\nStep 6: Virtual Environment")
+    print("-" * 40)
     python_ok, python_version = check_python_available()
     if not python_ok:
-        print("Python not found. Init scripts will be skipped.")
-        print("Run 'ops-cli run' after installing Python to initialize the database.")
+        print("Python not found. Skipping venv creation.")
     else:
         print(f"Python: {python_version}")
         
-        # Ensure venv
         venv_path = project_path / ".venv"
-        if not venv_path.exists():
+        if venv_path.exists():
+            print(f"Virtual environment already exists at: {venv_path}")
+        else:
             print("Creating virtual environment...")
             try:
                 subprocess.run(
@@ -741,11 +761,9 @@ def run_setup(args) -> None:
                 print("Virtual environment created.")
             except Exception as e:
                 print(f"Failed to create venv: {e}")
-                return
         
+        # Install dependencies if needed
         python_exe = get_venv_python(project_path)
-        
-        # Check if dependencies are installed
         deps_ok = False
         try:
             result = subprocess.run(
@@ -758,11 +776,22 @@ def run_setup(args) -> None:
             pass
         
         if not deps_ok:
-            print("Installing dependencies...")
+            print("Installing Python dependencies...")
             requirements = project_path / "requirements.txt"
             if requirements.exists():
                 try:
-                    # Install packages in editable mode from project directory
+                    subprocess.run(
+                        [str(python_exe), "-m", "pip", "install", "-r", str(requirements)],
+                        cwd=project_path,
+                        check=True,
+                        timeout=600,
+                    )
+                    print("Dependencies installed.")
+                except Exception as e:
+                    print(f"Warning: Failed to install dependencies: {e}")
+            else:
+                # Try editable install from project
+                try:
                     subprocess.run(
                         [str(python_exe), "-m", "pip", "install", "-e", "."],
                         cwd=project_path,
@@ -770,32 +799,36 @@ def run_setup(args) -> None:
                         timeout=600,
                     )
                     print("Dependencies installed.")
-                except subprocess.TimeoutExpired:
-                    print("Installation timed out. Trying individual packages...")
-                    # Fallback: install core packages only
-                    core_packages = ["fastapi", "uvicorn[standard]", "pydantic", "SQLAlchemy", "PyMySQL"]
-                    subprocess.run(
-                        [str(python_exe), "-m", "pip", "install"] + core_packages,
-                        check=True,
-                        timeout=300,
-                    )
-                    # Try installing editable packages one by one
-                    packages_dir = project_path / "packages" / "python"
-                    for pkg in packages_dir.iterdir():
-                        if pkg.is_dir() and (pkg / "src").exists():
-                            try:
-                                subprocess.run(
-                                    [str(python_exe), "-m", "pip", "install", "-e", str(pkg)],
-                                    check=True,
-                                    timeout=120,
-                                )
-                            except Exception:
-                                pass
                 except Exception as e:
-                    print(f"Warning: Some dependencies failed to install: {e}")
-                    return
-        
+                    print(f"Warning: Failed to install dependencies: {e}")
+    
+    if init_mode == "1":
+        print("\nInit scripts skipped.")
+        print("\n" + "=" * 50)
+        print("Setup Complete!")
+        print("=" * 50)
+        if backend:
+            print(f"Database: {backend}")
+        print()
+        print("Run 'ops-cli run' to start the project.")
+        print("Or run 'ops-cli deploy' to deploy to server.")
+        return
+    
+    # Continue with init scripts if user chose option 2
+    print("\nRunning init scripts...")
+    
+    # Get venv python (already created in Step 6)
+    python_exe = get_venv_python(project_path)
+    
+    if not python_exe.exists():
+        print("Python not found. Init scripts will be skipped.")
+        print("Run 'ops-cli setup' again to create the environment.")
+    else:
         run_init_scripts(project_path, python_exe)
+    
+    print("\n" + "=" * 50)
+    print("Database Configuration Complete!")
+    print("=" * 50)
     
     print("\n" + "=" * 50)
     print("Database Configuration Complete!")

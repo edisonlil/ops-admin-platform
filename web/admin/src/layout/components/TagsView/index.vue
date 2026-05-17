@@ -48,20 +48,6 @@
           </Draggable>
         </div>
       </div>
-      <div class="tabs-close">
-        <n-dropdown
-          trigger="hover"
-          @select="closeHandleSelect"
-          placement="bottom-end"
-          :options="TabsMenuOptions"
-        >
-          <div class="tabs-close-btn">
-            <n-icon size="16" color="#515a6e">
-              <DownOutlined />
-            </n-icon>
-          </div>
-        </n-dropdown>
-      </div>
       <n-dropdown
         :show="showDropdown"
         :x="dropdownX"
@@ -98,7 +84,6 @@
   import Draggable from 'vuedraggable';
   import { PageEnum } from '@/enums/pageEnum';
   import {
-    DownOutlined,
     ReloadOutlined,
     CloseOutlined,
     ColumnWidthOutlined,
@@ -116,7 +101,6 @@
   export default defineComponent({
     name: 'TabsView',
     components: {
-      DownOutlined,
       CloseOutlined,
       LeftOutlined,
       RightOutlined,

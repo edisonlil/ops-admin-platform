@@ -157,13 +157,6 @@ def run_run(args) -> None:
         print(f"Error: Project path does not exist: {project_path}")
         return
 
-    # Check if database config exists
-    db_config = project_path / "config" / "database.local.json"
-    if not db_config.exists():
-        print("\nDatabase not configured.")
-        print("Please run 'ops-cli setup' first to configure the database.")
-        return
-
     print(f"\nStarting project: {config.load().get('current_project')}")
     print("=" * 50)
 
@@ -206,15 +199,7 @@ def run_run(args) -> None:
     except Exception as e:
         print(f"Node.js check failed: {e}")
 
-    # Load database config
-    try:
-        with open(db_config, "r", encoding="utf-8") as f:
-            db_config_data = json.load(f)
-    except Exception:
-        print("Failed to read database config.")
-        return
-
-    # Get venv python
+    # Check venv
     venv_path = project_path / ".venv"
     if is_windows():
         python_exe = venv_path / "Scripts" / "python.exe"
@@ -223,10 +208,46 @@ def run_run(args) -> None:
 
     if not python_exe.exists():
         print("\nVirtual environment not found.")
-        print("Please run 'ops-cli setup' first to create the environment.")
-        return
+        print("\nChecking project status...")
+        
+        # Check if deps are installed in system Python
+        deps_ok = False
+        try:
+            result = subprocess.run(
+                ["python", "-c", "import fastapi, uvicorn"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            deps_ok = result.returncode == 0
+        except Exception:
+            pass
+        
+        # Check if node_modules exists
+        frontend_path = project_path / "web" / "admin"
+        node_modules_ok = frontend_path.exists() and (frontend_path / "node_modules").exists()
+        
+        if deps_ok and node_modules_ok:
+            print(f"  Python deps: OK (system)")
+            print(f"  Node modules: {'OK' if node_modules_ok else 'missing'}")
+            print("\nNo venv, but environment looks ready. Starting anyway...")
+            python_exe = Path(sys.executable)  # Use system python
+            venv_exists = False
+        else:
+            print(f"  Python deps: {'OK' if deps_ok else 'missing'}")
+            print(f"  Node modules: {'OK' if node_modules_ok else 'missing'}")
+            print("\nEnvironment not ready. Please run 'ops-cli setup' first.")
+            return
+    else:
+        print(f"Using Python: {python_exe}")
+        venv_exists = True
 
-    print(f"Using Python: {python_exe}")
+    # Check database config
+    db_config = project_path / "config" / "database.local.json"
+    if not db_config.exists():
+        print("\nDatabase not configured.")
+        print("Please run 'ops-cli setup' first to configure the database.")
+        return
 
     # Set environment variables
     os.environ["FG_AGENT_DATABASE_CONFIG"] = str(db_config.resolve())

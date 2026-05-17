@@ -1,8 +1,8 @@
 <template>
   <div class="ai-studio-page">
     <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" @refresh="reload">
-      <template #toolbar-left>
-        <n-radio-group v-if="showViewSwitch" v-model:value="activeView" size="small" class="ai-studio-page__views">
+      <template v-if="showViewSwitch" #toolbar-left>
+        <n-radio-group v-model:value="activeView" size="small" class="ai-studio-page__views">
           <n-radio-button v-if="canReadApplications" value="applications">AI 应用</n-radio-button>
           <n-radio-button v-if="canReadCapabilities" value="capabilities">AI 能力</n-radio-button>
         </n-radio-group>
