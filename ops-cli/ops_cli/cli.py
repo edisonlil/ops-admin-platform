@@ -16,6 +16,7 @@ from .commands.run import run_run
 from .commands.set_config import run_set
 from .commands.setup import run_setup
 from .commands.deploy import run_deploy, run_deploy_add, run_deploy_list, run_deploy_remove, run_container_cmd, run_deploy_history, run_deploy_rollback
+from .commands.sync import run_sync
 from .config import get_config
 
 
@@ -227,6 +228,23 @@ Examples:
     deploy_parser.add_argument("--password", dest="password", help="SSH password")
     deploy_parser.add_argument("--yes", "-y", dest="yes", action="store_true", help="Skip confirmation")
 
+    # sync command
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="Sync project with scaffold updates",
+    )
+    sync_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check for updates without applying",
+    )
+    sync_parser.add_argument(
+        "--yes", "-y",
+        dest="yes",
+        action="store_true",
+        help="Skip confirmation",
+    )
+
     return parser
 
 
@@ -291,6 +309,8 @@ def main() -> int:
                 run_deploy(args)
         elif args.command in ("container", "ctrl", "ct"):
             run_container_cmd(args)
+        elif args.command == "sync":
+            run_sync(args)
         else:
             parser.print_help()
             return 1

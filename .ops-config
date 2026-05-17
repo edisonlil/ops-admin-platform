@@ -1,0 +1,19 @@
+{
+  "name": "ops-admin-platform",
+  "modules": [
+    "ai_applications",
+    "ai_assets",
+    "ai_capabilities",
+    "appearance",
+    "authorization",
+    "basic_data",
+    "cron",
+    "file_management",
+    "identity_access",
+    "llm_runtime",
+    "messaging",
+    "organization",
+    "system"
+  ],
+  "linked_at": "2026-05-17T10:31:27.306777"
+}

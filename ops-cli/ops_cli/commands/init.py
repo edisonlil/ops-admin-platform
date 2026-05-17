@@ -189,6 +189,28 @@ def install_node_dependencies(target_path: Path) -> None:
     print("Warning: Failed to install Node.js dependencies.")
 
 
+def copy_scaffold_docs(target_path: Path) -> None:
+    """Save scaffold AGENTS.md for reference."""
+    scaffold_agents = target_path / ".ops-scaffold" / "AGENTS.md"
+    current_agents = target_path / "AGENTS.md"
+    
+    # Save current AGENTS.md as scaffold reference
+    if current_agents.exists():
+        scaffold_agents.parent.mkdir(exist_ok=True)
+        import shutil
+        shutil.copy2(current_agents, scaffold_agents)
+        print("Scaffold rules saved to .ops-scaffold/AGENTS.md")
+
+
+def copy_agents_guide(target_path: Path) -> None:
+    """Copy project-level AGENTS.md to project root."""
+    template_path = Path(__file__).parent.parent / "templates" / "AGENTS.md"
+    if template_path.exists():
+        import shutil
+        shutil.copy2(template_path, target_path / "AGENTS.md")
+        print("Project AGENTS.md copied to project root.")
+
+
 def write_ops_config(target_path: Path, project_name: str, branch: str, modules: list[str]) -> None:
     """Write .ops-config file."""
     config = {
@@ -268,17 +290,21 @@ def run_init(args) -> None:
         print("Failed to create project.")
         return
 
-    # Step 5: Initialize git
+    # Step 5: Save scaffold docs and copy project AGENTS.md
+    copy_scaffold_docs(project_path)
+    copy_agents_guide(project_path)
+
+    # Step 6: Initialize git
     init_git(project_path)
 
-    # Step 6: Create virtual environment
+    # Step 7: Create virtual environment
     try:
         venv_path = create_venv(project_path)
     except Exception:
         print("Failed to create virtual environment. Continuing anyway...")
         venv_path = None
 
-    # Step 7: Install dependencies
+    # Step 8: Install dependencies
     if venv_path:
         python_exe = venv_path / "Scripts" / "python.exe" if is_windows() else venv_path / "bin" / "python"
         install_dependencies(python_exe, project_path)
