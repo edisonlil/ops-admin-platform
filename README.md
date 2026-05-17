@@ -60,7 +60,7 @@ Use the Windows starter to configure and run both services:
 .\start-dev.bat
 ```
 
-The script asks for backend/frontend ports and database settings, writes local-only configuration to `config/database.local.json` and `web/admin/.env.development.local`, installs missing backend/frontend dependencies, builds the frontend if `dist` is missing, and then starts FastAPI plus Vite. Logs and pid files are written under `.tmp`.
+The script asks for backend/frontend ports and database settings, writes local-only configuration to `config/application.local.json` and `web/admin/.env.development.local`, installs missing backend/frontend dependencies, builds the frontend if `dist` is missing, and then starts FastAPI plus Vite. Logs and pid files are written under `.tmp`.
 
 For unattended runs, pass parameters through the batch file:
 
@@ -88,13 +88,13 @@ The future package target for the reusable admin frontend is `@edisonlil/ops-adm
 
 ## Configuration
 
-The backend reads database configuration from:
+The backend reads application configuration from:
 
-1. `FG_AGENT_DATABASE_CONFIG`
-2. `config/database.local.json`
-3. `config/database.json`
+1. `OPS_ADMIN_APPLICATION_CONFIG`
+2. `config/application.local.json`
+3. `config/application.json`
 
-If no Postgres URL is configured, SQLite is used. The default local SQLite file is `ops_admin.db`.
+Database settings live under the `database` key. File preview public URL settings live under `file_management.preview`. Legacy `FG_AGENT_DATABASE_CONFIG`, `config/database.local.json`, and `config/database.json` remain readable as database-only fallbacks. If no Postgres or MySQL URL is configured, SQLite is used. The default local SQLite file is `ops_admin.db`.
 
 ## Development Direction
 

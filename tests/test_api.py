@@ -63,6 +63,7 @@ class ApiTests(unittest.TestCase):
                 "FG_AGENT_DATABASE_URL": "",
                 "SUPABASE_DB_URL": "",
                 "DATABASE_URL": "",
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-application.json"),
                 "FG_AGENT_DB_PATH": str(self.db_path),
                 "FG_AGENT_AUTH_SECRET": "test-secret",
                 "FG_AGENT_ADMIN_USERNAME": "admin",
@@ -181,15 +182,16 @@ class ApiTests(unittest.TestCase):
         from api.config import resolve_database_url
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "database.json"
+            config_path = Path(temp_dir) / "application.json"
             config_path.write_text(
-                json.dumps({"database_url": "postgresql://user:pass@example.supabase.co:6543/postgres"}),
+                json.dumps({"database": {"database_url": "postgresql://user:pass@example.supabase.co:6543/postgres"}}),
                 encoding="utf-8",
             )
             with mock.patch.dict(
                 "os.environ",
                 {
-                    "FG_AGENT_DATABASE_CONFIG": str(config_path),
+                    "OPS_ADMIN_APPLICATION_CONFIG": str(config_path),
+                    "FG_AGENT_DATABASE_CONFIG": "",
                     "FG_AGENT_DATABASE_URL": "",
                     "SUPABASE_DB_URL": "",
                     "DATABASE_URL": "",
@@ -201,17 +203,45 @@ class ApiTests(unittest.TestCase):
                     "postgresql://user:pass@example.supabase.co:6543/postgres",
                 )
 
+    def test_application_config_database_overrides_legacy_database_config(self) -> None:
+        from api.config import resolve_database_url
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_config_path = Path(temp_dir) / "application.json"
+            legacy_config_path = Path(temp_dir) / "database.json"
+            app_config_path.write_text(
+                json.dumps({"database": {"database_url": "postgresql://app.example/postgres"}}),
+                encoding="utf-8",
+            )
+            legacy_config_path.write_text(
+                json.dumps({"database_url": "postgresql://legacy.example/postgres"}),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "OPS_ADMIN_APPLICATION_CONFIG": str(app_config_path),
+                    "FG_AGENT_DATABASE_CONFIG": str(legacy_config_path),
+                    "FG_AGENT_DATABASE_URL": "",
+                    "SUPABASE_DB_URL": "",
+                    "DATABASE_URL": "",
+                },
+                clear=False,
+            ):
+                self.assertEqual(resolve_database_url(), "postgresql://app.example/postgres")
+
     def test_db_path_can_come_from_config_file(self) -> None:
         from api.config import resolve_db_path
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "configured.db"
-            config_path = Path(temp_dir) / "database.json"
-            config_path.write_text(json.dumps({"db_path": str(db_path)}), encoding="utf-8")
+            config_path = Path(temp_dir) / "application.json"
+            config_path.write_text(json.dumps({"database": {"db_path": str(db_path)}}), encoding="utf-8")
             with mock.patch.dict(
                 "os.environ",
                 {
-                    "FG_AGENT_DATABASE_CONFIG": str(config_path),
+                    "OPS_ADMIN_APPLICATION_CONFIG": str(config_path),
+                    "FG_AGENT_DATABASE_CONFIG": "",
                     "FG_AGENT_DB_PATH": "",
                 },
                 clear=False,
@@ -226,6 +256,7 @@ class ApiTests(unittest.TestCase):
             "os.environ",
             {
                 "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-application.json"),
                 "FG_AGENT_DB_PATH": "",
             },
             clear=False,

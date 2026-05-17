@@ -1,4 +1,0 @@
-{
-    "backend": "mysql",
-    "database_url": "mysql://root:passw0rd**@192.168.20.121:3306/ops-sale-dev"
-}

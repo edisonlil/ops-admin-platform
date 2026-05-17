@@ -18,6 +18,7 @@ class BasicDataTests(unittest.TestCase):
             "os.environ",
             {
                 "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-application.json"),
                 "FG_AGENT_DATABASE_URL": "",
                 "SUPABASE_DB_URL": "",
                 "DATABASE_URL": "",

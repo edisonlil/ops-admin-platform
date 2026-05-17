@@ -1,0 +1,12 @@
+{
+  "database": {
+    "backend": "sqlite",
+    "sqlite_path": "ops_admin.db"
+  },
+  "file_management": {
+    "preview": {
+      "public_api_base_url": "http://192.168.1.100:8000",
+      "public_api_url_prefix": "/api"
+    }
+  }
+}

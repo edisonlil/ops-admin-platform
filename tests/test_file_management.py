@@ -60,6 +60,7 @@ class FileManagementTests(unittest.TestCase):
                 "SUPABASE_DB_URL": "",
                 "DATABASE_URL": "",
                 "FG_AGENT_DB_PATH": str(self.db_path),
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-application.json"),
                 "OPS_ADMIN_PUBLIC_API_BASE_URL": "http://testserver",
                 "OPS_ADMIN_PUBLIC_API_URL_PREFIX": "/api",
                 "OPS_ADMIN_FILE_PREVIEW_SECRET": "test-preview-secret",
@@ -295,6 +296,55 @@ class FileManagementTests(unittest.TestCase):
         )
         self.assertEqual(item.original_name, "proposal.docx")
         self.assertEqual(download.stream.read(), b"office-doc")
+
+    def test_preview_public_url_reads_application_config_when_env_is_empty(self) -> None:
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {"OPS_ADMIN_PUBLIC_API_BASE_URL": "", "OPS_ADMIN_PUBLIC_API_URL_PREFIX": ""},
+                clear=False,
+            ),
+            mock.patch.object(
+                services,
+                "load_application_config",
+                return_value={
+                    "file_management": {
+                        "preview": {
+                            "public_api_base_url": "http://files.example.test:8000",
+                            "public_api_url_prefix": "/gateway/api",
+                        }
+                    }
+                },
+            ),
+        ):
+            self.assertEqual(services.external_base_url(), "http://files.example.test:8000")
+            self.assertEqual(services.external_url_prefix(), "/gateway/api")
+
+    def test_preview_public_url_env_overrides_config_file(self) -> None:
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "OPS_ADMIN_PUBLIC_API_BASE_URL": "http://env.example.test:9000",
+                    "OPS_ADMIN_PUBLIC_API_URL_PREFIX": "/env-api",
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                services,
+                "load_application_config",
+                return_value={
+                    "file_management": {
+                        "preview": {
+                            "public_api_base_url": "http://files.example.test:8000",
+                            "public_api_url_prefix": "/gateway/api",
+                        }
+                    }
+                },
+            ),
+        ):
+            self.assertEqual(services.external_base_url(), "http://env.example.test:9000")
+            self.assertEqual(services.external_url_prefix(), "/env-api")
 
     def test_folder_rejects_cross_tenant_and_non_empty_delete(self) -> None:
         library = services.save_library({"name": "Tenant Docs"}, self.current_user)["item"]

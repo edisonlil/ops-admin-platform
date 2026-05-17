@@ -5,17 +5,19 @@ import os
 from pathlib import Path
 from typing import Any
 
+from system.application.config import config_bool, config_string, load_application_config, repo_root
 from system.infrastructure.persistence.connection import database_backend_for_target
 
 
-def repo_root() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "AGENTS.md").exists() and (parent / "packages").exists() and (parent / "api").exists():
-            return parent
-    return Path.cwd()
-
-
 def load_database_config() -> dict[str, Any]:
+    app_config = load_application_config()
+    database = app_config.get("database")
+    if isinstance(database, dict):
+        return database
+    return load_legacy_database_config()
+
+
+def load_legacy_database_config() -> dict[str, Any]:
     config_path = os.environ.get("FG_AGENT_DATABASE_CONFIG", "").strip()
     candidates = [Path(config_path)] if config_path else [
         repo_root() / "config" / "database.local.json",
@@ -39,7 +41,7 @@ def resolve_database_url() -> str | None:
             return value
     config = load_database_config()
     for key in ("database_url", "url", "connection_string"):
-        value = str(config.get(key, "")).strip()
+        value = config_string(config, key)
         if value:
             return value
     supabase = config.get("supabase")
@@ -63,14 +65,16 @@ def default_use_keywords_recall() -> bool:
 
     config = load_database_config()
     for key in ("use_keywords_recall", "keywords_recall"):
-        if key in config:
-            return bool(config[key])
+        configured = config_bool(config, key)
+        if configured is not None:
+            return configured
 
     recommendation = config.get("recommendation")
     if isinstance(recommendation, dict):
         for key in ("use_keywords_recall", "keywords_recall"):
-            if key in recommendation:
-                return bool(recommendation[key])
+            configured = config_bool(recommendation, key)
+            if configured is not None:
+                return configured
 
     return True
 
@@ -80,7 +84,7 @@ def resolve_db_path() -> Path:
     if configured:
         return Path(configured)
     config = load_database_config()
-    configured = str(config.get("db_path", "") or config.get("sqlite_path", "")).strip()
+    configured = config_string(config, "db_path", "sqlite_path")
     return Path(configured) if configured else repo_root() / "ops_admin.db"
 
 

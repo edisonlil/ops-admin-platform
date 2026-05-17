@@ -27,7 +27,8 @@ Normalize-ProcessPathEnvironment
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FrontendRoot = Join-Path $RepoRoot "web\admin"
 $ConfigRoot = Join-Path $RepoRoot "config"
-$DatabaseConfigPath = Join-Path $ConfigRoot "database.local.json"
+$ApplicationConfigPath = Join-Path $ConfigRoot "application.local.json"
+$LegacyDatabaseConfigPath = Join-Path $ConfigRoot "database.local.json"
 $FrontendEnvPath = Join-Path $FrontendRoot ".env.development.local"
 $LogRoot = Join-Path $RepoRoot ".tmp"
 $BackendPidFile = Join-Path $LogRoot "backend-uvicorn.pid"
@@ -90,11 +91,13 @@ function Read-Choice {
   }
 }
 
-function Load-DatabaseConfig {
-  if (-not (Test-Path $DatabaseConfigPath)) {
+function Load-JsonConfig {
+  param([string]$Path)
+
+  if (-not (Test-Path $Path)) {
     return @{}
   }
-  $raw = Get-Content -Path $DatabaseConfigPath -Raw -Encoding UTF8
+  $raw = Get-Content -Path $Path -Raw -Encoding UTF8
   if ([string]::IsNullOrWhiteSpace($raw)) {
     return @{}
   }
@@ -104,6 +107,18 @@ function Load-DatabaseConfig {
     $result[$property.Name] = $property.Value
   }
   return $result
+}
+
+function Load-DatabaseConfig {
+  $application = Load-JsonConfig -Path $ApplicationConfigPath
+  if ($application.ContainsKey("database") -and $null -ne $application.database) {
+    $database = @{}
+    foreach ($property in $application.database.PSObject.Properties) {
+      $database[$property.Name] = $property.Value
+    }
+    return $database
+  }
+  return Load-JsonConfig -Path $LegacyDatabaseConfigPath
 }
 
 function Config-Value {
@@ -127,6 +142,22 @@ function Save-Json {
 
   $json = $Payload | ConvertTo-Json -Depth 6
   Write-Utf8NoBom -Path $Path -Lines @($json)
+}
+
+function Save-ApplicationDatabaseConfig {
+  $database = @{
+    backend = $script:Backend
+  }
+  if ($script:Backend -eq "mysql" -or $script:Backend -eq "postgres") {
+    $database.database_url = $script:DatabaseUrl
+  } else {
+    $database.sqlite_path = $script:SqlitePath
+  }
+
+  $application = Load-JsonConfig -Path $ApplicationConfigPath
+  $application.database = $database
+  Save-Json -Path $ApplicationConfigPath -Payload $application
+  Write-Host "Application config updated: $ApplicationConfigPath"
 }
 
 function Write-Utf8NoBom {
@@ -199,8 +230,10 @@ function Configure-PortsAndDatabase {
     }
   }
 
+  Save-ApplicationDatabaseConfig
+
   # Set environment variables
-  $env:FG_AGENT_DATABASE_CONFIG = $DatabaseConfigPath
+  $env:OPS_ADMIN_APPLICATION_CONFIG = $ApplicationConfigPath
   $env:FG_AGENT_CORS_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort"
 }
 

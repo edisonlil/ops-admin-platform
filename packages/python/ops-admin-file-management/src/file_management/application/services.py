@@ -55,6 +55,7 @@ from file_management.infrastructure.persistence import repositories
 from file_management.infrastructure.search.database_search import DatabaseFileSearch
 from file_management.infrastructure.search.elasticsearch_placeholder import NoopFileIndexer
 from file_management.infrastructure.storage.minio_storage import MinioObjectStorage
+from system.application.config import config_string, load_application_config, section_config
 from system.application.data_access import (
     ResourceDescriptor,
     current_user_primary_department_id,
@@ -83,12 +84,29 @@ def configure_preview_provider(preview_provider: PreviewProviderPort) -> None:
     _preview_provider = preview_provider
 
 
+def load_file_management_config() -> dict[str, Any]:
+    config = load_application_config()
+    file_config = section_config(config, "file_management", "fileManagement", "files")
+    preview_config = file_config.get("preview")
+    if isinstance(preview_config, dict):
+        return {**file_config, **preview_config}
+    return file_config
+
+
 def external_base_url() -> str:
-    return os.environ.get("OPS_ADMIN_PUBLIC_API_BASE_URL", "").strip()
+    configured = os.environ.get("OPS_ADMIN_PUBLIC_API_BASE_URL", "").strip()
+    if configured:
+        return configured
+    config = load_file_management_config()
+    return config_string(config, "public_api_base_url", "api_base_url", "base_url")
 
 
 def external_url_prefix() -> str:
-    return os.environ.get("OPS_ADMIN_PUBLIC_API_URL_PREFIX", "/api").strip()
+    configured = os.environ.get("OPS_ADMIN_PUBLIC_API_URL_PREFIX", "").strip()
+    if configured:
+        return configured
+    config = load_file_management_config()
+    return config_string(config, "public_api_url_prefix", "api_url_prefix", "url_prefix") or "/api"
 
 
 def list_libraries(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
