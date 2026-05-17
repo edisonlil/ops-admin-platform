@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     creator TEXT DEFAULT NULL,
     creator_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id INTEGER DEFAULT NULL
@@ -190,3 +191,5 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_tenant ON llm_call_logs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_task ON llm_call_logs(task_key);
 CREATE INDEX IF NOT EXISTS idx_llm_call_logs_created ON llm_call_logs(create_time);
+CREATE INDEX IF NOT EXISTS idx_llm_call_logs_creator ON llm_call_logs(tenant_id, creator_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_llm_call_logs_owner_department ON llm_call_logs(tenant_id, owner_department_id, deleted);

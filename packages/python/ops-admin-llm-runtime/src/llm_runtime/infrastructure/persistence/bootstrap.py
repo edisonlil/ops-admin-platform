@@ -69,6 +69,8 @@ def ensure_tenant_column(conn: Any, table_name: str) -> None:
     if table_name in {"llm_configs", "llm_providers", "llm_models", "llm_tasks", "llm_routing_policies"}:
         add_column_if_missing(conn, table_name, "owner_user_id", "BIGINT DEFAULT NULL")
         add_column_if_missing(conn, table_name, "owner_department_id", "BIGINT DEFAULT NULL")
+    if table_name == "llm_call_logs":
+        add_column_if_missing(conn, table_name, "owner_department_id", "BIGINT DEFAULT NULL")
     ensure_index(conn, f"idx_{table_name}_tenant", f"CREATE INDEX IF NOT EXISTS idx_{table_name}_tenant ON {table_name}(tenant_id)")
     if table_name in {"llm_configs", "llm_providers", "llm_models", "llm_tasks", "llm_routing_policies"}:
         ensure_index(
@@ -80,6 +82,17 @@ def ensure_tenant_column(conn: Any, table_name: str) -> None:
             conn,
             f"idx_{table_name}_owner_department",
             f"CREATE INDEX IF NOT EXISTS idx_{table_name}_owner_department ON {table_name}(tenant_id, owner_department_id, deleted)",
+        )
+    if table_name == "llm_call_logs":
+        ensure_index(
+            conn,
+            "idx_llm_call_logs_creator",
+            "CREATE INDEX IF NOT EXISTS idx_llm_call_logs_creator ON llm_call_logs(tenant_id, creator_id, deleted)",
+        )
+        ensure_index(
+            conn,
+            "idx_llm_call_logs_owner_department",
+            "CREATE INDEX IF NOT EXISTS idx_llm_call_logs_owner_department ON llm_call_logs(tenant_id, owner_department_id, deleted)",
         )
 
 

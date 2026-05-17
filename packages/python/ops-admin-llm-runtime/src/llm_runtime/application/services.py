@@ -27,6 +27,11 @@ from llm_runtime.infrastructure.persistence import repositories
 
 
 LLM_MODEL_CONFIG_RESOURCE = ResourceDescriptor(resource_key="llm.model-config")
+LLM_CALL_LOG_RESOURCE = ResourceDescriptor(
+    resource_key="llm.call-log",
+    owner_user_column="creator_id",
+    owner_department_column="owner_department_id",
+)
 
 
 def require_database() -> str | Path:
@@ -178,8 +183,12 @@ def save_routing_policy(payload: dict[str, Any], current_user: dict[str, Any] | 
     return write_resource(lambda conn: repositories.upsert_routing_policy(conn, owner_payload(payload, current_user)))
 
 
-def list_call_logs(limit: int = 50) -> dict[str, Any]:
-    return list_resource(lambda conn: repositories.list_call_logs(conn, limit=limit))
+def list_call_logs(limit: int = 50, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return list_resource(
+        lambda conn, data_scope=None: repositories.list_call_logs(conn, limit=limit, data_scope=data_scope),
+        current_user=current_user,
+        resource=LLM_CALL_LOG_RESOURCE,
+    )
 
 
 def list_openai_models() -> dict[str, Any]:
@@ -266,13 +275,18 @@ def openai_chat_completion_stream_events(response: dict[str, Any]) -> list[str]:
     return gateway.openai_chat_completion_stream_events(response)
 
 
-def list_resource(loader: Any, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+def list_resource(
+    loader: Any,
+    current_user: dict[str, Any] | None = None,
+    *,
+    resource: ResourceDescriptor = LLM_MODEL_CONFIG_RESOURCE,
+) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             require_llm_config_schema(conn)
             data_scope = (
-                resolve_data_access_filter(current_user=current_user, resource=LLM_MODEL_CONFIG_RESOURCE, action="read")
+                resolve_data_access_filter(current_user=current_user, resource=resource, action="read")
                 if current_user is not None
                 else None
             )

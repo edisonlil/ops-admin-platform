@@ -591,18 +591,20 @@ def policy_to_dict(policy: RoutingPolicy) -> dict[str, Any]:
 
 def record_call_log(conn: Any, payload: dict[str, Any]) -> None:
     timestamp = now_text()
+    scope = current_tenant_scope()
     conn.execute(
         """
         INSERT INTO llm_call_logs (
             tenant_id, task_key, route_key, policy_id, entry_id, provider_key, model_key,
             model_name, status, is_fallback, elapsed_ms, prompt_tokens,
             completion_tokens, total_tokens, error_code, error_message,
-            request_id, correlation_id, lock_version, deleted, create_time, update_time
+            request_id, correlation_id, lock_version, deleted, create_time, creator,
+            creator_id, owner_department_id, update_time, editor, editor_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            current_tenant_id(),
+            int(scope.tenant_id),
             str(payload.get("task_key", "")),
             str(payload.get("route_key", "")),
             payload.get("policy_id"),
@@ -623,20 +625,34 @@ def record_call_log(conn: Any, payload: dict[str, Any]) -> None:
             0,
             0,
             timestamp,
+            scope.principal_name,
+            scope.principal_id,
+            scope.principal_department_id,
             timestamp,
+            scope.principal_name,
+            scope.principal_id,
         ),
     )
 
 
-def list_call_logs(conn: Any, limit: int = 50) -> list[dict[str, Any]]:
+def list_call_logs(conn: Any, limit: int = 50, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    descriptor = ResourceDescriptor(
+        resource_key="llm.call-log",
+        owner_user_column="creator_id",
+        owner_department_column="owner_department_id",
+    )
+    filters = ["tenant_id = ?"]
+    params: list[Any] = [current_tenant_id()]
+    append_data_scope_sql(filters, params, data_scope, descriptor)
+    params.append(limit)
     rows = conn.execute(
         """
         SELECT *
         FROM llm_call_logs
-        WHERE tenant_id = ?
+        WHERE """ + " AND ".join(filters) + """
         ORDER BY create_time DESC, id DESC
         LIMIT ?
         """,
-        (current_tenant_id(), limit),
+        tuple(params),
     ).fetchall()
     return [dict(row) for row in rows]

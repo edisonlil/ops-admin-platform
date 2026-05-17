@@ -17,6 +17,7 @@ from llm_runtime.application import services
 from llm_runtime.infrastructure.persistence.bootstrap import ensure_llm_schema
 from llm_runtime.infrastructure.persistence import repositories
 from system.application.tenancy import reset_tenant_scope, set_tenant_scope
+from system.application.data_access import DataAccessPredicate, SCOPE_SELF
 from system.domain.tenancy import TenantScope
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
 from ai_assets.application import services as ai_asset_services
@@ -170,6 +171,75 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertIsInstance(client, services.RoutedLLMClient)
             assert isinstance(client, services.RoutedLLMClient)
             self.assertEqual(client.task_key, "ops.sample.rank")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_call_logs_are_scoped_by_current_user(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                tenant = set_tenant_scope(
+                    TenantScope(
+                        tenant_id=1,
+                        tenant_key="default",
+                        tenant_name="Default Tenant",
+                        principal_id=7,
+                        principal_name="alice",
+                        principal_department_id=3,
+                    )
+                )
+                try:
+                    repositories.record_call_log(
+                        conn,
+                        {
+                            "task_key": "ops.sample.rank",
+                            "route_key": "ops.sample.rank",
+                            "provider_key": "dashscope",
+                            "model_key": "dashscope.qwen-plus",
+                            "model_name": "qwen-plus",
+                            "status": "success",
+                        },
+                    )
+                finally:
+                    reset_tenant_scope(tenant)
+                tenant = set_tenant_scope(
+                    TenantScope(
+                        tenant_id=1,
+                        tenant_key="default",
+                        tenant_name="Default Tenant",
+                        principal_id=8,
+                        principal_name="bob",
+                        principal_department_id=4,
+                    )
+                )
+                try:
+                    repositories.record_call_log(
+                        conn,
+                        {
+                            "task_key": "ops.sample.rank",
+                            "route_key": "ops.sample.rank",
+                            "provider_key": "siliconflow",
+                            "model_key": "siliconflow.qwen3-32b",
+                            "model_name": "Qwen/Qwen3-32B",
+                            "status": "failed",
+                        },
+                    )
+                finally:
+                    reset_tenant_scope(tenant)
+                conn.commit()
+                items = repositories.list_call_logs(
+                    conn,
+                    data_scope=DataAccessPredicate(tenant_id=1, scope=SCOPE_SELF, user_id=7),
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item["creator_id"] for item in items], [7])
+            self.assertEqual(items[0]["owner_department_id"], 3)
+            self.assertEqual(items[0]["model_key"], "dashscope.qwen-plus")
         finally:
             self._unlink_db(db_path)
 

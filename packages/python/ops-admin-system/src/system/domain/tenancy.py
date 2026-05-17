@@ -15,6 +15,7 @@ class TenantScope:
     source: str = "user"
     principal_id: int | None = None
     principal_name: str | None = None
+    principal_department_id: int | None = None
 
 
 def default_tenant_scope() -> TenantScope:

@@ -11,6 +11,7 @@ from identity_access.application.auth_service import load_user
 from identity_access.infrastructure.persistence.common import DEFAULT_TENANT_KEY
 from identity_access.infrastructure.security import COOKIE_NAME, login_manager
 from identity_access.application import tenant_service
+from system.application.data_access import current_user_primary_department_id
 from system.application.tenancy import set_tenant_scope
 from system.domain.tenancy import TenantScope
 
@@ -83,6 +84,7 @@ def _attach_user_tenant_scope(current_user: dict[str, Any], payload: dict[str, A
                 source="user",
                 principal_id=int(current_user.get("id", 0) or 0),
                 principal_name=str(current_user.get("username", "") or ""),
+                principal_department_id=current_user_primary_department_id(current_user),
             )
         )
     current_user.update(tenant_payload)

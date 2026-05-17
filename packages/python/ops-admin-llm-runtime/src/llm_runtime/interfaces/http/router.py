@@ -119,9 +119,12 @@ def update_llm_routing_policy(
     return ok(services.save_routing_policy(data, current_user=current_user))
 
 
-@router.get("/llm/call-logs", dependencies=[Depends(auth.require_permission("llm_debug:access"))])
-def llm_call_logs(limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_call_logs(limit=limit))
+@router.get("/llm/call-logs")
+def llm_call_logs(
+    limit: int = 50,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm_debug:access")),
+) -> dict[str, Any]:
+    return ok(services.list_call_logs(limit=limit, current_user=current_user))
 
 
 @router.get("/llm/openai/v1/models", dependencies=[Depends(auth.require_auth)])

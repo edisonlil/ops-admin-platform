@@ -138,7 +138,8 @@ def run_build(project_path: Path) -> bool:
 def create_deploy_package(
     project_path: Path,
     output_path: Path,
-    db_config: dict
+    db_config: dict,
+    remote_path: str = "/opt/ops-admin"
 ) -> bool:
     """Create deployment package (source + config, no Docker image)."""
     print("\nCreating deployment package...")
@@ -157,7 +158,8 @@ def create_deploy_package(
     # scaffold root is the ops-admin-platform repo
     import ops_cli
     scaffold_root = Path(ops_cli.__file__).parent.parent.parent.parent
-    docker_files = ["Dockerfile", "docker-compose.yml", ".dockerignore"]
+    # Note: .dockerignore is excluded to avoid excluding dist/ during Docker build
+    docker_files = ["Dockerfile", "docker-compose.yml"]
     
     try:
         with tarfile.open(output_path, "w:gz") as tar:
@@ -203,11 +205,11 @@ def create_deploy_package(
             config_file.seek(0)
             tar.addfile(tarinfo, config_file)
             
-            # Add build script with strict validation
-            build_script = """#!/bin/bash
+            # Add build script with dynamic remote_path
+            build_script = f"""#!/bin/bash
 set -e
 
-DEPLOY_DIR="/opt/ops-admin"
+DEPLOY_DIR="{remote_path}"
 REQUIRED_DIRS=("api" "packages" "dist")
 
 echo "Starting deployment..."
@@ -226,7 +228,7 @@ echo "Verifying deployment package..."
 ls -la
 
 MISSING=()
-for d in "${REQUIRED_DIRS[@]}"; do
+for d in "${{REQUIRED_DIRS[@]}}"; do
     if [ ! -d "$d" ]; then
         MISSING+=("$d")
         echo "  Missing: $d"
@@ -240,8 +242,8 @@ if [ -d "dist" ]; then
     echo "  dist/ contents:"
     ls -la dist/ | head -10
 fi
-if [ ${#MISSING[@]} -gt 0 ]; then
-    echo "ERROR: Missing required directories: ${MISSING[*]}"
+if [ ${{#MISSING[@]}} -gt 0 ]; then
+    echo "ERROR: Missing required directories: ${{MISSING[*]}}"
     ls -la
     exit 1
 fi
@@ -258,6 +260,33 @@ if ! grep -q "^FROM" Dockerfile; then
     echo "ERROR: Dockerfile appears invalid (no FROM instruction)"
     exit 1
 fi
+
+# Create .dockerignore to allow dist/ (scaffold's .dockerignore excludes it)
+echo "Creating .dockerignore to allow dist/..."
+cat > .dockerignore << 'DOCKERIGNORE_EOF'
+# Allow dist/ for deployment
+!dist/**
+!dist/
+
+# Exclude other large directories
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+.git/
+DOCKERIGNORE_EOF
+
+# Verify dist exists
+echo "Verifying dist/ exists..."
+if [ ! -d "dist" ]; then
+    echo "ERROR: dist/ directory not found!"
+    ls -la | grep dist || echo "dist not in ls"
+    exit 1
+fi
+echo "dist/ found, contents:"
+ls -la dist/ | head -5
 
 # Stop existing container
 echo "Stopping existing container..."
@@ -317,7 +346,7 @@ fi
 
 echo ""
 echo "Deployment completed!"
-echo "URL: http://localhost:8000"
+echo "URL: http://localhost:$PORT"
 docker ps | grep ops-admin
 """
             script_data = build_script.encode("utf-8")
@@ -773,7 +802,7 @@ def run_deploy(args) -> None:
         print(f"\nWill do:")
         print("  1. Build frontend (pnpm build)")
         print("  2. Create deployment package (tar.gz)")
-        print("  3. Upload to {target.get('host')}:/opt/ops-admin/")
+        print(f"  3. Upload to {target.get('host')}:{target.get('remote_path')}/")
         print("  4. Extract package on server")
         print("  5. Build Docker image")
         print("  6. Start container")
@@ -811,7 +840,8 @@ def run_deploy(args) -> None:
         
         # Create deploy package (source + dist, no Docker image)
         package_path = temp_path / f"ops-deploy-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
-        if not create_deploy_package(project_path, package_path, db_config):
+        remote_path = target.get("remote_path", "/opt/ops-admin")
+        if not create_deploy_package(project_path, package_path, db_config, remote_path):
             print("\nFailed to create deployment package.")
             return
         
