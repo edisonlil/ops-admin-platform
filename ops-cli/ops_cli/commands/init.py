@@ -4,6 +4,7 @@ Init command - create a new project from scaffold.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -118,14 +119,30 @@ def setup_new_git(target_path: Path) -> None:
         
         if default_remote:
             try:
-                run_command(
-                    ["git", "remote", "add", "origin", default_remote],
+                existing_remote = subprocess.run(
+                    ["git", "remote", "get-url", "origin"],
                     cwd=target_path,
                     capture_output=True,
-                    check=True,
+                    text=True,
                 )
+
+                if existing_remote.returncode == 0:
+                    print("Remote 'origin' already exists, updating URL...")
+                    run_command(
+                        ["git", "remote", "set-url", "origin", default_remote],
+                        cwd=target_path,
+                        capture_output=True,
+                        check=True,
+                    )
+                else:
+                    run_command(
+                        ["git", "remote", "add", "origin", default_remote],
+                        cwd=target_path,
+                        capture_output=True,
+                        check=True,
+                    )
                 print(f"Remote 'origin' set to: {default_remote}")
-                
+
                 # Reset branch to main
                 print("\nResetting branch to 'main'...")
                 run_command(
