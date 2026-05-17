@@ -301,6 +301,7 @@ def do_deploy(package_path: Path, target: dict, db_config: dict) -> bool:
     ssh_key = target.get("ssh_key", "")
     password = target.get("password", "")
     remote_path = target.get("remote_path", "/opt/ops-admin")
+    container_port = target.get("container_port", 8000)
     
     if not all([host, user]):
         print("Missing target configuration.")
@@ -375,15 +376,43 @@ def do_deploy(package_path: Path, target: dict, db_config: dict) -> bool:
     # Execute build on server via docker exec
     print(f"  Building on server...")
     
+    # Generate docker-compose.yml content with configurable port
+    compose_content = f'''version: '3.8'
+
+services:
+  backend:
+    image: ops-admin:latest
+    container_name: ops-admin-backend
+    network_mode: host
+    ports:
+      - "{container_port}:8000"
+    environment:
+      - FG_AGENT_DATABASE_CONFIG=/app/config/database.json
+      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
+      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
+    volumes:
+      - ./config:/app/config:ro
+      - ./dist:/app/dist:ro
+      - ./data:/app/data
+    restart: unless-stopped
+'''
+    
     # Build script content
-    build_script = """#!/bin/bash
+    build_script = f'''#!/bin/bash
 set -e
+
+PORT={container_port}
+DEPLOY_DIR="{remote_path}"
 
 echo "Starting deployment..."
 
 # Stop existing container
 echo "Stopping existing container..."
 docker-compose down 2>/dev/null || true
+
+# Write docker-compose.yml with configured port
+cat > "$DEPLOY_DIR/docker-compose.yml" << 'COMPOSE_EOF'
+{compose_content}COMPOSE_EOF
 
 # Build image
 echo "Building Docker image..."
@@ -422,9 +451,9 @@ fi
 
 echo ""
 echo "Deployment completed!"
-echo "URL: http://localhost:8000"
+echo "URL: http://localhost:$PORT"
 docker ps | grep ops-admin
-"""
+'''
     
     # Write build script to server
     stdin, stdout, stderr = client.exec_command(f"cat > {remote_path}/deploy.sh << 'SCRIPT_EOF'\n{build_script}SCRIPT_EOF")
@@ -517,14 +546,17 @@ def run_deploy(args) -> None:
     print(f"\nDeploying to: {target_name}")
     print(f"Host: {target.get('host')}")
     
-    # Get database config
-    db_config_path = project_path / "config" / "database.local.json"
-    if db_config_path.exists():
-        with open(db_config_path, "r", encoding="utf-8") as f:
-            db_config = json.load(f)
-    else:
-        print("\nNo database config found. Please run 'ops-cli setup' first.")
+    # Get database config based on target name
+    db_config_path = project_path / "config" / f"database.{target_name}.json"
+    if not db_config_path.exists():
+        print(f"\nNo database config found for target '{target_name}'.")
+        print(f"Please create 'config/database.{target_name}.json'")
+        print("\nExample format:")
+        print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
         return
+    
+    with open(db_config_path, "r", encoding="utf-8") as f:
+        db_config = json.load(f)
     
     # Confirm deployment
     if not args.yes and not ask_confirmation("Continue with deployment?", default=True):
@@ -619,6 +651,7 @@ def run_deploy_add(args) -> None:
         "user": user,
         "remote_path": remote_path,
         "database_url": db_url,
+        "container_port": int(input(f"Container port [8000]: ").strip() or "8000"),
     }
     
     # Add auth method

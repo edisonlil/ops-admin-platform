@@ -40,7 +40,7 @@ def generate(
         require_llm_schema(conn)
         resolution = repositories.resolve_route(conn, task_key)
         if not resolution:
-            raise LLMRoutingError(f"LLM route not configured for task: {task_key}")
+            raise LLMRoutingError(f"当前租户未配置模型路由 {task_key}")
         return generate_with_resolution(
             conn=conn,
             resolution=resolution,
@@ -82,7 +82,7 @@ def chat_completions(
             return openai_chat_response(model=entry.model_key, response=response)
         resolution = repositories.resolve_route(conn, model_key_or_route)
         if not resolution:
-            raise LLMRoutingError(f"LLM route not configured for task: {model_key_or_route}")
+            raise LLMRoutingError(f"当前租户未配置模型路由 {model_key_or_route}")
         response = chat_with_resolution(
             conn=conn,
             resolution=resolution,
@@ -119,7 +119,7 @@ def stream_chat_completions(
         if not entry:
             resolution = repositories.resolve_route(conn, model_key_or_route)
             if not resolution or not resolution.policy.entries:
-                raise LLMRoutingError(f"LLM route not configured for task: {model_key_or_route}")
+                raise LLMRoutingError(f"当前租户未配置模型路由 {model_key_or_route}")
             response = chat_with_resolution(
                 conn=conn,
                 resolution=resolution,

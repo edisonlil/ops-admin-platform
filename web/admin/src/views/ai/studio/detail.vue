@@ -181,8 +181,14 @@
                   <n-input v-model:value="selectedWorkflowNode.data.label" />
                 </n-form-item>
                 <template v-if="selectedWorkflowNode.type === 'llm'">
-                  <n-form-item label="模型配置">
+                  <n-form-item :label="isPlatformCapabilityRoute ? '模型路由 Key' : '模型配置'">
+                    <n-input
+                      v-if="isPlatformCapabilityRoute"
+                      v-model:value="selectedWorkflowNode.data.model"
+                      placeholder="例如：default-chat"
+                    />
                     <n-select
+                      v-else
                       v-model:value="selectedWorkflowNode.data.model"
                       :options="modelConfigOptions"
                       :loading="modelConfigLoading"
@@ -245,8 +251,17 @@
               <n-button size="small" tertiary type="primary" @click="generatePromptHint">生成</n-button>
             </header>
             <n-form label-placement="top" class="studio-form">
-              <n-form-item label="模型配置">
+              <n-form-item :label="isPlatformCapabilityRoute ? '模型路由 Key' : '模型配置'">
+                <n-input
+                  v-if="isPlatformCapabilityRoute"
+                  v-model:value="selectedModelKey"
+                  placeholder="例如：default-chat"
+                />
+                <div v-if="isPlatformCapabilityRoute" class="studio-form__hint">
+                  租户调用平台能力时，会用当前租户的同名 LLM 路由解析真实模型。
+                </div>
                 <n-select
+                  v-else
                   v-model:value="selectedModelKey"
                   :options="modelConfigOptions"
                   :loading="modelConfigLoading"
@@ -1329,7 +1344,7 @@
       return null;
     }
     if (!isWorkflowMode.value && !selectedModelKey.value) {
-      message.warning('请选择模型配置');
+      message.warning(isPlatformCapabilityRoute.value ? '请填写模型路由 Key' : '请选择模型配置');
       return null;
     }
     if (!isWorkflowMode.value && systemPromptSource.value === 'asset' && !selectedSystemPromptAssetKey.value) {
@@ -1876,7 +1891,7 @@
     const workflow = isWorkflowMode.value ? workflowDefinitionPayload() : undefined;
     return {
       ...form,
-      model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
+      model_preferences: buildModelPreferences(),
       variables_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
       trace_policy: { enabled: true },
@@ -1914,9 +1929,17 @@
       user_prompt_template: form.user_prompt_template,
       input_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
-      model_preferences: { model: selectedModelKey.value, temperature: 0.2 },
+      model_preferences: buildModelPreferences(),
       runtime_config: runtimeConfig,
       enabled: activeCapability.value?.enabled ?? true,
+    };
+  }
+
+  function buildModelPreferences() {
+    const modelKey = selectedModelKey.value.trim();
+    return {
+      [isPlatformCapabilityRoute.value ? 'route_key' : 'model']: modelKey,
+      temperature: 0.2,
     };
   }
 
@@ -3423,6 +3446,13 @@
   .preview-panel__head span,
   .studio-form {
     min-width: 0;
+  }
+
+  .studio-form__hint {
+    margin-top: 6px;
+    color: var(--text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
   }
 
   .preview-panel__head {
