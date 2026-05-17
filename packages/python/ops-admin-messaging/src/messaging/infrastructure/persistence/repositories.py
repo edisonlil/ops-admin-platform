@@ -17,6 +17,7 @@ from messaging.domain.models import (
     MessageUserPreference,
 )
 from messaging.infrastructure.persistence.bootstrap import require_messaging_schema
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -26,6 +27,9 @@ def database_target() -> str | Path:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="microseconds")
+
+
+MESSAGE_RESOURCE = ResourceDescriptor(resource_key="messaging.message")
 
 
 def create_in_app_message(
@@ -40,6 +44,7 @@ def create_in_app_message(
     sender_user_id: int | None,
     sender_name: str,
     actor: str,
+    owner_department_id: int | None = None,
 ) -> MessageIntent:
     return create_message(
         tenant_id=tenant_id,
@@ -54,6 +59,7 @@ def create_in_app_message(
         actor=actor,
         template_id=None,
         channels=["in_app"],
+        owner_department_id=owner_department_id,
     )
 
 
@@ -71,6 +77,7 @@ def create_message(
     actor: str,
     template_id: int | None,
     channels: list[str],
+    owner_department_id: int | None = None,
 ) -> MessageIntent:
     timestamp = now_iso()
     target = {"user_ids": recipient_user_ids}
@@ -87,9 +94,10 @@ def create_message(
             INSERT INTO message_intents (
                 tenant_id, message_type, priority, title, content, payload_json,
                 sender_user_id, sender_name, target_scope, target_json, status, template_id,
-                creator, creator_id, editor, editor_id, create_time, update_time
+                owner_user_id, owner_department_id, creator, creator_id, editor,
+                editor_id, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tenant_id,
@@ -104,6 +112,8 @@ def create_message(
                 encode_json(target),
                 MESSAGE_STATUS_DISPATCHED,
                 template_id,
+                sender_user_id,
+                owner_department_id,
                 actor,
                 sender_user_id,
                 actor,
@@ -171,23 +181,29 @@ def create_message(
     return row_to_message(dict(row))
 
 
-def list_messages(*, tenant_id: int, page: int, page_size: int) -> tuple[list[MessageIntent], int]:
+def list_messages(
+    *, tenant_id: int, page: int, page_size: int, data_scope: DataAccessPredicate | None = None
+) -> tuple[list[MessageIntent], int]:
     offset = (page - 1) * page_size
+    filters = ["tenant_id = ?", "deleted = 0"]
+    params: list[Any] = [tenant_id]
+    append_data_scope_sql(filters, params, data_scope, MESSAGE_RESOURCE)
+    where_sql = " AND ".join(filters)
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
         total_row = conn.execute(
-            "SELECT COUNT(*) AS total FROM message_intents WHERE tenant_id = ? AND deleted = 0",
-            (tenant_id,),
+            f"SELECT COUNT(*) AS total FROM message_intents WHERE {where_sql}",
+            tuple(params),
         ).fetchone()
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM message_intents
-            WHERE tenant_id = ? AND deleted = 0
+            WHERE {where_sql}
             ORDER BY create_time DESC, id DESC
             LIMIT ? OFFSET ?
             """,
-            (tenant_id, page_size, offset),
+            (*params, page_size, offset),
         ).fetchall()
     return [row_to_message(dict(row)) for row in rows], int(total_row["total"] if total_row else 0)
 

@@ -19,6 +19,7 @@ from file_management.domain.models import (
     TenantStorageQuota,
 )
 from file_management.infrastructure.persistence.bootstrap import require_file_management_schema
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -28,6 +29,9 @@ def database_target() -> str | Path:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="microseconds")
+
+
+FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
 
 
 def next_file_id() -> int:
@@ -165,7 +169,7 @@ def delete_library(*, tenant_id: int, library_id: int, actor: str, actor_id: int
         cursor = conn.execute(
             """
             UPDATE file_libraries
-            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            SET deleted = 1, active_marker = NULL, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
             """,
             (actor, actor_id, timestamp, library_id, tenant_id),
@@ -352,7 +356,7 @@ def delete_folder(*, tenant_id: int, folder_id: int, actor: str, actor_id: int |
         cursor = conn.execute(
             """
             UPDATE file_folders
-            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            SET deleted = 1, active_marker = NULL, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
             """,
             (actor, actor_id, timestamp, folder_id, tenant_id),
@@ -371,10 +375,12 @@ def list_files(
     keyword: str = "",
     mime_type: str = "",
     status: str = "",
+    data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[ManagedFile], int]:
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
+    append_data_scope_sql(filters, params, data_scope, FILE_OBJECT_RESOURCE)
     if library_id is not None:
         filters.append("library_id = ?")
         params.append(library_id)
@@ -454,6 +460,8 @@ def create_file(
     metadata: dict[str, Any],
     actor: str,
     actor_id: int | None,
+    owner_user_id: int | None = None,
+    owner_department_id: int | None = None,
 ) -> ManagedFile:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
@@ -463,9 +471,10 @@ def create_file(
             INSERT INTO file_objects (
                 id, tenant_id, library_id, folder_id, original_name, display_name, extension, mime_type,
                 size_bytes, sha256, storage_provider, storage_bucket, storage_key, status,
-                visibility, metadata_json, creator, creator_id, editor, editor_id, create_time, update_time
+                visibility, metadata_json, owner_user_id, owner_department_id, creator,
+                creator_id, editor, editor_id, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 file_id,
@@ -484,6 +493,8 @@ def create_file(
                 FILE_STATUS_AVAILABLE,
                 visibility,
                 encode_json(metadata),
+                owner_user_id,
+                owner_department_id,
                 actor,
                 actor_id,
                 actor,

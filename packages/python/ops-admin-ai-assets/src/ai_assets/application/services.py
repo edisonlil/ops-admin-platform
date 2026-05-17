@@ -24,10 +24,16 @@ from ai_assets.domain.models import (
     PromptAsset,
 )
 from ai_assets.infrastructure.persistence import repositories
+from system.application.data_access import (
+    ResourceDescriptor,
+    current_user_primary_department_id,
+    resolve_data_access_filter,
+)
 
 PromptAssetReferenceChecker = Callable[[int, str], bool]
 
 _prompt_asset_reference_checkers: list[PromptAssetReferenceChecker] = []
+PROMPT_ASSET_RESOURCE = ResourceDescriptor(resource_key="prompt.asset")
 
 
 def list_prompt_assets(
@@ -46,6 +52,7 @@ def list_prompt_assets(
             page_size=page_size,
             keyword=keyword.strip(),
             status=status_filter.strip(),
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=PROMPT_ASSET_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
@@ -168,6 +175,8 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
         "description": str(payload.get("description") or "").strip(),
         "tags": normalize_string_list(payload.get("tags")),
         "status": str(payload.get("status") or "draft").strip() or "draft",
+        "owner_user_id": current_user_id_or_none(current_user),
+        "owner_department_id": current_user_primary_department_id(current_user),
     }
     try:
         item = repositories.save_prompt_asset(

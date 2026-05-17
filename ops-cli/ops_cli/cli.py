@@ -109,6 +109,28 @@ Examples:
         help="Start the current project",
         aliases=["start"],
     )
+    run_parser.add_argument(
+        "--backend-port", "-bp",
+        type=int,
+        default=8000,
+        help="Backend server port (default: 8000)",
+    )
+    run_parser.add_argument(
+        "--frontend-port", "-fp",
+        type=int,
+        default=8001,
+        help="Frontend server port (default: 8001)",
+    )
+    run_parser.add_argument(
+        "--only-backend",
+        action="store_true",
+        help="Start only the backend server",
+    )
+    run_parser.add_argument(
+        "--only-frontend",
+        action="store_true",
+        help="Start only the frontend server",
+    )
 
     # config command
     config_parser = subparsers.add_parser(

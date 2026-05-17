@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS message_intents (
     target_json TEXT NOT NULL DEFAULT '{}',
     scheduled_time TEXT DEFAULT NULL,
     status TEXT NOT NULL DEFAULT 'queued',
+    owner_user_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -133,6 +135,8 @@ CREATE TABLE IF NOT EXISTS message_user_preferences (
 
 CREATE INDEX IF NOT EXISTS idx_message_intents_tenant ON message_intents(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_message_intents_status ON message_intents(status);
+CREATE INDEX IF NOT EXISTS idx_message_intents_owner_user ON message_intents(tenant_id, owner_user_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_message_intents_owner_department ON message_intents(tenant_id, owner_department_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_message_templates_tenant ON message_templates(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_message_recipients_user ON message_recipients(tenant_id, recipient_user_id, read_status);
 CREATE INDEX IF NOT EXISTS idx_message_recipients_message ON message_recipients(message_id);

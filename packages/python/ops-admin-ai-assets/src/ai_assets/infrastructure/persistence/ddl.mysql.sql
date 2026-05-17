@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS prompt_assets (
     description TEXT NOT NULL DEFAULT (''),
     tags_json JSON NOT NULL DEFAULT (JSON_ARRAY()),
     status VARCHAR(255) NOT NULL DEFAULT ('draft'),
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -14,7 +17,7 @@ CREATE TABLE IF NOT EXISTS prompt_assets (
     update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, prompt_key, deleted)
+    UNIQUE (tenant_id, prompt_key, active_marker)
 );
 
 CREATE TABLE IF NOT EXISTS prompt_versions (
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     render_engine TEXT NOT NULL DEFAULT ('simple'),
     status VARCHAR(255) NOT NULL DEFAULT ('draft'),
     published_time TEXT DEFAULT NULL,
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -41,7 +45,7 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, prompt_id, version, deleted)
+    UNIQUE (tenant_id, prompt_id, version, active_marker)
 );
 
 CREATE INDEX idx_prompt_assets_tenant_status ON prompt_assets(tenant_id, status, deleted);

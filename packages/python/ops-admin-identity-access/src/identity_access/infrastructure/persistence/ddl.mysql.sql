@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_hash VARCHAR(255) NOT NULL UNIQUE,
     prefix VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

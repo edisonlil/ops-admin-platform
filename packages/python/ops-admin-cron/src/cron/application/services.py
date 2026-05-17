@@ -7,10 +7,16 @@ from cron.application.executor import CronTaskExecutor
 from cron.application.ports import CronRepository, NoopTaskDispatcher, TaskDispatcher
 from cron.domain.exceptions import CronDomainError, CronNotFoundError, CronStorageNotReadyError
 from cron.domain.models import TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
+from system.application.data_access import (
+    ResourceDescriptor,
+    current_user_primary_department_id,
+    resolve_data_access_filter,
+)
 
 
 repository: CronRepository | None = None
 dispatcher: TaskDispatcher = NoopTaskDispatcher()
+CRON_TASK_RESOURCE = ResourceDescriptor(resource_key="cron.task")
 
 
 def configure_repository(cron_repository: CronRepository) -> None:
@@ -36,6 +42,7 @@ def list_tasks(*, page: int, page_size: int, status: str | None, current_user: d
             page=page,
             page_size=page_size,
             status=status,
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=CRON_TASK_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
@@ -59,6 +66,11 @@ def save_task(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str
     tenant_id = current_tenant_id(current_user)
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
+    payload = {
+        **payload,
+        "owner_user_id": actor_id,
+        "owner_department_id": current_user_primary_department_id(current_user),
+    }
     task_id = int(payload.get("id") or 0)
     if task_id:
         try:

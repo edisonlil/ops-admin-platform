@@ -24,19 +24,49 @@ from ..interactive.prompts import ask_confirmation, ask_with_choices
 from .deploy_history import DeployHistory, format_history_list
 
 
-def get_deploy_targets() -> dict:
-    """Get all configured deploy targets."""
-    config = get_config()
-    data = config.load()
-    return data.get("deploy_targets", {})
+def get_deploy_targets(project_path: Optional[Path] = None) -> dict:
+    """Get deploy targets from project-level config."""
+    if project_path is None:
+        config = get_config()
+        project_info = config.get_current_project()
+        if project_info:
+            project_path = Path(project_info.get("path", ""))
+    
+    if project_path is None:
+        return {}
+    
+    # Look for deploy config in project
+    deploy_config_paths = [
+        project_path / ".ops-deploy.json",
+        project_path / "config" / "deploy.json",
+        project_path / "config" / "deploy_targets.json",
+    ]
+    
+    for config_path in deploy_config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    
+    return {}
 
 
-def save_deploy_targets(targets: dict) -> None:
-    """Save deploy targets to config."""
+def save_deploy_targets(targets: dict, project_path: Path) -> None:
+    """Save deploy targets to project-level config."""
+    config_path = project_path / ".ops-deploy.json"
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(targets, f, indent=2, ensure_ascii=False)
+
+
+def get_project_path() -> Optional[Path]:
+    """Get current project path."""
     config = get_config()
-    data = config.load()
-    data["deploy_targets"] = targets
-    config.save(data)
+    project_info = config.get_current_project()
+    if project_info:
+        return Path(project_info.get("path", ""))
+    return None
 
 
 def get_project_info(project_path: Path) -> dict:
@@ -133,10 +163,15 @@ def create_deploy_package(
         with tarfile.open(output_path, "w:gz") as tar:
             # Add frontend dist
             if dist_path.exists():
-                print("  Adding frontend dist...")
-                tar.add(dist_path, arcname="dist")
+                print(f"  Adding frontend dist from {dist_path}...")
+                # List contents
+                for f in dist_path.iterdir():
+                    print(f"    - {f.name}")
+                tar.add(str(dist_path), arcname="dist")
+                # Verify it was added
+                print(f"  dist/ added successfully")
             else:
-                print("  Warning: frontend dist not found")
+                print(f"  Warning: frontend dist not found at {dist_path}")
             
             # Add source code directories
             for pattern in include_patterns:
@@ -188,6 +223,8 @@ echo "Working directory: $(pwd)"
 
 # Safety check 2: Verify required directories exist
 echo "Verifying deployment package..."
+ls -la
+
 MISSING=()
 for d in "${REQUIRED_DIRS[@]}"; do
     if [ ! -d "$d" ]; then
@@ -197,6 +234,12 @@ for d in "${REQUIRED_DIRS[@]}"; do
         echo "  Found: $d"
     fi
 done
+
+# Debug: list dist contents
+if [ -d "dist" ]; then
+    echo "  dist/ contents:"
+    ls -la dist/ | head -10
+fi
 if [ ${#MISSING[@]} -gt 0 ]; then
     echo "ERROR: Missing required directories: ${MISSING[*]}"
     ls -la
@@ -464,11 +507,18 @@ docker ps | grep ops-admin
 '''
     
     # Write build script to server
+    print(f"  Writing deployment script...")
     stdin, stdout, stderr = client.exec_command(f"cat > {remote_path}/deploy.sh << 'SCRIPT_EOF'\n{build_script}SCRIPT_EOF")
-    stdout.channel.recv_exit_status()
+    exit_status = stdout.channel.recv_exit_status()
+    if exit_status != 0:
+        err = stderr.read().decode("utf-8", errors="replace")
+        print(f"  Failed to write script: {err}")
+        client.close()
+        return False
     
     # Run build script
-    channel = client.exec_command(f"cd {remote_path} && chmod +x deploy.sh && ./deploy.sh")
+    print(f"  Running deployment script...")
+    channel = client.exec_command(f"cd {remote_path} && chmod +x deploy.sh && bash -x ./deploy.sh 2>&1")
     
     stdout = channel[1]
     stderr = channel[2]
@@ -507,6 +557,21 @@ docker ps | grep ops-admin
         return True
     else:
         print("\n  Deployment failed.")
+        
+        # Try to get docker logs
+        print("\n  Checking container logs...")
+        try:
+            stdin, stdout, stderr = client.exec_command(
+                f"docker logs ops-admin-backend 2>&1 | tail -30"
+            )
+            logs = stdout.read().decode("utf-8", errors="replace")
+            if logs:
+                print("  Container logs:")
+                for line in logs.split("\n"):
+                    if line.strip():
+                        print(f"    {line}")
+        except Exception:
+            pass
         
         # Record failed deployment
         if target_name:
@@ -577,18 +642,96 @@ def run_deploy(args) -> None:
     
     # Get target
     target_name = args.target
-    targets = get_deploy_targets()
+    targets = get_deploy_targets(project_path)
     
     if not targets:
         print("\nNo deploy targets configured.")
-        print("Use 'ops-cli deploy --add' to add a target.")
-        return
+        response = input("Would you like to create one now? [Y/n]: ").strip().lower()
+        if response in ("", "y", "yes"):
+            # Interactive create
+            import getpass
+            
+            print("\nConfigure deployment target:")
+            print("-" * 40)
+            
+            target_name = args.target if args.target else input("Target name: ").strip()
+            if not target_name:
+                print("Target name required.")
+                return
+            
+            host = input(f"Host/IP [192.168.1.100]: ").strip() or "192.168.1.100"
+            port = input(f"SSH Port [22]: ").strip() or "22"
+            user = input(f"SSH User [root]: ").strip() or "root"
+            
+            print("\nAuthentication method:")
+            print("  1. SSH Key")
+            print("  2. Password")
+            auth_choice = input("Choice [2]: ").strip() or "2"
+            
+            ssh_key = ""
+            password = ""
+            
+            if auth_choice == "1":
+                ssh_key = input(f"SSH Key path [~/.ssh/id_rsa]: ").strip() or "~/.ssh/id_rsa"
+            else:
+                password = args.password if args.password else getpass.getpass("Password: ").strip()
+                if not password:
+                    print("Password required.")
+                    return
+            
+            remote_path = input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+            
+            print("\nDatabase configuration:")
+            db_host = input("  DB Host [127.0.0.1]: ").strip() or "127.0.0.1"
+            db_port = input("  DB Port [3306]: ").strip() or "3306"
+            db_user = input("  DB Username [root]: ").strip() or "root"
+            import getpass
+            db_pass = getpass.getpass("  DB Password: ").strip()
+            db_name = input("  DB Name: ").strip()
+            
+            if not db_name:
+                print("Database name required.")
+                return
+            
+            container_port = input("Container port [8000]: ").strip() or "8000"
+            
+            # Build database URL
+            database_url = f"mysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+            
+            target = {
+                "host": host,
+                "port": int(port),
+                "user": user,
+                "remote_path": remote_path,
+                "database_url": database_url,
+                "container_port": int(container_port),
+            }
+            
+            if ssh_key:
+                target["ssh_key"] = os.path.expanduser(ssh_key)
+            if password:
+                target["password"] = password
+            
+            targets[target_name] = target
+            save_deploy_targets(targets, project_path)
+            
+            print(f"\nTarget '{target_name}' created.")
+            print("Run 'ops-cli deploy' to start deployment.")
+            return
+        else:
+            print("Cancelled.")
+            return
     
     if target_name:
         if target_name not in targets:
             print(f"Target '{target_name}' not found.")
-            print("Available targets:", ", ".join(targets.keys()))
-            return
+            response = input("Would you like to create it now? [y/N]: ").strip().lower()
+            if response in ("y", "yes"):
+                targets[target_name] = {"placeholder": True}
+                # Continue to creation flow
+            else:
+                print("Available targets:", ", ".join(targets.keys()))
+                return
         target = targets[target_name]
     else:
         # Show selection if multiple targets
@@ -690,7 +833,16 @@ def run_deploy(args) -> None:
 
 def run_deploy_add(args) -> None:
     """Add a new deploy target."""
-    targets = get_deploy_targets()
+    config = get_config()
+    project_info = config.get_current_project()
+    
+    if not project_info:
+        print("\nNo current project selected.")
+        print("Use 'ops-cli switch <name>' to switch to a project first.")
+        return
+    
+    project_path = Path(project_info["path"])
+    targets = get_deploy_targets(project_path)
     
     name = args.name
     if not name:
@@ -759,7 +911,7 @@ def run_deploy_add(args) -> None:
         target["password"] = password
     
     targets[name] = target
-    save_deploy_targets(targets)
+    save_deploy_targets(targets, project_path)
     
     print(f"\nTarget '{name}' added successfully.")
     
@@ -782,7 +934,8 @@ def run_deploy_add(args) -> None:
 
 def run_deploy_list(args) -> None:
     """List configured deploy targets."""
-    targets = get_deploy_targets()
+    project_path = get_project_path()
+    targets = get_deploy_targets(project_path)
     
     if not targets:
         print("\nNo deploy targets configured.")
@@ -811,7 +964,8 @@ def run_deploy_list(args) -> None:
 
 def run_deploy_remove(args) -> None:
     """Remove a deploy target."""
-    targets = get_deploy_targets()
+    project_path = get_project_path()
+    targets = get_deploy_targets(project_path)
     name = args.name
     
     if not name:
@@ -827,7 +981,7 @@ def run_deploy_remove(args) -> None:
         return
     
     del targets[name]
-    save_deploy_targets(targets)
+    save_deploy_targets(targets, project_path)
     print(f"Target '{name}' removed.")
 
 
@@ -838,7 +992,8 @@ def run_deploy_history(args) -> None:
     history = DeployHistory(config_path)
     
     target_name = args.target
-    targets = get_deploy_targets()
+    project_path = get_project_path()
+    targets = get_deploy_targets(project_path)
     
     if not target_name:
         # Show selection if multiple targets
@@ -891,7 +1046,8 @@ def run_deploy_rollback(args) -> None:
     history = DeployHistory(config_path)
     
     target_name = args.target
-    targets = get_deploy_targets()
+    project_path = get_project_path()
+    targets = get_deploy_targets(project_path)
     
     if not target_name:
         print("Target name required.")

@@ -13,9 +13,20 @@ from identity_access.infrastructure.persistence.common import (
     row_to_api_key,
 )
 from identity_access.infrastructure.security import generate_api_key, hash_api_key
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 
 
-def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> dict[str, Any]:
+API_KEY_RESOURCE = ResourceDescriptor(resource_key="identity.api-key")
+
+
+def create_api_key(
+    *,
+    name: str,
+    creator: str,
+    tenant_id: int | None = None,
+    owner_user_id: int | None = None,
+    owner_department_id: int | None = None,
+) -> dict[str, Any]:
     key = generate_api_key()
     now = now_iso()
     with connect(auth_database_target(), readonly=False) as conn:
@@ -27,10 +38,28 @@ def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> 
             tenant_id = int(tenant_row["id"])
         cursor = conn.execute(
             """
-            INSERT INTO api_keys (tenant_id, name, key_hash, prefix, is_active, creator, editor, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO api_keys (
+                tenant_id, name, key_hash, prefix, is_active, owner_user_id,
+                owner_department_id, creator, creator_id, editor, editor_id,
+                create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tenant_id, name.strip(), hash_api_key(key), key[:12], True, creator, creator, now, now),
+            (
+                tenant_id,
+                name.strip(),
+                hash_api_key(key),
+                key[:12],
+                True,
+                owner_user_id,
+                owner_department_id,
+                creator,
+                owner_user_id,
+                creator,
+                owner_user_id,
+                now,
+                now,
+            ),
         )
         key_id = int(getattr(cursor, "lastrowid", 0) or 0)
         if not key_id:
@@ -40,16 +69,16 @@ def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> 
     return {"key": key, "item": row_to_api_key(dict(row))}
 
 
-def list_api_keys(*, tenant_id: int | None = None) -> list[dict[str, Any]]:
+def list_api_keys(*, tenant_id: int | None = None, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
-        params: tuple[Any, ...] = ()
-        where = ""
+        filters = ["deleted = 0"]
+        params: list[Any] = []
         if tenant_id is not None:
-            where = "WHERE tenant_id = ? AND deleted = 0"
-            params = (tenant_id,)
-        else:
-            where = "WHERE deleted = 0"
+            filters.insert(0, "tenant_id = ?")
+            params.insert(0, tenant_id)
+        append_data_scope_sql(filters, params, data_scope, API_KEY_RESOURCE)
+        where = f"WHERE {' AND '.join(filters)}"
         rows = conn.execute(
             f"""
             SELECT *
@@ -57,7 +86,7 @@ def list_api_keys(*, tenant_id: int | None = None) -> list[dict[str, Any]]:
             {where}
             ORDER BY is_active DESC, create_time DESC, id DESC
             """,
-            params,
+            tuple(params),
         ).fetchall()
     return [row_to_api_key(dict(row)) for row in rows]
 

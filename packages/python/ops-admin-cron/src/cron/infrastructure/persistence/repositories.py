@@ -21,6 +21,7 @@ from cron.domain.models import (
     TASK_STATUS_ENABLED,
 )
 from cron.infrastructure.persistence.bootstrap import require_cron_schema
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -30,6 +31,9 @@ def database_target() -> str | Path:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+CRON_TASK_RESOURCE = ResourceDescriptor(resource_key="cron.task")
 
 
 def save_task(
@@ -55,6 +59,8 @@ def save_task(
         int(payload.get("retry_delay_seconds") or 0),
         float(payload.get("retry_backoff_multiplier") or 1),
         str(payload.get("misfire_policy") or "skip").strip() or "skip",
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         actor,
         actor_id,
         timestamp,
@@ -70,7 +76,8 @@ def save_task(
                     execution_target = ?, payload_schema_version = ?, default_payload_json = ?,
                     concurrency_policy = ?, timeout_seconds = ?, max_attempts = ?,
                     retry_delay_seconds = ?, retry_backoff_multiplier = ?, misfire_policy = ?,
-                    editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+                    owner_user_id = ?, owner_department_id = ?, editor = ?, editor_id = ?,
+                    update_time = ?, lock_version = lock_version + 1
                 WHERE id = ? AND tenant_id = ? AND deleted = 0
                 """,
                 (*task_values, task_id, tenant_id),
@@ -83,13 +90,14 @@ def save_task(
                     tenant_id, task_key, name, description, status, execution_target,
                     payload_schema_version, default_payload_json, concurrency_policy,
                     timeout_seconds, max_attempts, retry_delay_seconds, retry_backoff_multiplier,
-                    misfire_policy, creator, creator_id, editor, editor_id, create_time, update_time
+                    misfire_policy, owner_user_id, owner_department_id, creator, creator_id,
+                    editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     tenant_id,
-                    *task_values[:13],
+                    *task_values[:15],
                     actor,
                     actor_id,
                     actor,
@@ -175,24 +183,33 @@ def upsert_schedule_row(
     )
 
 
-def list_tasks(*, tenant_id: int, page: int, page_size: int, status: str | None = None) -> tuple[list[CronTaskDetail], int]:
+def list_tasks(
+    *,
+    tenant_id: int,
+    page: int,
+    page_size: int,
+    status: str | None = None,
+    data_scope: DataAccessPredicate | None = None,
+) -> tuple[list[CronTaskDetail], int]:
     offset = (page - 1) * page_size
+    filters = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
-    status_filter = ""
+    append_data_scope_sql(filters, params, data_scope, CRON_TASK_RESOURCE)
     if status:
-        status_filter = " AND status = ?"
+        filters.append("status = ?")
         params.append(status)
+    where_sql = " AND ".join(filters)
     with connect(database_target(), readonly=True) as conn:
         require_cron_schema(conn)
         total_row = conn.execute(
-            f"SELECT COUNT(*) AS total FROM cron_tasks WHERE tenant_id = ? AND deleted = 0{status_filter}",
+            f"SELECT COUNT(*) AS total FROM cron_tasks WHERE {where_sql}",
             tuple(params),
         ).fetchone()
         rows = conn.execute(
             f"""
             SELECT *
             FROM cron_tasks
-            WHERE tenant_id = ? AND deleted = 0{status_filter}
+            WHERE {where_sql}
             ORDER BY update_time DESC, id DESC
             LIMIT ? OFFSET ?
             """,

@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS message_intents (
     target_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     scheduled_time TEXT DEFAULT NULL,
     status TEXT NOT NULL DEFAULT 'queued',
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

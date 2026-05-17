@@ -14,10 +14,19 @@ from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
 from framework.llm_core import CommandLLMClient, LLMClient, LLMResponse, MiniMaxLLMClient, OpenAICompatibleLLMClient
 from llm_runtime.application import gateway
 from system.application.database import connect, resolve_database_url, resolve_db_path, table_exists
+from system.application.data_access import (
+    ResourceDescriptor,
+    append_data_scope_sql,
+    current_user_primary_department_id,
+    resolve_data_access_filter,
+)
 from system.application.event_bus import publish_event
 from system.application.tenancy import current_tenant_scope
 from system.interfaces.http import current_request_id
 from llm_runtime.infrastructure.persistence import repositories
+
+
+LLM_MODEL_CONFIG_RESOURCE = ResourceDescriptor(resource_key="llm.model-config")
 
 
 def require_database() -> str | Path:
@@ -35,14 +44,14 @@ def env_value(name: str) -> str | None:
     return value or None
 
 
-def get_llm_config() -> dict[str, Any]:
+def get_llm_config(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             require_llm_config_schema(conn)
             if not table_exists(conn, "llm_configs"):
                 return default_llm_config_response(source="database")
-            row = active_llm_config_row(conn)
+            row = active_llm_config_row(conn, current_user=current_user)
     except (sqlite3.Error, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if not row:
@@ -50,7 +59,7 @@ def get_llm_config() -> dict[str, Any]:
     return llm_config_response_from_row(row)
 
 
-def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
+def save_llm_config(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
@@ -69,6 +78,8 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
             else:
                 extra_body.pop("reasoning_split", None)
             tenant_id = current_tenant_id()
+            owner_user_id = current_user_id_or_none(current_user or {})
+            owner_department_id = current_user_primary_department_id(current_user or {})
             values = (
                 tenant_id,
                 str(payload.get("provider", "minimax")).strip().lower(),
@@ -80,6 +91,8 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
                 float(payload.get("temperature", 0.1)),
                 json.dumps(extra_body, ensure_ascii=False),
                 1 if bool(payload.get("enabled", True)) else 0,
+                owner_user_id,
+                owner_department_id,
                 now,
             )
             if existing:
@@ -95,6 +108,8 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
                         temperature = ?,
                         extra_body = ?,
                         is_active = ?,
+                        owner_user_id = ?,
+                        owner_department_id = ?,
                         update_time = ?
                     WHERE id = ?
                       AND tenant_id = ?
@@ -107,9 +122,9 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
                     INSERT INTO llm_configs (
                         tenant_id, provider, model, base_url, api_key, command,
                         timeout_seconds, temperature, extra_body, is_active,
-                        create_time, update_time
+                        owner_user_id, owner_department_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (*values, now),
                 )
@@ -131,36 +146,36 @@ def save_llm_config(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def list_providers() -> dict[str, Any]:
-    return list_resource(repositories.list_providers)
+def list_providers(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_providers, current_user=current_user)
 
 
-def save_provider(payload: dict[str, Any]) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_provider(conn, payload))
+def save_provider(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return write_resource(lambda conn: repositories.upsert_provider(conn, owner_payload(payload, current_user)))
 
 
-def list_models() -> dict[str, Any]:
-    return list_resource(repositories.list_models)
+def list_models(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_models, current_user=current_user)
 
 
-def save_model(payload: dict[str, Any]) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_model(conn, payload))
+def save_model(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return write_resource(lambda conn: repositories.upsert_model(conn, owner_payload(payload, current_user)))
 
 
-def list_tasks() -> dict[str, Any]:
-    return list_resource(repositories.list_tasks)
+def list_tasks(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_tasks, current_user=current_user)
 
 
-def register_task(payload: dict[str, Any]) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.register_task(conn, payload))
+def register_task(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return write_resource(lambda conn: repositories.register_task(conn, owner_payload(payload, current_user)))
 
 
-def list_routing_policies() -> dict[str, Any]:
-    return list_resource(repositories.list_policies)
+def list_routing_policies(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_policies, current_user=current_user)
 
 
-def save_routing_policy(payload: dict[str, Any]) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_routing_policy(conn, payload))
+def save_routing_policy(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return write_resource(lambda conn: repositories.upsert_routing_policy(conn, owner_payload(payload, current_user)))
 
 
 def list_call_logs(limit: int = 50) -> dict[str, Any]:
@@ -251,18 +266,37 @@ def openai_chat_completion_stream_events(response: dict[str, Any]) -> list[str]:
     return gateway.openai_chat_completion_stream_events(response)
 
 
-def list_resource(loader: Any) -> dict[str, Any]:
+def list_resource(loader: Any, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             require_llm_config_schema(conn)
-            items = loader(conn)
+            data_scope = (
+                resolve_data_access_filter(current_user=current_user, resource=LLM_MODEL_CONFIG_RESOURCE, action="read")
+                if current_user is not None
+                else None
+            )
+            items = loader(conn, data_scope=data_scope)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {
         "items": items,
         "pagination": {"page": 1, "page_size": len(items), "total": len(items)},
     }
+
+
+def owner_payload(payload: dict[str, Any], current_user: dict[str, Any] | None) -> dict[str, Any]:
+    current_user = current_user or {}
+    return {
+        **payload,
+        "owner_user_id": current_user_id_or_none(current_user),
+        "owner_department_id": current_user_primary_department_id(current_user),
+    }
+
+
+def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
+    user_id = int(current_user.get("id", 0) or 0)
+    return user_id or None
 
 
 def write_resource(writer: Any) -> dict[str, Any]:
@@ -311,16 +345,21 @@ def require_llm_config_schema(conn: Any) -> None:
     require_llm_schema(conn)
 
 
-def active_llm_config_row(conn: Any) -> dict[str, Any] | None:
+def active_llm_config_row(conn: Any, current_user: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    filters = ["tenant_id = ?"]
+    params: list[Any] = [current_tenant_id()]
+    if current_user is not None:
+        data_scope = resolve_data_access_filter(current_user=current_user, resource=LLM_MODEL_CONFIG_RESOURCE, action="read")
+        append_data_scope_sql(filters, params, data_scope, LLM_MODEL_CONFIG_RESOURCE)
     row = conn.execute(
-        """
+        f"""
         SELECT *
         FROM llm_configs
-        WHERE tenant_id = ?
+        WHERE {" AND ".join(filters)}
         ORDER BY is_active DESC, update_time DESC, id DESC
         LIMIT 1
         """,
-        (current_tenant_id(),),
+        tuple(params),
     ).fetchone()
     return dict(row) if row else None
 

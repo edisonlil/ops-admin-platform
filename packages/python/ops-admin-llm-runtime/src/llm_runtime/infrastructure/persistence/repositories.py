@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from llm_runtime.domain.models import RoutingEntry, RoutingPolicy, RouteResolution
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.tenancy import current_tenant_scope
 
 
@@ -40,6 +41,25 @@ def current_tenant_id() -> int:
     return int(current_tenant_scope().tenant_id)
 
 
+LLM_MODEL_CONFIG_RESOURCE = ResourceDescriptor(resource_key="llm.model-config")
+
+
+def scoped_rows(conn: Any, table_name: str, *, order_by: str, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    filters = ["tenant_id = ?"]
+    params: list[Any] = [current_tenant_id()]
+    append_data_scope_sql(filters, params, data_scope, LLM_MODEL_CONFIG_RESOURCE)
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM {table_name}
+        WHERE {" AND ".join(filters)}
+        ORDER BY {order_by}
+        """,
+        tuple(params),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id()
     task_key = str(payload.get("task_key", "")).strip()
@@ -59,6 +79,8 @@ def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         str(payload.get("description", "")).strip(),
         str(payload.get("owner_context") or context_key).strip(),
         1 if bool(payload.get("enabled", True)) else 0,
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         timestamp,
     )
     if row:
@@ -72,6 +94,8 @@ def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 description = ?,
                 owner_context = ?,
                 enabled = ?,
+                owner_user_id = ?,
+                owner_department_id = ?,
                 update_time = ?
             WHERE tenant_id = ? AND task_key = ?
             """,
@@ -82,9 +106,10 @@ def register_task(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_tasks (
                 tenant_id, task_key, context_key, scene_key, task_name, display_name,
-                description, owner_context, enabled, create_time, update_time
+                description, owner_context, enabled, owner_user_id, owner_department_id,
+                create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, task_key, *values, timestamp),
         )
@@ -99,12 +124,8 @@ def get_task(conn: Any, task_key: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_tasks(conn: Any) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM llm_tasks WHERE tenant_id = ? ORDER BY context_key, scene_key, task_key",
-        (current_tenant_id(),),
-    ).fetchall()
-    return [dict(row) for row in rows]
+def list_tasks(conn: Any, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    return scoped_rows(conn, "llm_tasks", order_by="context_key, scene_key, task_key", data_scope=data_scope)
 
 
 def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +147,8 @@ def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         json_text(payload.get("extra_headers")),
         json_text(payload.get("extra_body")),
         1 if bool(payload.get("enabled", True)) else 0,
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         timestamp,
     )
     if existing:
@@ -139,6 +162,8 @@ def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 extra_headers = ?,
                 extra_body = ?,
                 enabled = ?,
+                owner_user_id = ?,
+                owner_department_id = ?,
                 update_time = ?
             WHERE tenant_id = ? AND provider_key = ?
             """,
@@ -149,9 +174,10 @@ def upsert_provider(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_providers (
                 tenant_id, provider_key, display_name, base_url, api_key, auth_type,
-                extra_headers, extra_body, enabled, create_time, update_time
+                extra_headers, extra_body, enabled, owner_user_id, owner_department_id,
+                create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, provider_key, *values, timestamp),
         )
@@ -175,12 +201,8 @@ def get_provider(conn: Any, provider_key: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_providers(conn: Any) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM llm_providers WHERE tenant_id = ? ORDER BY provider_key",
-        (current_tenant_id(),),
-    ).fetchall()
-    return [public_provider(dict(row)) for row in rows]
+def list_providers(conn: Any, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    return [public_provider(row) for row in scoped_rows(conn, "llm_providers", order_by="provider_key", data_scope=data_scope)]
 
 
 def public_provider(row: dict[str, Any]) -> dict[str, Any]:
@@ -226,6 +248,8 @@ def upsert_model(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         json_text(payload.get("capabilities")),
         payload.get("context_window"),
         1 if bool(payload.get("enabled", True)) else 0,
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         timestamp,
     )
     existing = conn.execute(
@@ -242,6 +266,8 @@ def upsert_model(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 capabilities = ?,
                 context_window = ?,
                 enabled = ?,
+                owner_user_id = ?,
+                owner_department_id = ?,
                 update_time = ?
             WHERE tenant_id = ? AND model_key = ?
             """,
@@ -252,9 +278,9 @@ def upsert_model(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO llm_models (
                 tenant_id, model_key, provider_key, model_name, display_name, capabilities,
-                context_window, enabled, create_time, update_time
+                context_window, enabled, owner_user_id, owner_department_id, create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, model_key, *values, timestamp),
         )
@@ -274,11 +300,8 @@ def get_model(conn: Any, model_key: str) -> dict[str, Any] | None:
     return result
 
 
-def list_models(conn: Any) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM llm_models WHERE tenant_id = ? ORDER BY provider_key, model_key",
-        (current_tenant_id(),),
-    ).fetchall()
+def list_models(conn: Any, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    rows = scoped_rows(conn, "llm_models", order_by="provider_key, model_key", data_scope=data_scope)
     result = []
     for row in rows:
         item = dict(row)
@@ -302,6 +325,8 @@ def upsert_routing_policy(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         str(payload.get("display_name") or route_key).strip(),
         str(payload.get("strategy") or "priority").strip().lower(),
         1 if bool(payload.get("enabled", True)) else 0,
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         timestamp,
     )
     if existing:
@@ -311,6 +336,8 @@ def upsert_routing_policy(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             SET display_name = ?,
                 strategy = ?,
                 enabled = ?,
+                owner_user_id = ?,
+                owner_department_id = ?,
                 update_time = ?
             WHERE tenant_id = ? AND route_key = ?
             """,
@@ -320,8 +347,11 @@ def upsert_routing_policy(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     else:
         conn.execute(
             """
-            INSERT INTO llm_routing_policies (tenant_id, route_key, display_name, strategy, enabled, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO llm_routing_policies (
+                tenant_id, route_key, display_name, strategy, enabled,
+                owner_user_id, owner_department_id, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (tenant_id, route_key, *values, timestamp),
         )
@@ -518,11 +548,8 @@ def route_candidates(task_key: str) -> list[str]:
     return result
 
 
-def list_policies(conn: Any) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM llm_routing_policies WHERE tenant_id = ? ORDER BY route_key",
-        (current_tenant_id(),),
-    ).fetchall()
+def list_policies(conn: Any, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    rows = scoped_rows(conn, "llm_routing_policies", order_by="route_key", data_scope=data_scope)
     result = []
     for row in rows:
         policy = get_policy(conn, str(dict(row)["route_key"]))

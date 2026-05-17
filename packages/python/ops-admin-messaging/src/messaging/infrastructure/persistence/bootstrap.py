@@ -3,14 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from system.infrastructure.persistence.dialect import apply_sql_script, ddl_filename, table_exists
+from system.infrastructure.persistence.dialect import add_column_if_missing, apply_sql_script, ddl_filename, table_exists
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
 
 
 def ensure_messaging_schema(conn: Any) -> None:
+    ensure_messaging_columns(conn)
     apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
+    ensure_messaging_columns(conn)
 
 
 def require_messaging_schema(conn: Any) -> None:
@@ -28,3 +30,10 @@ def require_messaging_schema(conn: Any) -> None:
             "messaging storage is not initialized; run `python scripts/init_messaging.py`"
             + f" (missing tables: {', '.join(missing)})"
         )
+
+
+def ensure_messaging_columns(conn: Any) -> None:
+    if not table_exists(conn, "message_intents"):
+        return
+    add_column_if_missing(conn, "message_intents", "owner_user_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "message_intents", "owner_department_id", "BIGINT DEFAULT NULL")

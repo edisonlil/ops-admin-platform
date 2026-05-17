@@ -58,6 +58,41 @@ class DataAccessPredicate:
         return " AND ".join(clauses), tuple(params)
 
 
+def append_data_scope_sql(
+    where: list[str],
+    params: list[Any],
+    data_scope: DataAccessPredicate | None,
+    descriptor: ResourceDescriptor,
+    *,
+    alias: str = "",
+) -> None:
+    if data_scope is None:
+        return
+    sql, scope_params = data_scope.to_sql(descriptor, alias=alias)
+    if not sql:
+        return
+    prefix = f"{alias}." if alias else ""
+    tenant_clause = f"{prefix}{descriptor.tenant_column} = ?"
+    clauses = [clause.strip() for clause in sql.split(" AND ") if clause.strip()]
+    params_to_add = list(scope_params)
+    for clause in clauses:
+        if clause == tenant_clause:
+            if params_to_add:
+                params_to_add.pop(0)
+            continue
+        where.append(clause)
+    params.extend(params_to_add)
+
+
+def current_user_primary_department_id(current_user: dict[str, Any]) -> int | None:
+    departments = current_user.get("departments") or []
+    primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
+    if not primary:
+        return None
+    department_id = int(primary.get("department_id") or primary.get("id") or 0)
+    return department_id or None
+
+
 class DataAccessFilterProvider(Protocol):
     def resolve_filter(
         self,

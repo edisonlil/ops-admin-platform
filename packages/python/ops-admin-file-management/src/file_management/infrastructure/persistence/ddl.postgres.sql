@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS file_libraries (
     library_type TEXT NOT NULL DEFAULT 'general',
     visibility TEXT NOT NULL DEFAULT 'tenant',
     status TEXT NOT NULL DEFAULT 'active',
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -14,7 +15,7 @@ CREATE TABLE IF NOT EXISTS file_libraries (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, name, deleted)
+    UNIQUE (tenant_id, name, active_marker)
 );
 
 CREATE TABLE IF NOT EXISTS file_objects (
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS file_objects (
     visibility TEXT NOT NULL DEFAULT 'tenant',
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     indexed_at TEXT DEFAULT NULL,
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS file_folders (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -61,7 +65,7 @@ CREATE TABLE IF NOT EXISTS file_folders (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, library_id, parent_id, name, deleted)
+    UNIQUE (tenant_id, library_id, parent_id, name, active_marker)
 );
 
 CREATE TABLE IF NOT EXISTS tenant_file_storage_quotas (

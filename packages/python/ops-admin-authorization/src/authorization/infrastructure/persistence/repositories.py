@@ -268,7 +268,7 @@ def delete_data_access_policy(*, tenant_id: int, policy_id: int) -> DataAccessPo
         conn.execute(
             """
             UPDATE data_access_policies
-            SET deleted = 1, update_time = ?, lock_version = lock_version + 1
+            SET deleted = 1, active_marker = NULL, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ?
             """,
             (timestamp, policy_id, normalized_tenant_id),

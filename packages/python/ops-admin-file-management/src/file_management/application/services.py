@@ -55,11 +55,17 @@ from file_management.infrastructure.persistence import repositories
 from file_management.infrastructure.search.database_search import DatabaseFileSearch
 from file_management.infrastructure.search.elasticsearch_placeholder import NoopFileIndexer
 from file_management.infrastructure.storage.minio_storage import MinioObjectStorage
+from system.application.data_access import (
+    ResourceDescriptor,
+    current_user_primary_department_id,
+    resolve_data_access_filter,
+)
 
 
 _storage: StoragePort = MinioObjectStorage()
 _indexer: FileIndexerPort = NoopFileIndexer()
 _preview_provider: PreviewProviderPort = NativePreviewProvider()
+FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
 
 
 def configure_storage(storage: StoragePort) -> None:
@@ -169,6 +175,7 @@ def list_files(
             keyword=keyword,
             mime_type=mime_type,
             status=status_filter,
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=FILE_OBJECT_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
@@ -214,6 +221,7 @@ def list_workspace(
             folder_id=folder_id,
             current_folder_only=not bool(keyword.strip()),
             keyword=keyword.strip(),
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=FILE_OBJECT_RESOURCE, action="read"),
         )
         usage = repositories.storage_usage(tenant_id=tenant_id)
         folder_usages = (
@@ -427,6 +435,8 @@ def upload_file(
             metadata=metadata,
             actor=actor,
             actor_id=actor_id,
+            owner_user_id=actor_id,
+            owner_department_id=current_user_primary_department_id(current_user),
         )
         create_index_job_for_file(item, "upsert", current_user)
         repositories.record_access_log(

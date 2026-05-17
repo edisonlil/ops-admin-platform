@@ -74,6 +74,21 @@ def load_user_for_tenant(username: str, tenant_id: int | None, *, auth_scope: st
     return public
 
 
+def user_departments_for_current_tenant(current_user: dict[str, Any]) -> list[dict[str, Any]]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id") or current_user.get("tenant_id") or 0)
+    user_id = int(current_user.get("id", 0) or 0)
+    if not tenant_id or not user_id:
+        return []
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return []
+    try:
+        return organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
+    except Exception:
+        return []
+
+
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
     tenant = tenant_repository.create_tenant(
         tenant_key=str(payload.get("tenant_key") or payload.get("key") or ""),

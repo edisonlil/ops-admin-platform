@@ -191,25 +191,63 @@ def set_user_departments(
             ).fetchone()
             if not department:
                 raise OrganizationDomainError(f"department not found: {department_id}")
-        conn.execute(
+        current_rows = conn.execute(
             """
-            UPDATE user_department_memberships
-            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            SELECT id, department_id
+            FROM user_department_memberships
             WHERE tenant_id = ? AND user_id = ? AND deleted = 0
             """,
-            (actor, actor_id, timestamp, tenant_id, user_id),
-        )
+            (tenant_id, user_id),
+        ).fetchall()
+        target_ids = set(normalized_ids)
+        current_by_department = {int(row["department_id"]): int(row["id"]) for row in current_rows}
+        removed_ids = [department_id for department_id in current_by_department if department_id not in target_ids]
+        if removed_ids:
+            placeholders = ", ".join("?" for _ in removed_ids)
+            conn.execute(
+                f"""
+                UPDATE user_department_memberships
+                SET deleted = 1,
+                    active_marker = NULL,
+                    is_primary = 0,
+                    editor = ?,
+                    editor_id = ?,
+                    update_time = ?,
+                    lock_version = lock_version + 1
+                WHERE tenant_id = ?
+                  AND user_id = ?
+                  AND deleted = 0
+                  AND department_id IN ({placeholders})
+                """,
+                (actor, actor_id, timestamp, tenant_id, user_id, *removed_ids),
+            )
         for department_id in normalized_ids:
             is_primary = int(department_id) == int(primary_department_id or 0)
-            conn.execute(
-                """
-                INSERT INTO user_department_memberships (
-                    tenant_id, user_id, department_id, is_primary, creator, creator_id, editor, editor_id, create_time, update_time
+            existing_id = current_by_department.get(department_id)
+            if existing_id:
+                conn.execute(
+                    """
+                    UPDATE user_department_memberships
+                    SET is_primary = ?,
+                        editor = ?,
+                        editor_id = ?,
+                        update_time = ?,
+                        lock_version = lock_version + 1
+                    WHERE id = ?
+                    """,
+                    (is_primary, actor, actor_id, timestamp, existing_id),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (tenant_id, user_id, department_id, is_primary, actor, actor_id, actor, actor_id, timestamp, timestamp),
-            )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO user_department_memberships (
+                        tenant_id, user_id, department_id, is_primary, active_marker,
+                        creator, creator_id, editor, editor_id, create_time, update_time
+                    )
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (tenant_id, user_id, department_id, is_primary, actor, actor_id, actor, actor_id, timestamp, timestamp),
+                )
     return user_departments(tenant_id=tenant_id, user_id=user_id)
 
 

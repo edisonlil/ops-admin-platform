@@ -15,6 +15,7 @@ from ai_assets.domain.models import (
     PromptVersion,
 )
 from ai_assets.infrastructure.persistence.bootstrap import require_ai_assets_schema
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -45,6 +46,9 @@ def effective_prompt_asset_status_sql() -> str:
     """
 
 
+PROMPT_ASSET_RESOURCE = ResourceDescriptor(resource_key="prompt.asset")
+
+
 def list_prompt_assets(
     *,
     tenant_id: int,
@@ -52,10 +56,12 @@ def list_prompt_assets(
     page_size: int,
     keyword: str = "",
     status: str = "",
+    data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[PromptAsset], int]:
     start = (page - 1) * page_size
     filters = ["pa.tenant_id = ?", "pa.deleted = 0"]
     params: list[Any] = [tenant_id]
+    append_data_scope_sql(filters, params, data_scope, PROMPT_ASSET_RESOURCE, alias="pa")
     if keyword:
         filters.append("(pa.prompt_key LIKE ? OR pa.name LIKE ? OR pa.description LIKE ? OR pa.tags_json LIKE ?)")
         like = f"%{keyword}%"
@@ -168,6 +174,8 @@ def save_prompt_asset(
         str(payload.get("description") or ""),
         encode_json_list(payload.get("tags") if isinstance(payload.get("tags"), list) else []),
         str(payload.get("status") or "draft"),
+        payload.get("owner_user_id"),
+        payload.get("owner_department_id"),
         actor,
         actor_id,
         timestamp,
@@ -179,7 +187,7 @@ def save_prompt_asset(
                 """
                 UPDATE prompt_assets
                 SET prompt_key = ?, name = ?, description = ?, tags_json = ?,
-                    status = ?, editor = ?, editor_id = ?,
+                    status = ?, owner_user_id = ?, owner_department_id = ?, editor = ?, editor_id = ?,
                     update_time = ?, lock_version = lock_version + 1
                 WHERE id = ? AND tenant_id = ? AND deleted = 0
                 """,
@@ -191,11 +199,12 @@ def save_prompt_asset(
                 """
                 INSERT INTO prompt_assets (
                     tenant_id, prompt_key, name, description, tags_json,
-                    status, creator, creator_id, editor, editor_id, create_time, update_time
+                    status, owner_user_id, owner_department_id, creator, creator_id,
+                    editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tenant_id, *values[:5], actor, actor_id, actor, actor_id, timestamp, timestamp),
+                (tenant_id, *values[:7], actor, actor_id, actor, actor_id, timestamp, timestamp),
             )
             saved_id = inserted_id(conn, cursor, "prompt_assets", timestamp, actor)
     return get_prompt_asset(tenant_id=tenant_id, prompt_id=saved_id)
@@ -225,11 +234,12 @@ def copy_prompt_asset(
             return None
         cursor = conn.execute(
             """
-            INSERT INTO prompt_assets (
-                tenant_id, prompt_key, name, description, tags_json,
-                status, creator, creator_id, editor, editor_id, create_time, update_time
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO prompt_assets (
+                    tenant_id, prompt_key, name, description, tags_json,
+                    status, owner_user_id, owner_department_id, creator, creator_id,
+                    editor, editor_id, create_time, update_time
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tenant_id,
@@ -238,6 +248,8 @@ def copy_prompt_asset(
                 str(source["description"] or ""),
                 str(source["tags_json"] or "[]"),
                 PROMPT_ASSET_STATUS_DRAFT,
+                actor_id,
+                source["owner_department_id"] if "owner_department_id" in source.keys() else None,
                 actor,
                 actor_id,
                 actor,
@@ -315,7 +327,7 @@ def delete_archived_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, 
         cursor = conn.execute(
             """
             UPDATE prompt_assets
-            SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            SET deleted = 1, active_marker = NULL, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND status = ? AND deleted = 0
             """,
             (actor, actor_id, timestamp, prompt_id, tenant_id, PROMPT_ASSET_STATUS_ARCHIVED),
@@ -324,7 +336,7 @@ def delete_archived_prompt_asset(*, tenant_id: int, prompt_id: int, actor: str, 
             conn.execute(
                 """
                 UPDATE prompt_versions
-                SET deleted = 1, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+                SET deleted = 1, active_marker = NULL, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
                 WHERE prompt_id = ? AND tenant_id = ? AND deleted = 0
                 """,
                 (actor, actor_id, timestamp, prompt_id, tenant_id),

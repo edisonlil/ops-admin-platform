@@ -81,20 +81,17 @@ def clone_repo(scaffold_url: str, branch: str, target_path: Path) -> bool:
         return False
 
 
-def init_git(target_path: Path) -> None:
-    """Initialize a new git repository (removes scaffold git history)."""
+def setup_new_git(target_path: Path) -> None:
+    """Initialize git and optionally set new remote."""
     print("Initializing new git repository...")
-    import time
-    import shutil
-
+    
     git_dir = target_path / ".git"
     if git_dir.exists():
-        # Wait a bit for any file handles to be released
+        import time
+        import shutil
         time.sleep(0.5)
         try:
-            # Use robocopy to delete on Windows (more reliable)
             if sys.platform == "win32":
-                # Create a temp empty directory
                 import tempfile
                 temp_dir = Path(tempfile.gettempdir()) / f"tmp_del_{os.getpid()}"
                 temp_dir.mkdir(exist_ok=True)
@@ -103,7 +100,6 @@ def init_git(target_path: Path) -> None:
                     capture_output=True,
                     check=False,
                 )
-                # Remove the now-empty .git directory
                 if git_dir.exists():
                     shutil.rmtree(git_dir, ignore_errors=True)
             else:
@@ -111,10 +107,72 @@ def init_git(target_path: Path) -> None:
         except Exception as e:
             print(f"Warning: Could not fully remove .git directory: {e}")
 
-    # Initialize new repo
     try:
-        run_command(["git", "init"], cwd=target_path, capture_output=False, check=True)
-        print("New git repository initialized.")
+        run_command(["git", "init"], cwd=target_path, capture_output=True, check=True)
+        print("Git repository initialized.")
+        
+        # Ask for new remote
+        print("\nGit Remote Setup:")
+        print("-" * 40)
+        default_remote = input("Git remote URL (leave empty to skip): ").strip()
+        
+        if default_remote:
+            try:
+                run_command(
+                    ["git", "remote", "add", "origin", default_remote],
+                    cwd=target_path,
+                    capture_output=True,
+                    check=True,
+                )
+                print(f"Remote 'origin' set to: {default_remote}")
+                
+                # Reset branch to main
+                print("\nResetting branch to 'main'...")
+                run_command(
+                    ["git", "checkout", "-B", "main"],
+                    cwd=target_path,
+                    capture_output=True,
+                    check=True,
+                )
+                print("Branch reset to 'main'.")
+                
+                # Create initial commit
+                print("Creating initial commit...")
+                run_command(
+                    ["git", "add", "-A"],
+                    cwd=target_path,
+                    capture_output=True,
+                    check=True,
+                )
+                try:
+                    run_command(
+                        ["git", "commit", "-m", "Initial commit from ops-cli"],
+                        cwd=target_path,
+                        capture_output=True,
+                        check=True,
+                    )
+                    print("Initial commit created.")
+                except Exception:
+                    print("No files to commit (empty project).")
+                
+                # Push to remote
+                print("\nPushing to remote...")
+                try:
+                    run_command(
+                        ["git", "push", "-u", "origin", "main"],
+                        cwd=target_path,
+                        capture_output=True,
+                        check=True,
+                    )
+                    print("Pushed to origin/main.")
+                except Exception as e:
+                    print(f"Warning: Failed to push: {e}")
+                    
+            except Exception as e:
+                print(f"Warning: Failed to set remote: {e}")
+        else:
+            print("Skipped remote setup (no URL provided).")
+            
     except Exception as e:
         print(f"Warning: Failed to initialize git: {e}")
 
@@ -294,8 +352,8 @@ def run_init(args) -> None:
     copy_scaffold_docs(project_path)
     copy_agents_guide(project_path)
 
-    # Step 6: Initialize git
-    init_git(project_path)
+    # Step 6: Initialize git with new remote
+    setup_new_git(project_path)
 
     # Step 7: Create virtual environment
     try:

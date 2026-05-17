@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS data_access_policies (
     scope VARCHAR(80) NOT NULL,
     department_ids_json TEXT NOT NULL DEFAULT ('[]'),
     priority BIGINT NOT NULL DEFAULT 100,
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -39,7 +40,7 @@ CREATE TABLE IF NOT EXISTS data_access_policies (
     update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     editor VARCHAR(64) DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, subject_type, subject_id, resource_key, action, deleted)
+    UNIQUE (tenant_id, subject_type, subject_id, resource_key, action, active_marker)
 );
 
 CREATE INDEX idx_data_resource_descriptors_key ON data_resource_descriptors(resource_key, deleted);

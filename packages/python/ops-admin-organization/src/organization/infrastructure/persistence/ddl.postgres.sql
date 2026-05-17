@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS user_department_memberships (
     user_id BIGINT NOT NULL,
     department_id BIGINT NOT NULL,
     is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +35,7 @@ CREATE TABLE IF NOT EXISTS user_department_memberships (
     update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor VARCHAR(64) DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,
-    UNIQUE (tenant_id, user_id, department_id, deleted)
+    UNIQUE (tenant_id, user_id, department_id, active_marker)
 );
 
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_parent ON departments(tenant_id, parent_id, deleted);

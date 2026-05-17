@@ -86,8 +86,8 @@ def naive_admin_info(current_user: dict[str, Any] = Depends(auth.require_user)) 
 
 
 @router.get("/api-keys")
-def api_keys(_: dict[str, Any] = Depends(auth.require_permission("api_keys:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys()})
+def api_keys(current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access"))) -> dict[str, Any]:
+    return ok({"items": services.list_api_keys(current_user=current_user)})
 
 
 @router.post("/api-keys")
@@ -95,7 +95,7 @@ def create_api_key(
     payload: ApiKeyCreateRequest,
     current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:create")),
 ) -> dict[str, Any]:
-    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"])))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), current_user=current_user))
 
 
 @router.delete("/api-keys/{key_id}")
@@ -181,8 +181,8 @@ def disable_tenant_user(
 
 
 @router.get("/tenants/{tenant_id}/api-keys")
-def tenant_api_keys(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id)})
+def tenant_api_keys(tenant_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
+    return ok({"items": services.list_api_keys(tenant_id=tenant_id, current_user=current_user)})
 
 
 @router.post("/tenants/{tenant_id}/api-keys")
@@ -191,7 +191,7 @@ def create_tenant_api_key(
     payload: ApiKeyCreateRequest,
     current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:api_keys:create")),
 ) -> dict[str, Any]:
-    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id, current_user=current_user))
 
 
 @router.delete("/tenants/{tenant_id}/api-keys/{key_id}")
@@ -258,7 +258,7 @@ def current_tenant_roles(_: dict[str, Any] = Depends(auth.require_permission("te
 @router.get("/tenant/api-keys")
 def current_tenant_api_keys(current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage"))) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id)})
+    return ok({"items": services.list_api_keys(tenant_id=tenant_id, current_user=current_user)})
 
 
 @router.post("/tenant/api-keys")
@@ -267,7 +267,7 @@ def create_current_tenant_api_key(
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_keys:create")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id))
+    return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id, current_user=current_user))
 
 
 @router.delete("/tenant/api-keys/{key_id}")

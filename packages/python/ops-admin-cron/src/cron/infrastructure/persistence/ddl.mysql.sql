@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS cron_tasks (
     retry_delay_seconds BIGINT NOT NULL DEFAULT 0,
     retry_backoff_multiplier DOUBLE PRECISION NOT NULL DEFAULT 1,
     misfire_policy VARCHAR(255) NOT NULL DEFAULT ('skip'),
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

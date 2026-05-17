@@ -483,6 +483,10 @@ def repair_sqlite_identity_tables_before_schema(conn: Any) -> None:
             continue
         if "tenant_id" not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN tenant_id INTEGER DEFAULT 1")
+        if table_name == "api_keys" and "owner_user_id" not in columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER DEFAULT NULL")
+        if table_name == "api_keys" and "owner_department_id" not in columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN owner_department_id INTEGER DEFAULT NULL")
         if "lock_version" not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN lock_version INTEGER NOT NULL DEFAULT 0")
         if "deleted" not in columns:
@@ -513,6 +517,8 @@ def ensure_menu_schema(conn: Any) -> None:
         add_column_if_missing(conn, "menus", "menu_scope", "TEXT DEFAULT 'tenant'")
         add_column_if_missing(conn, "menus", "component", "TEXT DEFAULT ''")
         add_column_if_missing(conn, "api_keys", "tenant_id", "BIGINT DEFAULT 1")
+        add_column_if_missing(conn, "api_keys", "owner_user_id", "BIGINT DEFAULT NULL")
+        add_column_if_missing(conn, "api_keys", "owner_department_id", "BIGINT DEFAULT NULL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tenant_menu_overrides (
@@ -583,6 +589,10 @@ def ensure_menu_schema(conn: Any) -> None:
     }
     if "tenant_id" not in api_key_columns:
         conn.execute("ALTER TABLE api_keys ADD COLUMN tenant_id INTEGER DEFAULT 1")
+    if "owner_user_id" not in api_key_columns:
+        conn.execute("ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER DEFAULT NULL")
+    if "owner_department_id" not in api_key_columns:
+        conn.execute("ALTER TABLE api_keys ADD COLUMN owner_department_id INTEGER DEFAULT NULL")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS tenant_menu_overrides (
@@ -714,6 +724,14 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
 def ensure_identity_indexes(conn: Any) -> None:
     index_statements = (
         ("idx_api_keys_tenant", "CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)"),
+        (
+            "idx_api_keys_owner_user",
+            "CREATE INDEX IF NOT EXISTS idx_api_keys_owner_user ON api_keys(tenant_id, owner_user_id, deleted)",
+        ),
+        (
+            "idx_api_keys_owner_department",
+            "CREATE INDEX IF NOT EXISTS idx_api_keys_owner_department ON api_keys(tenant_id, owner_department_id, deleted)",
+        ),
         (
             "idx_users_tenant_username_unique",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username_unique ON users(tenant_id, username)",

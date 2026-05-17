@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS user_department_memberships (
     user_id INTEGER NOT NULL,
     department_id INTEGER NOT NULL,
     is_primary INTEGER NOT NULL DEFAULT 0,
+    active_marker INTEGER DEFAULT 1,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +35,7 @@ CREATE TABLE IF NOT EXISTS user_department_memberships (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id INTEGER DEFAULT NULL,
-    UNIQUE (tenant_id, user_id, department_id, deleted)
+    UNIQUE (tenant_id, user_id, department_id, active_marker)
 );
 
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_parent ON departments(tenant_id, parent_id, deleted);

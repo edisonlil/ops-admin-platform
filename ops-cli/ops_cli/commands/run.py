@@ -143,6 +143,12 @@ def check_python_version() -> tuple[bool, str]:
 def run_run(args) -> None:
     """Start the current project."""
     config = get_config()
+    
+    # Get port settings
+    backend_port = args.backend_port if hasattr(args, 'backend_port') else 8000
+    frontend_port = args.frontend_port if hasattr(args, 'frontend_port') else 8001
+    only_backend = args.only_backend if hasattr(args, 'only_backend') else False
+    only_frontend = args.only_frontend if hasattr(args, 'only_frontend') else False
 
     # Get current project
     project_info = config.get_current_project()
@@ -251,7 +257,7 @@ def run_run(args) -> None:
 
     # Set environment variables
     os.environ["FG_AGENT_DATABASE_CONFIG"] = str(db_config.resolve())
-    os.environ["FG_AGENT_CORS_ORIGINS"] = "http://localhost:8001,http://127.0.0.1:8001"
+    os.environ["FG_AGENT_CORS_ORIGINS"] = f"http://localhost:{frontend_port},http://127.0.0.1:{frontend_port}"
 
     # Set PYTHONPATH
     pythonpath_parts = [
@@ -267,63 +273,79 @@ def run_run(args) -> None:
         pythonpath_parts.append(existing_pythonpath)
     os.environ["PYTHONPATH"] = ";".join(pythonpath_parts)
 
-    # Start backend
-    print("\nStarting backend...")
-    backend_proc = subprocess.Popen(
-        [str(python_exe), "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
-        cwd=project_path,
-    )
+    # Start backend (skip if --only-frontend)
+    if not only_frontend:
+        print(f"\nStarting backend on port {backend_port}...")
+        backend_proc = subprocess.Popen(
+            [str(python_exe), "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", str(backend_port), "--reload"],
+            cwd=project_path,
+        )
 
-    time.sleep(3)
-    if backend_proc.poll() is None:
-        print("Backend started on http://0.0.0.0:8000")
-        print("API docs: http://127.0.0.1:8000/docs")
+        time.sleep(3)
+        if backend_proc.poll() is None:
+            print(f"Backend started on http://0.0.0.0:{backend_port}")
+            print(f"API docs: http://127.0.0.1:{backend_port}/docs")
+        else:
+            print("Backend failed to start!")
     else:
-        print("Backend failed to start!")
+        backend_proc = None
+        print("\nSkipping backend (--only-frontend)")
 
-    # Start frontend
-    frontend_path = project_path / "web" / "admin"
-    if frontend_path.exists() and (frontend_path / "package.json").exists():
-        print("\nStarting frontend...")
-        
-        node_modules = frontend_path / "node_modules"
-        if not node_modules.exists():
-            print("Installing frontend dependencies...")
+    # Start frontend (skip if --only-backend)
+    if not only_backend:
+        frontend_path = project_path / "web" / "admin"
+        if frontend_path.exists() and (frontend_path / "package.json").exists():
+            print(f"\nStarting frontend on port {frontend_port}...")
+            
+            node_modules = frontend_path / "node_modules"
+            if not node_modules.exists():
+                print("Installing frontend dependencies...")
+                try:
+                    pm = "pnpm.cmd" if is_windows() else "pnpm"
+                    subprocess.run(
+                        [pm, "install"],
+                        cwd=frontend_path,
+                        check=True,
+                        timeout=600,
+                    )
+                    print("Dependencies installed.")
+                except subprocess.TimeoutExpired:
+                    print("Installation timed out. Run 'pnpm install' manually.")
+                except Exception as e:
+                    print(f"Failed to install: {e}")
+            
             try:
                 pm = "pnpm.cmd" if is_windows() else "pnpm"
+                # Set environment for frontend
+                env = os.environ.copy()
+                env["VITE_API_BASE_URL"] = f"http://127.0.0.1:{backend_port}/api"
+                env["PORT"] = str(frontend_port)
                 subprocess.run(
-                    [pm, "install"],
+                    [pm, "run", "dev", "--", "--port", str(frontend_port)],
                     cwd=frontend_path,
-                    check=True,
-                    timeout=600,
+                    env=env,
                 )
-                print("Dependencies installed.")
-            except subprocess.TimeoutExpired:
-                print("Installation timed out. Run 'pnpm install' manually.")
+                print(f"Frontend starting on http://127.0.0.1:{frontend_port}")
             except Exception as e:
-                print(f"Failed to install: {e}")
-        
-        try:
-            pm = "pnpm.cmd" if is_windows() else "pnpm"
-            subprocess.run(
-                [pm, "run", "dev"],
-                cwd=frontend_path,
-            )
-            print("Frontend starting on http://127.0.0.1:8001")
-        except Exception as e:
-            print(f"Failed to start frontend: {e}")
+                print(f"Failed to start frontend: {e}")
+        else:
+            print("\nFrontend not found.")
     else:
-        print("\nFrontend not found.")
+        print("Skipping frontend (--only-backend)")
 
     print("\n" + "=" * 50)
     print("Project is running!")
-    print("  Backend:  http://127.0.0.1:8000")
-    print("  Frontend: http://127.0.0.1:8001")
+    if not only_frontend and backend_proc:
+        print(f"  Backend:  http://127.0.0.1:{backend_port}")
+    if not only_backend:
+        print(f"  Frontend: http://127.0.0.1:{frontend_port}")
     print("\nPress Ctrl+C to stop...")
 
     try:
-        backend_proc.wait()
+        if backend_proc:
+            backend_proc.wait()
     except KeyboardInterrupt:
         print("\nStopping project...")
-        backend_proc.terminate()
-        backend_proc.wait()
+        if backend_proc:
+            backend_proc.terminate()
+            backend_proc.wait()

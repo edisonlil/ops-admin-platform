@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from cron.domain.models import CronAttempt, CronRun, CronTaskDetail, CronSchedule, CronTask, ExternalScheduleBinding
+from system.application.data_access import DataAccessPredicate
 
 
 class Clock(Protocol):
@@ -54,6 +55,7 @@ class CronRepository(Protocol):
         page: int,
         page_size: int,
         status: str | None = None,
+        data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[CronTaskDetail], int]:
         ...
 

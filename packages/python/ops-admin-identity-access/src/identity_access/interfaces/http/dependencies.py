@@ -87,6 +87,7 @@ def _attach_user_tenant_scope(current_user: dict[str, Any], payload: dict[str, A
         )
     current_user.update(tenant_payload)
     current_user["tenant_id"] = int(current["id"]) if current else None
+    current_user["departments"] = tenant_service.user_departments_for_current_tenant(current_user)
     return current_user
 
 

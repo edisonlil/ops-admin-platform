@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS cron_tasks (
     retry_delay_seconds INTEGER NOT NULL DEFAULT 0,
     retry_backoff_multiplier REAL NOT NULL DEFAULT 1,
     misfire_policy TEXT NOT NULL DEFAULT 'skip',
+    owner_user_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -114,6 +116,8 @@ CREATE TABLE IF NOT EXISTS cron_external_bindings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cron_tasks_tenant ON cron_tasks(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_cron_tasks_owner_user ON cron_tasks(tenant_id, owner_user_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_cron_tasks_owner_department ON cron_tasks(tenant_id, owner_department_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_cron_schedules_task ON cron_schedules(task_id);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(tenant_id, task_id, fire_time);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_status ON cron_runs(tenant_id, status);

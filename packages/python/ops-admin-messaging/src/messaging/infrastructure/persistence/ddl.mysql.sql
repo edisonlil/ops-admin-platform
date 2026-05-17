@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS message_intents (
     target_json JSON NOT NULL DEFAULT (JSON_OBJECT()),
     scheduled_time TEXT DEFAULT NULL,
     status VARCHAR(255) NOT NULL DEFAULT ('queued'),
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     lock_version BIGINT NOT NULL DEFAULT 0,
     deleted TINYINT(1) NOT NULL DEFAULT 0,
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

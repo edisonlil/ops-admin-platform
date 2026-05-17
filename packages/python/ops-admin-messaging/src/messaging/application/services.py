@@ -6,8 +6,14 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from messaging.infrastructure.persistence import repositories
+from system.application.data_access import (
+    ResourceDescriptor,
+    current_user_primary_department_id,
+    resolve_data_access_filter,
+)
 
 TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
+MESSAGE_RESOURCE = ResourceDescriptor(resource_key="messaging.message")
 
 
 def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -35,6 +41,7 @@ def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -
             sender_user_id=sender_user_id,
             sender_name=actor,
             actor=actor,
+            owner_department_id=current_user_primary_department_id(current_user),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
@@ -80,6 +87,7 @@ def send_template_message(payload: dict[str, Any], current_user: dict[str, Any])
             actor=actor,
             template_id=template.id,
             channels=channels,
+            owner_department_id=current_user_primary_department_id(current_user),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
@@ -92,6 +100,7 @@ def list_messages(*, page: int, page_size: int, current_user: dict[str, Any]) ->
             tenant_id=current_tenant_id(current_user),
             page=page,
             page_size=page_size,
+            data_scope=resolve_data_access_filter(current_user=current_user, resource=MESSAGE_RESOURCE, action="read"),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc

@@ -39,6 +39,77 @@ class OrganizationTests(unittest.TestCase):
         self.env_patch.stop()
         self.temp_dir.cleanup()
 
+    def test_set_user_departments_is_idempotent_and_preserves_history(self) -> None:
+        from organization.infrastructure.persistence import repositories
+
+        first = repositories.save_department(
+            tenant_id=1,
+            payload={"code": "dept-a", "name": "Dept A", "status": "active"},
+            actor="tester",
+            actor_id=1,
+        )
+        second = repositories.save_department(
+            tenant_id=1,
+            payload={"code": "dept-b", "name": "Dept B", "status": "active"},
+            actor="tester",
+            actor_id=1,
+        )
+
+        initial = repositories.set_user_departments(
+            tenant_id=1,
+            user_id=9,
+            department_ids=[first.id],
+            primary_department_id=first.id,
+            actor="tester",
+            actor_id=1,
+        )
+        repeated = repositories.set_user_departments(
+            tenant_id=1,
+            user_id=9,
+            department_ids=[first.id],
+            primary_department_id=first.id,
+            actor="tester",
+            actor_id=1,
+        )
+
+        self.assertEqual([item["department_id"] for item in initial], [first.id])
+        self.assertEqual([item["department_id"] for item in repeated], [first.id])
+
+        switched = repositories.set_user_departments(
+            tenant_id=1,
+            user_id=9,
+            department_ids=[second.id],
+            primary_department_id=second.id,
+            actor="tester",
+            actor_id=1,
+        )
+        restored = repositories.set_user_departments(
+            tenant_id=1,
+            user_id=9,
+            department_ids=[first.id],
+            primary_department_id=first.id,
+            actor="tester",
+            actor_id=1,
+        )
+
+        self.assertEqual([item["department_id"] for item in switched], [second.id])
+        self.assertEqual([item["department_id"] for item in restored], [first.id])
+        conn = sqlite3.connect(self.db_path)
+        try:
+            rows = conn.execute(
+                """
+                SELECT department_id, deleted, active_marker
+                FROM user_department_memberships
+                WHERE tenant_id = 1 AND user_id = 9
+                ORDER BY id
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([row[0] for row in rows], [first.id, second.id, first.id])
+        self.assertEqual([row[1] for row in rows], [1, 1, 0])
+        self.assertEqual([row[2] for row in rows], [None, None, 1])
+
     def test_department_rename_keeps_existing_parent(self) -> None:
         from organization.domain.exceptions import OrganizationDomainError
         from organization.infrastructure.persistence import repositories

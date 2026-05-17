@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_hash TEXT NOT NULL UNIQUE,
     prefix TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
+    owner_user_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -198,6 +200,8 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(deleted);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);
+CREATE INDEX IF NOT EXISTS idx_api_keys_owner_user ON api_keys(tenant_id, owner_user_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_api_keys_owner_department ON api_keys(tenant_id, owner_department_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_roles_key ON roles(role_key);
 CREATE INDEX IF NOT EXISTS idx_permissions_code ON permissions(code);
 CREATE INDEX IF NOT EXISTS idx_menus_key ON menus(menu_key);

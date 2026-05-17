@@ -448,14 +448,16 @@ def delete_menu(menu_id: int) -> dict[str, Any]:
     return rbac_service.delete_menu(menu_id)
 
 
-def create_api_key(*, name: str, creator: str, tenant_id: int | None = None) -> dict[str, Any]:
-    payload = api_key_service.create_api_key(name=name, creator=creator, tenant_id=tenant_id)
+def create_api_key(
+    *, name: str, creator: str, tenant_id: int | None = None, current_user: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    payload = api_key_service.create_api_key(name=name, creator=creator, tenant_id=tenant_id, current_user=current_user)
     publish_event(events.api_key_created(payload["item"], correlation_id=current_request_id()))
     return payload
 
 
-def list_api_keys(tenant_id: int | None = None) -> list[dict[str, Any]]:
-    return api_key_service.list_api_keys(tenant_id=tenant_id)
+def list_api_keys(tenant_id: int | None = None, current_user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    return api_key_service.list_api_keys(tenant_id=tenant_id, current_user=current_user)
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:

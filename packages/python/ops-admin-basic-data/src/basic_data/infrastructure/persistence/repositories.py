@@ -9,7 +9,7 @@ from typing import Any
 from basic_data.domain.exceptions import BasicDataDomainError
 from basic_data.domain.models import DictionaryItem, DictionaryType, Region, STATUS_ACTIVE, STATUS_DISABLED
 from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema
-from system.application.data_access import DataAccessPredicate, ResourceDescriptor
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -731,22 +731,7 @@ def append_data_scope(
     *,
     alias: str = "",
 ) -> None:
-    if data_scope is None:
-        return
-    sql, scope_params = data_scope.to_sql(descriptor, alias=alias)
-    if not sql:
-        return
-    prefix = f"{alias}." if alias else ""
-    tenant_clause = f"{prefix}{descriptor.tenant_column} = ?"
-    clauses = [clause.strip() for clause in sql.split(" AND ") if clause.strip()]
-    params_to_add = list(scope_params)
-    for clause in clauses:
-        if clause == tenant_clause:
-            if params_to_add:
-                params_to_add.pop(0)
-            continue
-        where.append(clause)
-    params.extend(params_to_add)
+    append_data_scope_sql(where, params, data_scope, descriptor, alias=alias)
 
 
 def raise_unique_constraint_error(exc: Exception) -> None:

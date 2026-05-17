@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS file_libraries (
     library_type TEXT NOT NULL DEFAULT 'general',
     visibility TEXT NOT NULL DEFAULT 'tenant',
     status TEXT NOT NULL DEFAULT 'active',
+    active_marker INTEGER DEFAULT 1,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -14,7 +15,7 @@ CREATE TABLE IF NOT EXISTS file_libraries (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id INTEGER DEFAULT NULL,
-    UNIQUE (tenant_id, name, deleted)
+    UNIQUE (tenant_id, name, active_marker)
 );
 
 CREATE TABLE IF NOT EXISTS file_objects (
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS file_objects (
     visibility TEXT NOT NULL DEFAULT 'tenant',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     indexed_at TEXT DEFAULT NULL,
+    owner_user_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS file_folders (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
+    active_marker INTEGER DEFAULT 1,
     lock_version INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -61,7 +65,7 @@ CREATE TABLE IF NOT EXISTS file_folders (
     update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     editor TEXT DEFAULT NULL,
     editor_id INTEGER DEFAULT NULL,
-    UNIQUE (tenant_id, library_id, parent_id, name, deleted)
+    UNIQUE (tenant_id, library_id, parent_id, name, active_marker)
 );
 
 CREATE TABLE IF NOT EXISTS tenant_file_storage_quotas (
@@ -176,6 +180,8 @@ CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_folder ON file_objects(tenant
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_name ON file_objects(tenant_id, original_name);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_hash ON file_objects(tenant_id, sha256);
 CREATE INDEX IF NOT EXISTS idx_file_objects_tenant_update ON file_objects(tenant_id, update_time);
+CREATE INDEX IF NOT EXISTS idx_file_objects_owner_user ON file_objects(tenant_id, owner_user_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_file_objects_owner_department ON file_objects(tenant_id, owner_department_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_folders_tenant_parent ON file_folders(tenant_id, library_id, parent_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_storage_profiles_default ON file_storage_profiles(provider, is_default, enabled, deleted);
 CREATE INDEX IF NOT EXISTS idx_file_preview_profiles_default ON file_preview_profiles(provider, is_default, enabled, deleted);

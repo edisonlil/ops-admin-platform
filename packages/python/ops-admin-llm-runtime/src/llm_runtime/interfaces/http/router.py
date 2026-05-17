@@ -21,75 +21,102 @@ from system.interfaces.http import ok
 router = APIRouter()
 
 
-@router.get("/llm-config", dependencies=[Depends(auth.require_permission("llm_config:access"))])
-def llm_config() -> dict[str, Any]:
-    return ok(services.get_llm_config())
+@router.get("/llm-config")
+def llm_config(current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access"))) -> dict[str, Any]:
+    return ok(services.get_llm_config(current_user=current_user))
 
 
-@router.put("/llm-config", dependencies=[Depends(auth.require_permission("llm_config:update"))])
-def update_llm_config(payload: LLMConfigRequest) -> dict[str, Any]:
-    return ok(services.save_llm_config(payload.model_dump()))
+@router.put("/llm-config")
+def update_llm_config(
+    payload: LLMConfigRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:update")),
+) -> dict[str, Any]:
+    return ok(services.save_llm_config(payload.model_dump(), current_user=current_user))
 
 
-@router.get("/llm/providers", dependencies=[Depends(auth.require_permission("llm_config:access"))])
-def llm_providers() -> dict[str, Any]:
-    return ok(services.list_providers())
+@router.get("/llm/providers")
+def llm_providers(current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access"))) -> dict[str, Any]:
+    return ok(services.list_providers(current_user=current_user))
 
 
-@router.post("/llm/providers", dependencies=[Depends(auth.require_permission("llm:providers:save"))])
-def save_llm_provider(payload: LLMProviderRequest) -> dict[str, Any]:
-    return ok(services.save_provider(payload.model_dump()))
+@router.post("/llm/providers")
+def save_llm_provider(
+    payload: LLMProviderRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:providers:save")),
+) -> dict[str, Any]:
+    return ok(services.save_provider(payload.model_dump(), current_user=current_user))
 
 
-@router.put("/llm/providers/{provider_key}", dependencies=[Depends(auth.require_permission("llm:providers:save"))])
-def update_llm_provider(provider_key: str, payload: LLMProviderRequest) -> dict[str, Any]:
+@router.put("/llm/providers/{provider_key}")
+def update_llm_provider(
+    provider_key: str,
+    payload: LLMProviderRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:providers:save")),
+) -> dict[str, Any]:
     data = payload.model_dump()
     data["provider_key"] = provider_key
-    return ok(services.save_provider(data))
+    return ok(services.save_provider(data, current_user=current_user))
 
 
-@router.get("/llm/models", dependencies=[Depends(auth.require_permission("llm_config:access"))])
-def llm_models() -> dict[str, Any]:
-    return ok(services.list_models())
+@router.get("/llm/models")
+def llm_models(current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access"))) -> dict[str, Any]:
+    return ok(services.list_models(current_user=current_user))
 
 
-@router.post("/llm/models", dependencies=[Depends(auth.require_permission("llm:models:save"))])
-def save_llm_model(payload: LLMModelRequest) -> dict[str, Any]:
-    return ok(services.save_model(payload.model_dump()))
+@router.post("/llm/models")
+def save_llm_model(
+    payload: LLMModelRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:models:save")),
+) -> dict[str, Any]:
+    return ok(services.save_model(payload.model_dump(), current_user=current_user))
 
 
-@router.put("/llm/models/{model_key}", dependencies=[Depends(auth.require_permission("llm:models:save"))])
-def update_llm_model(model_key: str, payload: LLMModelRequest) -> dict[str, Any]:
+@router.put("/llm/models/{model_key}")
+def update_llm_model(
+    model_key: str,
+    payload: LLMModelRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:models:save")),
+) -> dict[str, Any]:
     data = payload.model_dump()
     data["model_key"] = model_key
-    return ok(services.save_model(data))
+    return ok(services.save_model(data, current_user=current_user))
 
 
-@router.get("/llm/tasks", dependencies=[Depends(auth.require_permission("llm_config:access"))])
-def llm_tasks() -> dict[str, Any]:
-    return ok(services.list_tasks())
+@router.get("/llm/tasks")
+def llm_tasks(current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access"))) -> dict[str, Any]:
+    return ok(services.list_tasks(current_user=current_user))
 
 
-@router.post("/llm/tasks/register", dependencies=[Depends(auth.require_permission("llm:tasks:register"))])
-def register_llm_task(payload: LLMTaskRequest) -> dict[str, Any]:
-    return ok(services.register_task(payload.model_dump()))
+@router.post("/llm/tasks/register")
+def register_llm_task(
+    payload: LLMTaskRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:tasks:register")),
+) -> dict[str, Any]:
+    return ok(services.register_task(payload.model_dump(), current_user=current_user))
 
 
-@router.get("/llm/routing-policies", dependencies=[Depends(auth.require_permission("llm_config:access"))])
-def llm_routing_policies() -> dict[str, Any]:
-    return ok(services.list_routing_policies())
+@router.get("/llm/routing-policies")
+def llm_routing_policies(current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access"))) -> dict[str, Any]:
+    return ok(services.list_routing_policies(current_user=current_user))
 
 
-@router.post("/llm/routing-policies", dependencies=[Depends(auth.require_permission("llm:routing_policies:save"))])
-def save_llm_routing_policy(payload: LLMRoutingPolicyRequest) -> dict[str, Any]:
-    return ok(services.save_routing_policy(payload.model_dump()))
+@router.post("/llm/routing-policies")
+def save_llm_routing_policy(
+    payload: LLMRoutingPolicyRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:routing_policies:save")),
+) -> dict[str, Any]:
+    return ok(services.save_routing_policy(payload.model_dump(), current_user=current_user))
 
 
-@router.put("/llm/routing-policies/{route_key}", dependencies=[Depends(auth.require_permission("llm:routing_policies:save"))])
-def update_llm_routing_policy(route_key: str, payload: LLMRoutingPolicyRequest) -> dict[str, Any]:
+@router.put("/llm/routing-policies/{route_key}")
+def update_llm_routing_policy(
+    route_key: str,
+    payload: LLMRoutingPolicyRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("llm:routing_policies:save")),
+) -> dict[str, Any]:
     data = payload.model_dump()
     data["route_key"] = route_key
-    return ok(services.save_routing_policy(data))
+    return ok(services.save_routing_policy(data, current_user=current_user))
 
 
 @router.get("/llm/call-logs", dependencies=[Depends(auth.require_permission("llm_debug:access"))])
