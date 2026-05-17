@@ -15,6 +15,7 @@ from .commands.status import run_status
 from .commands.run import run_run
 from .commands.set_config import run_set
 from .commands.setup import run_setup
+from .commands.rerun_module import run_rerun_module
 from .commands.deploy import run_deploy, run_deploy_add, run_deploy_list, run_deploy_remove, run_container_cmd, run_deploy_history, run_deploy_rollback
 from .commands.sync import run_sync
 from .config import get_config
@@ -171,6 +172,22 @@ Examples:
         "--sqlite-path",
         dest="sqlite_path",
         help="SQLite database path",
+    )
+
+    # rerun-module command
+    rerun_parser = subparsers.add_parser(
+        "rerun-module",
+        help="Rerun init script for one module",
+    )
+    rerun_parser.add_argument("module", help="Module name, e.g. organization")
+    rerun_parser.add_argument(
+        "--env",
+        help="Environment name, e.g. dev/test/prod (uses config/database.<env>.json)",
+    )
+    rerun_parser.add_argument(
+        "--name",
+        "-n",
+        help="Project name (auto-detected from current directory if not provided)",
     )
 
     # deploy command
@@ -333,6 +350,8 @@ def main() -> int:
             run_container_cmd(args)
         elif args.command == "sync":
             run_sync(args)
+        elif args.command == "rerun-module":
+            run_rerun_module(args)
         else:
             parser.print_help()
             return 1

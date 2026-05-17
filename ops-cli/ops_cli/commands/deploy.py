@@ -102,6 +102,45 @@ def get_project_info(project_path: Path) -> dict:
     }
 
 
+def _guess_db_backend(database_url: str) -> str:
+    """Infer database backend from URL prefix."""
+    if database_url.startswith("sqlite"):
+        return "sqlite"
+    if database_url.startswith("postgresql") or database_url.startswith("postgres://"):
+        return "postgres"
+    if database_url.startswith("mysql://"):
+        return "mysql"
+    return "mysql"
+
+
+def _load_db_config_for_target(project_path: Path, target_name: str, target: dict) -> tuple[dict, str]:
+    """Load DB config for a deploy target.
+
+    Priority:
+    1. config/database.<target>.json (explicit target config)
+    2. inline target.database_url (interactive add legacy path)
+    3. config/database.json (legacy global config)
+    """
+    db_config_path = project_path / "config" / f"database.{target_name}.json"
+    if db_config_path.exists():
+        with open(db_config_path, "r", encoding="utf-8") as f:
+            return json.load(f), f"config/database.{target_name}.json"
+
+    db_url = target.get("database_url", "")
+    if db_url:
+        return {
+            "backend": _guess_db_backend(db_url),
+            "database_url": db_url,
+        }, "target.database_url"
+
+    legacy_config = project_path / "config" / "database.json"
+    if legacy_config.exists():
+        with open(legacy_config, "r", encoding="utf-8") as f:
+            return json.load(f), "config/database.json"
+
+    return {}, "missing"
+
+
 def run_build(project_path: Path) -> bool:
     """Build frontend."""
     frontend_path = project_path / "web" / "admin"
@@ -839,6 +878,15 @@ def run_deploy(args) -> None:
                 except ValueError:
                     print("Please enter a number.")
     
+    # Get database config based on target name (also used for dry-run output)
+    db_config, db_config_source = _load_db_config_for_target(project_path, target_name, target)
+    if not db_config or not db_config.get("database_url"):
+        print(f"\nNo database config found for target '{target_name}'.")
+        print(f"Please create 'config/database.{target_name}.json'")
+        print("\nExample format:")
+        print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
+        return
+
     # Dry-run mode
     if getattr(args, 'dry_run', False):
         print("\n" + "=" * 50)
@@ -849,7 +897,8 @@ def run_deploy(args) -> None:
         print(f"User: {target.get('user')}")
         print(f"Remote path: {target.get('remote_path')}")
         print(f"Container port: {target.get('container_port', 8000)}")
-        print(f"\nDatabase config: {db_config_path}")
+        print(f"\nDatabase config source: {db_config_source}")
+        print(f"Database URL: {db_config.get('database_url')}")
         print(f"\nWill do:")
         print("  1. Build frontend (pnpm build)")
         print("  2. Create deployment package (tar.gz)")
@@ -859,21 +908,10 @@ def run_deploy(args) -> None:
         print("  6. Start container")
         print("  7. Health check")
         return
-    
+
     print(f"\nDeploying to: {target_name}")
     print(f"Host: {target.get('host')}")
-    
-    # Get database config based on target name
-    db_config_path = project_path / "config" / f"database.{target_name}.json"
-    if not db_config_path.exists():
-        print(f"\nNo database config found for target '{target_name}'.")
-        print(f"Please create 'config/database.{target_name}.json'")
-        print("\nExample format:")
-        print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
-        return
-    
-    with open(db_config_path, "r", encoding="utf-8") as f:
-        db_config = json.load(f)
+    print(f"\nUsing DB config from: {db_config_source}")
     
     # Confirm deployment
     if not args.yes and not ask_confirmation("Continue with deployment?", default=True):
@@ -996,7 +1034,7 @@ def run_deploy_add(args) -> None:
     
     print(f"\nTarget '{name}' added successfully.")
     
-    # Save database.json for deployment
+    # Save database config for deployment
     config = get_config()
     project_info = config.get_current_project()
     if project_info:
@@ -1008,9 +1046,12 @@ def run_deploy_add(args) -> None:
             "backend": "mysql" if db_url.startswith("mysql") else "postgres",
             "database_url": db_url,
         }
+        with open(config_dir / f"database.{name}.json", "w", encoding="utf-8") as f:
+            json.dump(db_config, f, indent=2, ensure_ascii=False)
+            print(f"Database target config saved to database.{name}.json")
         with open(config_dir / "database.json", "w", encoding="utf-8") as f:
             json.dump(db_config, f, indent=2)
-        print(f"Database config saved.")
+        print(f"Database config backup saved to database.json")
 
 
 def run_deploy_list(args) -> None:
