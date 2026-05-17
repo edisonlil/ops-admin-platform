@@ -49,10 +49,10 @@
             <n-spin :show="menusLoading">
               <n-tree
                 block-line
-                cascade
                 checkable
                 :data="roleFormMenuTree"
                 :checked-keys="roleForm.menu_keys"
+                :indeterminate-keys="roleFormIndeterminateKeys"
                 :expanded-keys="expandedMenuKeys"
                 style="max-height: 300px; overflow: auto"
                 @update:checked-keys="handleRoleMenuKeys"
@@ -84,10 +84,10 @@
         <n-spin :show="menusLoading">
           <n-tree
             block-line
-            cascade
             checkable
             :data="currentRoleMenuTree"
             :checked-keys="checkedMenuKeys"
+            :indeterminate-keys="checkedMenuIndeterminateKeys"
             :expanded-keys="expandedMenuKeys"
             style="max-height: 460px; overflow: auto"
             @update:checked-keys="handleCheckedMenuKeys"
@@ -159,6 +159,11 @@
     is_system: boolean;
   }
 
+  type TreeCheckMeta = {
+    action?: 'check' | 'uncheck' | string;
+    node?: TreeOption;
+  };
+
   const message = useMessage();
   const { hasPermission } = usePermission();
   const loading = ref(false);
@@ -196,6 +201,8 @@
   const currentRoleScope = computed(() => currentRole.value?.role_scope || 'platform');
   const roleFormMenuTree = computed(() => buildScopedMenuTree(roleFormScope.value));
   const currentRoleMenuTree = computed(() => buildScopedMenuTree(currentRoleScope.value));
+  const roleFormIndeterminateKeys = computed(() => collectIndeterminateMenuKeys(roleForm.menu_keys, roleFormMenuTree.value));
+  const checkedMenuIndeterminateKeys = computed(() => collectIndeterminateMenuKeys(checkedMenuKeys.value, currentRoleMenuTree.value));
 
   const roleRules: FormRules = {
     name: [{ required: true, message: '请输入角色名称', trigger: ['blur', 'input'] }],
@@ -347,6 +354,37 @@
     return keys;
   }
 
+  function collectIndeterminateMenuKeys(keys: Array<string | number>, nodes: TreeOption[]) {
+    const selected = new Set(keys.map((key) => String(key)));
+    const indeterminateKeys: string[] = [];
+
+    const visit = (node: TreeOption): { anySelected: boolean; fullySelected: boolean } => {
+      const key = String(node.key);
+      const children = node.children || [];
+      const selfSelected = selected.has(key);
+
+      if (!children.length) {
+        return { anySelected: selfSelected, fullySelected: selfSelected };
+      }
+
+      const childStates = children.map(visit);
+      const anyChildSelected = childStates.some((state) => state.anySelected);
+      const allChildrenFullySelected = childStates.every((state) => state.fullySelected);
+
+      if (anyChildSelected && (!selfSelected || !allChildrenFullySelected)) {
+        indeterminateKeys.push(key);
+      }
+
+      return {
+        anySelected: selfSelected || anyChildSelected,
+        fullySelected: selfSelected && allChildrenFullySelected,
+      };
+    };
+
+    nodes.forEach(visit);
+    return indeterminateKeys;
+  }
+
   function withAncestorMenuKeys(keys: Array<string | number>) {
     const selected = new Set(keys.map((key) => String(key)));
     const byKey = new Map(menuRows.value.map((menu) => [String(menu.key), menu]));
@@ -404,14 +442,41 @@
     currentRole.value = row;
     syncExpandedMenuKeys(currentRoleMenuTree.value);
     const availableKeys = new Set(collectTreeKeys(currentRoleMenuTree.value));
-    checkedMenuKeys.value = (row.menus || [])
+    const assignedMenuKeys = (row.menus || [])
       .map((menu) => String(menu.key))
       .filter((key) => availableKeys.has(key));
+    checkedMenuKeys.value = assignedMenuKeys;
     menuModalVisible.value = true;
   }
 
-  function handleCheckedMenuKeys(keys: Array<string | number>) {
-    checkedMenuKeys.value = keys.map((key) => String(key));
+  function collectNodeAndDescendantKeys(node: TreeOption) {
+    const keys: string[] = [];
+    const visit = (item: TreeOption) => {
+      keys.push(String(item.key));
+      item.children?.forEach(visit);
+    };
+    visit(node);
+    return keys;
+  }
+
+  function applyTreeCheckUpdate(keys: Array<string | number>, meta?: TreeCheckMeta) {
+    const selected = new Set(keys.map((key) => String(key)));
+    if (!meta?.node?.children?.length) {
+      return Array.from(selected);
+    }
+
+    collectNodeAndDescendantKeys(meta.node).forEach((key) => {
+      if (meta.action === 'uncheck') {
+        selected.delete(key);
+      } else if (meta.action === 'check') {
+        selected.add(key);
+      }
+    });
+    return Array.from(selected);
+  }
+
+  function handleCheckedMenuKeys(keys: Array<string | number>, _options?: TreeOption[], meta?: TreeCheckMeta) {
+    checkedMenuKeys.value = applyTreeCheckUpdate(keys, meta);
   }
 
   function handleExpandedMenuKeys(keys: Array<string | number>) {
@@ -431,8 +496,8 @@
     roleForm.menu_keys = collectTreeKeys(roleFormMenuTree.value);
   }
 
-  function handleRoleMenuKeys(keys: Array<string | number>) {
-    roleForm.menu_keys = keys.map((key) => String(key));
+  function handleRoleMenuKeys(keys: Array<string | number>, _options?: TreeOption[], meta?: TreeCheckMeta) {
+    roleForm.menu_keys = applyTreeCheckUpdate(keys, meta);
   }
 
   async function submitRoleForm() {
