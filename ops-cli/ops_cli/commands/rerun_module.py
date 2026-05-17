@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from ..config import get_config
+from ..project_config import application_config_path, legacy_database_config_path
 from .setup import MODULE_INIT_SCRIPTS, detect_project_from_dir, get_modules_from_ops_config, get_venv_python
 
 
@@ -60,30 +61,43 @@ def run_rerun_module(args) -> None:
 
     config_dir = project_path / "config"
     explicit_env = getattr(args, "env", None)
-    db_config_path = None
+    app_config_path = None
+    legacy_db_config_path = None
 
     if explicit_env:
-        env_config_path = config_dir / f"database.{explicit_env}.json"
-        if not env_config_path.exists():
+        env_config_path = application_config_path(project_path, explicit_env)
+        legacy_env_config_path = legacy_database_config_path(project_path, explicit_env)
+        if env_config_path.exists():
+            app_config_path = env_config_path
+        elif legacy_env_config_path.exists():
+            legacy_db_config_path = legacy_env_config_path
+        else:
             print(f"Environment config not found: {env_config_path}")
-            local_config = config_dir / "database.local.json"
+            local_config = application_config_path(project_path)
+            legacy_local_config = legacy_database_config_path(project_path)
             if local_config.exists():
                 print(f"Falling back to local config: {local_config}")
-                db_config_path = local_config
+                app_config_path = local_config
+            elif legacy_local_config.exists():
+                print(f"Falling back to legacy local config: {legacy_local_config}")
+                legacy_db_config_path = legacy_local_config
             else:
-                print("No database config found. Use --env with existing file or run setup first.")
+                print("No application config found. Use --env with existing file or run setup first.")
                 return
-        else:
-            db_config_path = env_config_path
     else:
-        local_config = config_dir / "database.local.json"
+        local_config = application_config_path(project_path)
+        legacy_local_config = legacy_database_config_path(project_path)
         if local_config.exists():
-            db_config_path = local_config
+            app_config_path = local_config
+        elif legacy_local_config.exists():
+            legacy_db_config_path = legacy_local_config
 
     if explicit_env:
         print(f"Using environment: {explicit_env}")
-    if db_config_path:
-        print(f"Using DB config: {db_config_path}")
+    if app_config_path:
+        print(f"Using application config: {app_config_path}")
+    elif legacy_db_config_path:
+        print(f"Using legacy DB config: {legacy_db_config_path}")
 
     python_exe = get_venv_python(project_path)
     if not python_exe.exists():
@@ -93,8 +107,11 @@ def run_rerun_module(args) -> None:
 
     print(f"Running module init: {args.module} -> {script_name}")
     run_env = os.environ.copy()
-    if db_config_path:
-        run_env["FG_AGENT_DATABASE_CONFIG"] = str(db_config_path.resolve())
+    if app_config_path:
+        run_env["OPS_ADMIN_APPLICATION_CONFIG"] = str(app_config_path.resolve())
+        run_env.pop("FG_AGENT_DATABASE_CONFIG", None)
+    elif legacy_db_config_path:
+        run_env["FG_AGENT_DATABASE_CONFIG"] = str(legacy_db_config_path.resolve())
     result = subprocess.run(
         [str(python_exe), str(script_path)],
         cwd=project_path,

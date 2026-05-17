@@ -22,6 +22,11 @@ from paramiko import SSHClient, AutoAddPolicy
 
 from ..config import get_config
 from ..interactive.prompts import ask_confirmation, ask_with_choices
+from ..project_config import (
+    read_application_config,
+    read_database_config,
+    write_database_config as write_application_database_config,
+)
 from .deploy_history import DeployHistory, format_history_list
 
 
@@ -117,14 +122,13 @@ def _load_db_config_for_target(project_path: Path, target_name: str, target: dic
     """Load DB config for a deploy target.
 
     Priority:
-    1. config/database.<target>.json (explicit target config)
+    1. config/application.<target>.json (explicit target config)
     2. inline target.database_url (interactive add legacy path)
-    3. config/database.json (legacy global config)
+    3. config/database.<target>.json and config/database.json (legacy fallbacks)
     """
-    db_config_path = project_path / "config" / f"database.{target_name}.json"
-    if db_config_path.exists():
-        with open(db_config_path, "r", encoding="utf-8") as f:
-            return json.load(f), f"config/database.{target_name}.json"
+    db_config, config_path = read_database_config(project_path, target_name)
+    if db_config and config_path:
+        return db_config, str(config_path.relative_to(project_path))
 
     db_url = target.get("database_url", "")
     if db_url:
@@ -133,12 +137,35 @@ def _load_db_config_for_target(project_path: Path, target_name: str, target: dic
             "database_url": db_url,
         }, "target.database_url"
 
+    application_config = project_path / "config" / "application.json"
+    if application_config.exists():
+        with open(application_config, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        database = payload.get("database") if isinstance(payload, dict) else None
+        if isinstance(database, dict):
+            return database, "config/application.json"
+
     legacy_config = project_path / "config" / "database.json"
     if legacy_config.exists():
         with open(legacy_config, "r", encoding="utf-8") as f:
             return json.load(f), "config/database.json"
 
     return {}, "missing"
+
+
+def _load_application_config_for_target(project_path: Path, target_name: str, db_config: dict) -> dict:
+    app_config, _ = read_application_config(project_path, target_name)
+    if app_config:
+        return {**app_config, "database": db_config}
+
+    global_config = project_path / "config" / "application.json"
+    if global_config.exists():
+        with open(global_config, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            return {**payload, "database": db_config}
+
+    return {"database": db_config}
 
 
 def run_build(project_path: Path) -> bool:
@@ -251,12 +278,13 @@ def create_deploy_package(
                     print(f"  Adding {docker_file} (from scaffold)...")
                     tar.add(src_scaffold, arcname=docker_file)
             
-            # Add database config
-            print("  Adding database config...")
-            config_json = json.dumps(db_config, indent=2, ensure_ascii=False)
+            # Add application config
+            print("  Adding application config...")
+            app_config = _load_application_config_for_target(project_path, target_name, db_config)
+            config_json = json.dumps(app_config, indent=2, ensure_ascii=False)
             config_data = config_json.encode("utf-8")
             config_file = io.BytesIO(config_data)
-            tarinfo = tarfile.TarInfo(name="config/database.json")
+            tarinfo = tarfile.TarInfo(name="config/application.json")
             config_file.seek(0, 2)
             tarinfo.size = config_file.tell()
             config_file.seek(0)
@@ -541,7 +569,7 @@ services:
     ports:
       - "{container_port}:8000"
     environment:
-      - FG_AGENT_DATABASE_CONFIG=/app/config/database.json
+      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
       - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
       - FG_AGENT_ADMIN_DIST_PATH=/app/dist
     volumes:
@@ -1046,12 +1074,13 @@ def run_deploy_add(args) -> None:
             "backend": "mysql" if db_url.startswith("mysql") else "postgres",
             "database_url": db_url,
         }
-        with open(config_dir / f"database.{name}.json", "w", encoding="utf-8") as f:
-            json.dump(db_config, f, indent=2, ensure_ascii=False)
-            print(f"Database target config saved to database.{name}.json")
-        with open(config_dir / "database.json", "w", encoding="utf-8") as f:
-            json.dump(db_config, f, indent=2)
-        print(f"Database config backup saved to database.json")
+        target_path = write_application_database_config(project_path, db_config, env=name)
+        print(f"Database target config saved to {target_path.name}")
+        backup_path = config_dir / "application.json"
+        backup_payload = {"database": db_config}
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(backup_payload, f, indent=2, ensure_ascii=False)
+        print("Application config backup saved to application.json")
 
 
 def run_deploy_list(args) -> None:

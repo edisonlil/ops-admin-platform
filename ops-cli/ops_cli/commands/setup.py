@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..config import get_config
 from ..interactive.prompts import ask_with_choices, ask_confirmation
+from ..project_config import read_database_config, write_database_config as write_application_database_config
 
 
 def detect_project_from_dir(projects_dir: Path) -> tuple[str, dict] | None:
@@ -102,12 +103,7 @@ def create_database_if_not_exists(backend: str, database_url: str) -> bool:
 
 
 def write_database_config(project_path: Path, backend: str, **kwargs) -> None:
-    """Write database config file."""
-    config_dir = project_path / "config"
-    config_dir.mkdir(exist_ok=True)
-    
-    config_file = config_dir / "database.local.json"
-    
+    """Write database settings into the project application config."""
     if backend == "sqlite":
         db_path = kwargs.get("sqlite_path", "ops_admin.db")
         config = {
@@ -125,10 +121,8 @@ def write_database_config(project_path: Path, backend: str, **kwargs) -> None:
             "database_url": kwargs.get("database_url", "")
         }
     
-    with open(config_file, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
-    
-    print(f"Database config saved to: {config_file}")
+    config_file = write_application_database_config(project_path, config)
+    print(f"Application config saved to: {config_file}")
 
 
 def get_venv_python(project_path: Path) -> Path:
@@ -492,18 +486,15 @@ def run_init_scripts(project_path: Path, python_exe: Path) -> None:
         return
     
     # Get database config to check initialization status
-    config_file = project_path / "config" / "database.local.json"
     backend = "sqlite"
     db_path = "ops_admin.db"
     
-    if config_file.exists():
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                db_config = json.load(f)
-                backend = db_config.get("backend", "sqlite")
-                db_path = db_config.get("sqlite_path", db_path)
-        except Exception:
-            pass
+    try:
+        db_config, _ = read_database_config(project_path)
+        backend = db_config.get("backend", "sqlite")
+        db_path = db_config.get("sqlite_path", db_path)
+    except Exception:
+        pass
     
     initialized = check_already_initialized(project_path, backend, db_path)
     
@@ -605,14 +596,13 @@ def run_setup(args) -> None:
     print()
     
     # Check for command line args first, otherwise use existing config or ask
-    config_file = project_path / "config" / "database.local.json"
+    existing_config, existing_config_path = read_database_config(project_path)
     
     # Check if already configured (for linked projects)
-    if config_file.exists() and not args.database and not args.database_url:
+    if existing_config_path and existing_config and not args.database and not args.database_url:
         print("Database config already exists:")
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                existing = json.load(f)
+            existing = existing_config
             print(f"  Backend: {existing.get('backend', 'unknown')}")
             if existing.get('database_url'):
                 print(f"  URL: {existing.get('database_url')}")
@@ -636,26 +626,13 @@ def run_setup(args) -> None:
     # Determine backend
     if _continue_to_init_scripts:
         # Use existing config, don't ask
-        if config_file.exists():
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                    backend = existing.get("backend", "sqlite")
-            except Exception:
-                backend = "sqlite"
-        else:
-            backend = "sqlite"
+        backend = existing_config.get("backend", "sqlite") if existing_config else "sqlite"
         db_kwargs = {}
     elif args.database:
         backend = args.database
         db_kwargs = {}
-    elif config_file.exists():
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-                backend = existing.get("backend", "sqlite")
-        except Exception:
-            backend = "sqlite"
+    elif existing_config:
+        backend = existing_config.get("backend", "sqlite")
     else:
         backend = None
     
@@ -681,13 +658,8 @@ def run_setup(args) -> None:
         if backend in ("mysql", "postgres"):
             if args.database_url:
                 db_kwargs["database_url"] = args.database_url
-            elif config_file.exists():
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        existing = json.load(f)
-                        db_kwargs["database_url"] = existing.get("database_url", "")
-                except Exception:
-                    pass
+            elif existing_config:
+                db_kwargs["database_url"] = existing_config.get("database_url", "")
             
             if "database_url" not in db_kwargs or not db_kwargs["database_url"]:
                 print("\nStep 2: Database Connection")
@@ -702,13 +674,8 @@ def run_setup(args) -> None:
             # SQLite path
             if args.sqlite_path:
                 db_kwargs["sqlite_path"] = args.sqlite_path
-            elif config_file.exists():
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        existing = json.load(f)
-                        db_kwargs["sqlite_path"] = existing.get("sqlite_path", "ops_admin.db")
-                except Exception:
-                    pass
+            elif existing_config:
+                db_kwargs["sqlite_path"] = existing_config.get("sqlite_path", "ops_admin.db")
             
             if "sqlite_path" not in db_kwargs:
                 print("\nStep 2: SQLite Database Path")

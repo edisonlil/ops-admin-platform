@@ -155,6 +155,9 @@ def apply_patch(source_repo: Path, target_path: Path, from_commit: str) -> tuple
         ".ops-scaffold",  # Scaffold reference, don't overwrite
         "AGENTS.md",  # Project-level AGENTS, don't overwrite
         "business/",  # Business code isolation
+        "config/application.local.json",
+        "config/application.dev.json",
+        "config/application.test.json",
         "config/database.local.json",
         "config/database.dev.json",
         "config/database.test.json",

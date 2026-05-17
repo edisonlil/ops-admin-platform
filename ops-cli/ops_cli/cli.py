@@ -182,7 +182,7 @@ Examples:
     rerun_parser.add_argument("module", help="Module name, e.g. organization")
     rerun_parser.add_argument(
         "--env",
-        help="Environment name, e.g. dev/test/prod (uses config/database.<env>.json)",
+        help="Environment name, e.g. dev/test/prod (uses config/application.<env>.json)",
     )
     rerun_parser.add_argument(
         "--name",
