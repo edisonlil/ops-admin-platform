@@ -38,6 +38,7 @@ LOCAL_PACKAGE_SRC = {
     "messaging": REPO_ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     "llm_runtime": REPO_ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
     "ai_assets": REPO_ROOT / "packages" / "python" / "ops-admin-ai-assets" / "src",
+    "ai_service_api": REPO_ROOT / "packages" / "python" / "framework" / "ops-admin-ai-service-api" / "src",
     "ai_applications": REPO_ROOT / "packages" / "python" / "ops-admin-ai-applications" / "src",
     "ai_capabilities": REPO_ROOT / "packages" / "python" / "ops-admin-ai-capabilities" / "src",
     "ai_runtime_core": REPO_ROOT / "packages" / "python" / "framework" / "ops-admin-ai-runtime-core" / "src",

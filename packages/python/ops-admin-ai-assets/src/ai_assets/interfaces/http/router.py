@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from ai_assets.application import services
 from ai_assets.interfaces.http.dtos import (
+    PromptPolishRequest,
     PromptAssetRequest,
     PromptVersionRequest,
 )
@@ -66,6 +67,14 @@ def published_prompt_asset(
     current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
 ) -> dict[str, Any]:
     return ok(services.get_published_prompt_asset(prompt_key, current_user))
+
+
+@router.post("/prompts/assist/polish")
+def polish_prompt(
+    payload: PromptPolishRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:manage")),
+) -> dict[str, Any]:
+    return ok(services.polish_prompt(payload.model_dump(), current_user))
 
 
 @router.get("/prompts/{prompt_id}")

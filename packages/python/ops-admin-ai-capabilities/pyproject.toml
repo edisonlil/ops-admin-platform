@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "ops-admin-system",
+    "ops-admin-ai-service-api",
     "ops-admin-identity-access",
     "ops-admin-ai-applications",
     "ops-admin-llm-runtime",

@@ -9,6 +9,7 @@ description = "AI assets and prompt management bounded context for ops-admin-pla
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "ops-admin-ai-service-api",
     "ops-admin-system",
     "ops-admin-identity-access",
     "ops-admin-llm-runtime",

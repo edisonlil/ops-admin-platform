@@ -15,6 +15,7 @@ TEST_IMPORT_PATHS = (
     ROOT / "packages" / "python" / "ops-admin-file-management" / "src",
     ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     ROOT / "packages" / "python" / "ops-admin-ai-assets" / "src",
+    ROOT / "packages" / "python" / "framework" / "ops-admin-ai-service-api" / "src",
     ROOT / "packages" / "python" / "framework" / "ops-admin-ai-runtime-core" / "src",
     ROOT / "packages" / "python" / "ops-admin-ai-applications" / "src",
     ROOT / "packages" / "python" / "ops-admin-ai-capabilities" / "src",

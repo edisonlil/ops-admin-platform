@@ -1207,7 +1207,8 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertEqual(tenant_capability["tenant_id"], 22)
             self.assertEqual(tenant_capability["scope"], "tenant")
             self.assertEqual(tenant_result["answer"], "租户摘要结果")
-            self.assertEqual([item["capability_key"] for item in overridden_items], ["summarize"])
+            self.assertIn("prompt.polish", [item["capability_key"] for item in overridden_items])
+            self.assertEqual([item["capability_key"] for item in overridden_items if item["capability_key"] == "summarize"], ["summarize"])
             self.assertEqual(overridden_items[0]["name"], "租户摘要")
         finally:
             self._unlink_db(db_path)

@@ -186,7 +186,7 @@ def validate_executable_capability(capability: dict[str, Any], *, model_override
         if not isinstance(runtime_config.get("workflow"), dict):
             raise HTTPException(status_code=422, detail="runtime_config.workflow is required before execute")
         return
-    if not str(capability.get("user_prompt_template") or "").strip():
+    if not str(capability.get("system_prompt") or capability.get("developer_prompt") or capability.get("user_prompt_template") or "").strip():
         raise HTTPException(status_code=422, detail="user_prompt_template is required before execute")
     model_preferences = capability.get("model_preferences") if isinstance(capability.get("model_preferences"), dict) else {}
     if not str(model_override or model_preferences.get("model") or model_preferences.get("route_key") or "").strip():

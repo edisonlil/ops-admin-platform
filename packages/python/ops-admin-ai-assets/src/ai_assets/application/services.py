@@ -4,6 +4,7 @@ import re
 import uuid
 from typing import Any, Callable
 
+from ai_service_api import AIServiceError, AIServiceUnavailable, get_ai_service
 from fastapi import HTTPException, status
 
 from ai_assets.domain.exceptions import (
@@ -79,6 +80,27 @@ def list_published_prompt_assets(
 def get_published_prompt_asset(prompt_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     return resolve_published_prompt(prompt_key=prompt_key, tenant_id=tenant_id)
+
+
+def polish_prompt(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=422, detail="prompt is required")
+    variables = {
+        "title": str(payload.get("title") or "").strip(),
+        "prompt": prompt,
+    }
+    try:
+        result = get_ai_service().execute("prompt.polish", variables)
+    except AIServiceUnavailable as exc:
+        raise HTTPException(status_code=503, detail="AI service is not available") from exc
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc) or "AI service execution failed") from exc
+    return {
+        "answer": result.answer,
+        "trace_id": result.trace_id,
+        "usage": result.usage,
+    }
 
 
 def resolve_published_prompt(*, prompt_key: str, tenant_id: int) -> dict[str, Any]:

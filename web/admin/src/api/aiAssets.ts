@@ -83,6 +83,12 @@ export interface PublishedPromptAsset {
   published_time?: string | null;
 }
 
+export interface PromptPolishResult {
+  answer: string;
+  trace_id: string;
+  usage: Record<string, unknown>;
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return {
     ...params,
@@ -125,6 +131,13 @@ export function getPublishedPromptAsset(promptKey: string) {
 
 export function copyPromptAsset(promptId: number) {
   return Alova.Post<{ item: PromptAsset }>(`/prompts/${promptId}/copy`);
+}
+
+export function polishPrompt(payload: { title?: string; prompt: string }) {
+  return Alova.Post<PromptPolishResult>('/prompts/assist/polish', {
+    title: String(payload.title || '').trim(),
+    prompt: payload.prompt || '',
+  });
 }
 
 export function savePromptAsset(payload: Partial<PromptAssetPayload> & { id?: number }) {

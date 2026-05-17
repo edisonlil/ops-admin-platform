@@ -25,3 +25,8 @@ class PromptVersionRequest(BaseModel):
     model_preferences: dict[str, Any] = Field(default_factory=dict)
     render_engine: str = Field(default="simple", max_length=40)
     status: str = Field(default="draft", max_length=40)
+
+
+class PromptPolishRequest(BaseModel):
+    title: str = Field(default="", max_length=200)
+    prompt: str = Field(min_length=1, max_length=20000)

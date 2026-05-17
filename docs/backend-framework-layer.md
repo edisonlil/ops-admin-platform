@@ -24,6 +24,18 @@ The import package should be:
 ai_runtime_core
 ```
 
+For the productized AI service contract, use:
+
+```text
+packages/python/framework/ops-admin-ai-service-api/
+```
+
+The import package should be:
+
+```text
+ai_service_api
+```
+
 ## What Belongs Here
 
 Framework packages may contain:
@@ -92,3 +104,23 @@ It should not decide:
 - How menus, permissions, quotas, or audit policies work.
 
 Those decisions stay in bounded contexts.
+
+## AI Service API Boundary
+
+`ops-admin-ai-service-api` is the stable business-facing contract for optional AI capability execution. Business contexts use it when they need a productized AI capability, for example:
+
+```python
+get_ai_service().execute("prompt.polish", {"prompt": text})
+```
+
+This package may define only contracts, DTOs, exceptions, and a default unavailable provider. It must not know how AI capabilities are stored, seeded, authorized, resolved, or executed.
+
+The implementation lives in `ai_capabilities`. Its resolution rule is:
+
+```text
+current tenant AI capability with same key
+  -> platform seeded AI capability with same key
+  -> unavailable/not found
+```
+
+Execution always uses the current tenant context for model route resolution. Other bounded contexts must not import `ai_capabilities`; they depend only on `ai_service_api`. If a project omits `ai_capabilities`, the default provider should allow the app to start and return a clear "AI service is not available" error only when the AI-assisted feature is invoked.

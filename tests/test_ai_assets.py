@@ -5,8 +5,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from ai_service_api import AIExecuteResult, register_ai_service, reset_ai_service
 from ai_assets.application import services
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
+
+
+class FakeAIService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def execute(self, capability_key, variables, *, options=None):  # type: ignore[no-untyped-def]
+        self.calls.append((capability_key, dict(variables)))
+        return AIExecuteResult(answer=f"润色：{variables['prompt']}", trace_id="trace_test", usage={"total_tokens": 3})
 
 
 class AIAssetsTests(unittest.TestCase):
@@ -34,6 +44,7 @@ class AIAssetsTests(unittest.TestCase):
         self.initialize_db()
 
     def tearDown(self) -> None:
+        reset_ai_service()
         self.env_patch.stop()
         self.temp_dir.cleanup()
 
@@ -75,8 +86,27 @@ class AIAssetsTests(unittest.TestCase):
                 self.current_user,
                 version_id=int(version["id"]),
             )
-
         self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_prompt_polish_uses_ai_service_contract(self) -> None:
+        fake_ai_service = FakeAIService()
+        register_ai_service(fake_ai_service)
+
+        result = services.polish_prompt({"title": "销售话术", "prompt": "请分析 {{content}}"}, self.current_user)
+
+        self.assertEqual(result["answer"], "润色：请分析 {{content}}")
+        self.assertEqual(result["trace_id"], "trace_test")
+        self.assertEqual(fake_ai_service.calls[0][0], "prompt.polish")
+        self.assertEqual(fake_ai_service.calls[0][1]["title"], "销售话术")
+
+    def test_prompt_polish_reports_unavailable_without_ai_capabilities(self) -> None:
+        reset_ai_service()
+
+        with self.assertRaises(Exception) as caught:
+            services.polish_prompt({"title": "销售话术", "prompt": "请分析"}, self.current_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 503)
+        self.assertIn("AI service is not available", str(getattr(caught.exception, "detail", "")))
 
     def test_prompt_version_number_cannot_be_renamed_on_update(self) -> None:
         prompt = self.create_prompt()

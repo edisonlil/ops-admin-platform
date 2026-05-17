@@ -79,12 +79,12 @@
                   :autosize="{ minRows: 12, maxRows: 18 }"
                 />
                 <div class="prompt-form__prompt-tools">
-                  <n-button quaternary circle title="AI 辅助" @click="showComingSoon">
+                  <n-button quaternary circle title="AI 润色" :loading="polishingTarget === 'asset'" @click="polishAssetPrompt">
                     <template #icon>
                       <n-icon><RobotOutlined /></n-icon>
                     </template>
                   </n-button>
-                  <n-button quaternary circle title="优化提示词" @click="showComingSoon">
+                  <n-button quaternary circle title="优化提示词" :loading="polishingTarget === 'asset'" @click="polishAssetPrompt">
                     <template #icon>
                       <n-icon><HighlightOutlined /></n-icon>
                     </template>
@@ -188,12 +188,12 @@
                     :disabled="isVersionReadonly"
                   />
                   <div class="prompt-form__prompt-tools">
-                    <n-button quaternary circle title="AI 辅助" :disabled="isVersionReadonly" @click="showComingSoon">
+                    <n-button quaternary circle title="AI 润色" :loading="polishingTarget === 'version'" :disabled="isVersionReadonly" @click="polishVersionPrompt">
                       <template #icon>
                         <n-icon><RobotOutlined /></n-icon>
                       </template>
                     </n-button>
-                    <n-button quaternary circle title="优化提示词" :disabled="isVersionReadonly" @click="showComingSoon">
+                    <n-button quaternary circle title="优化提示词" :loading="polishingTarget === 'version'" :disabled="isVersionReadonly" @click="polishVersionPrompt">
                       <template #icon>
                         <n-icon><HighlightOutlined /></n-icon>
                       </template>
@@ -228,6 +228,7 @@
     getPromptAsset,
     getPromptAssets,
     getPromptVersions,
+    polishPrompt,
     publishPromptVersion,
     savePromptAsset,
     savePromptVersion,
@@ -250,6 +251,7 @@
   const loading = ref(false);
   const saving = ref(false);
   const copyingId = ref<number | null>(null);
+  const polishingTarget = ref<'asset' | 'version' | ''>('');
   const assetFormLoading = ref(false);
   const rows = ref<PromptAsset[]>([]);
   const versions = ref<PromptVersion[]>([]);
@@ -415,8 +417,51 @@
     return items.length ? `${items.length + 1}.0.0` : '1.0.0';
   }
 
-  function showComingSoon() {
-    message.info('这个辅助能力还在接入中');
+  async function polishAssetPrompt() {
+    await polishPromptContent({
+      title: assetForm.name || '',
+      prompt: assetForm.prompt_content || '',
+      target: 'asset',
+      apply: (value) => {
+        assetForm.prompt_content = value;
+      },
+    });
+  }
+
+  async function polishVersionPrompt() {
+    await polishPromptContent({
+      title: selectedPrompt.value?.name || '',
+      prompt: versionForm.user_prompt_template || '',
+      target: 'version',
+      apply: (value) => {
+        versionForm.user_prompt_template = value;
+      },
+    });
+  }
+
+  async function polishPromptContent(options: {
+    title: string;
+    prompt: string;
+    target: 'asset' | 'version';
+    apply: (value: string) => void;
+  }) {
+    const prompt = String(options.prompt || '').trim();
+    if (!prompt) {
+      message.warning('请先输入提示词内容');
+      return;
+    }
+    polishingTarget.value = options.target;
+    try {
+      const result = await polishPrompt({ title: options.title, prompt });
+      if (!result.answer) {
+        message.warning('AI 润色未返回内容');
+        return;
+      }
+      options.apply(result.answer);
+      message.success('AI 润色完成');
+    } finally {
+      polishingTarget.value = '';
+    }
   }
 
   async function remove(row: PromptAsset) {

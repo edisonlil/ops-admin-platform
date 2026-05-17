@@ -21,6 +21,7 @@
 - Framework packages must not own business tables, HTTP routers, menu/permission seed data, tenant policy, RBAC rules, or product concepts such as AI applications and AI capabilities.
 - Framework packages must not import bounded context `infrastructure` packages. When they need external execution, storage, or model calls, define ports/interfaces and let bounded contexts or composition layers provide adapters.
 - AI runtime shared primitives should live in `packages/python/framework/ops-admin-ai-runtime-core/`. This package is the common runtime core for `ai_applications`, `ai_capabilities`, and future workflow or agent runtimes; it must not depend on `llm_runtime` directly.
+- Business contexts that need productized AI capabilities must depend only on `packages/python/framework/ops-admin-ai-service-api/` and call the `AIService` contract (`aiService.execute("capability.key", variables)`). They must not import `ai_capabilities` directly. `ai_capabilities` owns the implementation: resolve current-tenant same-key overrides first, fall back to platform-seeded capabilities, then execute using the current tenant's model route. Projects that do not include `ai_capabilities` must still start; the default AI service implementation should report the capability as unavailable rather than creating import-time failures.
 
 ## API Contract
 - All business HTTP responses must use the unified envelope:
