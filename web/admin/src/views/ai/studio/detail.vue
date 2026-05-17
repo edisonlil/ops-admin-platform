@@ -1066,7 +1066,10 @@
   const selectedRunLogOutput = computed(() => splitThinkContent(selectedRunLog.value?.answer || ''));
   const selectedRunLogRenderedOutput = computed(() => renderAnswer(selectedRunLogOutput.value.answer, selectedOutputFormat.value));
   const selectedIconLabel = computed(() => String(iconOptions.find((item) => item.value === form.icon)?.label || '助手'));
-  const resourceType = computed<StudioResourceType>(() => (route.name === 'ai-studio-capability-detail' ? 'capability' : 'application'));
+  const isPlatformCapabilityRoute = computed(() => route.name === 'ai-platform-capability-detail');
+  const resourceType = computed<StudioResourceType>(() =>
+    route.name === 'ai-studio-capability-detail' || isPlatformCapabilityRoute.value ? 'capability' : 'application'
+  );
   const isCapability = computed(() => resourceType.value === 'capability');
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const editingPlatformCapability = computed(() => isCapability.value && activeCapability.value?.scope === 'platform' && isPlatformAdmin.value);
@@ -1190,7 +1193,7 @@
     try {
       if (isCapability.value) {
         const [capability] = await Promise.all([
-          isPlatformAdmin.value ? getPlatformAiCapability(key) : getAiCapability(key),
+          isPlatformCapabilityRoute.value ? getPlatformAiCapability(key) : getAiCapability(key),
           loadModelConfigs(),
           loadPublishedPrompts(),
         ]);

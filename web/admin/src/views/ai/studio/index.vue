@@ -2,7 +2,7 @@
   <div class="ai-studio-page">
     <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" @refresh="reload">
       <template #toolbar-left>
-        <n-radio-group v-model:value="activeView" size="small" class="ai-studio-page__views">
+        <n-radio-group v-if="showViewSwitch" v-model:value="activeView" size="small" class="ai-studio-page__views">
           <n-radio-button v-if="canReadApplications" value="applications">AI 应用</n-radio-button>
           <n-radio-button v-if="canReadCapabilities" value="capabilities">AI 能力</n-radio-button>
         </n-radio-group>
@@ -11,7 +11,7 @@
       <template #filters>
         <n-input v-model:value="keyword" clearable :placeholder="searchPlaceholder" class="ai-studio-page__search" />
         <n-select
-          v-if="activeView === 'applications'"
+          v-if="currentView === 'applications'"
           v-model:value="statusFilter"
           :options="statusOptions"
           class="ai-studio-page__status"
@@ -133,7 +133,7 @@
 
 <script lang="ts" setup>
   import { computed, h, onMounted, reactive, ref, watch } from 'vue';
-  import { useRouter } from 'vue-router';
+  import { useRoute, useRouter } from 'vue-router';
   import { NButton, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui';
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
@@ -154,6 +154,7 @@
     type AiQuota,
   } from '@/api/aiStudio';
 
+  const route = useRoute();
   const router = useRouter();
   const message = useMessage();
   const { hasPermission } = usePermission();
@@ -185,12 +186,31 @@
     scope: 'tenant',
   });
 
+  const isPlatformCapabilityPage = computed(() => {
+    const routeName = String(route.name || '');
+    const activeMenu = String(route.meta?.activeMenu || '');
+    return routeName === 'ai-platform-capabilities' || activeMenu === 'ai-platform-capabilities';
+  });
+  const currentView = computed<'applications' | 'capabilities'>(() =>
+    isPlatformCapabilityPage.value ? 'capabilities' : activeView.value
+  );
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
-  const canReadApplications = computed(() => hasPermission(['ai_applications:read']));
-  const canManageApplications = computed(() => hasPermission(['ai_applications:manage']));
-  const canReadCapabilities = computed(() => hasPermission(['ai_capabilities:read']));
-  const canManageCapabilities = computed(() => hasPermission(['ai_capabilities:manage']));
+  const canReadApplications = computed(
+    () => !isPlatformCapabilityPage.value && hasPermission(['ai_applications:read'])
+  );
+  const canManageApplications = computed(
+    () => !isPlatformCapabilityPage.value && hasPermission(['ai_applications:manage'])
+  );
+  const canReadCapabilities = computed(() =>
+    hasPermission(['ai_capabilities:read']) || hasPermission(['ai_capabilities:platform_manage'])
+  );
+  const canManageCapabilities = computed(() =>
+    hasPermission(['ai_capabilities:manage']) || hasPermission(['ai_capabilities:platform_manage'])
+  );
   const canManagePlatformCapabilities = computed(() => isPlatformAdmin.value);
+  const showViewSwitch = computed(
+    () => !isPlatformCapabilityPage.value && canReadApplications.value && canReadCapabilities.value
+  );
 
   const iconMap = {
     robot: RobotOutlined,
@@ -223,15 +243,20 @@
     { label: '停用', value: 'disabled' },
   ];
   const capabilityScopeOptions = computed(() => [
-    { label: '租户能力', value: 'tenant' },
-    ...(isPlatformAdmin.value ? [{ label: '平台能力', value: 'platform' }] : []),
+    ...(isPlatformCapabilityPage.value ? [] : [{ label: '租户能力', value: 'tenant' }]),
+    ...(isPlatformCapabilityPage.value || isPlatformAdmin.value ? [{ label: '平台能力', value: 'platform' }] : []),
   ]);
   const appCount = computed(() => quota.value?.usage?.applications ?? applications.value.length);
   const capabilityCount = computed(() => quota.value?.usage?.capabilities ?? capabilities.value.length);
   const quotaReached = computed(() => !!quota.value && appCount.value >= quota.value.max_applications);
-  const capabilityQuotaReached = computed(() => !!quota.value && capabilityCount.value >= quota.value.max_capabilities);
+  const capabilityQuotaReached = computed(
+    () =>
+      !isPlatformCapabilityPage.value &&
+      !!quota.value &&
+      capabilityCount.value >= quota.value.max_capabilities
+  );
   const searchPlaceholder = computed(() =>
-    activeView.value === 'applications' ? '搜索应用名称或 Key' : '搜索能力 Key、名称或模型'
+    currentView.value === 'applications' ? '搜索应用名称或 Key' : '搜索能力 Key、名称或模型'
   );
   const filteredApplications = computed(() => {
     const q = keyword.value.trim().toLowerCase();
@@ -256,7 +281,7 @@
     });
   });
   const activeRows = computed(() =>
-    activeView.value === 'applications' ? filteredApplications.value : filteredCapabilities.value
+    currentView.value === 'applications' ? filteredApplications.value : filteredCapabilities.value
   );
   const modelOptions = computed(() =>
     models.value.map((item) => ({
@@ -341,13 +366,15 @@
   const studioPage = computed(() =>
     defineListPage<AiApplication | AiCapability>({
       id: 'ai.studio',
-      title: 'AI Studio',
-      description: '统一管理 AI 应用与平台内部 AI 能力。',
+      title: isPlatformCapabilityPage.value ? '平台AI能力' : 'AI Studio',
+      description: isPlatformCapabilityPage.value
+        ? '统一管理平台内置 AI 能力，租户可直接启用或覆盖配置。'
+        : '统一管理 AI 应用与平台内部 AI 能力。',
       variant: 'dense-data',
       density: 'compact',
       toolbar: {
         primaryAction:
-          activeView.value === 'applications'
+          currentView.value === 'applications'
             ? canManageApplications.value
               ? {
                   key: 'create-application',
@@ -370,7 +397,7 @@
         rightTools: ['refresh'],
       },
       view:
-        activeView.value === 'applications'
+        currentView.value === 'applications'
           ? {
               type: 'card-list',
               itemKey: 'app_key',
@@ -384,11 +411,14 @@
               scrollX: 1180,
               tableLayout: { rowDensity: 'medium', maxHeight: 'calc(100vh - 360px)' },
             },
-      pagination: { pageSize: activeView.value === 'applications' ? 12 : 20 },
+      pagination: { pageSize: currentView.value === 'applications' ? 12 : 20 },
     })
   );
 
   function openCreateModal() {
+    if (isPlatformCapabilityPage.value) {
+      return;
+    }
     if (quotaReached.value) {
       message.warning('当前租户应用数量已达上限');
       return;
@@ -409,7 +439,7 @@
     capabilityForm.name = '';
     capabilityForm.icon = 'api';
     capabilityForm.description = '';
-    capabilityForm.scope = isPlatformAdmin.value ? 'platform' : 'tenant';
+    capabilityForm.scope = isPlatformCapabilityPage.value || isPlatformAdmin.value ? 'platform' : 'tenant';
     capabilityModalVisible.value = true;
   }
 
@@ -491,13 +521,16 @@
   }
 
   function openCapabilityDetail(capability: AiCapability) {
-    router.push({ name: 'ai-studio-capability-detail', params: { capabilityKey: capability.capability_key } });
+    router.push({
+      name: isPlatformCapabilityPage.value ? 'ai-platform-capability-detail' : 'ai-studio-capability-detail',
+      params: { capabilityKey: capability.capability_key },
+    });
   }
 
   async function reload() {
     loading.value = true;
     try {
-      const tasks: Promise<unknown>[] = [getTenantAiQuota()];
+      const tasks: Promise<unknown>[] = isPlatformCapabilityPage.value ? [] : [getTenantAiQuota()];
       applications.value = canReadApplications.value ? applications.value : [];
       capabilities.value = canReadCapabilities.value ? capabilities.value : [];
       if (canReadApplications.value) {
@@ -507,11 +540,15 @@
         tasks.push(getAiCapabilityModelOptions());
       }
       if (canReadCapabilities.value) {
-        tasks.push(isPlatformAdmin.value ? getPlatformAiCapabilities() : getAiCapabilities());
+        tasks.push(isPlatformCapabilityPage.value || isPlatformAdmin.value ? getPlatformAiCapabilities() : getAiCapabilities());
       }
-      const [quotaPayload, ...payloads] = await Promise.all(tasks);
-      quota.value = quotaPayload as AiQuota;
+      const payloads = await Promise.all(tasks);
       let payloadIndex = 0;
+      if (isPlatformCapabilityPage.value) {
+        quota.value = null;
+      } else {
+        quota.value = payloads[payloadIndex++] as AiQuota;
+      }
       if (canReadApplications.value) {
         const appPayload = payloads[payloadIndex++] as { items?: AiApplication[] };
         applications.value = appPayload.items || [];
@@ -587,8 +624,12 @@
   }
 
   watch(
-    [canReadApplications, canReadCapabilities],
+    [canReadApplications, canReadCapabilities, isPlatformCapabilityPage],
     () => {
+      if (isPlatformCapabilityPage.value) {
+        activeView.value = 'capabilities';
+        return;
+      }
       if (activeView.value === 'applications' && !canReadApplications.value && canReadCapabilities.value) {
         activeView.value = 'capabilities';
       }

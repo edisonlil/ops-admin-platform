@@ -1101,6 +1101,12 @@ def backfill_default_menu_metadata(conn: Any) -> None:
     ]
     for menu_key, label in label_rows:
         conn.execute("UPDATE menus SET label = ? WHERE menu_key = ? AND (label IS NULL OR label = '')", (label, menu_key))
+    platform_ai_label_rows = [
+        ("ai-platform-capabilities", "平台AI能力"),
+        ("ai-platform-capabilities-manage", "管理平台AI能力"),
+    ]
+    for menu_key, label in platform_ai_label_rows:
+        conn.execute("UPDATE menus SET label = ? WHERE menu_key = ?", (label, menu_key))
     basic_data_label_rows = [
         ("basic-data", "基础数据"),
         ("basic-data-dictionaries", "业务字典"),
@@ -1260,8 +1266,8 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("file-tenant-quotas-manage", "管理文件配额", "", "", "", "file-tenant-quotas", "file:quota:manage", 10941),
         ("ai-tenant-quotas", "AI application quotas", "/ai/tenant-quotas", "ai-tenant-quotas", "robot", "platform-management", "ai_studio:quota:manage", 1095),
         ("ai-tenant-quotas-manage", "Manage AI application quotas", "", "", "", "ai-tenant-quotas", "ai_studio:quota:manage", 10951),
-        ("ai-platform-capabilities", "AI capabilities", "/ai/platform-capabilities", "ai-platform-capabilities", "robot", "platform-management", "ai_capabilities:platform_manage", 1096),
-        ("ai-platform-capabilities-manage", "Manage AI capabilities", "", "", "", "ai-platform-capabilities", "ai_capabilities:platform_manage", 10961),
+        ("ai-platform-capabilities", "平台AI能力", "/ai/platform-capabilities", "ai-platform-capabilities", "robot", "platform-management", "ai_capabilities:platform_manage", 1096),
+        ("ai-platform-capabilities-manage", "管理平台AI能力", "", "", "", "ai-platform-capabilities", "ai_capabilities:platform_manage", 10961),
         ("rbac", "权限管理", "", "", "shield", "", "", 100),
         ("user-management", "用户管理", "/rbac/users", "user-management", "user", "rbac", "system:user:access", 100),
         ("user-management-create", "新增用户", "", "", "", "user-management", "system:users:create", 1001),

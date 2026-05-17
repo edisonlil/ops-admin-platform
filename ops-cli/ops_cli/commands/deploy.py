@@ -291,7 +291,7 @@ docker ps | grep ops-admin
         return False
 
 
-def do_deploy(package_path: Path, target: dict) -> bool:
+def do_deploy(package_path: Path, target: dict, db_config: dict) -> bool:
     """Deploy package to target server via SSH and build on server."""
     print("\nDeploying to target server...")
     
@@ -336,8 +336,8 @@ def do_deploy(package_path: Path, target: dict) -> bool:
         print(f"SSH connection failed: {e}")
         return False
     
-    # SFTP upload - copy files directly instead of tar extraction
-    print(f"  Uploading files to {host}...")
+    # SFTP upload - upload tar package first, then extract
+    print(f"  Uploading deployment package to {host}...")
     try:
         sftp = client.open_sftp()
         
@@ -345,52 +345,41 @@ def do_deploy(package_path: Path, target: dict) -> bool:
         stdin, stdout, stderr = client.exec_command(f"rm -rf {remote_path} && mkdir -p {remote_path}")
         stdout.channel.recv_exit_status()
         
-        # Upload deploy.sh first
-        deploy_sh_content = """#!/bin/bash
+        # Upload tar package
+        print(f"  Uploading package...")
+        remote_tar = f"{remote_path}/deploy.tar.gz"
+        sftp.put(str(package_path), remote_tar)
+        
+        # Extract on server
+        print(f"  Extracting package...")
+        stdin, stdout, stderr = client.exec_command(f"cd {remote_path} && tar -xzf deploy.tar.gz && rm -f deploy.tar.gz")
+        exit_status = stdout.channel.recv_exit_status()
+        if exit_status != 0:
+            print(f"  Extract failed: {stderr.read().decode()}")
+            client.close()
+            return False
+        
+        sftp.close()
+        print("  Package uploaded and extracted.")
+    except Exception as e:
+        import traceback
+        print(f"Upload failed: {e}")
+        client.close()
+        return False
+    except Exception as e:
+        import traceback
+        print(f"Upload failed: {e}")
+        client.close()
+        return False
+    
+    # Execute build on server via docker exec
+    print(f"  Building on server...")
+    
+    # Build script content
+    build_script = """#!/bin/bash
 set -e
 
-DEPLOY_DIR="/opt/ops-admin"
-REQUIRED_DIRS=("api" "packages" "dist")
-
 echo "Starting deployment..."
-
-# Safety check 1: Verify we're in the correct deployment directory
-if [ ! -d "$DEPLOY_DIR" ]; then
-    echo "ERROR: Deployment directory $DEPLOY_DIR does not exist"
-    exit 1
-fi
-
-cd "$DEPLOY_DIR"
-echo "Working directory: $(pwd)"
-
-# Safety check 2: Verify required directories exist
-echo "Verifying deployment package..."
-MISSING=()
-for d in "${REQUIRED_DIRS[@]}"; do
-    if [ ! -d "$d" ]; then
-        MISSING+=("$d")
-        echo "  Missing: $d"
-    else
-        echo "  Found: $d"
-    fi
-done
-if [ ${#MISSING[@]} -gt 0 ]; then
-    echo "ERROR: Missing required directories: ${MISSING[*]}"
-    ls -la
-    exit 1
-fi
-
-# Safety check 3: Verify Dockerfile exists
-if [ ! -f "Dockerfile" ]; then
-    echo "ERROR: Dockerfile not found"
-    exit 1
-fi
-
-# Safety check 4: Verify Dockerfile has multi-stage build
-if ! grep -q "^FROM" Dockerfile; then
-    echo "ERROR: Dockerfile appears invalid (no FROM instruction)"
-    exit 1
-fi
 
 # Stop existing container
 echo "Stopping existing container..."
@@ -414,32 +403,15 @@ docker-compose up -d
 sleep 3
 if ! docker ps | grep -q "ops-admin"; then
     echo "ERROR: Container failed to start"
+    docker logs ops-admin-backend 2>&1 | tail -20
     exit 1
 fi
 
 echo "Build completed. Cleaning up source code..."
 
-# Safety check 5: Verify we're not in root or home directory
-if [ "$DEPLOY_DIR" = "/" ] || [ "$DEPLOY_DIR" = "/home" ] || [ "$DEPLOY_DIR" = "$HOME" ]; then
-    echo "ERROR: Safety check failed - refusing to delete in root/home directory"
-    exit 1
-fi
-
-# Safety check 6: Verify Dockerfile exists before cleanup
-if [ ! -f "Dockerfile" ]; then
-    echo "ERROR: Dockerfile missing - aborting cleanup"
-    exit 1
-fi
-
-# Safety check 7: Verify expected directories still exist before cleanup
-if [ ! -d "api" ] || [ ! -d "packages" ]; then
-    echo "ERROR: Directory structure mismatch - aborting cleanup"
-    exit 1
-fi
-
 # Clean up source code (keep only runtime files and config)
 echo "Removing source code directories..."
-rm -rf api packages scripts *.txt Dockerfile .dockerignore 2>/dev/null || true
+rm -rf api packages scripts *.txt Dockerfile .dockerignore deploy.sh 2>/dev/null || true
 
 # Verify cleanup was successful
 if [ -d "api" ] || [ -d "packages" ]; then
@@ -453,38 +425,13 @@ echo "Deployment completed!"
 echo "URL: http://localhost:8000"
 docker ps | grep ops-admin
 """
-        
-        with sftp.open(f"{remote_path}/deploy.sh", "w") as f:
-            f.write(deploy_sh_content)
-        
-        # Upload database config
-        config_json = json.dumps(db_config, indent=2, ensure_ascii=False)
-        sftp.makedirs(f"{remote_path}/config", exist_ok=True)
-        with sftp.open(f"{remote_path}/config/database.json", "w") as f:
-            f.write(config_json)
-        
-        # Upload docker-compose.yml if exists in scaffold
-        import ops_cli
-        scaffold_root = Path(ops_cli.__file__).parent.parent.parent.parent
-        compose_file = scaffold_root / "docker-compose.yml"
-        if compose_file.exists():
-            with sftp.open(f"{remote_path}/docker-compose.yml", "w") as f:
-                f.write(compose_file.read_text())
-        
-        sftp.close()
-        print("  Config uploaded.")
-    except Exception as e:
-        import traceback
-        print(f"Upload failed: {e}")
-        client.close()
-        return False
     
-    # Execute deployment and build on server
-    print(f"  Building on server...")
+    # Write build script to server
+    stdin, stdout, stderr = client.exec_command(f"cat > {remote_path}/deploy.sh << 'SCRIPT_EOF'\n{build_script}SCRIPT_EOF")
+    stdout.channel.recv_exit_status()
     
-    # Run deploy script
-    deploy_cmd = f"cd {remote_path} && chmod +x deploy.sh && ./deploy.sh"
-    channel = client.exec_command(deploy_cmd)
+    # Run build script
+    channel = client.exec_command(f"cd {remote_path} && chmod +x deploy.sh && ./deploy.sh")
     
     stdout = channel[1]
     stderr = channel[2]
@@ -600,7 +547,7 @@ def run_deploy(args) -> None:
             return
         
         # Deploy to target (builds Docker on server)
-        if do_deploy(package_path, target):
+        if do_deploy(package_path, target, db_config):
             print("\n" + "=" * 50)
             print("Deployment Successful!")
             print("=" * 50)

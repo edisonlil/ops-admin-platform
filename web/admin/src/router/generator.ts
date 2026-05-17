@@ -135,33 +135,44 @@ function moduleVisibleMenus(items: BackendMenu[] = []) {
 
 function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute[] {
   const key = String(menu.key || '').trim();
-  if (key !== 'ai-studio') {
+  if (!isAiStudioMenuKey(key)) {
     return [];
   }
-  return [
-    {
+  const permissionCode = aiStudioPermissionCode(key);
+  const routes: BackendRoute[] = [];
+  if (key === 'ai-studio') {
+    routes.push({
       path: `${stripLeadingSlash(routePath)}/apps/:appKey`,
       name: 'ai-studio-app-detail',
       component: '/ai/studio/detail',
       meta: {
         title: 'AI 应用配置',
-        permissions: ['ai_studio:access'],
+        permissions: [permissionCode],
         activeMenu: routeName(menu) || key,
         hidden: true,
       },
+    });
+  }
+  routes.push({
+    path: `${stripLeadingSlash(routePath)}/capabilities/:capabilityKey`,
+    name: key === 'ai-platform-capabilities' ? 'ai-platform-capability-detail' : 'ai-studio-capability-detail',
+    component: '/ai/studio/detail',
+    meta: {
+      title: 'AI 能力配置',
+      permissions: [permissionCode],
+      activeMenu: routeName(menu) || key,
+      hidden: true,
     },
-    {
-      path: `${stripLeadingSlash(routePath)}/capabilities/:capabilityKey`,
-      name: 'ai-studio-capability-detail',
-      component: '/ai/studio/detail',
-      meta: {
-        title: 'AI 能力配置',
-        permissions: ['ai_studio:access'],
-        activeMenu: routeName(menu) || key,
-        hidden: true,
-      },
-    },
-  ];
+  });
+  return routes;
+}
+
+function isAiStudioMenuKey(key: string) {
+  return key === 'ai-studio' || key === 'ai-platform-capabilities';
+}
+
+function aiStudioPermissionCode(key: string) {
+  return key === 'ai-platform-capabilities' ? 'ai_capabilities:platform_manage' : 'ai_studio:access';
 }
 
 function menuToBackendRoutes(menu: BackendMenu, parentPath = ''): BackendRoute[] {
@@ -207,25 +218,28 @@ function menuToBackendRoute(menu: BackendMenu, parentPath = ''): BackendRoute {
   }
 
   const pageChildren = [leaf];
-  if (key === 'ai-studio') {
-    pageChildren.push({
-      path: 'apps/:appKey',
-      name: 'ai-studio-app-detail',
-      component: '/ai/studio/detail',
-      meta: {
-        title: 'AI 应用配置',
-        permissions: ['ai_studio:access'],
-        activeMenu: routeName(menu) || key,
-        hidden: true,
-      },
-    });
+  if (isAiStudioMenuKey(key)) {
+    const permissionCode = aiStudioPermissionCode(key);
+    if (key === 'ai-studio') {
+      pageChildren.push({
+        path: 'apps/:appKey',
+        name: 'ai-studio-app-detail',
+        component: '/ai/studio/detail',
+        meta: {
+          title: 'AI 应用配置',
+          permissions: [permissionCode],
+          activeMenu: routeName(menu) || key,
+          hidden: true,
+        },
+      });
+    }
     pageChildren.push({
       path: 'capabilities/:capabilityKey',
-      name: 'ai-studio-capability-detail',
+      name: key === 'ai-platform-capabilities' ? 'ai-platform-capability-detail' : 'ai-studio-capability-detail',
       component: '/ai/studio/detail',
       meta: {
         title: 'AI 能力配置',
-        permissions: ['ai_studio:access'],
+        permissions: [permissionCode],
         activeMenu: routeName(menu) || key,
         hidden: true,
       },

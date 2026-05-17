@@ -4,22 +4,15 @@ services:
   backend:
     image: ops-admin:latest
     container_name: ops-admin-backend
+    network_mode: host
     ports:
       - "8000:8000"
     environment:
       - FG_AGENT_DATABASE_CONFIG=/app/config/database.json
-      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
+      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80,http://192.168.20.121:8000
+      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
     volumes:
       - ./config:/app/config:ro
+      - ./dist:/app/dist:ro
       - ./data:/app/data
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-networks:
-  default:
-    name: ops-network
