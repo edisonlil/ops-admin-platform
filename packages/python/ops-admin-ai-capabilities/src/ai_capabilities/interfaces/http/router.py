@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from ai_capabilities.application import services
-from ai_capabilities.interfaces.http.dtos import AICapabilityRequest, AICapabilityRunRequest
+from ai_capabilities.interfaces.http.dtos import AICapabilityRequest, AICapabilityRunRequest, PlatformAICapabilityPreviewRequest
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import ok
 
@@ -29,6 +29,11 @@ def ai_capability_model_options() -> dict[str, Any]:
     return ok(services.list_capability_model_options())
 
 
+@router.get("/admin/tenants/{tenant_id}/ai-capability-model-options", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
+def tenant_ai_capability_model_options(tenant_id: int) -> dict[str, Any]:
+    return ok(services.list_capability_model_options_for_tenant(tenant_id))
+
+
 @router.get("/ai-capabilities/{capability_key}", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
 def ai_capability(capability_key: str) -> dict[str, Any]:
     return ok(services.get_ai_capability(capability_key))
@@ -44,6 +49,11 @@ def ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, An
     return ok(services.list_ai_capability_run_logs(capability_key, limit=limit))
 
 
+@router.get("/admin/ai-capabilities/{capability_key}/run-logs", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
+def platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+    return ok(services.list_platform_ai_capability_run_logs(capability_key, limit=limit))
+
+
 @router.post("/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])
 def save_ai_capability(payload: AICapabilityRequest) -> dict[str, Any]:
     return ok(services.save_ai_capability(payload.model_dump()))
@@ -52,6 +62,11 @@ def save_ai_capability(payload: AICapabilityRequest) -> dict[str, Any]:
 @router.post("/admin/ai-capabilities", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
 def save_platform_ai_capability(payload: AICapabilityRequest) -> dict[str, Any]:
     return ok(services.save_platform_ai_capability(payload.model_dump()))
+
+
+@router.post("/admin/ai-capabilities/{capability_key}/preview", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
+def preview_platform_ai_capability(capability_key: str, payload: PlatformAICapabilityPreviewRequest) -> dict[str, Any]:
+    return ok(services.preview_platform_ai_capability(capability_key, payload.model_dump()))
 
 
 @router.put("/ai-capabilities/{capability_key}", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])

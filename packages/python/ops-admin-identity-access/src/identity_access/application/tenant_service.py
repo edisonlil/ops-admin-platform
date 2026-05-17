@@ -28,6 +28,12 @@ def get_tenant_by_key(tenant_key: str) -> dict[str, Any] | None:
     return tenant
 
 
+def get_business_tenant_by_id(tenant_id: int) -> dict[str, Any] | None:
+    with connect(auth_database_target(), readonly=True) as conn:
+        require_auth_ready(conn)
+        return tenant_repository.get_business_tenant_by_id(conn, tenant_id)
+
+
 def membership_for_user_in_tenant(user_id: int, tenant_id: int | None) -> dict[str, Any] | None:
     if not user_id or not tenant_id:
         return None

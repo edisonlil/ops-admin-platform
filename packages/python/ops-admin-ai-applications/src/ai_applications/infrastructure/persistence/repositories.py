@@ -406,6 +406,20 @@ def list_ai_capability_run_logs(conn: Any, capability_key: str, limit: int = 50)
     return [ai_application_run_log_from_trace(dict(row)) for row in rows]
 
 
+def list_platform_ai_capability_run_logs(conn: Any, capability_key: str, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM prompt_runtime_traces
+        WHERE caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0
+        ORDER BY create_time DESC, id DESC
+        LIMIT ?
+        """,
+        (normalize_key(capability_key), limit),
+    ).fetchall()
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+
+
 def ai_application_run_log_from_trace(row: dict[str, Any]) -> dict[str, Any]:
     trace = prompt_runtime_trace_from_row(row)
     return {

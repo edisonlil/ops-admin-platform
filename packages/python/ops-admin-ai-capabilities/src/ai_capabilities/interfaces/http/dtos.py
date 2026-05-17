@@ -33,3 +33,6 @@ class AICapabilityRunRequest(BaseModel):
     extra_body: dict[str, Any] | None = None
     enable_think_output: bool | None = None
 
+
+class PlatformAICapabilityPreviewRequest(AICapabilityRunRequest):
+    tenant_id: int = Field(ge=1)

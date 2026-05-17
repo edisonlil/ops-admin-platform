@@ -21,6 +21,7 @@ from paramiko import SSHClient, AutoAddPolicy
 
 from ..config import get_config
 from ..interactive.prompts import ask_confirmation, ask_with_choices
+from .deploy_history import DeployHistory, format_history_list
 
 
 def get_deploy_targets() -> dict:
@@ -291,7 +292,7 @@ docker ps | grep ops-admin
         return False
 
 
-def do_deploy(package_path: Path, target: dict, db_config: dict) -> bool:
+def do_deploy(package_path: Path, target: dict, db_config: dict, target_name: str = "") -> bool:
     """Deploy package to target server via SSH and build on server."""
     print("\nDeploying to target server...")
     
@@ -306,6 +307,14 @@ def do_deploy(package_path: Path, target: dict, db_config: dict) -> bool:
     if not all([host, user]):
         print("Missing target configuration.")
         return False
+    
+    # Initialize history
+    config = get_config()
+    config_path = Path(config.get("config_path", "")).parent
+    history = DeployHistory(config_path)
+    
+    # Generate version
+    version = datetime.now().strftime("%Y%m%d-%H%M%S")
     
     # Create SSH client
     client = SSHClient()
@@ -482,10 +491,75 @@ docker ps | grep ops-admin
     
     if exit_status == 0:
         print("\n  Deployment completed!")
+        
+        # Record successful deployment
+        if target_name:
+            history.record(target_name, version, "ops-admin:latest", True, f"Deployed to {host}")
+        
+        # Health check
+        print("\n  Running health check...")
+        health_ok, health_msg = check_deploy_health(host, container_port)
+        if health_ok:
+            print(f"  ✓ Health check passed: {health_msg}")
+        else:
+            print(f"  ⚠ Health check failed: {health_msg}")
+        
         return True
     else:
         print("\n  Deployment failed.")
+        
+        # Record failed deployment
+        if target_name:
+            history.record(target_name, version, "ops-admin:latest", False, f"Failed: exit {exit_status}")
+        
         return False
+
+
+def check_deploy_health(host: str, port: int, timeout: int = 30) -> tuple[bool, str]:
+    """Check if deployed service is healthy."""
+    try:
+        import urllib.request
+        url = f"http://{host}:{port}/api/health"
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "ops-cli-deploy-check")
+        
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            if response.status == 200:
+                data = response.read().decode()
+                try:
+                    import json
+                    result = json.loads(data)
+                    status = result.get("data", {}).get("status", "unknown")
+                    return True, f"status={status}"
+                except Exception:
+                    return True, f"HTTP {response.status}"
+            else:
+                return False, f"HTTP {response.status}"
+    except Exception as e:
+        return False, str(e)[:100]
+
+
+def run_container_cmd(args) -> None:
+    """Handle container subcommands: status, start, stop, restart, logs, health, shell."""
+    # Import here to avoid circular dependency
+    from .container import run_container_command
+    
+    # Create a namespace with command attribute
+    class CmdArgs:
+        def __init__(self, command, target, lines, follow=False):
+            self.command = command
+            self.target = target
+            self.lines = lines
+            self.follow = follow
+    
+    cmd_args = CmdArgs(
+        command=args.subcommand,
+        target=args.target,
+        lines=args.lines,
+        follow=getattr(args, 'follow', False),
+    )
+    
+    run_container_command(cmd_args)
 
 
 def run_deploy(args) -> None:
@@ -542,6 +616,27 @@ def run_deploy(args) -> None:
                 except ValueError:
                     print("Please enter a number.")
     
+    # Dry-run mode
+    if getattr(args, 'dry_run', False):
+        print("\n" + "=" * 50)
+        print("DRY RUN - Deployment Preview")
+        print("=" * 50)
+        print(f"\nTarget: {target_name}")
+        print(f"Host: {target.get('host')}:{target.get('port', 22)}")
+        print(f"User: {target.get('user')}")
+        print(f"Remote path: {target.get('remote_path')}")
+        print(f"Container port: {target.get('container_port', 8000)}")
+        print(f"\nDatabase config: {db_config_path}")
+        print(f"\nWill do:")
+        print("  1. Build frontend (pnpm build)")
+        print("  2. Create deployment package (tar.gz)")
+        print("  3. Upload to {target.get('host')}:/opt/ops-admin/")
+        print("  4. Extract package on server")
+        print("  5. Build Docker image")
+        print("  6. Start container")
+        print("  7. Health check")
+        return
+    
     print(f"\nDeploying to: {target_name}")
     print(f"Host: {target.get('host')}")
     
@@ -578,13 +673,17 @@ def run_deploy(args) -> None:
             return
         
         # Deploy to target (builds Docker on server)
-        if do_deploy(package_path, target, db_config):
+        if do_deploy(package_path, target, db_config, target_name):
             print("\n" + "=" * 50)
             print("Deployment Successful!")
             print("=" * 50)
             print(f"Target: {target_name}")
             print(f"Host: {target.get('host')}")
-            print(f"URL: http://{target.get('host')}:8000")
+            port = target.get("container_port", 8000)
+            print(f"URL: http://{target.get('host')}:{port}")
+            print()
+            print(f"Use 'ops-cli deploy logs {target_name}' to view logs.")
+            print(f"Use 'ops-cli deploy history {target_name}' to see history.")
         else:
             print("\nDeployment failed.")
 
@@ -730,3 +829,97 @@ def run_deploy_remove(args) -> None:
     del targets[name]
     save_deploy_targets(targets)
     print(f"Target '{name}' removed.")
+
+
+def run_deploy_history(args) -> None:
+    """Show deployment history for a target."""
+    config = get_config()
+    config_path = Path(config.get("config_path", "")).parent
+    history = DeployHistory(config_path)
+    
+    target_name = args.target
+    targets = get_deploy_targets()
+    
+    if not target_name:
+        # Show selection if multiple targets
+        if len(targets) == 1:
+            target_name = list(targets.keys())[0]
+        else:
+            print("\nSelect target:")
+            print("-" * 40)
+            for i, name in enumerate(targets.keys(), 1):
+                t = targets[name]
+                print(f"  {i}. {name} ({t.get('host')})")
+            print("-" * 40)
+            
+            while True:
+                choice = input("Enter number: ").strip()
+                try:
+                    idx = int(choice) - 1
+                    names = list(targets.keys())
+                    if 0 <= idx < len(names):
+                        target_name = names[idx]
+                        break
+                    print("Invalid selection.")
+                except ValueError:
+                    print("Please enter a number.")
+    
+    if target_name not in targets:
+        print(f"Target '{target_name}' not found.")
+        return
+    
+    print(f"\nDeployment History: {target_name}")
+    print("=" * 50)
+    
+    history_records = history.get_history(target_name, limit=args.limit or 10)
+    print(format_history_list(history_records, limit=args.limit or 10))
+    
+    # Show rollback option
+    if history_records:
+        last = history.get_last_successful(target_name)
+        if last and len(history_records) > 1:
+            print("\nLast successful deployment:")
+            print(f"  Version: {last.get('version')}")
+            print(f"  Time: {last.get('timestamp')}")
+            print("\nUse 'ops-cli deploy rollback {target_name}' to rollback.")
+
+
+def run_deploy_rollback(args) -> None:
+    """Rollback to previous successful deployment."""
+    config = get_config()
+    config_path = Path(config.get("config_path", "")).parent
+    history = DeployHistory(config_path)
+    
+    target_name = args.target
+    targets = get_deploy_targets()
+    
+    if not target_name:
+        print("Target name required.")
+        return
+    
+    if target_name not in targets:
+        print(f"Target '{target_name}' not found.")
+        return
+    
+    target = targets[target_name]
+    
+    # Get last successful deployment
+    last = history.get_last_successful(target_name)
+    if not last:
+        print("No successful deployment found to rollback to.")
+        return
+    
+    print(f"\nRollback: {target_name}")
+    print("=" * 50)
+    print(f"Will rollback to: {last.get('version')}")
+    print(f"Image: {last.get('image')}")
+    
+    if not args.yes and not ask_confirmation("Continue with rollback?", default=False):
+        print("Cancelled.")
+        return
+    
+    # For now, just show message (full rollback would re-pull image and restart)
+    print("\n⚠ Rollback not fully implemented yet.")
+    print("This would re-pull the previous image and restart the container.")
+    print(f"\nLast successful version: {last.get('version')}")
+    print(f"Timestamp: {last.get('timestamp')}")

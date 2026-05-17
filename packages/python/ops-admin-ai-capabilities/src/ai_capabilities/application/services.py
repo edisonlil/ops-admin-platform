@@ -8,8 +8,11 @@ from fastapi import HTTPException
 from ai_applications.application import services as ai_application_services
 from ai_capabilities.infrastructure.persistence import repositories
 from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capabilities_schema
+from identity_access.application import tenant_service
 from llm_runtime.application import services as llm_services
 from system.application.database import connect
+from system.application.tenancy import reset_tenant_scope, set_tenant_scope
+from system.domain.tenancy import TenantScope
 
 from llm_runtime.application.services import require_database
 
@@ -25,6 +28,16 @@ def list_platform_ai_capabilities() -> dict[str, Any]:
 def list_capability_model_options() -> dict[str, Any]:
     items = llm_services.list_models()
     return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
+
+
+def list_capability_model_options_for_tenant(tenant_id: int) -> dict[str, Any]:
+    with tenant_scope_for_platform_preview(tenant_id):
+        models = llm_services.list_models()
+        policies = llm_services.list_routing_policies()
+    return {
+        "models": models.get("items", []),
+        "routing_policies": policies.get("items", []),
+    }
 
 
 def get_ai_capability(capability_key: str) -> dict[str, Any]:
@@ -44,6 +57,11 @@ def get_platform_ai_capability(capability_key: str) -> dict[str, Any]:
 def list_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
     capability = get_ai_capability(capability_key)
     return ai_application_services.list_ai_capability_run_logs(capability["capability_key"], limit=limit)
+
+
+def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+    capability = get_platform_ai_capability(capability_key)
+    return ai_application_services.list_platform_ai_capability_run_logs(capability["capability_key"], limit=limit)
 
 
 def save_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +112,31 @@ def execute_ai_capability(capability_key: str, payload: dict[str, Any]) -> dict[
     )
 
 
+def preview_platform_ai_capability(capability_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = int(payload.get("tenant_id") or 0)
+    if tenant_id <= 0:
+        raise HTTPException(status_code=422, detail="tenant_id is required")
+    capability = get_platform_ai_capability(capability_key)
+    if not capability.get("enabled", True):
+        raise HTTPException(status_code=409, detail="AI capability is disabled")
+    if capability.get("binding_type") not in {"prompt_runtime", "workflow_runtime"}:
+        raise HTTPException(status_code=422, detail="Only prompt_runtime and workflow_runtime capabilities are supported")
+    validate_executable_capability(capability, model_override=str(payload.get("model") or ""))
+    run_payload = {key: value for key, value in payload.items() if key != "tenant_id"}
+    if "variables" not in run_payload:
+        run_payload = {"variables": run_payload}
+    app = capability_runtime_app(capability)
+    app["tenant_id"] = tenant_id
+    with tenant_scope_for_platform_preview(tenant_id):
+        return ai_application_services.execute_application(
+            app,
+            run_payload,
+            caller_type="ai_capability",
+            caller_key=capability["capability_key"],
+            require_published=True,
+        )
+
+
 def stream_ai_capability(capability_key: str, payload: dict[str, Any]) -> Any:
     capability = get_ai_capability(capability_key)
     if not capability.get("enabled", True):
@@ -137,7 +180,7 @@ def capability_runtime_app(capability: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_executable_capability(capability: dict[str, Any]) -> None:
+def validate_executable_capability(capability: dict[str, Any], *, model_override: str = "") -> None:
     if capability.get("binding_type") == "workflow_runtime":
         runtime_config = capability.get("runtime_config") if isinstance(capability.get("runtime_config"), dict) else {}
         if not isinstance(runtime_config.get("workflow"), dict):
@@ -146,7 +189,7 @@ def validate_executable_capability(capability: dict[str, Any]) -> None:
     if not str(capability.get("user_prompt_template") or "").strip():
         raise HTTPException(status_code=422, detail="user_prompt_template is required before execute")
     model_preferences = capability.get("model_preferences") if isinstance(capability.get("model_preferences"), dict) else {}
-    if not str(model_preferences.get("model") or model_preferences.get("route_key") or "").strip():
+    if not str(model_override or model_preferences.get("model") or model_preferences.get("route_key") or "").strip():
         raise HTTPException(status_code=422, detail="model_preferences.model or model_preferences.route_key is required before execute")
 
 
@@ -179,6 +222,32 @@ def enforce_capability_quota(conn: Any) -> None:
     usage = quota.get("usage") if isinstance(quota.get("usage"), dict) else {}
     if int(usage.get("capabilities") or 0) >= int(quota.get("max_capabilities") or 0):
         raise ValueError("tenant AI capability quota exceeded")
+
+
+class tenant_scope_for_platform_preview:
+    def __init__(self, tenant_id: int) -> None:
+        self.tenant_id = tenant_id
+        self._token: Any = None
+
+    def __enter__(self) -> None:
+        tenant = tenant_service.get_business_tenant_by_id(self.tenant_id)
+        if not tenant:
+            raise HTTPException(status_code=404, detail="tenant not found")
+        if str(tenant.get("status") or "active") != "active":
+            raise HTTPException(status_code=409, detail="tenant is not active")
+        self._token = set_tenant_scope(
+            TenantScope(
+                tenant_id=int(tenant["id"]),
+                tenant_key=str(tenant.get("tenant_key") or tenant.get("key") or ""),
+                tenant_name=str(tenant.get("name") or ""),
+                is_platform_admin=True,
+                source="platform_preview",
+            )
+        )
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._token is not None:
+            reset_tenant_scope(self._token)
 
 
 def read_list(loader: Any) -> dict[str, Any]:

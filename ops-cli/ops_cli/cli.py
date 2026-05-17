@@ -15,7 +15,7 @@ from .commands.status import run_status
 from .commands.run import run_run
 from .commands.set_config import run_set
 from .commands.setup import run_setup
-from .commands.deploy import run_deploy, run_deploy_add, run_deploy_list, run_deploy_remove
+from .commands.deploy import run_deploy, run_deploy_add, run_deploy_list, run_deploy_remove, run_container_cmd, run_deploy_history, run_deploy_rollback
 from .config import get_config
 
 
@@ -175,6 +175,49 @@ Examples:
         action="store_true",
         help="List all deploy targets",
     )
+    deploy_parser.add_argument(
+        "subcommand",
+        nargs="?",
+        choices=["status", "start", "stop", "restart", "logs", "health", "shell"],
+        help="Container management command",
+    )
+    deploy_parser.add_argument(
+        "target",
+        nargs="?",
+        help="Target server name",
+    )
+    deploy_parser.add_argument(
+        "--lines", "-n",
+        type=int,
+        default=100,
+        help="Number of log lines to show [100]",
+    )
+    deploy_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of history records to show [10]",
+    )
+    deploy_parser.add_argument(
+        "--follow", "-f",
+        action="store_true",
+        help="Follow log output in real-time",
+    )
+    deploy_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview deployment without executing",
+    )
+    deploy_parser.add_argument(
+        "--rollback",
+        action="store_true",
+        help="Rollback to previous deployment",
+    )
+    deploy_parser.add_argument(
+        "--history",
+        action="store_true",
+        help="Show deployment history",
+    )
     # For --add
     deploy_parser.add_argument("--name", help="Target name")
     deploy_parser.add_argument("--host", help="Host/IP")
@@ -228,20 +271,26 @@ def main() -> int:
             run_run(args)
         elif args.command in ("config", "cfg"):
             show_config(args)
-        elif args.command == "set":
-            run_set(args)
         elif args.command == "setup":
             run_setup(args)
         elif args.command == "deploy":
-            if args.add:
+            if args.subcommand:
+                # Container management command (logs, status, etc.)
+                run_container_cmd(args)
+            elif args.rollback:
+                run_deploy_rollback(args)
+            elif args.history:
+                run_deploy_history(args)
+            elif args.add:
                 run_deploy_add(args)
-            elif args.remove_target:
-                args.name = args.remove_target
-                run_deploy_remove(args)
             elif args.list_targets:
                 run_deploy_list(args)
+            elif args.remove_target:
+                run_deploy_remove(args)
             else:
                 run_deploy(args)
+        elif args.command in ("container", "ctrl", "ct"):
+            run_container_cmd(args)
         else:
             parser.print_help()
             return 1

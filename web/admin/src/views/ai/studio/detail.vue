@@ -268,7 +268,7 @@
               </n-form-item>
               <n-form-item label="系统提示词">
                 <div class="system-prompt-source">
-                  <n-radio-group v-model:value="systemPromptSource" size="small">
+                  <n-radio-group v-if="canUsePromptAsset" v-model:value="systemPromptSource" size="small">
                     <n-radio-button value="inline">手动编写</n-radio-button>
                     <n-radio-button value="asset">引用提示词库</n-radio-button>
                   </n-radio-group>
@@ -527,7 +527,6 @@
           </div>
         </aside>
       </div>
-
       <section v-else-if="activeWorkspace === 'api'" class="studio-workspace-panel">
         <header class="workspace-panel__head">
           <div>
@@ -838,6 +837,45 @@
           </aside>
         </div>
       </section>
+
+      <n-modal
+        v-model:show="platformPreviewModalVisible"
+        preset="card"
+        title="选择租户上下文试运行"
+        class="platform-preview-modal"
+        :style="{ width: '520px' }"
+        :bordered="false"
+      >
+        <n-form label-placement="top">
+          <n-form-item label="租户">
+            <n-select
+              v-model:value="platformPreviewForm.tenant_id"
+              :options="platformTenantOptions"
+              :loading="platformTenantsLoading"
+              filterable
+              clearable
+              placeholder="请选择租户"
+              @update:value="handlePlatformPreviewTenantChange"
+            />
+          </n-form-item>
+          <n-form-item label="模型或路由">
+            <n-select
+              v-model:value="platformPreviewForm.model"
+              :options="platformPreviewModelOptions"
+              :loading="platformPreviewModelsLoading"
+              filterable
+              clearable
+              placeholder="请选择该租户的模型或路由"
+            />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <div class="platform-preview-modal__footer">
+            <n-button @click="platformPreviewModalVisible = false">取消</n-button>
+            <n-button type="primary" :loading="running" @click="confirmPlatformPreviewRun">运行</n-button>
+          </div>
+        </template>
+      </n-modal>
     </n-spin>
   </DetailPageRuntime>
 </template>
@@ -853,7 +891,7 @@
   import { useMessage } from 'naive-ui';
   import type { SelectOption, UploadFileInfo } from 'naive-ui';
   import MarkdownIt from 'markdown-it';
-  import { getLlmModels, getLlmRoutingPolicies } from '@/api/business';
+  import { getLlmModels, getLlmRoutingPolicies, getTenants } from '@/api/business';
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
   import CodePreview from '@/components/CodePreview/index.vue';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
@@ -863,8 +901,11 @@
     getAiCapability,
     getAiCapabilityRunLogs,
     getPlatformAiCapability,
+    getPlatformAiCapabilityRunLogs,
+    getTenantAiCapabilityModelOptions,
     getAiApplication,
     getAiApplicationRunLogs,
+    previewPlatformAiCapability,
     publishAiApplication,
     updateAiCapability,
     updateAiApplication,
@@ -929,12 +970,18 @@
   const runtimeVariablesCollapsed = ref(false);
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
+  const platformPreviewModalVisible = ref(false);
+  const platformTenantsLoading = ref(false);
+  const platformPreviewModelsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
   const activeCapability = ref<AiCapability | null>(null);
   const models = ref<Recordable[]>([]);
   const policies = ref<Recordable[]>([]);
   const publishedPrompts = ref<PromptAsset[]>([]);
   const publishedPromptDetails = reactive<Record<string, PublishedPromptAsset>>({});
+  const platformTenants = ref<Recordable[]>([]);
+  const platformPreviewModels = ref<Recordable[]>([]);
+  const platformPreviewPolicies = ref<Recordable[]>([]);
   const selectedModelKey = ref('');
   const systemPromptSource = ref<'inline' | 'asset'>('inline');
   const selectedSystemPromptAssetKey = ref('');
@@ -996,6 +1043,15 @@
       });
     return options;
   });
+  const platformTenantOptions = computed<SelectOption[]>(() =>
+    platformTenants.value.map((item) => ({
+      label: `${item.name || item.tenant_key || item.key} (${item.tenant_key || item.key || item.id})`,
+      value: Number(item.id),
+    }))
+  );
+  const platformPreviewModelOptions = computed<SelectOption[]>(() =>
+    buildModelConfigOptions(platformPreviewModels.value, platformPreviewPolicies.value)
+  );
   const variableTypeOptions: SelectOption[] = [
     { label: '文本', value: 'text' },
     { label: '数字', value: 'number' },
@@ -1017,6 +1073,10 @@
     { label: 'HTML', value: 'html' },
     { label: 'JSON', value: 'json' },
   ];
+  const platformPreviewForm = reactive({
+    tenant_id: null as number | null,
+    model: '',
+  });
   const baseWorkspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
     { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
     { key: 'api', label: '访问 API', description: '调用方式' },
@@ -1085,6 +1145,7 @@
   const isCapability = computed(() => resourceType.value === 'capability');
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const editingPlatformCapability = computed(() => isCapability.value && activeCapability.value?.scope === 'platform' && isPlatformAdmin.value);
+  const canUsePromptAsset = computed(() => !isPlatformCapabilityRoute.value);
   const resourceLabel = computed(() => {
     if (isPlatformCapabilityRoute.value) return '平台AI能力';
     return isCapability.value ? 'AI 能力' : 'AI 应用';
@@ -1216,7 +1277,7 @@
         const [capability] = await Promise.all([
           isPlatformCapabilityRoute.value ? getPlatformAiCapability(key) : getAiCapability(key),
           loadModelConfigs(),
-          loadPublishedPrompts(),
+          canUsePromptAsset.value ? loadPublishedPrompts() : Promise.resolve(),
         ]);
         selectCapability(capability);
       } else {
@@ -1253,12 +1314,39 @@
     publishedPromptDetails[promptKey] = await getPublishedPromptAsset(promptKey);
   }
 
+  async function loadPlatformTenants() {
+    if (platformTenants.value.length) return;
+    platformTenantsLoading.value = true;
+    try {
+      const payload = await getTenants();
+      platformTenants.value = (payload as { items?: Recordable[] }).items || [];
+    } finally {
+      platformTenantsLoading.value = false;
+    }
+  }
+
+  async function loadPlatformPreviewModelOptions(tenantId: number) {
+    platformPreviewModelsLoading.value = true;
+    try {
+      const payload = await getTenantAiCapabilityModelOptions(tenantId);
+      platformPreviewModels.value = payload.models || [];
+      platformPreviewPolicies.value = payload.routing_policies || [];
+      if (!platformPreviewModelOptions.value.some((item) => item.value === platformPreviewForm.model)) {
+        platformPreviewForm.model = String(platformPreviewModelOptions.value[0]?.value || '');
+      }
+    } finally {
+      platformPreviewModelsLoading.value = false;
+    }
+  }
+
   async function loadRunLogs() {
     if (!form.app_key) return;
     runLogsLoading.value = true;
     try {
       const payload = isCapability.value
-        ? await getAiCapabilityRunLogs(form.app_key, 50)
+        ? isPlatformCapabilityRoute.value
+          ? await getPlatformAiCapabilityRunLogs(form.app_key, 50)
+          : await getAiCapabilityRunLogs(form.app_key, 50)
         : await getAiApplicationRunLogs(form.app_key, 50);
       runLogs.value = payload.items || [];
       if (!runLogs.value.some((item) => item.run_id === selectedRunLogId.value)) {
@@ -1328,8 +1416,8 @@
     form.developer_prompt = capability.developer_prompt || '';
     form.user_prompt_template = capability.user_prompt_template || '';
     loadWorkflowDefinition(capability.runtime_config?.workflow);
-    systemPromptSource.value = capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
-    selectedSystemPromptAssetKey.value = String(capability.runtime_config?.system_prompt_asset_key || '');
+    systemPromptSource.value = canUsePromptAsset.value && capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
+    selectedSystemPromptAssetKey.value = canUsePromptAsset.value ? String(capability.runtime_config?.system_prompt_asset_key || '') : '';
     selectedOutputFormat.value = normalizeOutputFormat(capability.runtime_config?.output_format);
     if (selectedSystemPromptAssetKey.value) {
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
@@ -1390,6 +1478,10 @@
 
   async function runDraft() {
     if (running.value) return;
+    if (isPlatformCapabilityRoute.value) {
+      await openPlatformPreviewModal();
+      return;
+    }
     const missingRequired = findUnfilledRequiredVariables();
     if (missingRequired.length) {
       message.warning(`请填写运行变量：${missingRequired.join('、')}`);
@@ -1420,6 +1512,66 @@
       finishRunStopwatch();
       running.value = false;
       runAbortController = null;
+    }
+  }
+
+  async function openPlatformPreviewModal() {
+    platformPreviewForm.model = selectedModelKey.value || platformPreviewForm.model;
+    platformPreviewModalVisible.value = true;
+    await loadPlatformTenants();
+    if (!platformPreviewForm.tenant_id && platformTenantOptions.value.length) {
+      platformPreviewForm.tenant_id = Number(platformTenantOptions.value[0].value);
+    }
+    if (platformPreviewForm.tenant_id) {
+      await loadPlatformPreviewModelOptions(Number(platformPreviewForm.tenant_id));
+    }
+  }
+
+  async function handlePlatformPreviewTenantChange(value: number | null) {
+    platformPreviewForm.model = '';
+    platformPreviewModels.value = [];
+    platformPreviewPolicies.value = [];
+    if (value) {
+      await loadPlatformPreviewModelOptions(Number(value));
+    }
+  }
+
+  async function confirmPlatformPreviewRun() {
+    if (running.value) return;
+    if (!platformPreviewForm.tenant_id) {
+      message.warning('请选择租户');
+      return;
+    }
+    if (!platformPreviewForm.model) {
+      message.warning('请选择租户模型或路由');
+      return;
+    }
+    const missingRequired = findUnfilledRequiredVariables();
+    if (missingRequired.length) {
+      message.warning(`请填写运行变量：${missingRequired.join('、')}`);
+      return;
+    }
+    running.value = true;
+    platformPreviewModalVisible.value = false;
+    startRunStopwatch();
+    try {
+      const saved = await saveCurrent({ silent: true, refresh: false });
+      if (!saved) return;
+      runResult.value = { answer: '', trace_id: '', usage: {} };
+      streamThinkText.value = '';
+      const result = await previewPlatformAiCapability(form.app_key, {
+        tenant_id: Number(platformPreviewForm.tenant_id),
+        model: platformPreviewForm.model,
+        variables: buildRuntimeVariables(),
+        ...runOutputFormatPayload(),
+      });
+      runResult.value = result;
+      if (activeWorkspace.value === 'logs') {
+        await loadRunLogs();
+      }
+    } finally {
+      finishRunStopwatch();
+      running.value = false;
     }
   }
 
@@ -1914,11 +2066,12 @@
 
   function buildCapabilityPayload() {
     const workflow = isWorkflowMode.value ? workflowDefinitionPayload() : undefined;
+    const systemPromptAssetEnabled = canUsePromptAsset.value && systemPromptSource.value === 'asset';
     const runtimeConfig = {
       ...(activeCapability.value?.runtime_config || {}),
       icon: form.icon,
-      system_prompt_source: systemPromptSource.value,
-      system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
+      system_prompt_source: systemPromptAssetEnabled ? 'asset' : 'inline',
+      system_prompt_asset_key: systemPromptAssetEnabled ? selectedSystemPromptAssetKey.value : '',
       output_format: selectedOutputFormat.value,
       ...(workflow ? { workflow } : {}),
     };
@@ -2148,6 +2301,29 @@
   function schemaTypeFromRuntimeType(type: RuntimeVariableType) {
     if (type === 'text') return 'string';
     return type;
+  }
+
+  function buildModelConfigOptions(modelRows: Recordable[], policyRows: Recordable[]) {
+    const options: SelectOption[] = [];
+    const seen = new Set<string>();
+    const push = (value: string, label: string) => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    };
+    policyRows
+      .filter((item) => item.enabled !== false)
+      .forEach((item) => {
+        const routeKey = String(item.route_key || '').trim();
+        push(routeKey, `路由：${item.display_name || routeKey} (${routeKey})`);
+      });
+    modelRows
+      .filter((item) => item.enabled !== false)
+      .forEach((item) => {
+        const modelKey = String(item.model_key || '').trim();
+        push(modelKey, `模型：${item.display_name || item.model_name || modelKey} (${modelKey})`);
+      });
+    return options;
   }
 
   function updateVariableType(key: string, type: RuntimeVariableType) {
@@ -2481,6 +2657,16 @@
 
   .studio-workbench.is-preview-focus .html-answer-frame {
     min-height: 620px;
+  }
+
+  .platform-preview-modal {
+    max-width: calc(100vw - 32px);
+
+    &__footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
   }
 
   .studio-workspace-nav {

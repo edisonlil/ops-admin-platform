@@ -124,6 +124,14 @@ def list_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any
     return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit))
 
 
+def list_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=limit))
+
+
+def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=limit))
+
+
 def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
     database_target = require_database()
     try:

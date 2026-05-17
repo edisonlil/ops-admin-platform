@@ -181,6 +181,11 @@ export interface AiRunResult {
   trace?: RuntimeTrace;
 }
 
+export interface PlatformCapabilityModelOptions {
+  models: Record<string, unknown>[];
+  routing_policies: Record<string, unknown>[];
+}
+
 export interface TenantAiQuotaPayload {
   max_applications: number;
   max_capabilities: number;
@@ -227,6 +232,12 @@ export function getAiCapabilityModelOptions() {
   });
 }
 
+export function getTenantAiCapabilityModelOptions(tenantId: number) {
+  return Alova.Get<PlatformCapabilityModelOptions>(`/admin/tenants/${tenantId}/ai-capability-model-options`, {
+    params: withNoCacheParams(),
+  });
+}
+
 export function getAiApplication(appKey: string) {
   return Alova.Get<AiApplication>(`/ai-applications/${appKey}`, { params: withNoCacheParams() });
 }
@@ -239,6 +250,12 @@ export function getAiApplicationRunLogs(appKey: string, limit = 50) {
 
 export function getAiCapabilityRunLogs(capabilityKey: string, limit = 50) {
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/capabilities/${capabilityKey}/run-logs`, {
+    params: withNoCacheParams({ limit }),
+  });
+}
+
+export function getPlatformAiCapabilityRunLogs(capabilityKey: string, limit = 50) {
+  return Alova.Get<AiListData<AiApplicationRunLog>>(`/admin/ai-capabilities/${capabilityKey}/run-logs`, {
     params: withNoCacheParams({ limit }),
   });
 }
@@ -308,6 +325,10 @@ export function publishAiApplication(appKey: string) {
 
 export function runAiApplicationDraft(appKey: string, payload: AiRunPayload) {
   return Alova.Post<AiRunResult>(`/ai-applications/${appKey}/run-draft`, payload);
+}
+
+export function previewPlatformAiCapability(capabilityKey: string, payload: AiRunPayload & { tenant_id: number }) {
+  return Alova.Post<AiRunResult>(`/admin/ai-capabilities/${capabilityKey}/preview`, payload);
 }
 
 export function fetchAiApplicationDraftStream(appKey: string, payload: AiRunPayload, signal?: AbortSignal) {
