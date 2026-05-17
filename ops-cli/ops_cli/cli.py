@@ -1,0 +1,241 @@
+"""
+Main CLI entry point for ops-cli.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+from .commands.init import run_init
+from .commands.list_cmd import run_list
+from .commands.switch import run_switch
+from .commands.remove import run_remove
+from .commands.status import run_status
+from .commands.run import run_run
+from .commands.set_config import run_set
+from .commands.setup import run_setup
+from .commands.deploy import run_deploy, run_deploy_add, run_deploy_list, run_deploy_remove
+from .config import get_config
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create the argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="ops-cli",
+        description="OPS Admin Platform Project Manager - Create and manage projects from scaffold",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  ops-cli init              Create a new project (interactive)
+  ops-cli list              List all projects
+  ops-cli switch my-project Switch to a project
+  ops-cli status            Show current project status
+  ops-cli remove my-project Remove a project
+        """,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # init command
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Create a new project from scaffold",
+    )
+    init_parser.add_argument(
+        "--name",
+        "-n",
+        help="Project name (will prompt if not provided)",
+    )
+
+    # list command
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List all managed projects",
+        aliases=["ls"],
+    )
+
+    # switch command
+    switch_parser = subparsers.add_parser(
+        "switch",
+        help="Switch to a different project",
+        aliases=["sw"],
+    )
+    switch_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Project name (will prompt if not provided)",
+    )
+
+    # remove command
+    remove_parser = subparsers.add_parser(
+        "remove",
+        help="Remove a project from management",
+        aliases=["rm"],
+    )
+    remove_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Project name (will prompt if not provided)",
+    )
+
+    # status command
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show current project status",
+        aliases=["st"],
+    )
+
+    # run command
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Start the current project",
+        aliases=["start"],
+    )
+
+    # config command
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Show configuration",
+        aliases=["cfg"],
+    )
+
+    # set command
+    set_parser = subparsers.add_parser(
+        "set",
+        help="Set configuration values",
+    )
+    set_parser.add_argument("key", help="Config key (projects_dir, scaffold_url)")
+    set_parser.add_argument("value", help="Config value")
+
+    # setup command
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Configure project database and run init scripts",
+    )
+    setup_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Project name (auto-detected from current directory if not provided)",
+    )
+    setup_parser.add_argument(
+        "--db",
+        dest="database",
+        help="Database type: sqlite/mysql/postgres",
+    )
+    setup_parser.add_argument(
+        "--url",
+        dest="database_url",
+        help="Database URL (for mysql/postgres)",
+    )
+    setup_parser.add_argument(
+        "--sqlite-path",
+        dest="sqlite_path",
+        help="SQLite database path",
+    )
+
+    # deploy command
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        help="Deploy project to remote server",
+    )
+    deploy_parser.add_argument(
+        "--target",
+        "-t",
+        help="Target server name",
+    )
+    deploy_parser.add_argument(
+        "--add",
+        action="store_true",
+        help="Add a new deploy target",
+    )
+    deploy_parser.add_argument(
+        "--remove",
+        dest="remove_target",
+        help="Remove a deploy target",
+    )
+    deploy_parser.add_argument(
+        "--list-targets",
+        action="store_true",
+        help="List all deploy targets",
+    )
+    # For --add
+    deploy_parser.add_argument("--name", help="Target name")
+    deploy_parser.add_argument("--host", help="Host/IP")
+    deploy_parser.add_argument("--port", help="SSH port")
+    deploy_parser.add_argument("--user", help="SSH user")
+    deploy_parser.add_argument("--ssh-key", dest="ssh_key", help="SSH key path")
+    deploy_parser.add_argument("--password", dest="password", help="SSH password")
+    deploy_parser.add_argument("--yes", "-y", dest="yes", action="store_true", help="Skip confirmation")
+
+    return parser
+
+
+def show_config(args) -> None:
+    """Show current configuration."""
+    config = get_config()
+    data = config.load()
+
+    print("\n" + "=" * 50)
+    print("OPS-CLI Configuration")
+    print("=" * 50)
+    print(f"Scaffold URL:  {data.get('scaffold_url', 'N/A')}")
+    print(f"Projects Dir:  {data.get('projects_dir', 'N/A')}")
+    print(f"Current:       {data.get('current_project', 'None')}")
+    print(f"Total Projects: {len(data.get('projects', {}))}")
+    print()
+
+
+def main() -> int:
+    """Main entry point."""
+    parser = create_parser()
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 0
+
+    try:
+        if args.command == "init":
+            run_init(args)
+        elif args.command in ("list", "ls"):
+            run_list(args)
+        elif args.command in ("switch", "sw"):
+            run_switch(args)
+        elif args.command in ("remove", "rm"):
+            run_remove(args)
+        elif args.command in ("status", "st"):
+            run_status(args)
+        elif args.command in ("run", "start"):
+            run_run(args)
+        elif args.command in ("config", "cfg"):
+            show_config(args)
+        elif args.command == "set":
+            run_set(args)
+        elif args.command == "setup":
+            run_setup(args)
+        elif args.command == "deploy":
+            if args.add:
+                run_deploy_add(args)
+            elif args.remove_target:
+                args.name = args.remove_target
+                run_deploy_remove(args)
+            elif args.list_targets:
+                run_deploy_list(args)
+            else:
+                run_deploy(args)
+        else:
+            parser.print_help()
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        print("\nOperation cancelled.")
+        return 130
+    except Exception as e:
+        print(f"\nError: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

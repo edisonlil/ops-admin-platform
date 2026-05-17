@@ -1115,6 +1115,103 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_tenant_can_use_platform_ai_capability_with_tenant_override(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    with mock.patch("ai_capabilities.application.services.require_database", return_value=db_path):
+                        platform = set_tenant_scope(
+                            TenantScope(
+                                tenant_id=1,
+                                tenant_key="platform",
+                                tenant_name="Platform Administration",
+                                is_platform_admin=True,
+                            )
+                        )
+                        try:
+                            platform_capability = ai_capabilities.save_platform_ai_capability(
+                                {
+                                    "capability_key": "summarize",
+                                    "name": "平台摘要",
+                                    "description": "平台统一摘要能力",
+                                    "system_prompt": "你是平台摘要助手",
+                                    "user_prompt_template": "平台总结：{{question}}",
+                                    "input_schema": {"type": "object", "required": ["question"]},
+                                    "model_preferences": {"model": "dashscope.qwen-plus", "temperature": 0.2},
+                                    "enabled": True,
+                                }
+                            )
+                        finally:
+                            reset_tenant_scope(platform)
+
+                        tenant = set_tenant_scope(TenantScope(tenant_id=22, tenant_key="tenant-a", tenant_name="Tenant A"))
+                        try:
+                            inherited = ai_capabilities.get_ai_capability("summarize")
+                            inherited_items = ai_capabilities.list_ai_capabilities()["items"]
+
+                            def fake_platform_chat(**kwargs: object) -> dict[str, object]:
+                                messages = kwargs["messages"]
+                                assert isinstance(messages, list)
+                                self.assertEqual(messages[0]["content"], "你是平台摘要助手")
+                                self.assertEqual(messages[-1]["content"], "平台总结：会议内容")
+                                return {"choices": [{"message": {"content": "平台摘要结果"}}], "usage": {"total_tokens": 9}}
+
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.chat_completions",
+                                side_effect=fake_platform_chat,
+                            ):
+                                platform_result = ai_capabilities.execute_ai_capability(
+                                    "summarize",
+                                    {"variables": {"question": "会议内容"}},
+                                )
+
+                            tenant_capability = ai_capabilities.save_ai_capability(
+                                {
+                                    "capability_key": "summarize",
+                                    "name": "租户摘要",
+                                    "description": "租户覆盖摘要能力",
+                                    "system_prompt": "你是租户摘要助手",
+                                    "user_prompt_template": "租户总结：{{question}}",
+                                    "input_schema": {"type": "object", "required": ["question"]},
+                                    "model_preferences": {"model": "dashscope.qwen-plus", "temperature": 0.2},
+                                    "enabled": True,
+                                }
+                            )
+
+                            def fake_tenant_chat(**kwargs: object) -> dict[str, object]:
+                                messages = kwargs["messages"]
+                                assert isinstance(messages, list)
+                                self.assertEqual(messages[0]["content"], "你是租户摘要助手")
+                                self.assertEqual(messages[-1]["content"], "租户总结：会议内容")
+                                return {"choices": [{"message": {"content": "租户摘要结果"}}], "usage": {"total_tokens": 7}}
+
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.chat_completions",
+                                side_effect=fake_tenant_chat,
+                            ):
+                                tenant_result = ai_capabilities.execute_ai_capability(
+                                    "summarize",
+                                    {"variables": {"question": "会议内容"}},
+                                )
+                            overridden_items = ai_capabilities.list_ai_capabilities()["items"]
+                        finally:
+                            reset_tenant_scope(tenant)
+
+            self.assertEqual(platform_capability["tenant_id"], 1)
+            self.assertEqual(platform_capability["scope"], "platform")
+            self.assertEqual(inherited["scope"], "platform")
+            self.assertEqual(inherited_items[0]["name"], "平台摘要")
+            self.assertEqual(platform_result["answer"], "平台摘要结果")
+            self.assertEqual(tenant_capability["tenant_id"], 22)
+            self.assertEqual(tenant_capability["scope"], "tenant")
+            self.assertEqual(tenant_result["answer"], "租户摘要结果")
+            self.assertEqual([item["capability_key"] for item in overridden_items], ["summarize"])
+            self.assertEqual(overridden_items[0]["name"], "租户摘要")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_capability_requires_prompt_runtime_config_before_execute(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

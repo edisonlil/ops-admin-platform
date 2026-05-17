@@ -18,6 +18,10 @@ def list_ai_capabilities() -> dict[str, Any]:
     return read_list(lambda conn: repositories.list_ai_capabilities(conn))
 
 
+def list_platform_ai_capabilities() -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_platform_ai_capabilities(conn))
+
+
 def list_capability_model_options() -> dict[str, Any]:
     items = llm_services.list_models()
     return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
@@ -27,6 +31,13 @@ def get_ai_capability(capability_key: str) -> dict[str, Any]:
     capability = read_one(lambda conn: repositories.get_ai_capability(conn, capability_key))
     if not capability:
         raise HTTPException(status_code=404, detail="AI capability not found")
+    return capability
+
+
+def get_platform_ai_capability(capability_key: str) -> dict[str, Any]:
+    capability = read_one(lambda conn: repositories.get_platform_ai_capability(conn, capability_key))
+    if not capability:
+        raise HTTPException(status_code=404, detail="Platform AI capability not found")
     return capability
 
 
@@ -40,10 +51,24 @@ def save_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         with connect(database_target, readonly=False) as conn:
             require_ai_capabilities_schema(conn)
-            existing = repositories.get_ai_capability(conn, str(payload.get("capability_key") or ""))
+            existing = repositories.get_tenant_ai_capability(conn, str(payload.get("capability_key") or ""))
             if not existing:
                 enforce_capability_quota(conn)
-            normalize_capability_payload(conn, payload)
+            normalize_capability_payload(payload, allow_platform_scope=False)
+            return repositories.upsert_ai_capability(conn, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (sqlite3.Error, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def save_platform_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            require_ai_capabilities_schema(conn)
+            payload["scope"] = "platform"
+            normalize_capability_payload(payload, allow_platform_scope=True)
             return repositories.upsert_ai_capability(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -125,12 +150,14 @@ def validate_executable_capability(capability: dict[str, Any]) -> None:
         raise HTTPException(status_code=422, detail="model_preferences.model or model_preferences.route_key is required before execute")
 
 
-def normalize_capability_payload(conn: Any, payload: dict[str, Any]) -> None:
+def normalize_capability_payload(payload: dict[str, Any], *, allow_platform_scope: bool = False) -> None:
     payload["scope"] = str(payload.get("scope") or "tenant").strip() or "tenant"
     if payload["scope"] not in {"tenant", "platform"}:
         raise ValueError("scope must be tenant or platform")
-    if payload["scope"] != "tenant":
+    if payload["scope"] == "platform" and not allow_platform_scope:
         raise ValueError("tenant AI Studio can only create tenant scoped capabilities")
+    if payload["scope"] == "tenant" and allow_platform_scope:
+        raise ValueError("platform AI capability management requires platform scope")
     binding_type = str(payload.get("binding_type") or "prompt_runtime").strip()
     if binding_type not in {"prompt_runtime", "workflow_runtime"}:
         raise ValueError("binding_type must be prompt_runtime or workflow_runtime")

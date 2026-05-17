@@ -1,0 +1,7 @@
+{
+  "name": "ops-admin-platform",
+  "engines": {
+    "python": "3.11.5",
+    "node": "20.19.0"
+  }
+}

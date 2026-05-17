@@ -85,7 +85,28 @@ def resolve_db_path() -> Path:
 
 
 def admin_dist_path() -> Path:
-    return repo_root() / "web" / "admin" / "dist"
+    # Check environment variable first, then fall back to standard locations
+    env_path = os.environ.get("FG_AGENT_ADMIN_DIST_PATH", "").strip()
+    if env_path:
+        return Path(env_path)
+    
+    # Try standard locations
+    root = repo_root()
+    candidates = [
+        root / "dist",
+        root / "web" / "admin" / "dist",
+        Path("/app/dist"),
+        Path("/app/web/admin/dist"),
+    ]
+    
+    for path in candidates:
+        if path.exists() and path.is_dir():
+            # Check if it looks like a Vue SPA dist (has index.html)
+            if (path / "index.html").exists():
+                return path
+    
+    # Return default
+    return Path("/app/dist")
 
 
 def auth_secret() -> str:

@@ -1,0 +1,2 @@
+# Core dependencies (empty for now)
+# Add any runtime dependencies here as needed

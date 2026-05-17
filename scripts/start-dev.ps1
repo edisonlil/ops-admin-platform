@@ -140,46 +140,68 @@ function Write-Utf8NoBom {
 }
 
 function Configure-PortsAndDatabase {
-  $script:BackendPort = Read-Port -Prompt "Backend port" -Default $BackendPort
-  $script:FrontendPort = Read-Port -Prompt "Frontend port" -Default $FrontendPort
-  if ($script:BackendPort -eq $script:FrontendPort) {
-    throw "Backend and frontend ports must be different."
-  }
-
-  $existing = Load-DatabaseConfig
-  $existingBackend = Config-Value -Config $existing -Name "backend"
-  $defaultBackend = if ($existingBackend -in @("sqlite", "postgres")) { $existingBackend } else { "sqlite" }
-  $backend = Read-Choice -Prompt "Database backend (sqlite/postgres)" -Default $defaultBackend -Choices @("sqlite", "postgres")
-
-  if ($backend -eq "postgres") {
-    $defaultUrl = Config-Value -Config $existing -Name "database_url"
-    $databaseUrl = Read-Default -Prompt "Postgres database URL" -Default $defaultUrl
-    if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
-      throw "Postgres database URL is required when database backend is postgres."
+  if (-not $NonInteractive) {
+    $script:BackendPort = Read-Port -Prompt "Backend port" -Default $BackendPort
+    $script:FrontendPort = Read-Port -Prompt "Frontend port" -Default $FrontendPort
+    if ($script:BackendPort -eq $script:FrontendPort) {
+      throw "Backend and frontend ports must be different."
     }
-    Save-Json -Path $DatabaseConfigPath -Payload @{
-      backend = "postgres"
-      database_url = $databaseUrl
-    }
-    Write-Host "Database config saved: $DatabaseConfigPath"
   } else {
-    $defaultPath = Config-Value -Config $existing -Name "sqlite_path"
-    if ([string]::IsNullOrWhiteSpace($defaultPath)) {
-      $defaultPath = Config-Value -Config $existing -Name "db_path" -Fallback "ops_admin.db"
-    }
-    $sqlitePath = Read-Default -Prompt "SQLite database path" -Default $defaultPath
-    if ([string]::IsNullOrWhiteSpace($sqlitePath)) {
-      $sqlitePath = "ops_admin.db"
-    }
-    Save-Json -Path $DatabaseConfigPath -Payload @{
-      backend = "sqlite"
-      sqlite_path = $sqlitePath
-    }
-    Write-Host "Database config saved: $DatabaseConfigPath"
+    # In non-interactive mode, use default ports if not provided via args
+    Write-Host "Using default ports: Backend=$BackendPort, Frontend=$FrontendPort"
   }
 
+  # Check if database config already exists
+  $existing = Load-DatabaseConfig
+  if ($existing -and $existing.backend) {
+    # Use existing config
+    Write-Host "Using existing database config: $($existing.backend)"
+    $script:Backend = $existing.backend
+    if ($script:Backend -eq "mysql" -or $script:Backend -eq "postgres") {
+      $script:DatabaseUrl = $existing.database_url
+    } else {
+      $script:SqlitePath = $existing.sqlite_path
+    }
+  } else {
+    # No existing config, this shouldn't happen if setup was run
+    if ($NonInteractive) {
+      Write-Host "Warning: No database config found. Please run 'ops-cli setup' first."
+      # Default to sqlite
+      $script:Backend = "sqlite"
+      $script:SqlitePath = "ops_admin.db"
+    } else {
+      $defaultBackend = $existingBackend = Config-Value -Config $existing -Name "backend"
+      if (-not $defaultBackend) {
+        $defaultBackend = "sqlite"
+      }
+      $backend = Read-Choice -Prompt "Database backend (sqlite/mysql/postgres)" -Default $defaultBackend -Choices @("sqlite", "mysql", "postgres")
+
+      $script:Backend = $backend
+
+      if ($backend -eq "postgres" -or $backend -eq "mysql") {
+        $defaultUrl = Config-Value -Config $existing -Name "database_url"
+        $databaseUrl = Read-Default -Prompt "Database URL" -Default $defaultUrl
+        if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
+          throw "Database URL is required when database backend is $backend."
+        }
+        $script:DatabaseUrl = $databaseUrl
+      } else {
+        $defaultPath = Config-Value -Config $existing -Name "sqlite_path"
+        if ([string]::IsNullOrWhiteSpace($defaultPath)) {
+          $defaultPath = Config-Value -Config $existing -Name "db_path" -Fallback "ops_admin.db"
+        }
+        $sqlitePath = Read-Default -Prompt "SQLite database path" -Default $defaultPath
+        if ([string]::IsNullOrWhiteSpace($sqlitePath)) {
+          $sqlitePath = "ops_admin.db"
+        }
+        $script:SqlitePath = $sqlitePath
+      }
+    }
+  }
+
+  # Set environment variables
   $env:FG_AGENT_DATABASE_CONFIG = $DatabaseConfigPath
-  $env:FG_AGENT_CORS_ORIGINS = "http://localhost:$script:FrontendPort,http://127.0.0.1:$script:FrontendPort"
+  $env:FG_AGENT_CORS_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort"
 }
 
 function Configure-PythonPath {

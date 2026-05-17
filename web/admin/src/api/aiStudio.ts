@@ -142,6 +142,7 @@ export interface AiCapability {
   model_preferences: Record<string, unknown>;
   runtime_config: Record<string, unknown>;
   enabled: boolean;
+  inherited?: boolean;
   create_time?: string;
   update_time?: string;
 }
@@ -208,8 +209,16 @@ export function getAiCapabilities() {
   return Alova.Get<AiListData<AiCapability>>('/ai-capabilities', { params: withNoCacheParams() });
 }
 
+export function getPlatformAiCapabilities() {
+  return Alova.Get<AiListData<AiCapability>>('/admin/ai-capabilities', { params: withNoCacheParams() });
+}
+
 export function getAiCapability(capabilityKey: string) {
   return Alova.Get<AiCapability>(`/ai-capabilities/${capabilityKey}`, { params: withNoCacheParams() });
+}
+
+export function getPlatformAiCapability(capabilityKey: string) {
+  return Alova.Get<AiCapability>(`/admin/ai-capabilities/${capabilityKey}`, { params: withNoCacheParams() });
 }
 
 export function getAiCapabilityModelOptions() {
@@ -272,28 +281,25 @@ export function updateAiApplication(appKey: string, payload: AiApplicationPayloa
 }
 
 export function saveAiCapability(payload: AiCapabilityPayload) {
-  const body: AiCapabilityPayload = {
-    capability_key: String(payload.capability_key || '').trim(),
-    name: String(payload.name || '').trim(),
-    description: payload.description || '',
-    scope: payload.scope || 'tenant',
-    binding_type: payload.binding_type || 'prompt_runtime',
-    binding_key: String(payload.binding_key || payload.capability_key || '').trim(),
-    call_method: payload.call_method || 'aiService.execute',
-    system_prompt: payload.system_prompt || '',
-    developer_prompt: payload.developer_prompt || '',
-    user_prompt_template: payload.user_prompt_template || '',
-    input_schema: payload.input_schema || {},
-    output_schema: payload.output_schema || {},
-    model_preferences: payload.model_preferences || {},
-    runtime_config: payload.runtime_config || {},
-    enabled: payload.enabled ?? true,
-  };
-  return Alova.Post<AiCapability>('/ai-capabilities', body);
+  return Alova.Post<AiCapability>('/ai-capabilities', normalizeAiCapabilityPayload(payload));
+}
+
+export function savePlatformAiCapability(payload: AiCapabilityPayload) {
+  return Alova.Post<AiCapability>('/admin/ai-capabilities', {
+    ...normalizeAiCapabilityPayload(payload),
+    scope: 'platform',
+  });
 }
 
 export function updateAiCapability(capabilityKey: string, payload: AiCapabilityPayload) {
-  return Alova.Put<AiCapability>(`/ai-capabilities/${capabilityKey}`, payload);
+  return Alova.Put<AiCapability>(`/ai-capabilities/${capabilityKey}`, normalizeAiCapabilityPayload(payload));
+}
+
+export function updatePlatformAiCapability(capabilityKey: string, payload: AiCapabilityPayload) {
+  return Alova.Put<AiCapability>(`/admin/ai-capabilities/${capabilityKey}`, {
+    ...normalizeAiCapabilityPayload(payload),
+    scope: 'platform',
+  });
 }
 
 export function publishAiApplication(appKey: string) {
@@ -371,6 +377,26 @@ function buildAiStudioApiUrl(path: string) {
   const endpoint = normalizePathPart(path);
   const relativeUrl = `/${[prefix, endpoint].filter(Boolean).join('/')}`;
   return base ? `${base}${relativeUrl}` : relativeUrl;
+}
+
+function normalizeAiCapabilityPayload(payload: AiCapabilityPayload) {
+  return {
+    capability_key: String(payload.capability_key || '').trim(),
+    name: String(payload.name || '').trim(),
+    description: payload.description || '',
+    scope: payload.scope || 'tenant',
+    binding_type: payload.binding_type || 'prompt_runtime',
+    binding_key: String(payload.binding_key || payload.capability_key || '').trim(),
+    call_method: payload.call_method || 'aiService.execute',
+    system_prompt: payload.system_prompt || '',
+    developer_prompt: payload.developer_prompt || '',
+    user_prompt_template: payload.user_prompt_template || '',
+    input_schema: payload.input_schema || {},
+    output_schema: payload.output_schema || {},
+    model_preferences: payload.model_preferences || {},
+    runtime_config: payload.runtime_config || {},
+    enabled: payload.enabled ?? true,
+  };
 }
 
 function trimTrailingSlashes(value: string) {

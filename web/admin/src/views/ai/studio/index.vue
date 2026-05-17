@@ -105,6 +105,11 @@
           <n-input v-model:value="capabilityForm.name" placeholder="例如：摘要生成" />
         </n-form-item>
         <n-form-item label="图标">
+          <n-radio-group v-if="isPlatformAdmin" v-model:value="capabilityForm.scope" size="small">
+            <n-radio-button v-for="item in capabilityScopeOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </n-radio-button>
+          </n-radio-group>
           <n-select v-model:value="capabilityForm.icon" :options="iconOptions" />
         </n-form-item>
         <n-form-item label="描述">
@@ -133,14 +138,17 @@
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
+  import { useUser } from '@/store/modules/user';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     getAiCapabilities,
     getAiCapabilityModelOptions,
     getAiApplications,
+    getPlatformAiCapabilities,
     getTenantAiQuota,
     saveAiCapability,
     saveAiApplication,
+    savePlatformAiCapability,
     type AiCapability,
     type AiApplication,
     type AiQuota,
@@ -149,6 +157,7 @@
   const router = useRouter();
   const message = useMessage();
   const { hasPermission } = usePermission();
+  const userStore = useUser();
   const loading = ref(false);
   const creating = ref(false);
   const creatingCapability = ref(false);
@@ -176,10 +185,12 @@
     scope: 'tenant',
   });
 
+  const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const canReadApplications = computed(() => hasPermission(['ai_applications:read']));
   const canManageApplications = computed(() => hasPermission(['ai_applications:manage']));
   const canReadCapabilities = computed(() => hasPermission(['ai_capabilities:read']));
   const canManageCapabilities = computed(() => hasPermission(['ai_capabilities:manage']));
+  const canManagePlatformCapabilities = computed(() => isPlatformAdmin.value);
 
   const iconMap = {
     robot: RobotOutlined,
@@ -211,6 +222,10 @@
     { label: '启用', value: 'enabled' },
     { label: '停用', value: 'disabled' },
   ];
+  const capabilityScopeOptions = computed(() => [
+    { label: '租户能力', value: 'tenant' },
+    ...(isPlatformAdmin.value ? [{ label: '平台能力', value: 'platform' }] : []),
+  ]);
   const appCount = computed(() => quota.value?.usage?.applications ?? applications.value.length);
   const capabilityCount = computed(() => quota.value?.usage?.capabilities ?? capabilities.value.length);
   const quotaReached = computed(() => !!quota.value && appCount.value >= quota.value.max_applications);
@@ -264,7 +279,17 @@
       minWidth: 220,
       render: (row) => String(row.model_preferences?.model || row.model_preferences?.route_key || '-'),
     },
-    { title: 'Scope', key: 'scope', width: 100 },
+    {
+      title: 'Scope',
+      key: 'scope',
+      width: 100,
+      render: (row) =>
+        h(
+          NTag,
+          { size: 'small', type: row.scope === 'platform' ? 'info' : 'default' },
+          { default: () => (row.scope === 'platform' ? '平台' : '租户') }
+        ),
+    },
     {
       title: '状态',
       key: 'enabled',
@@ -332,7 +357,7 @@
                   onClick: openCreateModal,
                 }
               : undefined
-            : canManageCapabilities.value
+            : canManageCapabilities.value || canManagePlatformCapabilities.value
               ? {
                   key: 'create-capability',
                   label: '创建能力',
@@ -384,7 +409,7 @@
     capabilityForm.name = '';
     capabilityForm.icon = 'api';
     capabilityForm.description = '';
-    capabilityForm.scope = 'tenant';
+    capabilityForm.scope = isPlatformAdmin.value ? 'platform' : 'tenant';
     capabilityModalVisible.value = true;
   }
 
@@ -397,7 +422,7 @@
     }
     creatingCapability.value = true;
     try {
-      await saveAiCapability({
+      const payload = {
         capability_key: capabilityKey,
         name,
         description: capabilityForm.description.trim(),
@@ -412,7 +437,8 @@
         model_preferences: {},
         runtime_config: { icon: capabilityForm.icon },
         enabled: true,
-      });
+      };
+      await (capabilityForm.scope === 'platform' ? savePlatformAiCapability(payload) : saveAiCapability(payload));
       message.success('能力已创建');
       capabilityModalVisible.value = false;
       await reload();
@@ -481,7 +507,7 @@
         tasks.push(getAiCapabilityModelOptions());
       }
       if (canReadCapabilities.value) {
-        tasks.push(getAiCapabilities());
+        tasks.push(isPlatformAdmin.value ? getPlatformAiCapabilities() : getAiCapabilities());
       }
       const [quotaPayload, ...payloads] = await Promise.all(tasks);
       quota.value = quotaPayload as AiQuota;

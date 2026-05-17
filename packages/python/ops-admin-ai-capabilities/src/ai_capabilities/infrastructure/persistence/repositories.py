@@ -7,6 +7,9 @@ from typing import Any
 from system.application.tenancy import current_tenant_scope
 
 
+PLATFORM_TENANT_ID = 1
+
+
 def now_text() -> str:
     return datetime.now().isoformat(timespec="microseconds")
 
@@ -39,6 +42,14 @@ def current_tenant_id() -> int:
     return int(current_tenant_scope().tenant_id)
 
 
+def current_tenant_is_platform_admin() -> bool:
+    return bool(current_tenant_scope().is_platform_admin)
+
+
+def storage_tenant_id_for_scope(scope: str) -> int:
+    return PLATFORM_TENANT_ID if scope == "platform" else current_tenant_id()
+
+
 DEFAULT_AI_QUOTA = {
     "max_applications": 5,
     "max_capabilities": 50,
@@ -58,15 +69,62 @@ def list_ai_capabilities(conn: Any) -> list[dict[str, Any]]:
         """
         SELECT *
         FROM ai_capabilities
-        WHERE tenant_id = ? AND deleted = 0
+        WHERE deleted = 0
+          AND (
+              tenant_id = ?
+              OR (tenant_id = ? AND scope = 'platform')
+          )
+        ORDER BY
+          CASE WHEN tenant_id = ? THEN 0 ELSE 1 END,
+          update_time DESC,
+          id DESC
+        """,
+        (current_tenant_id(), PLATFORM_TENANT_ID, current_tenant_id()),
+    ).fetchall()
+    capabilities: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for row in rows:
+        capability = ai_capability_from_row(dict(row))
+        key = capability["capability_key"]
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        capabilities.append(capability)
+    return capabilities
+
+
+def list_platform_ai_capabilities(conn: Any) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM ai_capabilities
+        WHERE tenant_id = ? AND scope = 'platform' AND deleted = 0
         ORDER BY update_time DESC, id DESC
         """,
-        (current_tenant_id(),),
+        (PLATFORM_TENANT_ID,),
     ).fetchall()
     return [ai_capability_from_row(dict(row)) for row in rows]
 
 
 def get_ai_capability(conn: Any, capability_key: str) -> dict[str, Any] | None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM ai_capabilities
+        WHERE capability_key = ? AND deleted = 0
+          AND (
+              tenant_id = ?
+              OR (tenant_id = ? AND scope = 'platform')
+          )
+        ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, id DESC
+        """,
+        (normalize_key(capability_key), current_tenant_id(), PLATFORM_TENANT_ID, current_tenant_id()),
+    ).fetchall()
+    row = rows[0] if rows else None
+    return ai_capability_from_row(dict(row)) if row else None
+
+
+def get_tenant_ai_capability(conn: Any, capability_key: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
         SELECT *
@@ -74,6 +132,18 @@ def get_ai_capability(conn: Any, capability_key: str) -> dict[str, Any] | None:
         WHERE tenant_id = ? AND capability_key = ? AND deleted = 0
         """,
         (current_tenant_id(), normalize_key(capability_key)),
+    ).fetchone()
+    return ai_capability_from_row(dict(row)) if row else None
+
+
+def get_platform_ai_capability(conn: Any, capability_key: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM ai_capabilities
+        WHERE tenant_id = ? AND scope = 'platform' AND capability_key = ? AND deleted = 0
+        """,
+        (PLATFORM_TENANT_ID, normalize_key(capability_key)),
     ).fetchone()
     return ai_capability_from_row(dict(row)) if row else None
 
@@ -92,7 +162,8 @@ def count_ai_capabilities(conn: Any, tenant_id: int | None = None) -> int:
 
 
 def upsert_ai_capability(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    tenant_id = current_tenant_id()
+    scope = str(payload.get("scope") or "tenant").strip() or "tenant"
+    tenant_id = storage_tenant_id_for_scope(scope)
     capability_key = normalize_key(payload.get("capability_key"))
     if not capability_key:
         raise ValueError("capability_key is required")
@@ -113,7 +184,7 @@ def upsert_ai_capability(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     values = (
         name,
         str(payload.get("description") or "").strip(),
-        str(payload.get("scope") or "tenant").strip() or "tenant",
+        scope,
         binding_type,
         binding_key,
         str(payload.get("call_method") or "aiService.execute").strip() or "aiService.execute",
@@ -164,6 +235,8 @@ def upsert_ai_capability(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (tenant_id, capability_key, *values[:-1], timestamp, timestamp),
         )
+    if scope == "platform":
+        return get_platform_ai_capability(conn, capability_key) or {}
     return get_ai_capability(conn, capability_key) or {}
 
 

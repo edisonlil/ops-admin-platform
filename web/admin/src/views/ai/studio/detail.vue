@@ -850,16 +850,19 @@
     fetchAiApplicationDraftStream,
     getAiCapability,
     getAiCapabilityRunLogs,
+    getPlatformAiCapability,
     getAiApplication,
     getAiApplicationRunLogs,
     publishAiApplication,
     updateAiCapability,
     updateAiApplication,
+    updatePlatformAiCapability,
     type AiCapability,
     type AiApplication,
     type AiApplicationRunLog,
     type AiRunResult,
   } from '@/api/aiStudio';
+  import { useUser } from '@/store/modules/user';
 
   interface RuntimeVariableField {
     key: string;
@@ -901,6 +904,7 @@
   const route = useRoute();
   const router = useRouter();
   const message = useMessage();
+  const userStore = useUser();
   const loading = ref(false);
   const saving = ref(false);
   const publishing = ref(false);
@@ -1064,6 +1068,8 @@
   const selectedIconLabel = computed(() => String(iconOptions.find((item) => item.value === form.icon)?.label || '助手'));
   const resourceType = computed<StudioResourceType>(() => (route.name === 'ai-studio-capability-detail' ? 'capability' : 'application'));
   const isCapability = computed(() => resourceType.value === 'capability');
+  const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
+  const editingPlatformCapability = computed(() => isCapability.value && activeCapability.value?.scope === 'platform' && isPlatformAdmin.value);
   const resourceLabel = computed(() => (isCapability.value ? 'AI 能力' : 'AI 应用'));
   const settingsTitle = computed(() => (isCapability.value ? '能力信息' : '应用信息'));
   const settingsHint = computed(() =>
@@ -1183,7 +1189,11 @@
     loading.value = true;
     try {
       if (isCapability.value) {
-        const [capability] = await Promise.all([getAiCapability(key), loadModelConfigs(), loadPublishedPrompts()]);
+        const [capability] = await Promise.all([
+          isPlatformAdmin.value ? getPlatformAiCapability(key) : getAiCapability(key),
+          loadModelConfigs(),
+          loadPublishedPrompts(),
+        ]);
         selectCapability(capability);
       } else {
         const [app] = await Promise.all([getAiApplication(key), loadModelConfigs(), loadPublishedPrompts()]);
@@ -1325,8 +1335,8 @@
     }
     if (!options.silent) saving.value = true;
     try {
-    const saved = isCapability.value
-        ? await updateAiCapability(form.app_key, buildCapabilityPayload())
+      const saved = isCapability.value
+        ? await saveCapabilityPayload()
         : await updateAiApplication(form.app_key, buildPayload());
       if (!options.silent) message.success(`${resourceLabel.value}已保存`);
       if (options.refresh !== false) {
@@ -1892,7 +1902,7 @@
       capability_key: form.app_key,
       name: form.name,
       description: form.description,
-      scope: activeCapability.value?.scope || 'tenant',
+      scope: editingPlatformCapability.value ? 'platform' : 'tenant',
       binding_type: isWorkflowMode.value ? 'workflow_runtime' : 'prompt_runtime',
       binding_key: form.app_key,
       call_method: activeCapability.value?.call_method || 'aiService.execute',
@@ -1905,6 +1915,13 @@
       runtime_config: runtimeConfig,
       enabled: activeCapability.value?.enabled ?? true,
     };
+  }
+
+  function saveCapabilityPayload() {
+    const payload = buildCapabilityPayload();
+    return editingPlatformCapability.value
+      ? updatePlatformAiCapability(form.app_key, payload)
+      : updateAiCapability(form.app_key, payload);
   }
 
   function generatePromptHint() {
