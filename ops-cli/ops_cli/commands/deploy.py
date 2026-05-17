@@ -383,7 +383,6 @@ services:
   backend:
     image: ops-admin:latest
     container_name: ops-admin-backend
-    network_mode: host
     ports:
       - "{container_port}:8000"
     environment:
