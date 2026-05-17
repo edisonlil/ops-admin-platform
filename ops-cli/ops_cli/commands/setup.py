@@ -13,26 +13,22 @@ from ..interactive.prompts import ask_with_choices, ask_confirmation
 
 
 def detect_project_from_dir(projects_dir: Path) -> tuple[str, dict] | None:
-    """Detect project from current directory by checking .ops-config."""
+    """Detect project from current directory by checking .ops-config or config."""
     cwd = Path.cwd()
     
-    # Check if .ops-config exists in current directory
-    ops_config = cwd / ".ops-config"
-    if ops_config.exists():
-        try:
-            with open(ops_config, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            name = config.get("name")
-            if name:
-                return name, config
-        except Exception:
-            pass
+    # First check if this is a managed project in config
+    config = get_config()
+    projects = config.get_projects()
+    
+    for name, project_info in projects.items():
+        project_path = Path(project_info.get("path", "")).resolve()
+        if project_path == cwd.resolve():
+            return name, project_info
     
     # Also check if current directory is under projects_dir
     try:
         relative = cwd.relative_to(projects_dir)
         project_name = relative.parts[0]
-        config = get_config()
         project_info = config.get_project(project_name)
         if project_info:
             return project_name, project_info
@@ -692,9 +688,37 @@ def run_setup(args) -> None:
         print("-" * 40)
         create_database_if_not_exists(backend, db_kwargs["database_url"])
     
-    # Step 5: Run init scripts
-    print("\nStep 5: Running Initialization Scripts")
+    # Step 5: Init script mode selection
+    print("\nStep 5: Initialization Scripts")
     print("-" * 40)
+    print("Select initialization mode:")
+    print("  1. Skip init scripts (use existing database)")
+    print("  2. Run init scripts (initialize/reset database)")
+    
+    init_mode = input("Choice [1]: ").strip() or "1"
+    
+    if init_mode == "1":
+        print("Init scripts skipped. Database config saved.")
+        print("\n" + "=" * 50)
+        print("Setup Complete!")
+        print("=" * 50)
+        print(f"Database: {backend}")
+        if backend == "sqlite":
+            print(f"Path: {db_kwargs.get('sqlite_path')}")
+        else:
+            url = db_kwargs.get('database_url', '')
+            if '@' in url:
+                parts = url.split('@')
+                if ':' in parts[0]:
+                    user_part = parts[0].split(':')[0] + ':***'
+                    url = user_part + '@' + parts[1]
+            print(f"URL: {url}")
+        print()
+        print("Run 'ops-cli deploy' to deploy to server.")
+        return
+    
+    # Continue with init scripts if user chose option 2
+    print("Running init scripts...")
     
     # Check Python and venv
     python_ok, python_version = check_python_available()

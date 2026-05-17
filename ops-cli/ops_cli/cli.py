@@ -7,6 +7,7 @@ import argparse
 import sys
 
 from .commands.init import run_init
+from .commands.link import run_link
 from .commands.list_cmd import run_list
 from .commands.switch import run_switch
 from .commands.remove import run_remove
@@ -45,6 +46,22 @@ Examples:
         "--name",
         "-n",
         help="Project name (will prompt if not provided)",
+    )
+
+    # link command
+    link_parser = subparsers.add_parser(
+        "link",
+        help="Link an existing project to ops-cli management",
+    )
+    link_parser.add_argument(
+        "path",
+        nargs="?",
+        help="Project path (uses current directory if not provided)",
+    )
+    link_parser.add_argument(
+        "--name",
+        "-n",
+        help="Project name (uses folder name if not provided)",
     )
 
     # list command
@@ -197,6 +214,8 @@ def main() -> int:
     try:
         if args.command == "init":
             run_init(args)
+        elif args.command == "link":
+            run_link(args)
         elif args.command in ("list", "ls"):
             run_list(args)
         elif args.command in ("switch", "sw"):
