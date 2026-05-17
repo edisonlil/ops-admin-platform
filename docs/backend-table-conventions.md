@@ -46,3 +46,19 @@ UNIQUE (tenant_id, user_id, role_id)
 ```
 
 `tenant_memberships`、`user_roles`、`role_permissions`、`role_menus` 均遵循该规则。
+
+关系关联表默认使用物理删除，适用于角色授权、菜单授权、配置项成员等只表达“当前关系集合”的中间表。编辑关系集合时可先删除旧关系再写入新关系，历史审计应由业务操作日志或上层实体承担。
+
+只有具备审计、恢复、权限追溯价值的关系表允许使用逻辑删除，例如用户部门归属、数据权限策略。逻辑删除关系表必须增加可空的 `active_marker` 字段：
+
+```sql
+active_marker INTEGER DEFAULT 1
+```
+
+当前有效关系写入 `active_marker=1`，逻辑删除时同时设置 `deleted=1, active_marker=NULL`。这类表的业务唯一索引必须使用 `active_marker` 表达“当前有效唯一性”，禁止使用 `UNIQUE (..., deleted)`，例如：
+
+```sql
+UNIQUE (tenant_id, user_id, department_id, active_marker)
+```
+
+需要恢复历史关系时应插入新的当前有效行，保留旧逻辑删除行作为历史记录。
