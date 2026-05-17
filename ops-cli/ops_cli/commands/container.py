@@ -3,6 +3,7 @@ Container command - manage deployed containers on remote servers.
 """
 from __future__ import annotations
 
+import re
 import select
 import sys
 from pathlib import Path
@@ -11,6 +12,25 @@ import paramiko
 from paramiko import SSHClient, AutoAddPolicy
 
 from ..config import get_config
+
+
+def _safe_identifier(value: str, fallback: str = "default") -> str:
+    """Sanitize a value to a docker-safe identifier segment."""
+    safe = re.sub(r"[^a-z0-9_.-]", "-", str(value).lower())
+    safe = re.sub(r"-{2,}", "-", safe).strip("-_.")
+    if not safe:
+        safe = fallback.lower().strip("-_.")
+    if not safe:
+        safe = "default"
+    return safe[:40]
+
+
+def _make_container_name(target_name: str, fallback: str = "default") -> str:
+    return f"ops-admin-backend-{_safe_identifier(target_name or fallback)}"
+
+
+def _get_target_container_name(target_name: str, target: dict) -> str:
+    return _make_container_name(target_name, fallback=target.get("name", target.get("host", target.get("user", "default"))))
 
 
 def get_deploy_targets() -> dict:
@@ -102,8 +122,9 @@ def run_container_command(args) -> None:
         # Show container status
         print("\nContainer Status:")
         print("-" * 40)
+        container_name = _get_target_container_name(target_name, target)
         stdin, stdout, stderr = client.exec_command(
-            "docker ps -a --filter name=ops-admin --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+            f"docker ps -a --filter name=^{container_name}$ --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
         )
         stdout.channel.recv_exit_status()
         output = stdout.read().decode()
@@ -147,6 +168,7 @@ def run_container_command(args) -> None:
             print(f"\nFailed to {action} container.")
     
     elif command == "logs":
+        container_name = _get_target_container_name(target_name, target)
         # Show container logs
         lines = args.lines or 100
         follow = getattr(args, 'follow', False)
@@ -156,7 +178,7 @@ def run_container_command(args) -> None:
             print("-" * 40)
             
             # Use docker logs -f for real-time
-            channel = client.exec_command(f"docker logs -f --tail {lines} ops-admin-backend 2>&1")
+            channel = client.exec_command(f"docker logs -f --tail {lines} {container_name} 2>&1")
             
             stdout = channel[1]
             stderr = channel[2]
@@ -181,7 +203,7 @@ def run_container_command(args) -> None:
             print(f"\nContainer logs (last {lines} lines):")
             print("-" * 40)
             
-            stdin, stdout, stderr = client.exec_command(f"docker logs --tail {lines} ops-admin-backend 2>&1")
+            stdin, stdout, stderr = client.exec_command(f"docker logs --tail {lines} {container_name} 2>&1")
             
             while True:
                 readable, _, _ = select.select([stdout.channel, stderr.channel], [], [])

@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,21 @@ from paramiko import SSHClient, AutoAddPolicy
 from ..config import get_config
 from ..interactive.prompts import ask_confirmation, ask_with_choices
 from .deploy_history import DeployHistory, format_history_list
+
+
+def _safe_identifier(value: str, fallback: str = "default") -> str:
+    """Sanitize a value to a docker-safe identifier segment."""
+    safe = re.sub(r"[^a-z0-9_.-]", "-", str(value).lower())
+    safe = re.sub(r"-{2,}", "-", safe).strip("-_.")
+    if not safe:
+        safe = fallback.lower().strip("-_.")
+    if not safe:
+        safe = "default"
+    return safe[:40]
+
+
+def _make_container_name(target_name: str, fallback: str = "default") -> str:
+    return f"ops-admin-backend-{_safe_identifier(target_name or fallback)}"
 
 
 def get_deploy_targets(project_path: Optional[Path] = None) -> dict:
@@ -139,10 +155,12 @@ def create_deploy_package(
     project_path: Path,
     output_path: Path,
     db_config: dict,
+    target_name: str = "",
     remote_path: str = "/opt/ops-admin"
 ) -> bool:
     """Create deployment package (source + config, no Docker image)."""
     print("\nCreating deployment package...")
+    container_name = _make_container_name(target_name)
     
     dist_path = project_path / "web" / "admin" / "dist"
     
@@ -210,6 +228,7 @@ def create_deploy_package(
 set -e
 
 DEPLOY_DIR="{remote_path}"
+CONTAINER_NAME="{container_name}"
 REQUIRED_DIRS=("api" "packages" "dist")
 
 echo "Starting deployment..."
@@ -292,9 +311,23 @@ ls -la dist/ | head -5
 echo "Stopping existing container..."
 docker-compose down 2>/dev/null || true
 
+# Remove existing container with the same name to avoid name conflict
+if [ -n "$CONTAINER_NAME" ]; then
+    EXISTING_IDS=$(docker ps -aq --filter "name=^/$CONTAINER_NAME$")
+    if [ -n "$EXISTING_IDS" ]; then
+        echo "Removing existing container: $CONTAINER_NAME"
+        echo "$EXISTING_IDS" | xargs -r docker rm -f
+    fi
+fi
+
 # Build image
 echo "Building Docker image..."
-docker build -t ops-admin:latest .
+docker build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
+if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
+    echo "ERROR: docker build failed. Showing /tmp/ops-admin-build.log"
+    tail -n 200 /tmp/ops-admin-build.log
+    exit 1
+fi
 
 # Verify image was built successfully
 if ! docker image inspect ops-admin:latest > /dev/null 2>&1; then
@@ -308,7 +341,7 @@ docker-compose up -d
 
 # Verify container is running
 sleep 3
-if ! docker ps | grep -q "ops-admin"; then
+if ! docker ps | grep -q "$CONTAINER_NAME"; then
     echo "ERROR: Container failed to start"
     exit 1
 fi
@@ -346,8 +379,9 @@ fi
 
 echo ""
 echo "Deployment completed!"
-echo "URL: http://localhost:$PORT"
-docker ps | grep ops-admin
+if [ -n "$CONTAINER_NAME" ]; then
+    docker ps | grep "$CONTAINER_NAME"
+fi
 """
             script_data = build_script.encode("utf-8")
             script_file = io.BytesIO(script_data)
@@ -375,6 +409,7 @@ def do_deploy(package_path: Path, target: dict, db_config: dict, target_name: st
     password = target.get("password", "")
     remote_path = target.get("remote_path", "/opt/ops-admin")
     container_port = target.get("container_port", 8000)
+    container_name = _make_container_name(target_name, fallback=target.get("name", target.get("host", "default")))
     
     if not all([host, user]):
         print("Missing target configuration.")
@@ -463,7 +498,7 @@ def do_deploy(package_path: Path, target: dict, db_config: dict, target_name: st
 services:
   backend:
     image: ops-admin:latest
-    container_name: ops-admin-backend
+    container_name: {container_name}
     ports:
       - "{container_port}:8000"
     environment:
@@ -483,6 +518,7 @@ set -e
 
 PORT={container_port}
 DEPLOY_DIR="{remote_path}"
+CONTAINER_NAME="{container_name}"
 
 echo "Starting deployment..."
 
@@ -490,13 +526,27 @@ echo "Starting deployment..."
 echo "Stopping existing container..."
 docker-compose down 2>/dev/null || true
 
+# Remove existing container with the same name to avoid name conflict
+if [ -n "$CONTAINER_NAME" ]; then
+    EXISTING_IDS=$(docker ps -aq --filter "name=^/$CONTAINER_NAME$")
+    if [ -n "$EXISTING_IDS" ]; then
+        echo "Removing existing container: $CONTAINER_NAME"
+        echo "$EXISTING_IDS" | xargs -r docker rm -f
+    fi
+fi
+
 # Write docker-compose.yml with configured port
 cat > "$DEPLOY_DIR/docker-compose.yml" << 'COMPOSE_EOF'
 {compose_content}COMPOSE_EOF
 
 # Build image
 echo "Building Docker image..."
-docker build -t ops-admin:latest .
+docker build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
+if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
+    echo "ERROR: docker build failed. Showing /tmp/ops-admin-build.log"
+    tail -n 200 /tmp/ops-admin-build.log
+    exit 1
+fi
 
 # Verify image was built successfully
 if ! docker image inspect ops-admin:latest > /dev/null 2>&1; then
@@ -510,9 +560,9 @@ docker-compose up -d
 
 # Verify container is running
 sleep 3
-if ! docker ps | grep -q "ops-admin"; then
+if ! docker ps | grep -q "$CONTAINER_NAME"; then
     echo "ERROR: Container failed to start"
-    docker logs ops-admin-backend 2>&1 | tail -20
+    docker logs "$CONTAINER_NAME" 2>&1 | tail -20
     exit 1
 fi
 
@@ -531,8 +581,9 @@ fi
 
 echo ""
 echo "Deployment completed!"
-echo "URL: http://localhost:$PORT"
-docker ps | grep ops-admin
+if [ -n "$CONTAINER_NAME" ]; then
+    docker ps | grep "$CONTAINER_NAME"
+fi
 '''
     
     # Write build script to server
@@ -591,7 +642,7 @@ docker ps | grep ops-admin
         print("\n  Checking container logs...")
         try:
             stdin, stdout, stderr = client.exec_command(
-                f"docker logs ops-admin-backend 2>&1 | tail -30"
+                f"docker logs {container_name} 2>&1 | tail -30"
             )
             logs = stdout.read().decode("utf-8", errors="replace")
             if logs:
@@ -841,7 +892,7 @@ def run_deploy(args) -> None:
         # Create deploy package (source + dist, no Docker image)
         package_path = temp_path / f"ops-deploy-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
         remote_path = target.get("remote_path", "/opt/ops-admin")
-        if not create_deploy_package(project_path, package_path, db_config, remote_path):
+        if not create_deploy_package(project_path, package_path, db_config, target_name=target_name, remote_path=remote_path):
             print("\nFailed to create deployment package.")
             return
         
