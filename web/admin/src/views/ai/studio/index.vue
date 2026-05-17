@@ -93,7 +93,7 @@
     <n-modal
       v-model:show="capabilityModalVisible"
       preset="card"
-      title="创建能力"
+      :title="isPlatformCapabilityPage ? '创建平台AI能力' : '创建能力'"
       class="ai-create-modal"
       :style="{ width: 'min(560px, calc(100vw - 32px))' }"
     >
@@ -105,11 +105,6 @@
           <n-input v-model:value="capabilityForm.name" placeholder="例如：摘要生成" />
         </n-form-item>
         <n-form-item label="图标">
-          <n-radio-group v-if="isPlatformAdmin" v-model:value="capabilityForm.scope" size="small">
-            <n-radio-button v-for="item in capabilityScopeOptions" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </n-radio-button>
-          </n-radio-group>
           <n-select v-model:value="capabilityForm.icon" :options="iconOptions" />
         </n-form-item>
         <n-form-item label="描述">
@@ -242,10 +237,6 @@
     { label: '启用', value: 'enabled' },
     { label: '停用', value: 'disabled' },
   ];
-  const capabilityScopeOptions = computed(() => [
-    ...(isPlatformCapabilityPage.value ? [] : [{ label: '租户能力', value: 'tenant' }]),
-    ...(isPlatformCapabilityPage.value || isPlatformAdmin.value ? [{ label: '平台能力', value: 'platform' }] : []),
-  ]);
   const appCount = computed(() => quota.value?.usage?.applications ?? applications.value.length);
   const capabilityCount = computed(() => quota.value?.usage?.capabilities ?? capabilities.value.length);
   const quotaReached = computed(() => !!quota.value && appCount.value >= quota.value.max_applications);
@@ -439,7 +430,7 @@
     capabilityForm.name = '';
     capabilityForm.icon = 'api';
     capabilityForm.description = '';
-    capabilityForm.scope = isPlatformCapabilityPage.value || isPlatformAdmin.value ? 'platform' : 'tenant';
+    capabilityForm.scope = isPlatformCapabilityPage.value ? 'platform' : 'tenant';
     capabilityModalVisible.value = true;
   }
 
