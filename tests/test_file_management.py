@@ -12,6 +12,19 @@ from unittest import mock
 from file_management.application import services
 from file_management.application.ports import DownloadObject, StoredObject
 from file_management.domain.models import STORAGE_PROVIDER_MINIO, StorageProfile
+from system.application.data_access import (
+    DataAccessPredicate,
+    ResourceDescriptor,
+    TenantOnlyDataAccessFilterProvider,
+    configure_data_access_filter_provider,
+)
+
+
+class SelfOnlyProvider:
+    def resolve_filter(self, *, current_user: dict[str, object], resource: ResourceDescriptor, action: str) -> DataAccessPredicate:
+        current = current_user.get("current_tenant") if isinstance(current_user.get("current_tenant"), dict) else {}
+        tenant_id = int((current or {}).get("id") or current_user.get("tenant_id") or 0)
+        return DataAccessPredicate(tenant_id=tenant_id, scope="self", user_id=int(current_user.get("id") or 0))
 
 
 class MemoryStorage:
@@ -86,6 +99,7 @@ class FileManagementTests(unittest.TestCase):
         self.initialize_db()
 
     def tearDown(self) -> None:
+        configure_data_access_filter_provider(TenantOnlyDataAccessFilterProvider())
         self.env_patch.stop()
         self.temp_dir.cleanup()
 
@@ -479,6 +493,29 @@ class FileManagementTests(unittest.TestCase):
             services.get_file(int(upload["id"]), other_user)
 
         self.assertEqual(getattr(caught.exception, "status_code", None), 404)
+
+    def test_file_detail_and_delete_follow_self_data_scope(self) -> None:
+        self.create_default_profile()
+        configure_data_access_filter_provider(SelfOnlyProvider())
+        upload = services.upload_file(
+            current_user=self.current_user,
+            filename="scoped.txt",
+            content_type="text/plain",
+            stream=io.BytesIO(b"secret"),
+            library_id=None,
+            visibility="tenant",
+            metadata={},
+        )["item"]
+        other_user = {**self.current_user, "id": 11, "username": "other"}
+
+        self.assertEqual(services.get_file(int(upload["id"]), self.current_user)["item"]["id"], upload["id"])
+        with self.assertRaises(Exception) as caught:
+            services.get_file(int(upload["id"]), other_user)
+        with self.assertRaises(Exception) as delete_caught:
+            services.delete_file(int(upload["id"]), other_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 404)
+        self.assertEqual(getattr(delete_caught.exception, "status_code", None), 404)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,20 @@ from unittest import mock
 
 import httpx
 
+from system.application.data_access import (
+    DataAccessPredicate,
+    ResourceDescriptor,
+    TenantOnlyDataAccessFilterProvider,
+    configure_data_access_filter_provider,
+)
+
+
+class SelfOnlyProvider:
+    def resolve_filter(self, *, current_user: dict[str, object], resource: ResourceDescriptor, action: str) -> DataAccessPredicate:
+        current = current_user.get("current_tenant") if isinstance(current_user.get("current_tenant"), dict) else {}
+        tenant_id = int((current or {}).get("id") or current_user.get("tenant_id") or 0)
+        return DataAccessPredicate(tenant_id=tenant_id, scope="self", user_id=int(current_user.get("id") or 0))
+
 
 class BasicDataTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -50,6 +64,7 @@ class BasicDataTests(unittest.TestCase):
         self.configure_basic_data_repository()
 
     def tearDown(self) -> None:
+        configure_data_access_filter_provider(TenantOnlyDataAccessFilterProvider())
         self.env_patch.stop()
         self.temp_dir.cleanup()
 
@@ -263,6 +278,20 @@ class BasicDataTests(unittest.TestCase):
 
         with self.assertRaisesRegex(Exception, "parent must be city"):
             services.save_region({"code": "120101", "name": "非法区", "level": "区", "parent_id": province["id"]}, self.current_user)
+
+    def test_region_self_data_scope_uses_owner_columns(self) -> None:
+        from basic_data.application import services
+
+        configure_data_access_filter_provider(SelfOnlyProvider())
+        owner = {**self.current_user, "id": 7, "is_platform_admin": False}
+        other = {**self.current_user, "id": 8, "is_platform_admin": False}
+        services.save_region({"code": "330000", "name": "Zhejiang", "level": "province"}, owner)
+
+        owner_page = services.list_regions(page=1, page_size=20, keyword="", status=None, level=None, parent_id=None, current_user=owner)
+        other_page = services.list_regions(page=1, page_size=20, keyword="", status=None, level=None, parent_id=None, current_user=other)
+
+        self.assertEqual(owner_page["pagination"]["total"], 1)
+        self.assertEqual(other_page["pagination"]["total"], 0)
 
     def test_region_import_supports_chinese_level_dry_run_and_ignores_path(self) -> None:
         from basic_data.application import services

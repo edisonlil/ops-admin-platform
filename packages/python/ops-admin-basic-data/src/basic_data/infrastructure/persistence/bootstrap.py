@@ -29,6 +29,11 @@ def ensure_basic_data_schema(conn: Any) -> None:
         "idx_business_regions_parent",
         "CREATE INDEX IF NOT EXISTS idx_business_regions_parent ON business_regions(tenant_id, parent_id, deleted, status, sort_order)",
     )
+    ensure_index(
+        conn,
+        "idx_business_regions_owner_department",
+        "CREATE INDEX IF NOT EXISTS idx_business_regions_owner_department ON business_regions(tenant_id, owner_department_id, deleted)",
+    )
     seed_path = PERSISTENCE_DIR / "seed.sql"
     if seed_path.exists():
         apply_sql_script(conn, seed_path)
@@ -54,5 +59,7 @@ def ensure_basic_data_columns(conn: Any) -> None:
     add_column_if_missing(conn, "business_dictionary_types", "owner_department_id", "BIGINT DEFAULT NULL")
     add_column_if_missing(conn, "business_dictionary_items", "owner_user_id", "BIGINT DEFAULT NULL")
     add_column_if_missing(conn, "business_dictionary_items", "owner_department_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_regions", "owner_user_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "business_regions", "owner_department_id", "BIGINT DEFAULT NULL")
     if table_exists(conn, "business_dictionary_items") and column_exists(conn, "business_dictionary_items", "label"):
         conn.execute("ALTER TABLE business_dictionary_items DROP COLUMN label")

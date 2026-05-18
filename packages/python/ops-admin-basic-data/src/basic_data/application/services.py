@@ -17,7 +17,7 @@ from basic_data.domain.models import (
     REGION_LEVELS,
     STATUS_ACTIVE,
 )
-from system.application.data_access import ResourceDescriptor, resolve_data_access_filter
+from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
 
 
 repository: BasicDataRepository | None = None
@@ -65,7 +65,7 @@ def list_dictionary_types(
             keyword=keyword,
             status=status,
             category=category,
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=DICTIONARY_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
@@ -78,11 +78,20 @@ def list_dictionary_types(
 def save_dictionary_type(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     normalized = normalize_type_payload(payload)
-    normalized["owner_user_id"] = current_user_id_or_none(current_user)
-    normalized["owner_department_id"] = current_primary_department_id(current_user)
-    ensure_unique_type_code(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), code=str(normalized.get("code") or ""))
-    ensure_valid_type_parent(tenant_id=tenant_id, type_id=int(normalized.get("id") or 0), parent_id=normalized.get("parent_id"))
-    dictionary_type = DictionaryType(id=int(normalized.get("id") or 0), tenant_id=tenant_id, create_time="", update_time="", **normalized_type_fields(normalized))
+    type_id = int(normalized.get("id") or 0)
+    if type_id:
+        ensure_record_access(
+            tenant_id=tenant_id,
+            row=repo().get_dictionary_type_row(tenant_id=tenant_id, type_id=type_id),
+            current_user=current_user,
+            resource=DICTIONARY_RESOURCE,
+            action="write",
+            not_found_message="dictionary type not found",
+        )
+    normalized.update(data_owner_fields(current_user))
+    ensure_unique_type_code(tenant_id=tenant_id, type_id=type_id, code=str(normalized.get("code") or ""))
+    ensure_valid_type_parent(tenant_id=tenant_id, type_id=type_id, parent_id=normalized.get("parent_id"))
+    dictionary_type = DictionaryType(id=type_id, tenant_id=tenant_id, create_time="", update_time="", **normalized_type_fields(normalized))
     dictionary_type.validate()
     try:
         item = repo().save_dictionary_type(
@@ -97,9 +106,18 @@ def save_dictionary_type(payload: dict[str, Any], current_user: dict[str, Any]) 
 
 
 def delete_dictionary_type(*, type_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    ensure_record_access(
+        tenant_id=tenant_id,
+        row=repo().get_dictionary_type_row(tenant_id=tenant_id, type_id=type_id),
+        current_user=current_user,
+        resource=DICTIONARY_RESOURCE,
+        action="manage",
+        not_found_message="dictionary type not found",
+    )
     try:
         item = repo().delete_dictionary_type(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             type_id=type_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -130,7 +148,7 @@ def list_dictionary_items(
             page_size=page_size,
             keyword=keyword,
             status=status,
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=DICTIONARY_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
@@ -144,8 +162,7 @@ def save_dictionary_item(type_id: int, payload: dict[str, Any], current_user: di
     tenant_id = current_tenant_id(current_user)
     ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
     normalized = normalize_item_payload(payload)
-    normalized["owner_user_id"] = current_user_id_or_none(current_user)
-    normalized["owner_department_id"] = current_primary_department_id(current_user)
+    normalized.update(data_owner_fields(current_user))
     item = DictionaryItem(
         id=int(normalized.get("id") or 0),
         tenant_id=tenant_id,
@@ -177,14 +194,31 @@ def update_dictionary_item(item_id: int, payload: dict[str, Any], current_user: 
         raise BasicDataStorageNotReadyError(str(exc)) from exc
     if not existing:
         raise BasicDataNotFoundError("dictionary item not found")
+    ensure_record_access(
+        tenant_id=tenant_id,
+        row=repo().get_dictionary_item_row(tenant_id=tenant_id, item_id=item_id),
+        current_user=current_user,
+        resource=DICTIONARY_RESOURCE,
+        action="write",
+        not_found_message="dictionary item not found",
+    )
     data = {**payload, "id": item_id}
     return save_dictionary_item(existing.type_id, data, current_user)
 
 
 def delete_dictionary_item(*, item_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    ensure_record_access(
+        tenant_id=tenant_id,
+        row=repo().get_dictionary_item_row(tenant_id=tenant_id, item_id=item_id),
+        current_user=current_user,
+        resource=DICTIONARY_RESOURCE,
+        action="manage",
+        not_found_message="dictionary item not found",
+    )
     try:
         item = repo().delete_dictionary_item(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             item_id=item_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -228,7 +262,7 @@ def list_regions(
             status=status,
             level=normalized_level,
             parent_id=parent_id,
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=REGION_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, REGION_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
@@ -278,9 +312,19 @@ def save_region(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[s
     tenant_id = current_tenant_id(current_user)
     normalized = normalize_region_payload(payload)
     region_id = int(normalized.get("id") or 0)
+    if region_id:
+        ensure_record_access(
+            tenant_id=tenant_id,
+            row=repo().get_region_row(tenant_id=tenant_id, region_id=region_id),
+            current_user=current_user,
+            resource=REGION_RESOURCE,
+            action="write",
+            not_found_message="region not found",
+        )
     ensure_unique_region_code(tenant_id=tenant_id, region_id=region_id, code=str(normalized.get("code") or ""))
     parent = ensure_valid_region_parent(tenant_id=tenant_id, region_id=region_id, parent_id=normalized.get("parent_id"), level=str(normalized.get("level") or ""))
     normalized["parent_code"] = parent.code if parent else ""
+    normalized.update(data_owner_fields(current_user))
     region = Region(
         id=region_id,
         tenant_id=tenant_id,
@@ -311,9 +355,18 @@ def save_region(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[s
 
 
 def delete_region(*, region_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    ensure_record_access(
+        tenant_id=tenant_id,
+        row=repo().get_region_row(tenant_id=tenant_id, region_id=region_id),
+        current_user=current_user,
+        resource=REGION_RESOURCE,
+        action="manage",
+        not_found_message="region not found",
+    )
     try:
         item = repo().delete_region(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             region_id=region_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -685,25 +738,23 @@ def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
     return user_id or None
 
 
-def current_primary_department_id(current_user: dict[str, Any]) -> int | None:
-    departments = current_user.get("departments") or []
-    primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
-    if primary:
-        department_id = int(primary.get("department_id") or primary.get("id") or 0)
-        return department_id or None
-    try:
-        from organization.application import services as organization_services
-    except Exception:
-        return None
-    user_id = current_user_id_or_none(current_user)
-    if not user_id:
-        return None
-    try:
-        loaded = organization_services.user_departments(tenant_id=current_tenant_id(current_user), user_id=user_id)
-    except Exception:
-        return None
-    primary = next((item for item in loaded if bool(item.get("is_primary"))), loaded[0] if loaded else None)
-    if not primary:
-        return None
-    department_id = int(primary.get("department_id") or primary.get("id") or 0)
-    return department_id or None
+def ensure_record_access(
+    *,
+    tenant_id: int,
+    row: dict[str, Any] | None,
+    current_user: dict[str, Any],
+    resource: ResourceDescriptor,
+    action: str,
+    not_found_message: str,
+) -> None:
+    if not row:
+        raise BasicDataNotFoundError(not_found_message)
+    if int(row.get("tenant_id") or 0) != tenant_id:
+        raise BasicDataNotFoundError(not_found_message)
+    ensure_data_access_record(
+        row,
+        current_user=current_user,
+        resource=resource,
+        action=action,
+        denied=BasicDataNotFoundError(not_found_message),
+    )

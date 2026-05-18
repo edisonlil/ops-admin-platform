@@ -9,8 +9,8 @@ from cron.domain.exceptions import CronDomainError, CronNotFoundError, CronStora
 from cron.domain.models import TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
 from system.application.data_access import (
     ResourceDescriptor,
-    current_user_primary_department_id,
-    resolve_data_access_filter,
+    data_access_for,
+    data_owner_fields,
 )
 
 
@@ -42,7 +42,7 @@ def list_tasks(*, page: int, page_size: int, status: str | None, current_user: d
             page=page,
             page_size=page_size,
             status=status,
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=CRON_TASK_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
@@ -54,7 +54,11 @@ def list_tasks(*, page: int, page_size: int, status: str | None, current_user: d
 
 def get_task(*, task_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        detail = repo().get_task_detail(tenant_id=current_tenant_id(current_user), task_id=task_id)
+        detail = repo().get_task_detail(
+            tenant_id=current_tenant_id(current_user),
+            task_id=task_id,
+            data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).read(),
+        )
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
     if not detail:
@@ -68,13 +72,16 @@ def save_task(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str
     actor_id = current_user_id_or_none(current_user)
     payload = {
         **payload,
-        "owner_user_id": actor_id,
-        "owner_department_id": current_user_primary_department_id(current_user),
+        **data_owner_fields(current_user),
     }
     task_id = int(payload.get("id") or 0)
     if task_id:
         try:
-            existing = repo().get_task_detail(tenant_id=tenant_id, task_id=task_id)
+            existing = repo().get_task_detail(
+                tenant_id=tenant_id,
+                task_id=task_id,
+                data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).write(),
+            )
         except RuntimeError as exc:
             raise CronStorageNotReadyError(str(exc)) from exc
         if not existing:
@@ -98,6 +105,16 @@ def set_task_status(*, task_id: int, next_status: str, current_user: dict[str, A
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
     try:
+        existing = repo().get_task_detail(
+            tenant_id=current_tenant_id(current_user),
+            task_id=task_id,
+            data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).manage(),
+        )
+    except RuntimeError as exc:
+        raise CronStorageNotReadyError(str(exc)) from exc
+    if not existing:
+        raise CronNotFoundError("cron task not found")
+    try:
         detail = repo().set_task_status(
             tenant_id=current_tenant_id(current_user),
             task_id=task_id,
@@ -115,6 +132,16 @@ def set_task_status(*, task_id: int, next_status: str, current_user: dict[str, A
 def delete_task(*, task_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
+    try:
+        existing = repo().get_task_detail(
+            tenant_id=current_tenant_id(current_user),
+            task_id=task_id,
+            data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).manage(),
+        )
+    except RuntimeError as exc:
+        raise CronStorageNotReadyError(str(exc)) from exc
+    if not existing:
+        raise CronNotFoundError("cron task not found")
     try:
         detail = repo().delete_task(
             tenant_id=current_tenant_id(current_user),
@@ -134,7 +161,11 @@ def trigger_task(*, task_id: int, payload: dict[str, Any], current_user: dict[st
     idempotency_key = str(payload.get("idempotency_key") or "").strip() or f"manual:{uuid4().hex}"
     run_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     try:
-        task_detail = repo().get_task_detail(tenant_id=tenant_id, task_id=task_id)
+        task_detail = repo().get_task_detail(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).manage(),
+        )
         if not task_detail:
             raise CronNotFoundError("cron task not found")
         merged_payload = {**task_detail.task.default_payload, **run_payload}

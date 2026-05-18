@@ -62,6 +62,17 @@ FROM (
         FALSE
     UNION ALL
     SELECT
+        'basic-data.region',
+        'Region',
+        'Tenant region data',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
         'file.object',
         '文件管理',
         '文件库、文件对象和文件访问记录',
@@ -79,6 +90,17 @@ FROM (
         'tenant_id',
         'creator_id',
         'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
+        'llm.call-log',
+        'LLM Call Log',
+        'Tenant LLM invocation logs',
+        'tenant_id',
+        'creator_id',
+        'creator_id',
         'owner_department_id',
         '["self","department","department_and_children","custom_departments","tenant"]',
         FALSE

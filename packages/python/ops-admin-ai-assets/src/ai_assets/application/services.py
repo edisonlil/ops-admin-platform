@@ -26,8 +26,8 @@ from ai_assets.domain.models import (
 from ai_assets.infrastructure.persistence import repositories
 from system.application.data_access import (
     ResourceDescriptor,
-    current_user_primary_department_id,
-    resolve_data_access_filter,
+    data_access_for,
+    data_owner_fields,
 )
 
 PromptAssetReferenceChecker = Callable[[int, str], bool]
@@ -52,7 +52,7 @@ def list_prompt_assets(
             page_size=page_size,
             keyword=keyword.strip(),
             status=status_filter.strip(),
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=PROMPT_ASSET_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
@@ -158,7 +158,15 @@ def unregister_prompt_asset_reference_checker(checker: PromptAssetReferenceCheck
 def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], prompt_id: int | None = None) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        existing = repositories.get_prompt_asset(tenant_id=tenant_id, prompt_id=prompt_id) if prompt_id else None
+        existing = (
+            repositories.get_prompt_asset(
+                tenant_id=tenant_id,
+                prompt_id=prompt_id,
+                data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).write(),
+            )
+            if prompt_id
+            else None
+        )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if prompt_id and not existing:
@@ -175,8 +183,7 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
         "description": str(payload.get("description") or "").strip(),
         "tags": normalize_string_list(payload.get("tags")),
         "status": str(payload.get("status") or "draft").strip() or "draft",
-        "owner_user_id": current_user_id_or_none(current_user),
-        "owner_department_id": current_user_primary_department_id(current_user),
+        **data_owner_fields(current_user),
     }
     try:
         item = repositories.save_prompt_asset(
@@ -235,7 +242,7 @@ def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
 
 def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
-    item = load_prompt_asset(prompt_id, current_user)
+    item = load_prompt_asset(prompt_id, current_user, action="manage")
     if item.status == PROMPT_ASSET_STATUS_ARCHIVED:
         try:
             deleted = repositories.delete_archived_prompt_asset(
@@ -283,7 +290,7 @@ def save_prompt_version(
     current_user: dict[str, Any],
     version_id: int | None = None,
 ) -> dict[str, Any]:
-    asset = load_prompt_asset(prompt_id, current_user)
+    asset = load_prompt_asset(prompt_id, current_user, action="write")
     if version_id:
         existing = repositories.get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
         if not existing or existing.prompt_id != prompt_id:
@@ -333,7 +340,7 @@ def deprecate_prompt_version(prompt_id: int, version_id: int, current_user: dict
 
 
 def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
-    asset = load_prompt_asset(prompt_id, current_user)
+    asset = load_prompt_asset(prompt_id, current_user, action="manage")
     version = repositories.get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
     if not version or version.prompt_id != prompt_id:
         raise domain_http_error(PromptVersionNotFound("prompt version not found"))
@@ -363,10 +370,14 @@ def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, 
     return {"item": item.to_dict()}
 
 
-def load_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> PromptAsset:
+def load_prompt_asset(prompt_id: int, current_user: dict[str, Any], action: str = "read") -> PromptAsset:
     tenant_id = current_tenant_id(current_user)
     try:
-        item = repositories.get_prompt_asset(tenant_id=tenant_id, prompt_id=prompt_id)
+        item = repositories.get_prompt_asset(
+            tenant_id=tenant_id,
+            prompt_id=prompt_id,
+            data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).predicate(action),
+        )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not item:

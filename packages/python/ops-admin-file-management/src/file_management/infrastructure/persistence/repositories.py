@@ -19,7 +19,7 @@ from file_management.domain.models import (
     TenantStorageQuota,
 )
 from file_management.infrastructure.persistence.bootstrap import require_file_management_schema
-from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -380,7 +380,7 @@ def list_files(
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
-    append_data_scope_sql(filters, params, data_scope, FILE_OBJECT_RESOURCE)
+    apply_data_access(filters, params, data_scope=data_scope, resource=FILE_OBJECT_RESOURCE)
     if library_id is not None:
         filters.append("library_id = ?")
         params.append(library_id)
@@ -417,26 +417,31 @@ def list_files(
     return [row_to_file(dict(row)) for row in rows], total
 
 
-def get_file(*, tenant_id: int | None, file_id: int) -> ManagedFile | None:
+def get_file(*, tenant_id: int | None, file_id: int, data_scope: DataAccessPredicate | None = None) -> ManagedFile | None:
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
+        filters = ["id = ?", "deleted = 0", "status = ?"]
+        params: list[Any] = [file_id, FILE_STATUS_AVAILABLE]
         if tenant_id is None:
             row = conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM file_objects
-                WHERE id = ? AND deleted = 0 AND status = ?
+                WHERE {" AND ".join(filters)}
                 """,
-                (file_id, FILE_STATUS_AVAILABLE),
+                tuple(params),
             ).fetchone()
         else:
+            filters.append("tenant_id = ?")
+            params.append(tenant_id)
+            apply_data_access(filters, params, data_scope=data_scope, resource=FILE_OBJECT_RESOURCE)
             row = conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM file_objects
-                WHERE id = ? AND tenant_id = ? AND deleted = 0 AND status = ?
+                WHERE {" AND ".join(filters)}
                 """,
-                (file_id, tenant_id, FILE_STATUS_AVAILABLE),
+                tuple(params),
             ).fetchone()
     return row_to_file(dict(row)) if row else None
 

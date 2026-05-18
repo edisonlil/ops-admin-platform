@@ -58,8 +58,8 @@ from file_management.infrastructure.storage.minio_storage import MinioObjectStor
 from system.application.config import config_string, load_application_config, section_config
 from system.application.data_access import (
     ResourceDescriptor,
-    current_user_primary_department_id,
-    resolve_data_access_filter,
+    data_access_for,
+    data_owner_fields,
 )
 
 
@@ -193,7 +193,7 @@ def list_files(
             keyword=keyword,
             mime_type=mime_type,
             status=status_filter,
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=FILE_OBJECT_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).read(),
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
@@ -239,7 +239,7 @@ def list_workspace(
             folder_id=folder_id,
             current_folder_only=not bool(keyword.strip()),
             keyword=keyword.strip(),
-            data_scope=resolve_data_access_filter(current_user=current_user, resource=FILE_OBJECT_RESOURCE, action="read"),
+            data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).read(),
         )
         usage = repositories.storage_usage(tenant_id=tenant_id)
         folder_usages = (
@@ -453,8 +453,7 @@ def upload_file(
             metadata=metadata,
             actor=actor,
             actor_id=actor_id,
-            owner_user_id=actor_id,
-            owner_department_id=current_user_primary_department_id(current_user),
+            **data_owner_fields(current_user),
         )
         create_index_job_for_file(item, "upsert", current_user)
         repositories.record_access_log(
@@ -567,7 +566,7 @@ def preview_source_file(
 
 
 def delete_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
-    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    item = load_tenant_file(file_id=file_id, current_user=current_user, action="manage")
     try:
         profile = storage_profile_for_file(item)
         _storage.delete(profile=profile, key=item.storage_key)
@@ -861,15 +860,19 @@ def list_index_jobs(
 
 
 def reindex_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
-    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    item = load_tenant_file(file_id=file_id, current_user=current_user, action="manage")
     job = create_index_job_for_file(item, "manual_reindex", current_user)
     return {"item": job.to_dict()}
 
 
-def load_tenant_file(*, file_id: int, current_user: dict[str, Any]) -> ManagedFile:
+def load_tenant_file(*, file_id: int, current_user: dict[str, Any], action: str = "read") -> ManagedFile:
     tenant_id = current_tenant_id(current_user)
     try:
-        item = repositories.get_file(tenant_id=tenant_id, file_id=file_id)
+        item = repositories.get_file(
+            tenant_id=tenant_id,
+            file_id=file_id,
+            data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).predicate(action),
+        )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not item:

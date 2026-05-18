@@ -15,7 +15,7 @@ from ai_assets.domain.models import (
     PromptVersion,
 )
 from ai_assets.infrastructure.persistence.bootstrap import require_ai_assets_schema
-from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -61,7 +61,7 @@ def list_prompt_assets(
     start = (page - 1) * page_size
     filters = ["pa.tenant_id = ?", "pa.deleted = 0"]
     params: list[Any] = [tenant_id]
-    append_data_scope_sql(filters, params, data_scope, PROMPT_ASSET_RESOURCE, alias="pa")
+    apply_data_access(filters, params, data_scope=data_scope, resource=PROMPT_ASSET_RESOURCE, alias="pa")
     if keyword:
         filters.append("(pa.prompt_key LIKE ? OR pa.name LIKE ? OR pa.description LIKE ? OR pa.tags_json LIKE ?)")
         like = f"%{keyword}%"
@@ -95,7 +95,10 @@ def list_prompt_assets(
     return [row_to_asset(dict(row)) for row in rows], total
 
 
-def get_prompt_asset(*, tenant_id: int, prompt_id: int) -> PromptAsset | None:
+def get_prompt_asset(*, tenant_id: int, prompt_id: int, data_scope: DataAccessPredicate | None = None) -> PromptAsset | None:
+    filters = ["pa.id = ?", "pa.tenant_id = ?", "pa.deleted = 0"]
+    params: list[Any] = [prompt_id, tenant_id]
+    apply_data_access(filters, params, data_scope=data_scope, resource=PROMPT_ASSET_RESOURCE, alias="pa")
     with connect(database_target(), readonly=True) as conn:
         require_ai_assets_schema(conn)
         row = conn.execute(
@@ -105,9 +108,9 @@ def get_prompt_asset(*, tenant_id: int, prompt_id: int) -> PromptAsset | None:
                     WHERE pv.prompt_id = pa.id AND pv.tenant_id = pa.tenant_id AND pv.deleted = 0) AS version_count,
                    {effective_prompt_asset_status_sql()} AS effective_status
             FROM prompt_assets pa
-            WHERE pa.id = ? AND pa.tenant_id = ? AND pa.deleted = 0
+            WHERE {" AND ".join(filters)}
             """,
-            (prompt_id, tenant_id),
+            tuple(params),
         ).fetchone()
     return row_to_asset(dict(row)) if row else None
 

@@ -21,7 +21,7 @@ from cron.domain.models import (
     TASK_STATUS_ENABLED,
 )
 from cron.infrastructure.persistence.bootstrap import require_cron_schema
-from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -194,7 +194,7 @@ def list_tasks(
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
-    append_data_scope_sql(filters, params, data_scope, CRON_TASK_RESOURCE)
+    apply_data_access(filters, params, data_scope=data_scope, resource=CRON_TASK_RESOURCE)
     if status:
         filters.append("status = ?")
         params.append(status)
@@ -234,12 +234,15 @@ def list_enabled_task_details() -> list[CronTaskDetail]:
         return [row_to_task_detail(conn, dict(row)) for row in rows]
 
 
-def get_task_detail(*, tenant_id: int, task_id: int) -> CronTaskDetail | None:
+def get_task_detail(*, tenant_id: int, task_id: int, data_scope: DataAccessPredicate | None = None) -> CronTaskDetail | None:
+    filters = ["id = ?", "tenant_id = ?", "deleted = 0"]
+    params: list[Any] = [task_id, tenant_id]
+    apply_data_access(filters, params, data_scope=data_scope, resource=CRON_TASK_RESOURCE)
     with connect(database_target(), readonly=True) as conn:
         require_cron_schema(conn)
         row = conn.execute(
-            "SELECT * FROM cron_tasks WHERE id = ? AND tenant_id = ? AND deleted = 0",
-            (task_id, tenant_id),
+            f"SELECT * FROM cron_tasks WHERE {' AND '.join(filters)}",
+            tuple(params),
         ).fetchone()
         if not row:
             return None

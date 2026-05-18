@@ -8,6 +8,19 @@ from unittest import mock
 from ai_service_api import AIExecuteResult, register_ai_service, reset_ai_service
 from ai_assets.application import services
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
+from system.application.data_access import (
+    DataAccessPredicate,
+    ResourceDescriptor,
+    TenantOnlyDataAccessFilterProvider,
+    configure_data_access_filter_provider,
+)
+
+
+class SelfOnlyProvider:
+    def resolve_filter(self, *, current_user: dict[str, object], resource: ResourceDescriptor, action: str) -> DataAccessPredicate:
+        current = current_user.get("current_tenant") if isinstance(current_user.get("current_tenant"), dict) else {}
+        tenant_id = int((current or {}).get("id") or current_user.get("tenant_id") or 0)
+        return DataAccessPredicate(tenant_id=tenant_id, scope="self", user_id=int(current_user.get("id") or 0))
 
 
 class FakeAIService:
@@ -45,6 +58,7 @@ class AIAssetsTests(unittest.TestCase):
         self.initialize_db()
 
     def tearDown(self) -> None:
+        configure_data_access_filter_provider(TenantOnlyDataAccessFilterProvider())
         reset_ai_service()
         self.env_patch.stop()
         self.temp_dir.cleanup()
@@ -178,6 +192,20 @@ class AIAssetsTests(unittest.TestCase):
         self.mark_prompt_versions_deprecated(int(prompt["id"]))
         draft_prompt = services.get_prompt_asset(int(prompt["id"]), self.current_user)["item"]
         self.assertEqual(draft_prompt["status"], "draft")
+
+    def test_prompt_asset_detail_and_delete_follow_self_data_scope(self) -> None:
+        configure_data_access_filter_provider(SelfOnlyProvider())
+        prompt = self.create_prompt()
+        other_user = {**self.current_user, "id": 11, "username": "other"}
+
+        self.assertEqual(services.get_prompt_asset(int(prompt["id"]), self.current_user)["item"]["id"], prompt["id"])
+        with self.assertRaises(Exception) as caught:
+            services.get_prompt_asset(int(prompt["id"]), other_user)
+        with self.assertRaises(Exception) as delete_caught:
+            services.delete_prompt_asset(int(prompt["id"]), other_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 404)
+        self.assertEqual(getattr(delete_caught.exception, "status_code", None), 404)
 
     def test_published_prompt_asset_resolver_uses_current_published_version(self) -> None:
         prompt = self.create_prompt(prompt_key="assistant.system")

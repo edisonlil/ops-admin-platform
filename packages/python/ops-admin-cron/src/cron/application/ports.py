@@ -59,7 +59,13 @@ class CronRepository(Protocol):
     ) -> tuple[list[CronTaskDetail], int]:
         ...
 
-    def get_task_detail(self, *, tenant_id: int, task_id: int) -> CronTaskDetail | None:
+    def get_task_detail(
+        self,
+        *,
+        tenant_id: int,
+        task_id: int,
+        data_scope: DataAccessPredicate | None = None,
+    ) -> CronTaskDetail | None:
         ...
 
     def save_task(self, *, tenant_id: int, payload: dict[str, Any], actor: str, actor_id: int | None) -> CronTaskDetail:

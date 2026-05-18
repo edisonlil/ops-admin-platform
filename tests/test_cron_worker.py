@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import unittest
+import sqlite3
+import tempfile
 from importlib.util import find_spec
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest import mock
 from typing import Any
 
 from cron.application.executor import CronTaskExecutor
@@ -21,8 +25,11 @@ from cron.domain.models import (
     CronTaskDetail,
 )
 from cron.infrastructure.commands.registry import build_default_command_registry
+from cron.infrastructure.persistence import repositories
+from cron.infrastructure.persistence.bootstrap import ensure_cron_schema
 from cron.infrastructure.scheduler.apscheduler_adapter import build_trigger
 from cron.infrastructure.scheduler.worker import external_job_id
+from system.application.data_access import DataAccessPredicate, SCOPE_SELF
 
 
 class FakeRepository:
@@ -211,6 +218,53 @@ class CronWorkerTests(unittest.TestCase):
 
     def test_external_job_id_is_stable_for_schedule_sync(self) -> None:
         self.assertEqual(external_job_id(42), "cron-task-42")
+
+    def test_task_detail_honors_data_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "cron.db"
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                    "FG_AGENT_DATABASE_URL": "",
+                    "SUPABASE_DB_URL": "",
+                    "DATABASE_URL": "",
+                    "FG_AGENT_DB_PATH": str(db_path),
+                },
+                clear=False,
+            ):
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                try:
+                    ensure_cron_schema(conn)
+                    conn.commit()
+                finally:
+                    conn.close()
+                detail = repositories.save_task(
+                    tenant_id=7,
+                    payload={
+                        "task_key": "scoped.task",
+                        "name": "Scoped Task",
+                        "execution_target": "system.health.snapshot",
+                        "owner_user_id": 10,
+                    },
+                    actor="owner",
+                    actor_id=10,
+                )
+
+                allowed = repositories.get_task_detail(
+                    tenant_id=7,
+                    task_id=detail.task.id,
+                    data_scope=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+                )
+                denied = repositories.get_task_detail(
+                    tenant_id=7,
+                    task_id=detail.task.id,
+                    data_scope=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=11),
+                )
+
+                self.assertIsNotNone(allowed)
+                self.assertIsNone(denied)
 
 
 def fixed_time() -> datetime:

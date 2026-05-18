@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS business_regions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL,
     parent_id INTEGER DEFAULT NULL,
+    owner_user_id INTEGER DEFAULT NULL,
+    owner_department_id INTEGER DEFAULT NULL,
     parent_code TEXT NOT NULL DEFAULT '',
     code TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -80,3 +82,4 @@ CREATE INDEX IF NOT EXISTS idx_business_regions_parent ON business_regions(tenan
 CREATE INDEX IF NOT EXISTS idx_business_regions_code ON business_regions(tenant_id, code, deleted);
 CREATE INDEX IF NOT EXISTS idx_business_regions_level ON business_regions(tenant_id, level, deleted, status);
 CREATE INDEX IF NOT EXISTS idx_business_regions_path ON business_regions(tenant_id, path);
+CREATE INDEX IF NOT EXISTS idx_business_regions_owner_department ON business_regions(tenant_id, owner_department_id, deleted);

@@ -9,7 +9,7 @@ from typing import Any
 from basic_data.domain.exceptions import BasicDataDomainError
 from basic_data.domain.models import DictionaryItem, DictionaryType, Region, STATUS_ACTIVE, STATUS_DISABLED
 from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema
-from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
 
@@ -75,6 +75,16 @@ def get_dictionary_type(*, tenant_id: int, type_id: int) -> DictionaryType | Non
             (type_id, tenant_id),
         ).fetchone()
     return row_to_dictionary_type(dict(row)) if row else None
+
+
+def get_dictionary_type_row(*, tenant_id: int, type_id: int) -> dict[str, Any] | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_basic_data_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM business_dictionary_types WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (type_id, tenant_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def get_dictionary_type_by_code(*, tenant_id: int, code: str) -> DictionaryType | None:
@@ -259,6 +269,21 @@ def get_dictionary_item(*, tenant_id: int, item_id: int) -> DictionaryItem | Non
             (item_id, tenant_id),
         ).fetchone()
     return row_to_dictionary_item(dict(row)) if row else None
+
+
+def get_dictionary_item_row(*, tenant_id: int, item_id: int) -> dict[str, Any] | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_basic_data_schema(conn)
+        row = conn.execute(
+            """
+            SELECT i.*, t.code AS type_code
+            FROM business_dictionary_items i
+            JOIN business_dictionary_types t ON t.id = i.type_id AND t.tenant_id = i.tenant_id
+            WHERE i.id = ? AND i.tenant_id = ? AND i.deleted = 0
+            """,
+            (item_id, tenant_id),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def save_dictionary_item(
@@ -459,6 +484,16 @@ def get_region(*, tenant_id: int, region_id: int) -> Region | None:
     return row_to_region(dict(row)) if row else None
 
 
+def get_region_row(*, tenant_id: int, region_id: int) -> dict[str, Any] | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_basic_data_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM business_regions WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (region_id, tenant_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_region_by_code(*, tenant_id: int, code: str) -> Region | None:
     with connect(database_target(), readonly=True) as conn:
         require_basic_data_schema(conn)
@@ -487,6 +522,8 @@ def save_region(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_id
         path = build_region_path(parent.path if parent else "", code)
         values = (
             parent_id,
+            payload.get("owner_user_id"),
+            payload.get("owner_department_id"),
             parent_code,
             code,
             str(payload.get("name") or "").strip(),
@@ -505,8 +542,10 @@ def save_region(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_id
                 conn.execute(
                     """
                     UPDATE business_regions
-                    SET parent_id = ?, parent_code = ?, code = ?, name = ?, short_name = ?, level = ?,
-                        path = ?, status = ?, sort_order = ?, extra_json = ?, editor = ?, editor_id = ?,
+                    SET parent_id = ?, owner_user_id = COALESCE(owner_user_id, ?),
+                        owner_department_id = COALESCE(owner_department_id, ?), parent_code = ?,
+                        code = ?, name = ?, short_name = ?, level = ?, path = ?, status = ?,
+                        sort_order = ?, extra_json = ?, editor = ?, editor_id = ?,
                         update_time = ?, lock_version = lock_version + 1
                     WHERE id = ? AND tenant_id = ? AND deleted = 0
                     """,
@@ -518,12 +557,13 @@ def save_region(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_id
                 cursor = conn.execute(
                     """
                     INSERT INTO business_regions (
-                        tenant_id, parent_id, parent_code, code, name, short_name, level, path, status,
-                        sort_order, extra_json, creator, creator_id, editor, editor_id, create_time, update_time
+                        tenant_id, parent_id, owner_user_id, owner_department_id, parent_code, code,
+                        name, short_name, level, path, status, sort_order, extra_json, creator,
+                        creator_id, editor, editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (tenant_id, *values[:10], actor, actor_id, actor, actor_id, timestamp, timestamp),
+                    (tenant_id, *values[:12], actor, actor_id, actor, actor_id, timestamp, timestamp),
                 )
                 saved_id = inserted_id(conn, cursor, "business_regions", timestamp, actor)
         except sqlite3.IntegrityError as exc:
@@ -731,7 +771,7 @@ def append_data_scope(
     *,
     alias: str = "",
 ) -> None:
-    append_data_scope_sql(where, params, data_scope, descriptor, alias=alias)
+    apply_data_access(where, params, data_scope=data_scope, resource=descriptor, alias=alias)
 
 
 def raise_unique_constraint_error(exc: Exception) -> None:
