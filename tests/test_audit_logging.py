@@ -104,6 +104,72 @@ class AuditLoggingTests(unittest.TestCase):
         self.assertNotIn("secret", item["sql_template"])
         self.assertIn("id = ?", item["sql_template"])
 
+    def test_platform_admin_can_filter_logs_by_tenant(self) -> None:
+        repositories.insert_many(
+            [
+                {
+                    "category": "api",
+                    "tenant_id": 7,
+                    "event_action": "GET /api/a",
+                    "request_method": "GET",
+                    "request_path": "/api/a",
+                    "status_code": 200,
+                    "duration_ms": 10,
+                    "summary": "tenant 7",
+                },
+                {
+                    "category": "api",
+                    "tenant_id": 8,
+                    "event_action": "GET /api/b",
+                    "request_method": "GET",
+                    "request_path": "/api/b",
+                    "status_code": 200,
+                    "duration_ms": 20,
+                    "summary": "tenant 8",
+                },
+            ],
+        )
+
+        user = {"id": 1, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True}
+        all_response = services.list_logs(category="api", page=1, page_size=20, current_user=user)
+        tenant_response = services.list_logs(category="api", page=1, page_size=20, current_user=user, tenant_id=8)
+
+        self.assertEqual(all_response["pagination"]["total"], 2)
+        self.assertEqual(tenant_response["pagination"]["total"], 1)
+        self.assertEqual(tenant_response["items"][0]["tenant_id"], 8)
+
+    def test_tenant_user_cannot_override_log_tenant_filter(self) -> None:
+        repositories.insert_many(
+            [
+                {
+                    "category": "api",
+                    "tenant_id": 7,
+                    "event_action": "GET /api/a",
+                    "request_method": "GET",
+                    "request_path": "/api/a",
+                    "status_code": 200,
+                    "duration_ms": 10,
+                    "summary": "tenant 7",
+                },
+                {
+                    "category": "api",
+                    "tenant_id": 8,
+                    "event_action": "GET /api/b",
+                    "request_method": "GET",
+                    "request_path": "/api/b",
+                    "status_code": 200,
+                    "duration_ms": 20,
+                    "summary": "tenant 8",
+                },
+            ],
+        )
+
+        user = {"id": 2, "tenant_id": 7, "current_tenant": {"id": 7}, "is_platform_admin": False}
+        response = services.list_logs(category="api", page=1, page_size=20, current_user=user, tenant_id=8)
+
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["tenant_id"], 7)
+
     def test_registered_sql_observer_accepts_connection_hook(self) -> None:
         dispatcher.start_worker()
         configure_sql_observer(dispatcher.observe_sql)

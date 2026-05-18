@@ -22,16 +22,17 @@ def list_logs(
     page: int,
     page_size: int,
     current_user: dict[str, Any],
+    tenant_id: int | None = None,
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
 ) -> dict[str, Any]:
-    tenant_id = requested_tenant_id(current_user)
+    effective_tenant_id = requested_tenant_id(current_user, tenant_id=tenant_id)
     resource = RESOURCE_BY_CATEGORY[category]
     data_scope = data_access_for(current_user, resource).read()
     items, total = repositories.list_logs(
         category=category,
-        tenant_id=tenant_id,
+        tenant_id=effective_tenant_id,
         page=page,
         page_size=page_size,
         keyword=keyword,
@@ -82,12 +83,12 @@ def stats() -> dict[str, Any]:
     return {"item": dispatcher.dispatcher_stats()}
 
 
-def requested_tenant_id(current_user: dict[str, Any]) -> int | None:
+def requested_tenant_id(current_user: dict[str, Any], *, tenant_id: int | None = None) -> int | None:
     if bool(current_user.get("is_platform_admin")):
-        return None
+        return int(tenant_id) if tenant_id else None
     current = current_user.get("current_tenant") or {}
-    tenant_id = current.get("id") or current_user.get("tenant_id") or 0
-    return int(tenant_id)
+    current_tenant_id = current.get("id") or current_user.get("tenant_id") or 0
+    return int(current_tenant_id)
 
 
 def current_actor(current_user: dict[str, Any]) -> str:

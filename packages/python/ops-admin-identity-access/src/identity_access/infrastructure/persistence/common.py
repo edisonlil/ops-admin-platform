@@ -155,6 +155,12 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "appearance-themes-publish": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "appearance-themes-disable": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "appearance-themes-set-default": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "platform-audit-logs": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
+    "platform-audit-system-logs": {"menu_type": "page", "component": "/audit/system/index", "menu_scope": "platform"},
+    "platform-audit-operation-logs": {"menu_type": "page", "component": "/audit/operations/index", "menu_scope": "platform"},
+    "platform-audit-api-logs": {"menu_type": "page", "component": "/audit/apis/index", "menu_scope": "platform"},
+    "platform-audit-sql-logs": {"menu_type": "page", "component": "/audit/sql/index", "menu_scope": "platform"},
+    "platform-audit-visitor-logs": {"menu_type": "page", "component": "/audit/visitors/index", "menu_scope": "platform"},
     "rbac": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "user-management": {"menu_type": "page", "component": "/rbac/user/index", "menu_scope": "platform"},
     "user-management-create": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -966,7 +972,21 @@ def ensure_default_rbac(conn: Any) -> None:
     ensure_default_admin_membership(conn)
     ensure_tenant_default_menus(conn)
     ensure_tenant_default_roles(conn)
-    ensure_role_menus_by_key(conn, DEFAULT_ROLE_KEY, ["platform-management", "platform-branding", "platform-branding-update"])
+    ensure_role_menus_by_key(
+        conn,
+        DEFAULT_ROLE_KEY,
+        [
+            "platform-management",
+            "platform-branding",
+            "platform-branding-update",
+            "platform-audit-logs",
+            "platform-audit-system-logs",
+            "platform-audit-operation-logs",
+            "platform-audit-api-logs",
+            "platform-audit-sql-logs",
+            "platform-audit-visitor-logs",
+        ],
+    )
     repair_tenant_rbac_boundaries(conn)
     ensure_all_tenant_menu_defaults(conn)
 
@@ -1346,6 +1366,12 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("appearance-themes-publish", "发布主题", "", "", "", "appearance-studio", "appearance:themes:publish", 1203),
         ("appearance-themes-disable", "停用主题", "", "", "", "appearance-studio", "appearance:themes:disable", 1204),
         ("appearance-themes-set-default", "设为平台默认", "", "", "", "appearance-studio", "appearance:themes:set_default", 1205),
+        ("platform-audit-logs", "审计日志", "", "", "file-search", "platform-management", "", 1097),
+        ("platform-audit-system-logs", "系统日志", "/audit/system", "platform-audit-system-logs", "monitor", "platform-audit-logs", "audit:system-log:view", 10971),
+        ("platform-audit-operation-logs", "操作日志", "/audit/operations", "platform-audit-operation-logs", "edit", "platform-audit-logs", "audit:operation-log:view", 10972),
+        ("platform-audit-api-logs", "接口日志", "/audit/apis", "platform-audit-api-logs", "api", "platform-audit-logs", "audit:api-log:view", 10973),
+        ("platform-audit-sql-logs", "SQL 日志", "/audit/sql", "platform-audit-sql-logs", "database", "platform-audit-logs", "audit:sql-log:view", 10974),
+        ("platform-audit-visitor-logs", "访客日志", "/audit/visitors", "platform-audit-visitor-logs", "user", "platform-audit-logs", "audit:visitor-log:view", 10975),
     ]
     for key, label, path, route_name, icon, parent_key, permission_code, sort_order in platform_menu_rows:
         conn.execute(

@@ -1,6 +1,17 @@
 <template>
   <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" @refresh="reload">
     <template #filters>
+      <n-select
+        v-if="isPlatformAdmin"
+        v-model:value="selectedTenantId"
+        clearable
+        filterable
+        placeholder="全部租户"
+        :loading="tenantLoading"
+        :options="tenantOptions"
+        class="audit-log-page__tenant"
+        @update:value="reload"
+      />
       <n-input v-model:value="keyword" clearable placeholder="搜索动作、请求 ID、操作人" class="audit-log-page__search" @keyup.enter="reload" />
       <n-select v-model:value="outcome" clearable placeholder="执行结果" :options="outcomeOptions" class="audit-log-page__select" />
       <n-select v-model:value="severity" clearable placeholder="日志级别" :options="severityOptions" class="audit-log-page__select" />
@@ -11,10 +22,12 @@
 
 <script lang="ts" setup>
   import { computed, h, ref } from 'vue';
-  import type { DataTableColumns } from 'naive-ui';
+  import type { DataTableColumns, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { getTenants } from '@/api/business';
   import { formatToDateTime } from '@/utils/dateUtil';
+  import { useUserStore } from '@/store/modules/user';
   import { getAuditLogs, type AuditLogCategory, type AuditLogRow } from '@/api/auditLogging';
 
   const props = defineProps<{
@@ -24,7 +37,11 @@
   }>();
 
   const loading = ref(false);
+  const tenantLoading = ref(false);
   const rows = ref<AuditLogRow[]>([]);
+  const userStore = useUserStore();
+  const selectedTenantId = ref<number | null>(null);
+  const tenantOptions = ref<SelectOption[]>([]);
   const keyword = ref('');
   const outcome = ref<string | null>(null);
   const severity = ref<string | null>(null);
@@ -47,6 +64,8 @@
     warning: '警告',
     error: '错误',
   };
+
+  const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
 
   const baseColumns: DataTableColumns<AuditLogRow> = [
     { title: '时间', key: 'event_time', width: 180, render: (row) => formatToDateTime(row.event_time) },
@@ -125,9 +144,11 @@
   async function reload() {
     loading.value = true;
     try {
+      await ensureTenantOptions();
       const payload = await getAuditLogs(props.category, {
         page: 1,
         page_size: 50,
+        tenant_id: selectedTenantForRequest(),
         keyword: keyword.value || undefined,
         outcome: outcome.value || undefined,
         severity: severity.value || undefined,
@@ -138,12 +159,34 @@
     }
   }
 
+  async function ensureTenantOptions() {
+    if (!isPlatformAdmin.value || tenantOptions.value.length) return;
+    tenantLoading.value = true;
+    try {
+      const payload = await getTenants();
+      tenantOptions.value = (payload.items || []).map((tenant) => ({
+        label: `${tenant.name || tenant.tenant_key} (${tenant.tenant_key})`,
+        value: Number(tenant.id),
+      }));
+    } finally {
+      tenantLoading.value = false;
+    }
+  }
+
+  function selectedTenantForRequest() {
+    return isPlatformAdmin.value ? selectedTenantId.value || undefined : undefined;
+  }
+
   reload();
 </script>
 
 <style lang="less" scoped>
   .audit-log-page__search {
     width: 280px;
+  }
+
+  .audit-log-page__tenant {
+    width: min(280px, 100%);
   }
 
   .audit-log-page__select {

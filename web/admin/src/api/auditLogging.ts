@@ -82,7 +82,7 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
 
 export function getAuditLogs(
   category: AuditLogCategory,
-  params: { page?: number; page_size?: number; keyword?: string; outcome?: string; severity?: string } = {}
+  params: { page?: number; page_size?: number; tenant_id?: number; keyword?: string; outcome?: string; severity?: string } = {}
 ) {
   return Alova.Get<AuditLogListData>(pathByCategory[category], {
     params: withNoCacheParams(params),
