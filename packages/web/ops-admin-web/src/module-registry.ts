@@ -1,7 +1,15 @@
 import type { App } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 
-export type OpsAdminModuleKey = 'identity_access' | 'appearance' | 'llm_runtime' | 'basic_data' | 'file_management' | 'ai_assets' | string;
+export type OpsAdminModuleKey =
+  | 'identity_access'
+  | 'appearance'
+  | 'llm_runtime'
+  | 'basic_data'
+  | 'file_management'
+  | 'ai_assets'
+  | 'audit_logging'
+  | string;
 
 export interface OpsAdminWebModule {
   key: OpsAdminModuleKey;
@@ -145,6 +153,14 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'basic-data-regions-delete',
     'basic-data-regions-import',
   ],
+  audit_logging: [
+    'audit-logs',
+    'audit-system-logs',
+    'audit-operation-logs',
+    'audit-api-logs',
+    'audit-sql-logs',
+    'audit-visitor-logs',
+  ],
 };
 
 const RETIRED_MODULE_MENU_KEYS = [
@@ -265,6 +281,16 @@ export function registerAIAssetsModule(options: OpsAdminModuleOptions = {}) {
     key: 'ai_assets',
     label: options.label || 'AI 资产',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.ai_assets,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerAuditLoggingModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'audit_logging',
+    label: options.label || '审计日志',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.audit_logging,
     routes: options.routes,
     install: options.install,
   });

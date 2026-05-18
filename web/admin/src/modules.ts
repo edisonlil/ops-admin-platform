@@ -1,6 +1,7 @@
 import {
   clearOpsAdminModules,
   registerAIAssetsModule,
+  registerAuditLoggingModule,
   registerBasicDataModule,
   registerCronModule,
   registerAppearanceModule,
@@ -36,5 +37,9 @@ export function setupStarterModules() {
 
   if (import.meta.env.VITE_ENABLE_AI_ASSETS !== 'false') {
     registerAIAssetsModule();
+  }
+
+  if (import.meta.env.VITE_ENABLE_AUDIT_LOGGING !== 'false') {
+    registerAuditLoggingModule();
   }
 }

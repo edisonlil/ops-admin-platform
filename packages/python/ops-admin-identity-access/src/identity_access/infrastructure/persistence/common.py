@@ -130,6 +130,12 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "tenant"},
     "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "audit-logs": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "audit-system-logs": {"menu_type": "page", "component": "/audit/system/index", "menu_scope": "tenant"},
+    "audit-operation-logs": {"menu_type": "page", "component": "/audit/operations/index", "menu_scope": "tenant"},
+    "audit-api-logs": {"menu_type": "page", "component": "/audit/apis/index", "menu_scope": "tenant"},
+    "audit-sql-logs": {"menu_type": "page", "component": "/audit/sql/index", "menu_scope": "tenant"},
+    "audit-visitor-logs": {"menu_type": "page", "component": "/audit/visitors/index", "menu_scope": "tenant"},
     "platform-management": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "platform-branding": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
     "platform-branding-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -286,6 +292,22 @@ TENANT_ORGANIZATION_NAV_MENU_KEYS = [
     "organization-departments",
     "data-scope-management",
 ]
+TENANT_AUDIT_LOG_MENU_KEYS = [
+    "audit-logs",
+    "audit-system-logs",
+    "audit-operation-logs",
+    "audit-api-logs",
+    "audit-sql-logs",
+    "audit-visitor-logs",
+]
+TENANT_AUDIT_LOG_NAV_MENU_KEYS = [
+    "audit-logs",
+    "audit-system-logs",
+    "audit-operation-logs",
+    "audit-api-logs",
+    "audit-sql-logs",
+    "audit-visitor-logs",
+]
 RETIRED_AI_ASSETS_MENU_KEYS = [
     "prompt-contracts",
     "prompt-contracts-manage",
@@ -317,6 +339,7 @@ TENANT_ADMIN_MENU_KEYS = (
     + TENANT_CRON_MENU_KEYS
     + TENANT_AI_ASSETS_MENU_KEYS
     + TENANT_ORGANIZATION_MENU_KEYS
+    + TENANT_AUDIT_LOG_MENU_KEYS
 )
 TENANT_MEMBER_MENU_KEYS = ["tenant-settings"]
 DEFAULT_TENANT_ENABLED_MENU_KEYS = (
@@ -328,6 +351,7 @@ DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     + ["cron", "cron-tasks", "cron-runs"]
     + TENANT_AI_ASSETS_NAV_MENU_KEYS
     + TENANT_ORGANIZATION_NAV_MENU_KEYS
+    + TENANT_AUDIT_LOG_NAV_MENU_KEYS
 )
 TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "llm_config:update",
@@ -390,6 +414,11 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "cron:tasks:delete",
     "cron:tasks:trigger",
     "cron:runs:view",
+    "audit:system-log:view",
+    "audit:operation-log:view",
+    "audit:api-log:view",
+    "audit:sql-log:view",
+    "audit:visitor-log:view",
 ]
 
 
@@ -1518,6 +1547,66 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             8322,
         ),
         (
+            "audit-logs",
+            "审计日志",
+            "",
+            "",
+            "file-search",
+            "",
+            "",
+            835,
+        ),
+        (
+            "audit-system-logs",
+            "系统日志",
+            "/audit/system",
+            "audit-system-logs",
+            "monitor",
+            "audit-logs",
+            "audit:system-log:view",
+            8351,
+        ),
+        (
+            "audit-operation-logs",
+            "操作日志",
+            "/audit/operations",
+            "audit-operation-logs",
+            "edit",
+            "audit-logs",
+            "audit:operation-log:view",
+            8352,
+        ),
+        (
+            "audit-api-logs",
+            "接口日志",
+            "/audit/apis",
+            "audit-api-logs",
+            "api",
+            "audit-logs",
+            "audit:api-log:view",
+            8353,
+        ),
+        (
+            "audit-sql-logs",
+            "SQL 日志",
+            "/audit/sql",
+            "audit-sql-logs",
+            "database",
+            "audit-logs",
+            "audit:sql-log:view",
+            8354,
+        ),
+        (
+            "audit-visitor-logs",
+            "访客日志",
+            "/audit/visitors",
+            "audit-visitor-logs",
+            "user",
+            "audit-logs",
+            "audit:visitor-log:view",
+            8355,
+        ),
+        (
             "file-management",
             "文件管理",
             "",
@@ -2358,6 +2447,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS)
             ensure_role_menus_by_key(conn, role_key, TENANT_ORGANIZATION_MENU_KEYS)
+            ensure_role_menus_by_key(conn, role_key, TENANT_AUDIT_LOG_MENU_KEYS)
             ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
