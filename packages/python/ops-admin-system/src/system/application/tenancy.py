@@ -15,6 +15,10 @@ def current_tenant_scope() -> TenantScope:
     return tenant_scope_var.get() or default_tenant_scope()
 
 
+def current_tenant_scope_or_none() -> TenantScope | None:
+    return tenant_scope_var.get()
+
+
 def set_tenant_scope(scope: TenantScope) -> contextvars.Token[TenantScope | None]:
     return tenant_scope_var.set(scope)
 

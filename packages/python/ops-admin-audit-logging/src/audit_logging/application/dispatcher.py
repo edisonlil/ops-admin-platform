@@ -11,6 +11,7 @@ from typing import Any
 
 from audit_logging.application.ports import AuditLogRepository
 from audit_logging.domain.models import LOG_CATEGORY_API, LOG_CATEGORY_SQL, LOG_CATEGORIES
+from system.application.tenancy import current_tenant_scope, current_tenant_scope_or_none
 
 
 _repository: AuditLogRepository | None = None
@@ -125,10 +126,11 @@ def observe_sql(
     if is_suppressed() or not should_record_sql(sql, duration_ms, success):
         return
     template = sql_template(sql)
+    tenant_id = int(getattr(current_tenant_scope(), "tenant_id", 0) or 0)
     enqueue_log(
         LOG_CATEGORY_SQL,
         {
-            "tenant_id": 0,
+            "tenant_id": tenant_id,
             "event_action": statement_type(template),
             "event_outcome": "success" if success else "failed",
             "severity": "warning" if success else "error",
@@ -179,7 +181,7 @@ def normalize_payload(category: str, payload: dict[str, Any]) -> dict[str, Any]:
     event_time = str(payload.get("event_time") or datetime.now().isoformat(timespec="microseconds"))
     normalized = dict(payload)
     normalized["category"] = category
-    normalized.setdefault("tenant_id", 0)
+    normalized["tenant_id"] = resolved_payload_tenant_id(normalized)
     normalized.setdefault("event_time", event_time)
     normalized.setdefault("event_outcome", "success")
     normalized.setdefault("severity", "info")
@@ -190,6 +192,15 @@ def normalize_payload(category: str, payload: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("creator", "audit-worker")
     normalized.setdefault("editor", "audit-worker")
     return normalized
+
+
+def resolved_payload_tenant_id(payload: dict[str, Any]) -> int:
+    if "tenant_id" in payload and payload.get("tenant_id") is not None:
+        return int(payload.get("tenant_id") or 0)
+    scope = current_tenant_scope_or_none()
+    if scope is None:
+        return 0
+    return int(getattr(scope, "tenant_id", 0) or 0)
 
 
 def _worker_loop() -> None:

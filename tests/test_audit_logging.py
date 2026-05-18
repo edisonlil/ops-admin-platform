@@ -9,7 +9,9 @@ from unittest import mock
 from audit_logging.application import dispatcher, services
 from audit_logging.infrastructure.persistence import repositories
 from audit_logging.infrastructure.persistence.bootstrap import ensure_audit_logging_schema
+from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.application.database import connect
+from system.domain.tenancy import TenantScope
 from system.infrastructure.persistence.connection import configure_sql_observer
 
 
@@ -103,6 +105,117 @@ class AuditLoggingTests(unittest.TestCase):
         self.assertEqual(item["event_outcome"], "failed")
         self.assertNotIn("secret", item["sql_template"])
         self.assertIn("id = ?", item["sql_template"])
+
+    def test_sql_observer_uses_current_tenant_scope(self) -> None:
+        dispatcher.start_worker()
+        token = set_tenant_scope(
+            TenantScope(
+                tenant_id=7,
+                tenant_key="default",
+                tenant_name="Default Tenant",
+                is_platform_admin=False,
+                principal_id=10,
+                principal_name="tenant-admin",
+            )
+        )
+        try:
+            dispatcher.observe_sql(
+                sql="SELECT * FROM orders WHERE id = 123",
+                params=(),
+                duration_ms=3,
+                success=False,
+                error_message="boom",
+                backend="sqlite",
+                readonly=True,
+            )
+        finally:
+            reset_tenant_scope(token)
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="sql",
+            page=1,
+            page_size=20,
+            current_user={"id": 10, "tenant_id": 7, "current_tenant": {"id": 7}},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["tenant_id"], 7)
+
+    def test_logs_without_explicit_tenant_use_current_tenant_scope(self) -> None:
+        dispatcher.start_worker()
+        token = set_tenant_scope(
+            TenantScope(
+                tenant_id=9,
+                tenant_key="tenant-nine",
+                tenant_name="Tenant Nine",
+                is_platform_admin=False,
+                principal_id=20,
+                principal_name="operator",
+            )
+        )
+        try:
+            accepted = dispatcher.enqueue_log(
+                "operation",
+                {
+                    "event_action": "demo.update",
+                    "event_outcome": "success",
+                    "summary": "demo update",
+                },
+            )
+        finally:
+            reset_tenant_scope(token)
+        self.assertTrue(accepted)
+
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="operation",
+            page=1,
+            page_size=20,
+            current_user={"id": 20, "tenant_id": 9, "current_tenant": {"id": 9}},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["tenant_id"], 9)
+
+    def test_explicit_platform_tenant_id_is_preserved(self) -> None:
+        dispatcher.start_worker()
+        token = set_tenant_scope(
+            TenantScope(
+                tenant_id=9,
+                tenant_key="tenant-nine",
+                tenant_name="Tenant Nine",
+                is_platform_admin=False,
+                principal_id=20,
+                principal_name="operator",
+            )
+        )
+        try:
+            accepted = dispatcher.enqueue_log(
+                "system",
+                {
+                    "tenant_id": 0,
+                    "event_action": "platform.maintenance",
+                    "event_outcome": "success",
+                    "summary": "platform maintenance",
+                },
+            )
+        finally:
+            reset_tenant_scope(token)
+        self.assertTrue(accepted)
+
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="system",
+            page=1,
+            page_size=20,
+            current_user={"id": 1, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["tenant_id"], 0)
 
     def test_platform_admin_can_filter_logs_by_tenant(self) -> None:
         repositories.insert_many(
