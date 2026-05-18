@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..config import get_config
 from ..project_config import application_config_path, legacy_database_config_path
-from .setup import MODULE_INIT_SCRIPTS, detect_project_from_dir, get_modules_from_ops_config, get_venv_python
+from .setup import detect_project_from_dir, get_modules_from_ops_config, get_venv_python, get_module_init_scripts
 
 
 def _resolve_project(config, projects_dir: Path, name: str | None) -> tuple[str, dict]:
@@ -44,12 +44,13 @@ def run_rerun_module(args) -> None:
         print(f"Error: Project path does not exist: {project_path}")
         return
 
-    script_name = MODULE_INIT_SCRIPTS.get(args.module)
+    module_init_scripts = get_module_init_scripts(project_path)
+    script_name = module_init_scripts.get(args.module)
     if not script_name:
         print(f"Unknown module: {args.module}")
-        available = get_modules_from_ops_config(project_path)
+        available = get_module_init_scripts(project_path)
         if available:
-            print(f"Available modules: {', '.join(available)}")
+            print(f"Available modules: {', '.join(available.keys())}")
         else:
             print(f"Available modules: {', '.join(MODULE_INIT_SCRIPTS.keys())}")
         return

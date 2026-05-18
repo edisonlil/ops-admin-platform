@@ -11,6 +11,7 @@ from pathlib import Path
 from ..config import get_config
 from ..interactive.prompts import ask_with_choices, ask_confirmation
 from ..project_config import read_database_config, write_database_config as write_application_database_config
+from ..services.discovery import discover_modules
 
 
 def detect_project_from_dir(projects_dir: Path) -> tuple[str, dict] | None:
@@ -399,8 +400,15 @@ def ensure_node_ready(project_path: Path) -> bool:
     return venv_path
 
 
+# Module to init script mapping - use discovery service
+def get_module_init_scripts(project_path: Path) -> dict[str, str]:
+    """Get all discovered modules that have init scripts."""
+    discovery_result = discover_modules(project_path)
+    return discovery_result.get_modules_with_init()
+
+
 def get_modules_from_ops_config(project_path: Path) -> list[str]:
-    """Get enabled modules from .ops-config. Returns all known modules if not found."""
+    """Get enabled modules from .ops-config. Returns all discovered modules if not found."""
     ops_config = project_path / ".ops-config"
     if ops_config.exists():
         try:
@@ -411,26 +419,9 @@ def get_modules_from_ops_config(project_path: Path) -> list[str]:
                 return modules
         except Exception:
             pass
-    
-    # If .ops-config doesn't exist or has no modules, default to all available
-    return list(MODULE_INIT_SCRIPTS.keys())
 
-
-# Module to init script mapping
-MODULE_INIT_SCRIPTS = {
-    "identity_access": "init_identity_access.py",
-    "messaging": "init_messaging.py",
-    "appearance": "init_appearance.py",
-    "llm_runtime": "init_llm_runtime.py",
-    "ai_applications": "init_ai_applications.py",
-    "ai_capabilities": "init_ai_capabilities.py",
-    "ai_assets": "init_ai_assets.py",
-    "file_management": "init_file_management.py",
-    "organization": "init_organization.py",
-    "basic_data": "init_basic_data.py",
-    "authorization": "init_authorization.py",
-    "cron": "init_cron.py",
-}
+    # If .ops-config doesn't exist or has no modules, default to all discovered modules
+    return discover_modules(project_path).get_module_names()
 
 
 def check_already_initialized(project_path: Path, backend: str, db_path: str = "") -> set[str]:
@@ -480,6 +471,7 @@ def check_already_initialized(project_path: Path, backend: str, db_path: str = "
 def run_init_scripts(project_path: Path, python_exe: Path) -> None:
     """Run init scripts based on enabled modules, skipping already initialized ones."""
     modules = get_modules_from_ops_config(project_path)
+    module_init_scripts = get_module_init_scripts(project_path)
     
     if not modules:
         print("No modules defined in .ops-config. Skipping init scripts.")
@@ -501,7 +493,7 @@ def run_init_scripts(project_path: Path, python_exe: Path) -> None:
     # Filter scripts based on enabled modules
     scripts_to_run = []
     for module in modules:
-        script_name = MODULE_INIT_SCRIPTS.get(module)
+        script_name = module_init_scripts.get(module)
         if script_name:
             scripts_to_run.append((module, script_name))
     

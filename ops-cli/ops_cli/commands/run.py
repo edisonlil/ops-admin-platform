@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..config import get_config
 from ..project_config import application_config_path, legacy_database_config_path
+from ..services.discovery import discover_modules
 from ..utils import is_windows
 
 
@@ -402,14 +403,12 @@ def run_run(args) -> None:
         os.environ["FG_AGENT_DATABASE_CONFIG"] = str(legacy_db_config.resolve())
     os.environ["FG_AGENT_CORS_ORIGINS"] = f"http://localhost:{frontend_port},http://127.0.0.1:{frontend_port}"
 
-    # Set PYTHONPATH
+    # Auto-discover all ops-admin-* packages for PYTHONPATH
+    discovery_result = discover_modules(project_path)
+    auto_module_paths = discovery_result.get_all_pythonpath_parts()
     pythonpath_parts = [
         str(project_path),
-        str(project_path / "packages" / "python" / "ops-admin-system" / "src"),
-        str(project_path / "packages" / "python" / "ops-admin-identity-access" / "src"),
-        str(project_path / "packages" / "python" / "ops-admin-messaging" / "src"),
-        str(project_path / "packages" / "python" / "ops-admin-appearance" / "src"),
-        str(project_path / "packages" / "python" / "ops-admin-llm-runtime" / "src"),
+        *auto_module_paths,
     ]
     existing_pythonpath = os.environ.get("PYTHONPATH", "")
     if existing_pythonpath:

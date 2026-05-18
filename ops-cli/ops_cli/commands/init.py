@@ -14,24 +14,46 @@ from ..config import get_config
 from ..interactive.selector import select_from_list, select_multiple_from_list
 from ..interactive.prompts import ask_project_name
 from ..utils import run_command, ensure_dir, is_windows
+from ..services.discovery import discover_modules
 
 
-# Available modules from the scaffold
-AVAILABLE_MODULES = [
-    "system",
-    "cron",
-    "identity_access",
-    "organization",
-    "authorization",
-    "basic_data",
-    "file_management",
-    "messaging",
-    "llm_runtime",
-    "ai_assets",
-    "ai_applications",
-    "ai_capabilities",
-    "appearance",
-]
+def get_available_modules(scaffold_url: str, branch: str = "main") -> list[str]:
+    """
+    Get list of available modules from the scaffold repository.
+    
+    For local development (running from scaffold repo), uses local scripts.
+    For installed ops-cli, clones the specified branch to discover modules.
+    """
+    # First try local discovery (works when running from the scaffold repo itself)
+    local_result = discover_modules()
+    if local_result.get_module_names():
+        return local_result.get_module_names()
+    
+    # Otherwise, we need to clone the specified branch to discover modules
+    # This handles the case where ops-cli is installed as a package
+    import tempfile
+    import shutil
+    
+    temp_dir = Path(tempfile.mkdtemp(prefix="ops-cli-scaffold-"))
+    try:
+        run_command(
+            ["git", "clone", "--depth", "1", "--branch", branch, scaffold_url, str(temp_dir)],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
+        result = discover_modules(temp_dir)
+        return result.get_module_names()
+    except Exception:
+        # If all else fails, return the hardcoded list
+        return [
+            "system", "identity_access", "organization", "authorization",
+            "basic_data", "file_management", "messaging", "llm_runtime",
+            "ai_assets", "ai_applications", "ai_capabilities", "appearance",
+            "audit_logging", "cron",
+        ]
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def fetch_branches(scaffold_url: str) -> list[str]:
@@ -329,14 +351,22 @@ def run_init(args) -> None:
     print("\n" + "=" * 50)
     print("Step 2: Select Modules")
     print("=" * 50)
-    print("Select which modules to enable (enter numbers separated by space):")
+    
+    # Get available modules dynamically (discover from the selected branch)
+    available_modules = get_available_modules(scaffold_url, selected_branch)
+    if not available_modules:
+        print("Warning: Could not discover modules from scaffold.")
+        print("Please check your scaffold URL configuration.")
+        return
+    
+    print(f"Select which modules to enable (enter numbers separated by space):")
     selected_modules = select_multiple_from_list(
-        AVAILABLE_MODULES,
+        available_modules,
         "Select modules (e.g., '1 3 5' for system, identity_access, llm_runtime):"
     )
     if not selected_modules:
         print("No modules selected, using all modules.")
-        selected_modules = AVAILABLE_MODULES.copy()
+        selected_modules = available_modules.copy()
 
     print(f"Selected modules: {', '.join(selected_modules)}")
 
