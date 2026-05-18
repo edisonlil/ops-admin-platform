@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from ..config import get_config
+from ..project_config import application_config_path, legacy_database_config_path
 from ..utils import is_windows
 
 
@@ -248,15 +249,20 @@ def run_run(args) -> None:
         print(f"Using Python: {python_exe}")
         venv_exists = True
 
-    # Check database config
-    db_config = project_path / "config" / "database.local.json"
-    if not db_config.exists():
+    # Check application/database config
+    app_config = application_config_path(project_path)
+    legacy_db_config = legacy_database_config_path(project_path)
+    if not app_config.exists() and not legacy_db_config.exists():
         print("\nDatabase not configured.")
         print("Please run 'ops-cli setup' first to configure the database.")
         return
 
     # Set environment variables
-    os.environ["FG_AGENT_DATABASE_CONFIG"] = str(db_config.resolve())
+    if app_config.exists():
+        os.environ["OPS_ADMIN_APPLICATION_CONFIG"] = str(app_config.resolve())
+        os.environ.pop("FG_AGENT_DATABASE_CONFIG", None)
+    else:
+        os.environ["FG_AGENT_DATABASE_CONFIG"] = str(legacy_db_config.resolve())
     os.environ["FG_AGENT_CORS_ORIGINS"] = f"http://localhost:{frontend_port},http://127.0.0.1:{frontend_port}"
 
     # Set PYTHONPATH

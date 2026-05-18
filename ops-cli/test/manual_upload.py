@@ -55,11 +55,11 @@ if compose.exists():
         f.write(compose.read_text())
     print('Uploaded docker-compose.yml')
 
-# Upload database config
-db_config = '{"backend": "mysql", "database_url": "mysql://root:passw0rd@192.168.20.121:3306/ops_sale_dev"}'
-with sftp.open(f'{remote_path}/config/database.json', 'w') as f:
-    f.write(db_config)
-print('Uploaded database.json')
+# Upload application config
+app_config = '{"database": {"backend": "mysql", "database_url": "mysql://root:passw0rd@192.168.20.121:3306/ops_sale_dev"}}'
+with sftp.open(f'{remote_path}/config/application.json', 'w') as f:
+    f.write(app_config)
+print('Uploaded application.json')
 
 # Upload api directory
 print('Uploading api...')

@@ -14,7 +14,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - FG_AGENT_DATABASE_CONFIG=/app/config/database.json
+      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
       - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80,http://192.168.20.121:8000
       - FG_AGENT_ADMIN_DIST_PATH=/app/dist
     volumes:
