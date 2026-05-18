@@ -32,6 +32,7 @@ export interface IMenuSetting {
   menuWidth: number;
   fixed: boolean;
   mixMenu: boolean;
+  showIcon: boolean;
   collapsed: boolean;
   mobileWidth: number;
 }

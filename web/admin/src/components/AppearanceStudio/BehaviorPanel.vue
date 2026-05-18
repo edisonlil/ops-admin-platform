@@ -22,6 +22,12 @@
         :disabled="projectConfig.navMode !== 'horizontal-mix'"
         @update:model-value="setMixMenu"
       />
+      <SettingSwitchRow
+        label="显示菜单图标"
+        setting-path="project.menuSetting.showIcon"
+        :model-value="projectConfig.menuSetting.showIcon"
+        @update:model-value="(value) => appearanceStore.updateNestedProjectOverride('menuSetting', 'showIcon', value)"
+      />
     </n-collapse-item>
 
     <n-collapse-item title="壳层固定" name="fixed">

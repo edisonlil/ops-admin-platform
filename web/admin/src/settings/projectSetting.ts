@@ -35,6 +35,8 @@ const setting = {
     fixed: true,
     //分割菜单
     mixMenu: false,
+    // 是否显示菜单图标
+    showIcon: true,
     //触发移动端侧边栏的宽度
     mobileWidth: 800,
     // 折叠菜单

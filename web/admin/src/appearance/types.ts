@@ -444,6 +444,7 @@ export interface ProjectBehaviorOverrides {
   };
   menuSetting?: {
     mixMenu?: boolean;
+    showIcon?: boolean;
   };
   multiTabsSetting?: {
     fixed?: boolean;

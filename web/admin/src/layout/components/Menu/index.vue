@@ -76,7 +76,7 @@
 
       // 监听分割菜单
       watch(
-        () => unref(menuSetting).mixMenu,
+        () => [unref(menuSetting).mixMenu, unref(menuSetting).showIcon],
         () => {
           updateMenu();
           if (props.collapsed) {
@@ -116,16 +116,28 @@
       }
 
       function updateMenu() {
+        let nextMenus: any[];
         if (!unref(menuSetting).mixMenu) {
-          menus.value = generatorMenu(asyncRouteStore.getMenus);
+          nextMenus = generatorMenu(asyncRouteStore.getMenus);
         } else {
           //混合菜单
           const firstRouteName: string = (currentRoute.matched[0].name as string) || '';
-          menus.value = generatorMenuMix(asyncRouteStore.getMenus, firstRouteName, props.location);
+          nextMenus = generatorMenuMix(asyncRouteStore.getMenus, firstRouteName, props.location);
           const activeMenu: string = currentRoute?.matched[0].meta?.activeMenu as string;
           headerMenuSelectKey.value = (activeMenu ? activeMenu : firstRouteName) || '';
         }
+        menus.value = unref(menuSetting).showIcon === false ? hideMenuIcons(nextMenus) : nextMenus;
         updateSelectedKeys();
+      }
+
+      function hideMenuIcons(menuItems: any[]): any[] {
+        return menuItems.map((item) => {
+          const { icon, children, ...rest } = item;
+          return {
+            ...rest,
+            children: children && children.length ? hideMenuIcons(children) : children,
+          };
+        });
       }
 
       // 点击菜单
