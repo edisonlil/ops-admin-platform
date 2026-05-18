@@ -34,7 +34,7 @@
                 </n-input>
 
                 <div class="py-3 menu-list">
-                  <div v-if="loading" class="flex items-center justify-center py-4">
+                  <div v-if="loading" class="menu-list-loading">
                     <n-spin size="medium" />
                   </div>
                   <n-tree
@@ -811,6 +811,16 @@
     height: min(560px, calc(100vh - var(--app-header-height, 64px) - var(--app-tabs-height, 44px) - 220px));
     min-height: 360px;
     overflow: hidden;
+  }
+
+  .menu-list-loading {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: flex-start;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    padding-top: 32px;
   }
 
   .menu-tree {
