@@ -107,8 +107,8 @@ FROM (
     UNION ALL
     SELECT
         'audit.system-log',
-        'System Audit Log',
-        'Tenant system audit logs',
+        '系统日志',
+        '租户系统审计日志',
         'tenant_id',
         'creator_id',
         'owner_user_id',
@@ -118,8 +118,8 @@ FROM (
     UNION ALL
     SELECT
         'audit.operation-log',
-        'Operation Audit Log',
-        'Tenant operation audit logs',
+        '操作日志',
+        '租户操作审计日志',
         'tenant_id',
         'creator_id',
         'owner_user_id',
@@ -129,8 +129,8 @@ FROM (
     UNION ALL
     SELECT
         'audit.api-log',
-        'API Audit Log',
-        'Tenant API request audit logs',
+        '接口日志',
+        '租户接口请求审计日志',
         'tenant_id',
         'creator_id',
         'owner_user_id',
@@ -140,8 +140,8 @@ FROM (
     UNION ALL
     SELECT
         'audit.sql-log',
-        'SQL Audit Log',
-        'Tenant slow and failed SQL audit logs',
+        'SQL 日志',
+        '租户慢 SQL 和错误 SQL 审计日志',
         'tenant_id',
         'creator_id',
         'owner_user_id',
@@ -151,8 +151,8 @@ FROM (
     UNION ALL
     SELECT
         'audit.visitor-log',
-        'Visitor Audit Log',
-        'Tenant visitor audit logs',
+        '访客日志',
+        '租户访客访问审计日志',
         'tenant_id',
         'creator_id',
         'owner_user_id',
@@ -171,3 +171,18 @@ SET name = '业务字典',
     description = '业务字典类型和字典项'
 WHERE resource_key = 'basic-data.dictionary'
   AND deleted = FALSE;
+
+UPDATE data_resource_descriptors SET name = '系统日志', description = '租户系统审计日志'
+WHERE resource_key = 'audit.system-log' AND deleted = FALSE;
+
+UPDATE data_resource_descriptors SET name = '操作日志', description = '租户操作审计日志'
+WHERE resource_key = 'audit.operation-log' AND deleted = FALSE;
+
+UPDATE data_resource_descriptors SET name = '接口日志', description = '租户接口请求审计日志'
+WHERE resource_key = 'audit.api-log' AND deleted = FALSE;
+
+UPDATE data_resource_descriptors SET name = 'SQL 日志', description = '租户慢 SQL 和错误 SQL 审计日志'
+WHERE resource_key = 'audit.sql-log' AND deleted = FALSE;
+
+UPDATE data_resource_descriptors SET name = '访客日志', description = '租户访客访问审计日志'
+WHERE resource_key = 'audit.visitor-log' AND deleted = FALSE;

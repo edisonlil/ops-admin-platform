@@ -198,6 +198,8 @@ def list_settings() -> list[AuditLoggingSettings]:
             ORDER BY tenant_id ASC, id ASC
             """
         ).fetchall()
+    if not rows:
+        return [default_settings()]
     return [row_to_settings(dict(row)) for row in rows]
 
 

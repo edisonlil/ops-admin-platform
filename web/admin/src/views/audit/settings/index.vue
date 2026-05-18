@@ -1,47 +1,50 @@
 <template>
   <div class="audit-settings-page">
+    <n-alert v-if="loadError" type="error" class="audit-settings-page__error" closable @close="loadError = ''">
+      {{ loadError }}
+    </n-alert>
     <ListPageRuntime :schema="settingsPage" :rows="rows" :loading="loading" @refresh="reload">
       <template #item-actions="{ row }">
-        <n-button size="small" type="primary" @click="openEdit(row)">Edit</n-button>
+        <n-button size="small" type="primary" @click="openEdit(row)">编辑</n-button>
       </template>
     </ListPageRuntime>
 
     <n-drawer v-model:show="drawerVisible" width="620">
-      <n-drawer-content :title="activeRow ? `Audit Settings: tenant ${activeRow.tenant_id}` : 'Audit Settings'">
+      <n-drawer-content :title="activeRow ? `日志配置：租户 ${activeRow.tenant_id}` : '日志配置'">
         <n-form label-placement="top">
           <n-grid :cols="2" :x-gap="16" responsive="screen">
-            <n-form-item-gi label="Slow SQL threshold (ms)">
+            <n-form-item-gi label="慢 SQL 阈值（毫秒）">
               <n-input-number v-model:value="form.slow_sql_threshold_ms" :min="50" :max="60000" class="audit-settings-page__number" />
             </n-form-item-gi>
-            <n-form-item-gi label="Flush interval (ms)">
+            <n-form-item-gi label="刷新间隔（毫秒）">
               <n-input-number v-model:value="form.flush_interval_ms" :min="100" :max="60000" class="audit-settings-page__number" />
             </n-form-item-gi>
-            <n-form-item-gi label="Queue max size">
+            <n-form-item-gi label="队列最大长度">
               <n-input-number v-model:value="form.queue_max_size" :min="1000" :max="1000000" class="audit-settings-page__number" />
             </n-form-item-gi>
-            <n-form-item-gi label="Batch size">
+            <n-form-item-gi label="批量入库条数">
               <n-input-number v-model:value="form.batch_size" :min="1" :max="10000" class="audit-settings-page__number" />
             </n-form-item-gi>
-            <n-form-item-gi label="Plain IP retention days">
+            <n-form-item-gi label="明文 IP 保留天数">
               <n-input-number v-model:value="form.plaintext_ip_retention_days" :min="0" :max="3650" class="audit-settings-page__number" />
             </n-form-item-gi>
-            <n-form-item-gi label="Log retention days">
+            <n-form-item-gi label="日志保留天数">
               <n-input-number v-model:value="form.log_retention_days" :min="1" :max="3650" class="audit-settings-page__number" />
             </n-form-item-gi>
           </n-grid>
 
           <n-space vertical>
-            <n-checkbox v-model:checked="form.api_log_enabled">API logs</n-checkbox>
-            <n-checkbox v-model:checked="form.operation_log_enabled">Operation logs</n-checkbox>
-            <n-checkbox v-model:checked="form.sql_log_enabled">SQL logs</n-checkbox>
-            <n-checkbox v-model:checked="form.visitor_log_enabled">Visitor logs</n-checkbox>
-            <n-checkbox v-model:checked="form.system_log_enabled">System logs</n-checkbox>
+            <n-checkbox v-model:checked="form.api_log_enabled">接口日志</n-checkbox>
+            <n-checkbox v-model:checked="form.operation_log_enabled">操作日志</n-checkbox>
+            <n-checkbox v-model:checked="form.sql_log_enabled">SQL 日志</n-checkbox>
+            <n-checkbox v-model:checked="form.visitor_log_enabled">访客日志</n-checkbox>
+            <n-checkbox v-model:checked="form.system_log_enabled">系统日志</n-checkbox>
           </n-space>
         </n-form>
         <template #footer>
           <n-space justify="end">
-            <n-button @click="drawerVisible = false">Cancel</n-button>
-            <n-button type="primary" :loading="saving" @click="submit">Save</n-button>
+            <n-button @click="drawerVisible = false">取消</n-button>
+            <n-button type="primary" :loading="saving" @click="submit">保存</n-button>
           </n-space>
         </template>
       </n-drawer-content>
@@ -67,6 +70,7 @@
   const message = useMessage();
   const loading = ref(false);
   const saving = ref(false);
+  const loadError = ref('');
   const drawerVisible = ref(false);
   const activeRow = ref<AuditLoggingSettings | null>(null);
   const rows = ref<AuditLoggingSettings[]>([]);
@@ -90,29 +94,29 @@
   });
 
   const columns: DataTableColumns<AuditLoggingSettings> = [
-    { title: 'Tenant', key: 'tenant_id', width: 100 },
+    { title: '租户', key: 'tenant_id', width: 100 },
     {
-      title: 'API',
+      title: '接口',
       key: 'api_log_enabled',
       width: 90,
       render(row) {
-        return h(AppStatusTag, { tone: row.api_log_enabled ? 'success' : 'neutral', label: row.api_log_enabled ? 'On' : 'Off' });
+        return h(AppStatusTag, { tone: row.api_log_enabled ? 'success' : 'neutral', label: row.api_log_enabled ? '开启' : '关闭' });
       },
     },
-    { title: 'Slow SQL', key: 'slow_sql_threshold_ms', width: 120, render: (row) => `${row.slow_sql_threshold_ms} ms` },
-    { title: 'Batch', key: 'batch_size', width: 100 },
-    { title: 'Flush', key: 'flush_interval_ms', width: 100, render: (row) => `${row.flush_interval_ms} ms` },
-    { title: 'Plain IP', key: 'plaintext_ip_retention_days', width: 120, render: (row) => `${row.plaintext_ip_retention_days} days` },
-    { title: 'Retention', key: 'log_retention_days', width: 120, render: (row) => `${row.log_retention_days} days` },
-    { title: 'Updated', key: 'update_time', width: 180, render: (row) => formatToDateTime(row.update_time || '') },
+    { title: '慢 SQL', key: 'slow_sql_threshold_ms', width: 120, render: (row) => `${row.slow_sql_threshold_ms} ms` },
+    { title: '批量条数', key: 'batch_size', width: 100 },
+    { title: '刷新间隔', key: 'flush_interval_ms', width: 110, render: (row) => `${row.flush_interval_ms} ms` },
+    { title: '明文 IP', key: 'plaintext_ip_retention_days', width: 120, render: (row) => `${row.plaintext_ip_retention_days} 天` },
+    { title: '保留期', key: 'log_retention_days', width: 120, render: (row) => `${row.log_retention_days} 天` },
+    { title: '更新时间', key: 'update_time', width: 180, render: (row) => formatToDateTime(row.update_time || '') },
     {
-      title: 'Actions',
+      title: '操作',
       key: 'actions',
       width: 120,
       fixed: 'right',
       render(row) {
         return h(AppTableActions, {
-          actions: [{ label: 'Edit', onClick: () => openEdit(row) }],
+          actions: [{ label: '编辑', onClick: () => openEdit(row) }],
         });
       },
     },
@@ -120,8 +124,8 @@
 
   const settingsPage = defineListPage<AuditLoggingSettings>({
     id: 'audit.settings',
-    title: 'Audit Settings',
-    description: 'Platform-managed logging collection, queue, SQL threshold, and retention settings.',
+    title: '日志配置',
+    description: '由平台统一管理日志采集、队列、SQL 阈值和保留策略。',
     variant: 'dense-data',
     density: 'compact',
     view: {
@@ -163,7 +167,7 @@
     saving.value = true;
     try {
       await saveAuditLoggingSettings(tenantId, { ...form });
-      message.success('Audit settings saved');
+      message.success('日志配置已保存');
       drawerVisible.value = false;
       await reload();
     } finally {
@@ -173,9 +177,13 @@
 
   async function reload() {
     loading.value = true;
+    loadError.value = '';
     try {
       const payload = await getAuditLoggingSettings();
       rows.value = payload.items || [];
+    } catch (error) {
+      rows.value = [];
+      loadError.value = error instanceof Error ? error.message : '日志配置加载失败，请稍后重试';
     } finally {
       loading.value = false;
     }
@@ -186,6 +194,12 @@
 
 <style lang="less" scoped>
   .audit-settings-page {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .audit-settings-page__error {
     min-width: 0;
   }
 

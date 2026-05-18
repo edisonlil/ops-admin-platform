@@ -67,7 +67,7 @@ def save_settings(tenant_id: int, payload: dict[str, Any], current_user: dict[st
             "source_module": "audit_logging",
             "actor_user_id": current_user_id_or_none(current_user),
             "actor_name": current_actor(current_user),
-            "summary": f"Audit logging settings updated for tenant {tenant_id}",
+            "summary": f"更新租户 {tenant_id} 的日志配置",
             "resource_type": "audit_logging_settings",
             "resource_id": str(item.id),
             "risk_level": "high",

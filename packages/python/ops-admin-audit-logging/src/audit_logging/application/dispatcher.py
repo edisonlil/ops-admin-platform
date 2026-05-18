@@ -139,7 +139,7 @@ def observe_sql(
             "duration_ms": int(duration_ms),
             "success": success,
             "error_message": error_message,
-            "summary": "Slow SQL" if success else "SQL error",
+            "summary": "慢 SQL" if success else "SQL 执行错误",
             "source_module": "database",
         },
         priority="high" if not success else "normal",

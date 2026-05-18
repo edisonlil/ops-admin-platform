@@ -1,5 +1,5 @@
 <template>
-  <LogList category="sql" title="SQL Logs" description="Slow SQL and error SQL with de-parameterized templates only." />
+  <LogList category="sql" title="SQL 日志" description="仅记录慢 SQL 和错误 SQL，保存去参数化后的 SQL 模板。" />
 </template>
 
 <script lang="ts" setup>

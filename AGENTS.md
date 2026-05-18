@@ -54,6 +54,7 @@
 - Use the shared request client under `web/admin/src/utils/http/alova`.
 - API wrapper functions should return unwrapped business data.
 - Components should not know the envelope format; only the request layer should.
+- Product-facing labels, model display names, menus, permissions, page titles, page descriptions, form labels, table columns, seed display names, and data-resource names must be written in Chinese by default. If existing text is garbled, fix the encoding or restore the intended Chinese text first; do not avoid the problem by replacing user-facing content with English.
 - Keep backend module capabilities aligned with default frontend module pages where practical.
 - List pages, table pages, and data-view pages must be modeled through `web/admin/src/page-runtime`.
 - New list/data-view shapes such as tabbed lists, split master-detail views, kanban, tree, calendar, timeline, gallery, or map views should be added as Page Runtime view types/adapters instead of hand-building equivalent page structure inside business pages.

@@ -1,14 +1,11 @@
-# Audit Logging
+# 审计日志
 
-The audit logging context records platform runtime events without coupling business modules
-to storage details. It stores system, operation, API, SQL, and visitor logs in the primary
-database through an in-process bounded queue and a background batch worker.
+审计日志上下文用于记录平台运行事件，同时避免业务模块直接耦合日志存储细节。首版通过进程内有界队列和后台批量 worker，将系统日志、操作日志、接口日志、SQL 日志和访客日志写入主库。
 
-First-version constraints:
+首版约束：
 
-- Logs are written asynchronously to avoid slowing the main request path.
-- API and audit settings endpoints are excluded from collection to prevent recursive logging.
-- SQL collection records only slow SQL and error SQL. Parameters are never stored.
-- IP plaintext retention is controlled by platform settings; long-term filtering can rely on
-  `ip_hash`.
-- Tenant admins can view permitted logs but only platform admins can change settings.
+- 日志必须异步写入，不能拖慢主请求。
+- 日志查询和日志配置接口排除采集，避免递归产生日志。
+- SQL 只采集慢 SQL 和错误 SQL，只保存去参数化后的 `sql_template`，不保存参数。
+- 明文 IP 的保留期由平台配置控制，长期保留 `ip_hash`。
+- 租户管理员只能查看授权范围内日志，只有平台管理员可以调整配置。

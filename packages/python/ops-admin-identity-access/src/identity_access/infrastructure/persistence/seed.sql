@@ -206,31 +206,31 @@ SELECT 'file:storage_profiles:manage', 'Manage file storage profiles', 'Configur
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:storage_profiles:manage');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:system-log:view', 'View system logs', 'View platform and tenant system audit logs'
+SELECT 'audit:system-log:view', '查看系统日志', '查看平台和租户系统审计日志'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:system-log:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:operation-log:view', 'View operation logs', 'View user operation audit logs'
+SELECT 'audit:operation-log:view', '查看操作日志', '查看用户操作审计日志'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:operation-log:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:api-log:view', 'View API logs', 'View API request audit logs'
+SELECT 'audit:api-log:view', '查看接口日志', '查看接口请求审计日志'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:api-log:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:sql-log:view', 'View SQL logs', 'View slow and failed SQL audit logs'
+SELECT 'audit:sql-log:view', '查看 SQL 日志', '查看慢 SQL 和错误 SQL 审计日志'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:sql-log:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:visitor-log:view', 'View visitor logs', 'View visitor access audit logs'
+SELECT 'audit:visitor-log:view', '查看访客日志', '查看访客访问审计日志'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:visitor-log:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:settings:view', 'View audit settings', 'View audit logging collection and retention settings'
+SELECT 'audit:settings:view', '查看日志配置', '查看日志采集、队列和保留配置'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:settings:view');
 
 INSERT INTO permissions (code, name, description)
-SELECT 'audit:settings:manage', 'Manage audit settings', 'Manage audit logging collection and retention settings'
+SELECT 'audit:settings:manage', '管理日志配置', '管理日志采集、队列和保留配置'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:settings:manage');
 
 INSERT INTO permissions (code, name, description)
@@ -691,11 +691,11 @@ SELECT 'file-tenant-quotas-manage', 'platform', '管理文件配额', 'action', 
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-tenant-quotas-manage');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-log-settings', 'platform', 'Audit Settings', 'page', '/audit/settings', 'audit-log-settings', '/audit/settings/index', 'setting', 'platform-management', 'audit:settings:view', 1094, TRUE
+SELECT 'audit-log-settings', 'platform', '日志配置', 'page', '/audit/settings', 'audit-log-settings', '/audit/settings/index', 'setting', 'platform-management', 'audit:settings:view', 1094, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-log-settings');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-log-settings-manage', 'platform', 'Manage Audit Settings', 'action', '', '', '', '', 'audit-log-settings', 'audit:settings:manage', 10941, TRUE
+SELECT 'audit-log-settings-manage', 'platform', '管理日志配置', 'action', '', '', '', '', 'audit-log-settings', 'audit:settings:manage', 10941, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-log-settings-manage');
 
 UPDATE menus SET
@@ -864,27 +864,27 @@ SELECT 'file-objects-delete', 'tenant', '删除文件', 'action', '', '', '', ''
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-delete');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-logs', 'tenant', 'Audit Logs', 'directory', '', '', '', 'file-search', '', '', 835, TRUE
+SELECT 'audit-logs', 'tenant', '审计日志', 'directory', '', '', '', 'file-search', '', '', 835, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-system-logs', 'tenant', 'System Logs', 'page', '/audit/system', 'audit-system-logs', '/audit/system/index', 'monitor', 'audit-logs', 'audit:system-log:view', 8351, TRUE
+SELECT 'audit-system-logs', 'tenant', '系统日志', 'page', '/audit/system', 'audit-system-logs', '/audit/system/index', 'monitor', 'audit-logs', 'audit:system-log:view', 8351, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-system-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-operation-logs', 'tenant', 'Operation Logs', 'page', '/audit/operations', 'audit-operation-logs', '/audit/operations/index', 'edit', 'audit-logs', 'audit:operation-log:view', 8352, TRUE
+SELECT 'audit-operation-logs', 'tenant', '操作日志', 'page', '/audit/operations', 'audit-operation-logs', '/audit/operations/index', 'edit', 'audit-logs', 'audit:operation-log:view', 8352, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-operation-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-api-logs', 'tenant', 'API Logs', 'page', '/audit/apis', 'audit-api-logs', '/audit/apis/index', 'api', 'audit-logs', 'audit:api-log:view', 8353, TRUE
+SELECT 'audit-api-logs', 'tenant', '接口日志', 'page', '/audit/apis', 'audit-api-logs', '/audit/apis/index', 'api', 'audit-logs', 'audit:api-log:view', 8353, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-api-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-sql-logs', 'tenant', 'SQL Logs', 'page', '/audit/sql', 'audit-sql-logs', '/audit/sql/index', 'database', 'audit-logs', 'audit:sql-log:view', 8354, TRUE
+SELECT 'audit-sql-logs', 'tenant', 'SQL 日志', 'page', '/audit/sql', 'audit-sql-logs', '/audit/sql/index', 'database', 'audit-logs', 'audit:sql-log:view', 8354, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-sql-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
-SELECT 'audit-visitor-logs', 'tenant', 'Visitor Logs', 'page', '/audit/visitors', 'audit-visitor-logs', '/audit/visitors/index', 'user', 'audit-logs', 'audit:visitor-log:view', 8355, TRUE
+SELECT 'audit-visitor-logs', 'tenant', '访客日志', 'page', '/audit/visitors', 'audit-visitor-logs', '/audit/visitors/index', 'user', 'audit-logs', 'audit:visitor-log:view', 8355, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-visitor-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
@@ -1041,3 +1041,48 @@ WHERE r.role_key = 'admin'
       SELECT 1 FROM role_menus rm
       WHERE rm.role_id = r.id AND rm.menu_id = m.id
   );
+
+UPDATE permissions SET name = '查看系统日志', description = '查看平台和租户系统审计日志'
+WHERE code = 'audit:system-log:view';
+
+UPDATE permissions SET name = '查看操作日志', description = '查看用户操作审计日志'
+WHERE code = 'audit:operation-log:view';
+
+UPDATE permissions SET name = '查看接口日志', description = '查看接口请求审计日志'
+WHERE code = 'audit:api-log:view';
+
+UPDATE permissions SET name = '查看 SQL 日志', description = '查看慢 SQL 和错误 SQL 审计日志'
+WHERE code = 'audit:sql-log:view';
+
+UPDATE permissions SET name = '查看访客日志', description = '查看访客访问审计日志'
+WHERE code = 'audit:visitor-log:view';
+
+UPDATE permissions SET name = '查看日志配置', description = '查看日志采集、队列和保留配置'
+WHERE code = 'audit:settings:view';
+
+UPDATE permissions SET name = '管理日志配置', description = '管理日志采集、队列和保留配置'
+WHERE code = 'audit:settings:manage';
+
+UPDATE menus SET label = '日志配置'
+WHERE menu_key = 'audit-log-settings';
+
+UPDATE menus SET label = '管理日志配置'
+WHERE menu_key = 'audit-log-settings-manage';
+
+UPDATE menus SET label = '审计日志'
+WHERE menu_key = 'audit-logs';
+
+UPDATE menus SET label = '系统日志'
+WHERE menu_key = 'audit-system-logs';
+
+UPDATE menus SET label = '操作日志'
+WHERE menu_key = 'audit-operation-logs';
+
+UPDATE menus SET label = '接口日志'
+WHERE menu_key = 'audit-api-logs';
+
+UPDATE menus SET label = 'SQL 日志'
+WHERE menu_key = 'audit-sql-logs';
+
+UPDATE menus SET label = '访客日志'
+WHERE menu_key = 'audit-visitor-logs';

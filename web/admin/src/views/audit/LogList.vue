@@ -1,10 +1,10 @@
 <template>
   <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" @refresh="reload">
     <template #filters>
-      <n-input v-model:value="keyword" clearable placeholder="Search action, request ID, actor" class="audit-log-page__search" @keyup.enter="reload" />
-      <n-select v-model:value="outcome" clearable placeholder="Outcome" :options="outcomeOptions" class="audit-log-page__select" />
-      <n-select v-model:value="severity" clearable placeholder="Severity" :options="severityOptions" class="audit-log-page__select" />
-      <n-button type="primary" @click="reload">Search</n-button>
+      <n-input v-model:value="keyword" clearable placeholder="搜索动作、请求 ID、操作人" class="audit-log-page__search" @keyup.enter="reload" />
+      <n-select v-model:value="outcome" clearable placeholder="执行结果" :options="outcomeOptions" class="audit-log-page__select" />
+      <n-select v-model:value="severity" clearable placeholder="日志级别" :options="severityOptions" class="audit-log-page__select" />
+      <n-button type="primary" @click="reload">查询</n-button>
     </template>
   </ListPageRuntime>
 </template>
@@ -30,61 +30,70 @@
   const severity = ref<string | null>(null);
 
   const outcomeOptions = [
-    { label: 'Success', value: 'success' },
-    { label: 'Failed', value: 'failed' },
+    { label: '成功', value: 'success' },
+    { label: '失败', value: 'failed' },
   ];
   const severityOptions = [
-    { label: 'Info', value: 'info' },
-    { label: 'Warning', value: 'warning' },
-    { label: 'Error', value: 'error' },
+    { label: '信息', value: 'info' },
+    { label: '警告', value: 'warning' },
+    { label: '错误', value: 'error' },
   ];
+  const outcomeLabel: Record<string, string> = {
+    success: '成功',
+    failed: '失败',
+  };
+  const severityLabel: Record<string, string> = {
+    info: '信息',
+    warning: '警告',
+    error: '错误',
+  };
 
   const baseColumns: DataTableColumns<AuditLogRow> = [
-    { title: 'Time', key: 'event_time', width: 180, render: (row) => formatToDateTime(row.event_time) },
+    { title: '时间', key: 'event_time', width: 180, render: (row) => formatToDateTime(row.event_time) },
     {
-      title: 'Outcome',
+      title: '结果',
       key: 'event_outcome',
       width: 110,
       render(row) {
         return h(AppStatusTag, {
           tone: row.event_outcome === 'success' ? 'success' : 'error',
-          label: row.event_outcome || '-',
+          label: outcomeLabel[row.event_outcome] || row.event_outcome || '-',
         });
       },
     },
     {
-      title: 'Severity',
+      title: '级别',
       key: 'severity',
       width: 110,
       render(row) {
         const tone = row.severity === 'error' ? 'error' : row.severity === 'warning' ? 'warning' : 'info';
-        return h(AppStatusTag, { tone, label: row.severity || '-' });
+        return h(AppStatusTag, { tone, label: severityLabel[row.severity] || row.severity || '-' });
       },
     },
-    { title: 'Action', key: 'event_action', minWidth: 220, ellipsis: { tooltip: true } },
-    { title: 'Actor', key: 'actor_name', width: 140, ellipsis: { tooltip: true } },
-    { title: 'Request ID', key: 'request_id', minWidth: 220, ellipsis: { tooltip: true } },
-    { title: 'Summary', key: 'summary', minWidth: 260, ellipsis: { tooltip: true } },
+    { title: '动作', key: 'event_action', minWidth: 220, ellipsis: { tooltip: true } },
+    { title: '操作人', key: 'actor_name', width: 140, ellipsis: { tooltip: true } },
+    { title: '请求 ID', key: 'request_id', minWidth: 220, ellipsis: { tooltip: true } },
+    { title: '摘要', key: 'summary', minWidth: 260, ellipsis: { tooltip: true } },
   ];
 
   const apiColumns: DataTableColumns<AuditLogRow> = [
-    { title: 'Method', key: 'request_method', width: 90 },
-    { title: 'Path', key: 'request_path', minWidth: 260, ellipsis: { tooltip: true } },
-    { title: 'Status', key: 'status_code', width: 90 },
-    { title: 'Duration', key: 'duration_ms', width: 110, render: (row) => `${row.duration_ms || 0} ms` },
+    { title: '方法', key: 'request_method', width: 90 },
+    { title: '路径', key: 'request_path', minWidth: 260, ellipsis: { tooltip: true } },
+    { title: '状态码', key: 'status_code', width: 90 },
+    { title: '耗时', key: 'duration_ms', width: 110, render: (row) => `${row.duration_ms || 0} ms` },
   ];
 
   const sqlColumns: DataTableColumns<AuditLogRow> = [
-    { title: 'Backend', key: 'database_backend', width: 110 },
-    { title: 'Duration', key: 'duration_ms', width: 110, render: (row) => `${row.duration_ms || 0} ms` },
-    { title: 'SQL Template', key: 'sql_template', minWidth: 420, ellipsis: { tooltip: true } },
-    { title: 'Error', key: 'error_message', minWidth: 220, ellipsis: { tooltip: true } },
+    { title: '数据库', key: 'database_backend', width: 110 },
+    { title: '耗时', key: 'duration_ms', width: 110, render: (row) => `${row.duration_ms || 0} ms` },
+    { title: 'SQL 模板', key: 'sql_template', minWidth: 420, ellipsis: { tooltip: true } },
+    { title: '错误信息', key: 'error_message', minWidth: 220, ellipsis: { tooltip: true } },
   ];
 
   const operationColumns: DataTableColumns<AuditLogRow> = [
-    { title: 'Resource', key: 'resource_type', width: 150, ellipsis: { tooltip: true } },
-    { title: 'Resource ID', key: 'resource_id', width: 130, ellipsis: { tooltip: true } },
-    { title: 'Risk', key: 'risk_level', width: 110 },
+    { title: '资源类型', key: 'resource_type', width: 150, ellipsis: { tooltip: true } },
+    { title: '资源 ID', key: 'resource_id', width: 130, ellipsis: { tooltip: true } },
+    { title: '风险级别', key: 'risk_level', width: 110 },
   ];
 
   const columns = computed<DataTableColumns<AuditLogRow>>(() => {

@@ -316,20 +316,23 @@ export const dynamicImport = (
   component: string
 ) => {
   const keys = Object.keys(viewsModules);
+  const normalizedComponent = component.replace(/\/+$/, '');
+  const componentCandidates = normalizedComponent.endsWith('/index')
+    ? [normalizedComponent]
+    : [normalizedComponent, `${normalizedComponent}/index`];
   const matchKeys = keys.filter((key) => {
     let k = key.replace('../views', '');
     const lastIndex = k.lastIndexOf('.');
     k = k.substring(0, lastIndex);
-    return k === component;
+    return componentCandidates.includes(k);
   });
   if (matchKeys?.length === 1) {
     const matchKey = matchKeys[0];
     return viewsModules[matchKey];
   }
   if (matchKeys?.length > 1) {
-    console.warn(
-      'Please do not create `.vue` and `.TSX` files with the same file name in the same hierarchical directory under the views folder. This will cause dynamic introduction failure'
-    );
+    console.warn('请不要在 views 目录的同一层级创建同名 `.vue` 和 `.tsx` 文件，否则动态路由组件无法唯一匹配');
     return;
   }
+  console.warn(`未找到动态路由组件：${component}`);
 };
