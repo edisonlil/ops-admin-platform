@@ -65,6 +65,17 @@ export interface AuditLoggingSettings {
 
 export type AuditLoggingSettingsPayload = Omit<AuditLoggingSettings, 'id' | 'tenant_id' | 'create_time' | 'update_time'>;
 
+export interface VisitorTrackPayload {
+  path: string;
+  title?: string;
+  referrer?: string;
+  visitor_id?: string;
+  session_id?: string;
+  device_type?: string;
+  browser?: string;
+  os?: string;
+}
+
 const pathByCategory: Record<AuditLogCategory, string> = {
   system: '/audit-logs/system',
   operation: '/audit-logs/operations',
@@ -103,4 +114,12 @@ export function getEffectiveAuditLoggingSettings(tenantId: number) {
 
 export function saveAuditLoggingSettings(tenantId: number, payload: AuditLoggingSettingsPayload) {
   return Alova.Put<{ item: AuditLoggingSettings }>(`/audit-logs/settings/${tenantId}`, payload);
+}
+
+export function trackVisitorVisit(payload: VisitorTrackPayload) {
+  return Alova.Post<{ accepted: boolean }>('/audit-logs/visitors/track', payload, {
+    meta: {
+      ignoreError: true,
+    },
+  });
 }

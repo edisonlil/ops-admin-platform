@@ -24,6 +24,12 @@ bearer_header = HTTPBearer(auto_error=False)
 _ = load_user
 
 
+def _activate_tenant_scope(scope: TenantScope, request: Request | None = None) -> None:
+    set_tenant_scope(scope)
+    if request is not None:
+        request.state.tenant_scope = scope
+
+
 def _token_from_request(request: Request) -> str:
     authorization = request.headers.get("Authorization", "").strip()
     if authorization.lower().startswith("bearer "):
@@ -65,7 +71,11 @@ def _user_and_payload_from_request(request: Request) -> tuple[dict[str, Any], di
     return current_user, payload
 
 
-def _attach_user_tenant_scope(current_user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+def _attach_user_tenant_scope(
+    current_user: dict[str, Any],
+    payload: dict[str, Any],
+    request: Request | None = None,
+) -> dict[str, Any]:
     raw_tenant_id = payload.get("tenant_id")
     try:
         tenant_id = int(raw_tenant_id) if raw_tenant_id else None
@@ -75,18 +85,29 @@ def _attach_user_tenant_scope(current_user: dict[str, Any], payload: dict[str, A
     tenant_payload = tenant_service.tenant_access_payload(current_user, tenant_id)
     current = tenant_payload["current_tenant"]
     if current:
-        set_tenant_scope(
-            TenantScope(
-                tenant_id=int(current["id"]),
-                tenant_key=str(current["tenant_key"]),
-                tenant_name=str(current["name"]),
-                is_platform_admin=bool(tenant_payload["is_platform_admin"]),
-                source="user",
-                principal_id=int(current_user.get("id", 0) or 0),
-                principal_name=str(current_user.get("username", "") or ""),
-                principal_department_id=current_user_primary_department_id(current_user),
-            )
+        scope = TenantScope(
+            tenant_id=int(current["id"]),
+            tenant_key=str(current["tenant_key"]),
+            tenant_name=str(current["name"]),
+            is_platform_admin=bool(tenant_payload["is_platform_admin"]),
+            source="user",
+            principal_id=int(current_user.get("id", 0) or 0),
+            principal_name=str(current_user.get("username", "") or ""),
         )
+        _activate_tenant_scope(scope, request)
+        primary_department_id = current_user_primary_department_id(current_user)
+        if primary_department_id is not None:
+            scope = TenantScope(
+                tenant_id=scope.tenant_id,
+                tenant_key=scope.tenant_key,
+                tenant_name=scope.tenant_name,
+                is_platform_admin=scope.is_platform_admin,
+                source=scope.source,
+                principal_id=scope.principal_id,
+                principal_name=scope.principal_name,
+                principal_department_id=primary_department_id,
+            )
+            _activate_tenant_scope(scope, request)
     current_user.update(tenant_payload)
     current_user["tenant_id"] = int(current["id"]) if current else None
     current_user["departments"] = tenant_service.user_departments_for_current_tenant(current_user)
@@ -97,7 +118,20 @@ async def require_user(request: Request) -> dict[str, Any]:
     current_user, payload = _user_and_payload_from_request(request)
     if not bool(current_user.get("is_active", True)):
         raise InvalidCredentialsException
-    return _attach_user_tenant_scope(current_user, payload)
+    return _attach_user_tenant_scope(current_user, payload, request)
+
+
+def optional_user_from_request(request: Request) -> dict[str, Any] | None:
+    try:
+        current_user, payload = _user_and_payload_from_request(request)
+    except Exception:
+        return None
+    if not bool(current_user.get("is_active", True)):
+        return None
+    try:
+        return _attach_user_tenant_scope(current_user, payload, request)
+    except Exception:
+        return None
 
 
 def require_permission(permission_code: str) -> Any:
@@ -132,7 +166,7 @@ def require_business_api_key_or_permission(permission_code: str) -> Any:
             principal = validate_api_key(api_key)
             if principal:
                 tenant = principal.get("current_tenant") or {}
-                set_tenant_scope(
+                _activate_tenant_scope(
                     TenantScope(
                         tenant_id=int(principal.get("tenant_id", tenant.get("id", 0)) or 0),
                         tenant_key=str(tenant.get("tenant_key") or tenant.get("key") or DEFAULT_TENANT_KEY),
@@ -140,7 +174,8 @@ def require_business_api_key_or_permission(permission_code: str) -> Any:
                         source="api_key",
                         principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
                         principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
-                    )
+                    ),
+                    request,
                 )
                 return principal
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
@@ -158,7 +193,7 @@ async def require_auth(
         principal = validate_api_key(api_key)
         if principal:
             tenant = principal.get("current_tenant") or {}
-            set_tenant_scope(
+            _activate_tenant_scope(
                 TenantScope(
                     tenant_id=int(principal.get("tenant_id", tenant.get("id", 0)) or 0),
                     tenant_key=str(tenant.get("tenant_key") or tenant.get("key") or DEFAULT_TENANT_KEY),
@@ -166,12 +201,13 @@ async def require_auth(
                     source="api_key",
                     principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
                     principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
-                )
+                ),
+                request,
             )
             return principal
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
     user, payload = _user_and_payload_from_request(request)
-    user = _attach_user_tenant_scope(user, payload)
+    user = _attach_user_tenant_scope(user, payload, request)
     tenant_payload = {
         "current_tenant": user["current_tenant"],
         "tenant_memberships": user["tenant_memberships"],

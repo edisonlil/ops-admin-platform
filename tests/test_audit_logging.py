@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
+
+import httpx
+from fastapi import Depends, FastAPI, Request
 
 from audit_logging.application import dispatcher, services
 from audit_logging.infrastructure.persistence import repositories
 from audit_logging.infrastructure.persistence.bootstrap import ensure_audit_logging_schema
+from audit_logging.interfaces.http.middleware import AuditHttpLoggingMiddleware, request_tenant_id, should_record_visitor
+from audit_logging.interfaces.http.router import router as audit_router
 from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.application.database import connect
 from system.domain.tenancy import TenantScope
@@ -80,6 +87,30 @@ class AuditLoggingTests(unittest.TestCase):
         self.assertEqual(response["pagination"]["total"], 1)
         self.assertEqual(response["items"][0]["request_path"], "/api/example")
 
+    def test_system_log_flushes_to_database(self) -> None:
+        dispatcher.start_worker()
+        accepted = dispatcher.record_system_log(
+            {
+                "tenant_id": 0,
+                "event_action": "audit.worker.start",
+                "source_module": "audit_logging",
+                "summary": "审计日志后台写入任务已启动",
+            }
+        )
+        self.assertTrue(accepted)
+
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="system",
+            page=1,
+            page_size=20,
+            current_user={"id": 1, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["event_action"], "audit.worker.start")
+
     def test_sql_observer_records_error_sql_without_params(self) -> None:
         dispatcher.start_worker()
         dispatcher.observe_sql(
@@ -102,9 +133,112 @@ class AuditLoggingTests(unittest.TestCase):
         )
         self.assertEqual(response["pagination"]["total"], 1)
         item = response["items"][0]
+        self.assertEqual(item["tenant_id"], 0)
         self.assertEqual(item["event_outcome"], "failed")
         self.assertNotIn("secret", item["sql_template"])
         self.assertIn("id = ?", item["sql_template"])
+
+    def test_api_middleware_reads_tenant_from_request_state(self) -> None:
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant_scope=TenantScope(
+                    tenant_id=7,
+                    tenant_key="default",
+                    tenant_name="Default Tenant",
+                )
+            )
+        )
+
+        self.assertEqual(request_tenant_id(request), 7)
+
+    def test_api_middleware_records_request_state_tenant_after_call_next(self) -> None:
+        async def attach_scope(request: Request) -> None:
+            request.state.tenant_scope = TenantScope(
+                tenant_id=11,
+                tenant_key="tenant-eleven",
+                tenant_name="Tenant Eleven",
+            )
+
+        app = FastAPI()
+        app.add_middleware(AuditHttpLoggingMiddleware)
+
+        @app.get("/demo")
+        async def demo(_: None = Depends(attach_scope)) -> dict[str, bool]:
+            return {"ok": True}
+
+        async def call_demo() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                return await client.get("/demo")
+
+        dispatcher.start_worker()
+        response = asyncio.run(call_demo())
+        self.assertEqual(response.status_code, 200)
+
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="api",
+            page=1,
+            page_size=20,
+            current_user={"id": 20, "tenant_id": 11, "current_tenant": {"id": 11}},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["tenant_id"], 11)
+
+        visitor_response = services.list_logs(
+            category="visitor",
+            page=1,
+            page_size=20,
+            current_user={"id": 20, "tenant_id": 11, "current_tenant": {"id": 11}},
+        )
+        self.assertEqual(visitor_response["pagination"]["total"], 1)
+        self.assertEqual(visitor_response["items"][0]["tenant_id"], 11)
+        self.assertEqual(visitor_response["items"][0]["entry_path"], "/demo")
+
+    def test_visitor_track_endpoint_flushes_to_database(self) -> None:
+        app = FastAPI()
+        app.include_router(audit_router)
+
+        async def call_track() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                return await client.post(
+                    "/audit-logs/visitors/track",
+                    json={
+                        "path": "/platform",
+                        "title": "平台信息",
+                        "visitor_id": "visitor-1",
+                        "session_id": "session-1",
+                        "device_type": "desktop",
+                    },
+                    headers={"user-agent": "pytest"},
+                )
+
+        dispatcher.start_worker()
+        response = asyncio.run(call_track())
+        self.assertEqual(response.status_code, 200)
+
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="visitor",
+            page=1,
+            page_size=20,
+            current_user={"id": 1, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["entry_path"], "/platform")
+        self.assertEqual(response["items"][0]["summary"], "访客访问 平台信息")
+
+    def test_visitor_policy_skips_regular_api_paths(self) -> None:
+        self.assertTrue(should_record_visitor("/"))
+        self.assertTrue(should_record_visitor("/api/auth/login"))
+        self.assertTrue(should_record_visitor("/api/login"))
+        self.assertFalse(should_record_visitor("/api/users"))
+        self.assertFalse(should_record_visitor("/api/audit-logs/api"))
 
     def test_sql_observer_uses_current_tenant_scope(self) -> None:
         dispatcher.start_worker()

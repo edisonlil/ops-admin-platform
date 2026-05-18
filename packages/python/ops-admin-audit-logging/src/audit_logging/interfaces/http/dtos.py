@@ -22,3 +22,14 @@ class AuditLoggingSettingsRequest(BaseModel):
     external_sink_enabled: bool = False
     external_sink_type: str = Field(default="", max_length=60)
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class VisitorTrackRequest(BaseModel):
+    path: str = Field(default="/", max_length=1000)
+    title: str = Field(default="", max_length=200)
+    referrer: str = Field(default="", max_length=1000)
+    visitor_id: str = Field(default="", max_length=200)
+    session_id: str = Field(default="", max_length=200)
+    device_type: str = Field(default="", max_length=40)
+    browser: str = Field(default="", max_length=80)
+    os: str = Field(default="", max_length=80)

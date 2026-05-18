@@ -48,9 +48,29 @@ def add_audit_logging(app: FastAPI) -> None:
     @app.on_event("startup")
     def start_audit_logging() -> None:
         dispatcher.start_worker()
+        dispatcher.record_system_log(
+            {
+                "tenant_id": 0,
+                "event_action": "audit.worker.start",
+                "event_outcome": "success",
+                "severity": "info",
+                "source_module": "audit_logging",
+                "summary": "审计日志后台写入任务已启动",
+            }
+        )
 
     @app.on_event("shutdown")
     def stop_audit_logging() -> None:
+        dispatcher.record_system_log(
+            {
+                "tenant_id": 0,
+                "event_action": "audit.worker.stop",
+                "event_outcome": "success",
+                "severity": "info",
+                "source_module": "audit_logging",
+                "summary": "审计日志后台写入任务已停止",
+            }
+        )
         dispatcher.stop_worker()
 
 

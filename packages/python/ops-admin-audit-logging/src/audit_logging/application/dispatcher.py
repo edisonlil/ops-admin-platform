@@ -10,8 +10,15 @@ from datetime import datetime
 from typing import Any
 
 from audit_logging.application.ports import AuditLogRepository
-from audit_logging.domain.models import LOG_CATEGORY_API, LOG_CATEGORY_SQL, LOG_CATEGORIES
-from system.application.tenancy import current_tenant_scope, current_tenant_scope_or_none
+from audit_logging.domain.models import (
+    LOG_CATEGORY_API,
+    LOG_CATEGORY_OPERATION,
+    LOG_CATEGORY_SQL,
+    LOG_CATEGORY_SYSTEM,
+    LOG_CATEGORY_VISITOR,
+    LOG_CATEGORIES,
+)
+from system.application.tenancy import current_tenant_scope_or_none
 
 
 _repository: AuditLogRepository | None = None
@@ -25,6 +32,13 @@ DEFAULT_QUEUE_SIZE = 10000
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_FLUSH_INTERVAL_SECONDS = 1.0
 DEFAULT_SLOW_SQL_THRESHOLD_MS = 500
+CATEGORY_ENABLED_SETTING = {
+    LOG_CATEGORY_API: "api_log_enabled",
+    LOG_CATEGORY_OPERATION: "operation_log_enabled",
+    LOG_CATEGORY_SQL: "sql_log_enabled",
+    LOG_CATEGORY_SYSTEM: "system_log_enabled",
+    LOG_CATEGORY_VISITOR: "visitor_log_enabled",
+}
 
 
 def configure_repository(repository: AuditLogRepository) -> None:
@@ -100,6 +114,8 @@ def enqueue_log(category: str, payload: dict[str, Any], *, priority: str = "norm
         _stats["dropped"] += 1
         return False
     record = normalize_payload(category, payload)
+    if not category_log_enabled(category, int(record.get("tenant_id") or 0)):
+        return False
     try:
         assert _queue is not None
         _queue.put_nowait(record)
@@ -114,6 +130,15 @@ def record_api_log(payload: dict[str, Any]) -> bool:
     return enqueue_log(LOG_CATEGORY_API, payload, priority="high" if int(payload.get("status_code") or 0) >= 500 else "normal")
 
 
+def record_system_log(payload: dict[str, Any]) -> bool:
+    severity = str(payload.get("severity") or "info")
+    return enqueue_log(LOG_CATEGORY_SYSTEM, payload, priority="high" if severity in {"error", "critical"} else "normal")
+
+
+def record_visitor_log(payload: dict[str, Any]) -> bool:
+    return enqueue_log(LOG_CATEGORY_VISITOR, payload)
+
+
 def observe_sql(
     sql: str,
     params: tuple[Any, ...],
@@ -126,7 +151,7 @@ def observe_sql(
     if is_suppressed() or not should_record_sql(sql, duration_ms, success):
         return
     template = sql_template(sql)
-    tenant_id = int(getattr(current_tenant_scope(), "tenant_id", 0) or 0)
+    tenant_id = current_scope_tenant_id()
     enqueue_log(
         LOG_CATEGORY_SQL,
         {
@@ -141,7 +166,7 @@ def observe_sql(
             "duration_ms": int(duration_ms),
             "success": success,
             "error_message": error_message,
-            "summary": "慢 SQL" if success else "SQL 执行错误",
+            "summary": "慢 SQL" if success else "SQL 执行失败",
             "source_module": "database",
         },
         priority="high" if not success else "normal",
@@ -154,7 +179,7 @@ def should_record_sql(sql: str, duration_ms: float, success: bool) -> bool:
     lowered = sql.lower()
     if "audit_" in lowered:
         return False
-    if not effective_settings_value("sql_log_enabled", True):
+    if not effective_settings_value("sql_log_enabled", True, tenant_id=current_scope_tenant_id()):
         return False
     if not success:
         return True
@@ -162,15 +187,22 @@ def should_record_sql(sql: str, duration_ms: float, success: bool) -> bool:
 
 
 def effective_slow_sql_threshold_ms() -> int:
-    return int(effective_settings_value("slow_sql_threshold_ms", DEFAULT_SLOW_SQL_THRESHOLD_MS))
+    return int(effective_settings_value("slow_sql_threshold_ms", DEFAULT_SLOW_SQL_THRESHOLD_MS, tenant_id=current_scope_tenant_id()))
 
 
-def effective_settings_value(key: str, default: Any) -> Any:
+def category_log_enabled(category: str, tenant_id: int) -> bool:
+    key = CATEGORY_ENABLED_SETTING.get(category)
+    if not key:
+        return True
+    return bool(effective_settings_value(key, True, tenant_id=tenant_id))
+
+
+def effective_settings_value(key: str, default: Any, *, tenant_id: int = 0) -> Any:
     if _repository is None:
         return default
     token = suppress_logging()
     try:
-        return getattr(_repository.get_effective_settings(0), key)
+        return getattr(_repository.get_effective_settings(int(tenant_id or 0)), key)
     except Exception:
         return default
     finally:
@@ -197,6 +229,10 @@ def normalize_payload(category: str, payload: dict[str, Any]) -> dict[str, Any]:
 def resolved_payload_tenant_id(payload: dict[str, Any]) -> int:
     if "tenant_id" in payload and payload.get("tenant_id") is not None:
         return int(payload.get("tenant_id") or 0)
+    return current_scope_tenant_id()
+
+
+def current_scope_tenant_id() -> int:
     scope = current_tenant_scope_or_none()
     if scope is None:
         return 0
