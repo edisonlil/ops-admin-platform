@@ -349,10 +349,7 @@ def normalize_provider_chat_messages(provider_name: str, messages: list[dict[str
 def siliconflow_content_parts(content: Any) -> Any:
     if not isinstance(content, list):
         return content
-    parts = [siliconflow_content_part(part) if isinstance(part, dict) else part for part in content]
-    media_parts = [part for part in parts if isinstance(part, dict) and str(part.get("type") or "") in {"image_url", "audio_url", "video_url"}]
-    other_parts = [part for part in parts if part not in media_parts]
-    return [*media_parts, *other_parts]
+    return [siliconflow_content_part(part) if isinstance(part, dict) else part for part in content]
 
 
 def siliconflow_content_part(part: dict[str, Any]) -> dict[str, Any]:
