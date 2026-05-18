@@ -9,6 +9,10 @@ def list_users() -> list[dict[str, Any]]:
     return repositories.list_users()
 
 
+def list_platform_users() -> list[dict[str, Any]]:
+    return repositories.list_platform_users()
+
+
 def create_user(
     *,
     username: str,

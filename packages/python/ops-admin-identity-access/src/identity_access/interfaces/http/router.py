@@ -284,7 +284,7 @@ def revoke_current_tenant_api_key(
 
 @router.get("/rbac/users")
 def rbac_users(_: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_users()})
+    return ok({"items": services.list_platform_users()})
 
 
 @router.post("/rbac/users")

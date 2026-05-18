@@ -123,27 +123,49 @@ def authenticate_platform_admin(username: str, password: str) -> dict[str, Any] 
 
 
 def list_users() -> list[dict[str, Any]]:
+    return list_users_by_tenant_key()
+
+
+def list_platform_users() -> list[dict[str, Any]]:
+    return list_users_by_tenant_key(PLATFORM_TENANT_KEY)
+
+
+def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
+        params: list[Any] = []
+        tenant_filter = ""
+        if tenant_key:
+            tenant_filter = "JOIN tenants t ON t.id = u.tenant_id WHERE t.tenant_key = ?"
+            params.append(tenant_key)
         rows = conn.execute(
-            """
-            SELECT id, tenant_id, username, is_active, is_superuser, create_time, update_time
-            FROM users
-            ORDER BY tenant_id, username, id
-            """
+            f"""
+            SELECT u.id, u.tenant_id, u.username, u.is_active, u.is_superuser, u.create_time, u.update_time
+            FROM users u
+            {tenant_filter}
+            ORDER BY u.tenant_id, u.username, u.id
+            """,
+            tuple(params),
         ).fetchall()
+        role_params: list[Any] = []
+        role_filter = ""
+        if tenant_key:
+            role_filter = "WHERE r.role_scope = ?"
+            role_params.append("platform" if tenant_key == PLATFORM_TENANT_KEY else "tenant")
         role_rows = conn.execute(
             """
-            SELECT ur.user_id, r.role_key, r.name
+            SELECT ur.user_id, r.role_key, r.name, r.role_scope
             FROM user_roles ur
             JOIN roles r ON r.id = ur.role_id
+            {role_filter}
             ORDER BY r.role_key
-            """
+            """.format(role_filter=role_filter),
+            tuple(role_params),
         ).fetchall()
     roles_by_user: dict[int, list[dict[str, str]]] = {}
     for row in role_rows:
         roles_by_user.setdefault(int(row["user_id"]), []).append(
-            {"key": str(row["role_key"]), "name": str(row["name"])}
+            {"key": str(row["role_key"]), "name": str(row["name"]), "role_scope": str(row["role_scope"] or "platform")}
         )
     return [
         {

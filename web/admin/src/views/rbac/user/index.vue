@@ -280,10 +280,12 @@
     rolesLoading.value = true;
     try {
       const payload = await getRbacRoles();
-      roleOptions.value = (payload.items || []).map((role) => ({
-        label: String(role.name || role.key),
-        value: String(role.key),
-      }));
+      roleOptions.value = (payload.items || [])
+        .filter((role) => role.role_scope === 'platform')
+        .map((role) => ({
+          label: String(role.name || role.key),
+          value: String(role.key),
+        }));
     } finally {
       rolesLoading.value = false;
     }

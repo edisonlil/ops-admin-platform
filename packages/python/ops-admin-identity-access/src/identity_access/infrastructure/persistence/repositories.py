@@ -50,6 +50,7 @@ from identity_access.infrastructure.persistence.user_repository import (
     authenticate_user,
     create_user,
     ensure_last_superuser_survives,
+    list_platform_users,
     list_users,
     platform_user_by_username,
     public_user,

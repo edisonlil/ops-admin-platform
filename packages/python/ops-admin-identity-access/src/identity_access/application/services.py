@@ -225,6 +225,10 @@ def list_users() -> list[dict[str, Any]]:
     return [enrich_user_with_departments(item) for item in rbac_service.list_users()]
 
 
+def list_platform_users() -> list[dict[str, Any]]:
+    return [enrich_user_with_departments(item) for item in rbac_service.list_platform_users()]
+
+
 def create_user(
     *,
     username: str,

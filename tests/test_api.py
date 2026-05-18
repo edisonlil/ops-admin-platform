@@ -371,6 +371,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual({item["menu_scope"] for item in tenant_items}, {"tenant"})
         self.assertIn("menu scope must be platform or tenant", invalid_response.json()["message"])
 
+    def test_platform_user_management_lists_only_platform_users(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-users", "name": "Tenant Users"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_tenant_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "tenant-member",
+                "password": "tenant-member-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_tenant_user_response.status_code, 200)
+        tenant_user_id = int(create_tenant_user_response.json()["data"]["item"]["id"])
+
+        response = self.request("GET", "/api/rbac/users")
+
+        self.assertEqual(response.status_code, 200)
+        users = response.json()["data"]["items"]
+        usernames = {item["username"] for item in users}
+        self.assertIn("admin", usernames)
+        self.assertNotIn("tenant-member", usernames)
+        self.assertNotIn(tenant_user_id, {int(item["id"]) for item in users})
+        self.assertNotIn(tenant_id, {int(item["tenant_id"]) for item in users})
+
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})
         self.assertEqual(tenant_response.status_code, 200)
