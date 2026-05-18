@@ -396,8 +396,11 @@ def rbac_permissions(_: dict[str, Any] = Depends(auth.require_platform_permissio
 
 
 @router.get("/rbac/menus")
-def rbac_menus(_: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_menus()})
+def rbac_menus(
+    scope: str | None = None,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_menus(menu_scope=scope)})
 
 
 @router.post("/rbac/menus")

@@ -790,10 +790,19 @@ def list_permissions() -> list[dict[str, str]]:
     ]
 
 
-def list_menus() -> list[dict[str, Any]]:
+def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
+    normalized_scope = (menu_scope or "").strip().lower()
+    if normalized_scope and normalized_scope not in {"platform", "tenant"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="menu scope must be platform or tenant")
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
-        rows = conn.execute("SELECT * FROM menus ORDER BY sort_order, id").fetchall()
+        if normalized_scope:
+            rows = conn.execute(
+                "SELECT * FROM menus WHERE menu_scope = ? ORDER BY sort_order, id",
+                (normalized_scope,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM menus ORDER BY sort_order, id").fetchall()
         role_rows = conn.execute(
             """
             SELECT rm.menu_id, r.id AS role_id, r.role_key, r.name

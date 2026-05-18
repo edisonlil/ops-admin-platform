@@ -348,6 +348,29 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(menus_by_key["platform-branding"]["parent_key"], "platform-management")
         self.assertEqual(menus_by_key["platform-branding"]["component"], "/platform/index")
 
+    def test_admin_can_filter_rbac_menus_by_scope(self) -> None:
+        all_response = self.request("GET", "/api/rbac/menus")
+        platform_response = self.request("GET", "/api/rbac/menus", params={"scope": "platform"})
+        tenant_response = self.request("GET", "/api/rbac/menus", params={"scope": "tenant"})
+        invalid_response = self.request("GET", "/api/rbac/menus", params={"scope": "workspace"})
+
+        self.assertEqual(all_response.status_code, 200)
+        self.assertEqual(platform_response.status_code, 200)
+        self.assertEqual(tenant_response.status_code, 200)
+        self.assertEqual(invalid_response.status_code, 400)
+
+        all_items = all_response.json()["data"]["items"]
+        platform_items = platform_response.json()["data"]["items"]
+        tenant_items = tenant_response.json()["data"]["items"]
+
+        self.assertTrue(any(item["menu_scope"] == "platform" for item in all_items))
+        self.assertTrue(any(item["menu_scope"] == "tenant" for item in all_items))
+        self.assertTrue(platform_items)
+        self.assertTrue(tenant_items)
+        self.assertEqual({item["menu_scope"] for item in platform_items}, {"platform"})
+        self.assertEqual({item["menu_scope"] for item in tenant_items}, {"tenant"})
+        self.assertIn("menu scope must be platform or tenant", invalid_response.json()["message"])
+
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})
         self.assertEqual(tenant_response.status_code, 200)

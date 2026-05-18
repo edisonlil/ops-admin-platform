@@ -409,8 +409,8 @@ export function revokeCurrentTenantApiKey(keyId: number) {
   return Alova.Delete(`/tenant/api-keys/${keyId}`);
 }
 
-export function getRbacMenus() {
-  return Alova.Get('/rbac/menus', { params: withNoCacheParams() });
+export function getRbacMenus(params: { scope?: 'platform' | 'tenant' } = {}) {
+  return Alova.Get('/rbac/menus', { params: withNoCacheParams(params) });
 }
 
 export function createRbacMenu(payload: RbacMenuPayload) {

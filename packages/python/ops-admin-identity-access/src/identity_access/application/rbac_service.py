@@ -103,8 +103,8 @@ def list_permissions() -> list[dict[str, str]]:
     return repositories.list_permissions()
 
 
-def list_menus() -> list[dict[str, Any]]:
-    return repositories.list_menus()
+def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
+    return repositories.list_menus(menu_scope=menu_scope)
 
 
 def create_menu(

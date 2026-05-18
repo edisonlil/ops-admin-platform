@@ -25,6 +25,16 @@
               </template>
 
               <div class="w-full menu-tree-panel">
+                <n-radio-group
+                  :value="activeScope"
+                  class="menu-scope-switch"
+                  name="menuScopeSwitch"
+                  @update:value="handleScopeChange"
+                >
+                  <n-radio-button value="platform">平台菜单</n-radio-button>
+                  <n-radio-button value="tenant">租户菜单</n-radio-button>
+                </n-radio-group>
+
                 <n-input v-model:value="pattern" placeholder="搜索菜单名称">
                   <template #suffix>
                     <n-icon size="18" class="cursor-pointer">
@@ -93,7 +103,7 @@
                   </n-radio-group>
                 </n-form-item>
                 <n-form-item label="菜单范围" path="menu_scope">
-                  <n-radio-group v-model:value="formParams.menu_scope" name="menuScope" :disabled="structureLockedByRoles">
+                  <n-radio-group v-model:value="formParams.menu_scope" name="menuScope" disabled>
                     <n-space>
                       <n-radio value="platform">平台</n-radio>
                       <n-radio value="tenant">租户</n-radio>
@@ -277,8 +287,6 @@
     SearchOutlined,
   } from '@vicons/antd';
   import { createRbacMenu, deleteRbacMenu, getRbacMenus, updateRbacMenu } from '@/api/business';
-  import { useAsyncRouteStore } from '@/store/modules/asyncRoute';
-  import { useUserStore } from '@/store/modules/user';
   import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime } from '@/page-runtime';
 
@@ -323,15 +331,16 @@
     bound_roles: BoundRole[];
   }
 
+  type MenuScope = 'platform' | 'tenant';
+
   const message = useMessage();
   const dialog = useDialog();
-  const asyncRouteStore = useAsyncRouteStore();
-  const userStore = useUserStore();
   const { hasPermission } = usePermission();
   const formRef = ref<FormInst | null>(null);
   const loading = ref(false);
   const saving = ref(false);
   const rows = ref<MenuRow[]>([]);
+  const activeScope = ref<MenuScope>('platform');
   const pattern = ref('');
   const selectedKeys = ref<string[]>([]);
   const expandedKeys = ref<string[]>([]);
@@ -401,11 +410,12 @@
   const treeRows = computed<TreeOption[]>(() => buildMenuTree(rows.value));
   const formVisible = computed(() => formMode.value === 'create' || !!selectedMenuKey.value);
   const currentTitle = computed(() => formParams.label || '');
+  const activeScopeLabel = computed(() => (activeScope.value === 'tenant' ? '租户' : '平台'));
   const currentBoundRoleNames = computed(() => (formParams.bound_roles || []).map((role) => role.name || role.key).join('、'));
   const menuLockedByRoles = computed(() => formMode.value === 'edit' && (formParams.bound_roles || []).length > 0);
   const structureLockedByRoles = computed(() => menuLockedByRoles.value);
   const addMenuOptions = computed<DropdownOption[]>(() => [
-    { label: '新增根菜单', key: 'root', disabled: !hasPermission(['system:menus:create']) },
+    { label: `新增${activeScopeLabel.value}根菜单`, key: 'root', disabled: !hasPermission(['system:menus:create']) },
     {
       label: '新增子菜单',
       key: 'child',
@@ -469,6 +479,43 @@
       [option.label, option.value].some((item) => String(item || '').toLowerCase().includes(keyword))
     );
   });
+
+  function normalizeMenuScope(value: unknown): MenuScope {
+    return value === 'tenant' ? 'tenant' : 'platform';
+  }
+
+  function syncExpandedKeys() {
+    expandedKeys.value = collectExpandedKeys(rows.value);
+  }
+
+  function upsertMenuRow(menu: MenuRow) {
+    const normalizedMenu = {
+      ...menu,
+      menu_scope: normalizeMenuScope(menu.menu_scope),
+      children: undefined,
+    };
+    const index = rows.value.findIndex((item) => item.id === normalizedMenu.id || item.key === normalizedMenu.key);
+    const previousKey = index >= 0 ? rows.value[index].key : '';
+    if (index >= 0) {
+      rows.value = rows.value.map((item, itemIndex) => {
+        if (itemIndex === index) return normalizedMenu;
+        if (previousKey && previousKey !== normalizedMenu.key && item.parent_key === previousKey) {
+          return { ...item, parent_key: normalizedMenu.key };
+        }
+        return item;
+      });
+    } else {
+      rows.value = [...rows.value, normalizedMenu];
+    }
+    syncExpandedKeys();
+    syncForm(normalizedMenu);
+  }
+
+  function removeMenuRow(key: string) {
+    const removedKeys = new Set([key, ...collectDescendantKeys(rows.value, key)]);
+    rows.value = rows.value.filter((item) => !removedKeys.has(item.key));
+    syncExpandedKeys();
+  }
 
   const selectedMenuRow = computed(() => findMenuByKey(rows.value, selectedMenuKey.value));
   const parentMenuOptions = computed<SelectOption[]>(() => {
@@ -547,7 +594,7 @@
     formParams.id = null;
     formParams.key = '';
     formParams.label = '';
-    formParams.menu_scope = 'platform';
+    formParams.menu_scope = activeScope.value;
     formParams.menu_type = 'page';
     formParams.path = '';
     formParams.route_name = '';
@@ -589,8 +636,20 @@
     resetForm();
     formParams.parent_key = parentKey;
     const parent = parentKey ? findMenuByKey(rows.value, parentKey) : null;
-    formParams.menu_scope = parent?.menu_scope === 'tenant' ? 'tenant' : 'platform';
+    formParams.menu_scope = parent?.menu_scope === 'tenant' ? 'tenant' : activeScope.value;
     formParams.menu_type = parent?.menu_type === 'page' ? 'action' : parentKey ? 'page' : 'directory';
+  }
+
+  async function handleScopeChange(value: string | number) {
+    const nextScope: MenuScope = value === 'tenant' ? 'tenant' : 'platform';
+    if (nextScope === activeScope.value) return;
+    activeScope.value = nextScope;
+    pattern.value = '';
+    selectedKeys.value = [];
+    selectedMenuKey.value = '';
+    formMode.value = 'edit';
+    resetForm();
+    await reload();
   }
 
   function handleSelectMenu(keys: string[]) {
@@ -668,16 +727,16 @@
       };
 
       if (formMode.value === 'create') {
-        await createRbacMenu(payload);
+        const result = await createRbacMenu(payload);
+        const savedMenu = (result as { item?: MenuRow }).item;
+        if (savedMenu) upsertMenuRow(savedMenu);
         message.success('菜单创建成功');
-        startCreate('');
       } else if (formParams.id) {
-        await updateRbacMenu(formParams.id, payload);
+        const result = await updateRbacMenu(formParams.id, payload);
+        const savedMenu = (result as { item?: MenuRow }).item;
+        if (savedMenu) upsertMenuRow(savedMenu);
         message.success('菜单保存成功');
       }
-
-      await refreshDynamicMenus();
-      await reload(formParams.key);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '菜单保存失败');
     } finally {
@@ -703,11 +762,11 @@
       negativeText: '取消',
       async onPositiveClick() {
         try {
+          const deletedKey = formParams.key;
           await deleteRbacMenu(formParams.id as number);
+          removeMenuRow(deletedKey);
           message.success('菜单已删除');
           startCreate('');
-          await refreshDynamicMenus();
-          await reload();
         } catch (error) {
           message.error(error instanceof Error ? error.message : '菜单删除失败');
           throw error;
@@ -719,7 +778,7 @@
   async function reload(selectKey = '') {
     loading.value = true;
     try {
-      const payload = await getRbacMenus();
+      const payload = await getRbacMenus({ scope: activeScope.value });
       rows.value = payload.items || [];
       expandedKeys.value = collectExpandedKeys(rows.value);
       const targetKey = selectKey || selectedMenuKey.value;
@@ -738,11 +797,6 @@
     } finally {
       loading.value = false;
     }
-  }
-
-  async function refreshDynamicMenus() {
-    const userInfo = await userStore.getInfo();
-    await asyncRouteStore.generateRoutes(userInfo);
   }
 
   reload();
@@ -802,7 +856,12 @@
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
+    gap: 10px;
     min-height: 0;
+  }
+
+  .menu-scope-switch {
+    width: 100%;
   }
 
   .menu-list {

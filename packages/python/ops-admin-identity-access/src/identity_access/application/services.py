@@ -337,8 +337,8 @@ def list_permissions() -> list[dict[str, str]]:
     return rbac_service.list_permissions()
 
 
-def list_menus() -> list[dict[str, Any]]:
-    return rbac_service.list_menus()
+def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
+    return rbac_service.list_menus(menu_scope=menu_scope)
 
 
 def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
