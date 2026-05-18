@@ -46,6 +46,12 @@ ops-cli run
 
 Start backend and frontend in development mode.
 
+Stop existing processes on the selected backend/frontend ports before starting:
+
+```bash
+ops-cli run --force-restart
+```
+
 ### Deploy project
 
 ```bash

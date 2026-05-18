@@ -95,6 +95,12 @@ export function getAuditLoggingSettings() {
   });
 }
 
+export function getEffectiveAuditLoggingSettings(tenantId: number) {
+  return Alova.Get<{ item: AuditLoggingSettings }>('/audit-logs/settings/effective', {
+    params: withNoCacheParams({ tenant_id: tenantId }),
+  });
+}
+
 export function saveAuditLoggingSettings(tenantId: number, payload: AuditLoggingSettingsPayload) {
   return Alova.Put<{ item: AuditLoggingSettings }>(`/audit-logs/settings/${tenantId}`, payload);
 }

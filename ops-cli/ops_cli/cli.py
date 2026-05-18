@@ -132,6 +132,11 @@ Examples:
         action="store_true",
         help="Start only the frontend server",
     )
+    run_parser.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="Stop existing processes listening on the selected ports before starting",
+    )
 
     # config command
     config_parser = subparsers.add_parser(

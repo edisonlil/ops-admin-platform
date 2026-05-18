@@ -141,6 +141,142 @@ def check_python_version() -> tuple[bool, str]:
     return False, "Python not found"
 
 
+def get_listening_pids(port: int) -> list[int]:
+    """Return process IDs listening on the given TCP port."""
+    if is_windows():
+        return get_windows_listening_pids(port)
+    return get_posix_listening_pids(port)
+
+
+def get_windows_listening_pids(port: int) -> list[int]:
+    """Return Windows process IDs listening on the given TCP port."""
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"Failed to inspect port {port}: {e}")
+        return []
+
+    if result.returncode != 0:
+        print(f"Failed to inspect port {port}: {result.stderr.strip()}")
+        return []
+
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        local_address = parts[1]
+        state = parts[3].upper()
+        pid_text = parts[4]
+        if state != "LISTENING" or not address_uses_port(local_address, port):
+            continue
+        try:
+            pids.add(int(pid_text))
+        except ValueError:
+            continue
+    return sorted(pids)
+
+
+def get_posix_listening_pids(port: int) -> list[int]:
+    """Return POSIX process IDs listening on the given TCP port."""
+    commands = [
+        ("lsof", ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"]),
+        ("fuser", ["fuser", f"{port}/tcp"]),
+    ]
+    for command_name, cmd in commands:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            print(f"Failed to inspect port {port}: {e}")
+            return []
+
+        if result.returncode not in (0, 1):
+            continue
+
+        pids: set[int] = set()
+        if command_name == "lsof":
+            pid_candidates = re.findall(r"\d+", result.stdout)
+        else:
+            pid_candidates = parse_fuser_pids(result.stdout, port)
+
+        for pid_text in pid_candidates:
+            try:
+                pids.add(int(pid_text))
+            except ValueError:
+                continue
+        return sorted(pids)
+
+    print(f"Could not inspect port {port}; install lsof or fuser, or stop the old process manually.")
+    return []
+
+
+def parse_fuser_pids(output: str, port: int) -> list[str]:
+    """Parse fuser output without treating the target port as a PID."""
+    pids: list[str] = []
+    for token in re.findall(r"\d+", output):
+        if token == str(port):
+            continue
+        pids.append(token)
+    return pids
+
+
+def address_uses_port(address: str, port: int) -> bool:
+    """Check whether a netstat local address ends with the target port."""
+    return address.endswith(f":{port}")
+
+
+def kill_processes_on_port(port: int, label: str) -> None:
+    """Kill processes listening on a TCP port."""
+    pids = get_listening_pids(port)
+    if not pids:
+        print(f"No existing {label} process found on port {port}.")
+        return
+
+    current_pid = os.getpid()
+    pids = [pid for pid in pids if pid != current_pid]
+    if not pids:
+        print(f"Only the current ops-cli process was found on port {port}; skipping.")
+        return
+
+    print(f"Killing existing {label} process(es) on port {port}: {', '.join(str(pid) for pid in pids)}")
+    for pid in pids:
+        try:
+            if is_windows():
+                result = subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            else:
+                result = subprocess.run(
+                    ["kill", "-TERM", str(pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+
+            if result.returncode == 0:
+                print(f"  Stopped PID {pid}")
+            else:
+                message = result.stderr.strip() or result.stdout.strip()
+                print(f"  Failed to stop PID {pid}: {message}")
+        except Exception as e:
+            print(f"  Failed to stop PID {pid}: {e}")
+
+
 def run_run(args) -> None:
     """Start the current project."""
     config = get_config()
@@ -150,6 +286,7 @@ def run_run(args) -> None:
     frontend_port = args.frontend_port if hasattr(args, 'frontend_port') else 8001
     only_backend = args.only_backend if hasattr(args, 'only_backend') else False
     only_frontend = args.only_frontend if hasattr(args, 'only_frontend') else False
+    force_restart = args.force_restart if hasattr(args, 'force_restart') else False
 
     # Get current project
     project_info = config.get_current_project()
@@ -278,6 +415,14 @@ def run_run(args) -> None:
     if existing_pythonpath:
         pythonpath_parts.append(existing_pythonpath)
     os.environ["PYTHONPATH"] = ";".join(pythonpath_parts)
+
+    if force_restart:
+        print("\nStopping existing processes on selected ports...")
+        if not only_frontend:
+            kill_processes_on_port(backend_port, "backend")
+        if not only_backend:
+            kill_processes_on_port(frontend_port, "frontend")
+        time.sleep(1)
 
     # Start backend (skip if --only-frontend)
     if not only_frontend:
