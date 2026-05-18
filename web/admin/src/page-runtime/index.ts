@@ -19,6 +19,7 @@ export type {
   ListPageSchema,
   PageAction,
   PageRuntimeContext,
+  TabbedListPaneSchema,
   TableColumnRuntimeSchema,
   TableHeightMode,
   TableLayoutRuntimeSchema,

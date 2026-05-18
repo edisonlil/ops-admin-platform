@@ -130,12 +130,12 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "tenant"},
     "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
-    "audit-logs": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
-    "audit-system-logs": {"menu_type": "page", "component": "/audit/system/index", "menu_scope": "tenant"},
-    "audit-operation-logs": {"menu_type": "page", "component": "/audit/operations/index", "menu_scope": "tenant"},
-    "audit-api-logs": {"menu_type": "page", "component": "/audit/apis/index", "menu_scope": "tenant"},
-    "audit-sql-logs": {"menu_type": "page", "component": "/audit/sql/index", "menu_scope": "tenant"},
-    "audit-visitor-logs": {"menu_type": "page", "component": "/audit/visitors/index", "menu_scope": "tenant"},
+    "audit-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
+    "audit-system-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
+    "audit-operation-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
+    "audit-api-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
+    "audit-sql-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
+    "audit-visitor-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
     "platform-management": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "platform-branding": {"menu_type": "page", "component": "/platform/index", "menu_scope": "platform"},
     "platform-branding-update": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -155,12 +155,12 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "appearance-themes-publish": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "appearance-themes-disable": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "appearance-themes-set-default": {"menu_type": "action", "component": "", "menu_scope": "platform"},
-    "platform-audit-logs": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
-    "platform-audit-system-logs": {"menu_type": "page", "component": "/audit/system/index", "menu_scope": "platform"},
-    "platform-audit-operation-logs": {"menu_type": "page", "component": "/audit/operations/index", "menu_scope": "platform"},
-    "platform-audit-api-logs": {"menu_type": "page", "component": "/audit/apis/index", "menu_scope": "platform"},
-    "platform-audit-sql-logs": {"menu_type": "page", "component": "/audit/sql/index", "menu_scope": "platform"},
-    "platform-audit-visitor-logs": {"menu_type": "page", "component": "/audit/visitors/index", "menu_scope": "platform"},
+    "platform-audit-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
+    "platform-audit-system-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
+    "platform-audit-operation-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
+    "platform-audit-api-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
+    "platform-audit-sql-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
+    "platform-audit-visitor-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "platform"},
     "rbac": {"menu_type": "directory", "component": "", "menu_scope": "platform"},
     "user-management": {"menu_type": "page", "component": "/rbac/user/index", "menu_scope": "platform"},
     "user-management-create": {"menu_type": "action", "component": "", "menu_scope": "platform"},
@@ -1152,6 +1152,38 @@ def backfill_default_menu_metadata(conn: Any) -> None:
     conn.execute("UPDATE menus SET menu_scope = 'tenant' WHERE menu_key IN ('llm', 'llm-config', 'llm-debug')")
     conn.execute("UPDATE menus SET parent_key = '' WHERE menu_key = 'llm' AND menu_scope = 'tenant' AND parent_key IS NULL")
     conn.execute("UPDATE menus SET parent_key = 'llm' WHERE menu_key IN ('llm-config', 'llm-debug') AND (parent_key IS NULL OR parent_key = '')")
+    conn.execute(
+        """
+        UPDATE menus
+        SET menu_type = 'page',
+            path = '/audit/logs',
+            route_name = menu_key,
+            component = '/audit/logs/index',
+            permission_code = '',
+            is_visible = TRUE
+        WHERE menu_key IN ('audit-logs', 'platform-audit-logs')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE menus
+        SET path = '/audit/logs',
+            component = '/audit/logs/index',
+            is_visible = FALSE
+        WHERE menu_key IN (
+            'audit-system-logs',
+            'audit-operation-logs',
+            'audit-api-logs',
+            'audit-sql-logs',
+            'audit-visitor-logs',
+            'platform-audit-system-logs',
+            'platform-audit-operation-logs',
+            'platform-audit-api-logs',
+            'platform-audit-sql-logs',
+            'platform-audit-visitor-logs'
+        )
+        """
+    )
     label_rows = [
         ("llm", "大模型"),
         ("llm-config", "模型配置"),

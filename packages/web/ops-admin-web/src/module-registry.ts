@@ -161,11 +161,6 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
   ],
   audit_logging: [
     'audit-logs',
-    'audit-system-logs',
-    'audit-operation-logs',
-    'audit-api-logs',
-    'audit-sql-logs',
-    'audit-visitor-logs',
   ],
 };
 

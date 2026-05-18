@@ -329,6 +329,20 @@
     return sliceRows(props.rows, props.schema.pagination, paginationState.value);
   });
 
+  watch(
+    tabbedPanes,
+    (panes) => {
+      if (!panes.length) {
+        activeTab.value = '';
+        return;
+      }
+      if (!panes.some((pane) => pane.name === activeTab.value)) {
+        activeTab.value = panes[0].name;
+      }
+    },
+    { immediate: true }
+  );
+
   function handleAction(action: PageAction) {
     if (action.confirm) {
       dialog.warning({

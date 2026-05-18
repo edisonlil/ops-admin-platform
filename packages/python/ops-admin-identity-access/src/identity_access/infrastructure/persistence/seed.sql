@@ -1086,3 +1086,28 @@ WHERE menu_key = 'audit-sql-logs';
 
 UPDATE menus SET label = '访客日志'
 WHERE menu_key = 'audit-visitor-logs';
+UPDATE menus
+SET menu_type = 'page',
+    path = '/audit/logs',
+    route_name = menu_key,
+    component = '/audit/logs/index',
+    permission_code = '',
+    is_visible = TRUE
+WHERE menu_key IN ('audit-logs', 'platform-audit-logs');
+
+UPDATE menus
+SET path = '/audit/logs',
+    component = '/audit/logs/index',
+    is_visible = FALSE
+WHERE menu_key IN (
+    'audit-system-logs',
+    'audit-operation-logs',
+    'audit-api-logs',
+    'audit-sql-logs',
+    'audit-visitor-logs',
+    'platform-audit-system-logs',
+    'platform-audit-operation-logs',
+    'platform-audit-api-logs',
+    'platform-audit-sql-logs',
+    'platform-audit-visitor-logs'
+);
