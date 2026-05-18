@@ -206,6 +206,34 @@ SELECT 'file:storage_profiles:manage', 'Manage file storage profiles', 'Configur
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'file:storage_profiles:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'audit:system-log:view', 'View system logs', 'View platform and tenant system audit logs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:system-log:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:operation-log:view', 'View operation logs', 'View user operation audit logs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:operation-log:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:api-log:view', 'View API logs', 'View API request audit logs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:api-log:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:sql-log:view', 'View SQL logs', 'View slow and failed SQL audit logs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:sql-log:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:visitor-log:view', 'View visitor logs', 'View visitor access audit logs'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:visitor-log:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:settings:view', 'View audit settings', 'View audit logging collection and retention settings'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:settings:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'audit:settings:manage', 'Manage audit settings', 'Manage audit logging collection and retention settings'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'audit:settings:manage');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'prompt:assets:view', 'View prompt assets', 'View prompt assets and versions'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:assets:view');
 
@@ -662,6 +690,14 @@ INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, com
 SELECT 'file-tenant-quotas-manage', 'platform', '管理文件配额', 'action', '', '', '', '', 'file-tenant-quotas', 'file:quota:manage', 10931, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-tenant-quotas-manage');
 
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-log-settings', 'platform', 'Audit Settings', 'page', '/audit/settings', 'audit-log-settings', '/audit/settings/index', 'setting', 'platform-management', 'audit:settings:view', 1094, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-log-settings');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-log-settings-manage', 'platform', 'Manage Audit Settings', 'action', '', '', '', '', 'audit-log-settings', 'audit:settings:manage', 10941, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-log-settings-manage');
+
 UPDATE menus SET
     menu_scope = 'platform',
     menu_type = 'directory',
@@ -826,6 +862,30 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-upload');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'file-objects-delete', 'tenant', '删除文件', 'action', '', '', '', '', 'file-objects', 'file:object:delete', 8322, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'file-objects-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-logs', 'tenant', 'Audit Logs', 'directory', '', '', '', 'file-search', '', '', 835, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-logs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-system-logs', 'tenant', 'System Logs', 'page', '/audit/system', 'audit-system-logs', '/audit/system/index', 'monitor', 'audit-logs', 'audit:system-log:view', 8351, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-system-logs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-operation-logs', 'tenant', 'Operation Logs', 'page', '/audit/operations', 'audit-operation-logs', '/audit/operations/index', 'edit', 'audit-logs', 'audit:operation-log:view', 8352, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-operation-logs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-api-logs', 'tenant', 'API Logs', 'page', '/audit/apis', 'audit-api-logs', '/audit/apis/index', 'api', 'audit-logs', 'audit:api-log:view', 8353, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-api-logs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-sql-logs', 'tenant', 'SQL Logs', 'page', '/audit/sql', 'audit-sql-logs', '/audit/sql/index', 'database', 'audit-logs', 'audit:sql-log:view', 8354, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-sql-logs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'audit-visitor-logs', 'tenant', 'Visitor Logs', 'page', '/audit/visitors', 'audit-visitor-logs', '/audit/visitors/index', 'user', 'audit-logs', 'audit:visitor-log:view', 8355, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'audit-visitor-logs');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'ai-assets', 'tenant', 'AI 资产', 'directory', '', '', '', 'robot', '', '', 84, TRUE

@@ -19,6 +19,7 @@ MODULE_ORDER = (
     "authorization",
     "basic_data",
     "file_management",
+    "audit_logging",
     "messaging",
     "llm_runtime",
     "ai_assets",
@@ -35,6 +36,7 @@ LOCAL_PACKAGE_SRC = {
     "authorization": REPO_ROOT / "packages" / "python" / "ops-admin-authorization" / "src",
     "basic_data": REPO_ROOT / "packages" / "python" / "ops-admin-basic-data" / "src",
     "file_management": REPO_ROOT / "packages" / "python" / "ops-admin-file-management" / "src",
+    "audit_logging": REPO_ROOT / "packages" / "python" / "ops-admin-audit-logging" / "src",
     "messaging": REPO_ROOT / "packages" / "python" / "ops-admin-messaging" / "src",
     "llm_runtime": REPO_ROOT / "packages" / "python" / "ops-admin-llm-runtime" / "src",
     "ai_assets": REPO_ROOT / "packages" / "python" / "ops-admin-ai-assets" / "src",
@@ -53,6 +55,7 @@ LOCAL_ENTRYPOINTS = {
         "authorization": "authorization.entrypoints:router",
         "basic_data": "basic_data.entrypoints:router",
         "file_management": "file_management.entrypoints:router",
+        "audit_logging": "audit_logging.entrypoints:router",
         "messaging": "messaging.entrypoints:router",
         "llm_runtime": "llm_runtime.entrypoints:router",
         "ai_assets": "ai_assets.entrypoints:router",
@@ -68,6 +71,7 @@ LOCAL_ENTRYPOINTS = {
         "authorization": "authorization.entrypoints:init_tasks",
         "basic_data": "basic_data.entrypoints:init_tasks",
         "file_management": "file_management.entrypoints:init_tasks",
+        "audit_logging": "audit_logging.entrypoints:init_tasks",
         "messaging": "messaging.entrypoints:init_tasks",
         "llm_runtime": "llm_runtime.entrypoints:init_tasks",
         "ai_assets": "ai_assets.entrypoints:init_tasks",
@@ -76,7 +80,6 @@ LOCAL_ENTRYPOINTS = {
         "appearance": "appearance.entrypoints:init_tasks",
     },
 }
-
 
 def module_routers() -> list[APIRouter]:
     routers: list[APIRouter] = []
@@ -123,3 +126,6 @@ def ensure_local_package_sources() -> None:
             src = str(src_path)
             if src not in sys.path:
                 sys.path.insert(0, src)
+
+
+ensure_local_package_sources()

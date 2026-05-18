@@ -104,6 +104,61 @@ FROM (
         'owner_department_id',
         '["self","department","department_and_children","custom_departments","tenant"]',
         FALSE
+    UNION ALL
+    SELECT
+        'audit.system-log',
+        'System Audit Log',
+        'Tenant system audit logs',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
+        'audit.operation-log',
+        'Operation Audit Log',
+        'Tenant operation audit logs',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
+        'audit.api-log',
+        'API Audit Log',
+        'Tenant API request audit logs',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
+        'audit.sql-log',
+        'SQL Audit Log',
+        'Tenant slow and failed SQL audit logs',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
+        'audit.visitor-log',
+        'Visitor Audit Log',
+        'Tenant visitor audit logs',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
 ) AS seed_rows
 WHERE NOT EXISTS (
     SELECT 1 FROM data_resource_descriptors

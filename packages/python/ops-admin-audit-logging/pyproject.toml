@@ -1,0 +1,22 @@
+[project]
+name = "ops-admin-audit-logging"
+version = "0.1.0"
+description = "Audit logging bounded context for ops-admin-platform"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "ops-admin-system>=0.1.0",
+    "ops-admin-identity-access>=0.1.0",
+]
+
+[project.entry-points."ops_admin.routers"]
+audit_logging = "audit_logging.entrypoints:router"
+
+[project.entry-points."ops_admin.init_tasks"]
+audit_logging = "audit_logging.entrypoints:init_tasks"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+audit_logging = ["infrastructure/persistence/*.sql"]

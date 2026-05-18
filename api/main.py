@@ -12,9 +12,12 @@ from api.errors import http_exception_handler, request_validation_exception_hand
 from api.routes import router
 from system.interfaces.http import RequestContextMiddleware
 
+_audit_lifecycle_registered = False
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ops-admin-platform API", version="0.1.0")
+    add_audit_logging(app)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -28,6 +31,27 @@ def create_app() -> FastAPI:
     app.include_router(router)
     mount_admin(app)
     return app
+
+
+def add_audit_logging(app: FastAPI) -> None:
+    global _audit_lifecycle_registered
+    try:
+        from audit_logging.application import dispatcher
+        from audit_logging.interfaces.http.middleware import AuditHttpLoggingMiddleware
+    except Exception:
+        return
+    app.add_middleware(AuditHttpLoggingMiddleware)
+    if _audit_lifecycle_registered:
+        return
+    _audit_lifecycle_registered = True
+
+    @app.on_event("startup")
+    def start_audit_logging() -> None:
+        dispatcher.start_worker()
+
+    @app.on_event("shutdown")
+    def stop_audit_logging() -> None:
+        dispatcher.stop_worker()
 
 
 def mount_admin(app: FastAPI) -> None:

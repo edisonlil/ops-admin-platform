@@ -1,0 +1,1 @@
+"""Audit logging infrastructure adapters."""

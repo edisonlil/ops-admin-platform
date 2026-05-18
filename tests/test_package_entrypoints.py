@@ -36,6 +36,7 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("cron", "cron.entrypoints:router", fake_router("cron")),
             FakeEntryPoint("basic_data", "basic_data.entrypoints:router", fake_router("basic_data")),
             FakeEntryPoint("file_management", "file_management.entrypoints:router", fake_router("file_management")),
+            FakeEntryPoint("audit_logging", "audit_logging.entrypoints:router", fake_router("audit_logging")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
             FakeEntryPoint("llm_runtime", "llm_runtime.entrypoints:router", fake_router("llm_runtime")),
             FakeEntryPoint("ai_assets", "ai_assets.entrypoints:router", fake_router("ai_assets")),
@@ -50,7 +51,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 13)
+        self.assertEqual(len(routers), 14)
         self.assertEqual(
             loaded,
             [
@@ -61,6 +62,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "authorization",
                 "basic_data",
                 "file_management",
+                "audit_logging",
                 "messaging",
                 "llm_runtime",
                 "ai_assets",
@@ -105,6 +107,11 @@ class PackageEntrypointTests(unittest.TestCase):
                 lambda: (lambda: {"file_management": lambda conn: None}),
             ),
             FakeEntryPoint(
+                "audit_logging",
+                "audit_logging.entrypoints:init_tasks",
+                lambda: (lambda: {"audit_logging": lambda conn: None}),
+            ),
+            FakeEntryPoint(
                 "appearance",
                 "appearance.entrypoints:init_tasks",
                 lambda: (lambda: {"appearance": lambda conn: None}),
@@ -143,6 +150,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "authorization",
                 "basic_data",
                 "file_management",
+                "audit_logging",
                 "appearance",
                 "messaging",
                 "llm_runtime",
