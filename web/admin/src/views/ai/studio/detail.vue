@@ -362,7 +362,43 @@
                     />
                   </n-form-item>
                   <n-form-item label="系统提示词">
-                    <n-input v-model:value="selectedWorkflowNode.data.system_prompt" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" />
+                    <div class="workflow-prompt-asset-control">
+                      <n-radio-group
+                        v-if="canUsePromptAsset"
+                        :value="workflowNodePromptSource(selectedWorkflowNode)"
+                        size="small"
+                        @update:value="(value) => updateWorkflowNodePromptSource(selectedWorkflowNode, value)"
+                      >
+                        <n-radio-button value="inline">手写</n-radio-button>
+                        <n-radio-button value="asset">引用提示词库</n-radio-button>
+                      </n-radio-group>
+                      <template v-if="canUsePromptAsset && workflowNodePromptSource(selectedWorkflowNode) === 'asset'">
+                        <n-select
+                          :value="workflowNodePromptAssetKey(selectedWorkflowNode)"
+                          :options="publishedPromptOptions"
+                          :loading="publishedPromptsLoading"
+                          filterable
+                          clearable
+                          placeholder="选择已发布的提示词"
+                          @update:value="(value) => updateWorkflowNodePromptAsset(selectedWorkflowNode, value)"
+                        />
+                        <div class="prompt-asset-preview workflow-system-prompt-preview">
+                          <div>
+                            <span>{{ workflowNodePublishedPrompt(selectedWorkflowNode)?.name || '未选择提示词' }}</span>
+                            <n-tag v-if="workflowNodePublishedPrompt(selectedWorkflowNode)?.resolved_version" size="small" round>
+                              {{ workflowNodePublishedPrompt(selectedWorkflowNode)?.resolved_version }}
+                            </n-tag>
+                          </div>
+                          <pre>{{ workflowNodePublishedPrompt(selectedWorkflowNode)?.system_prompt || '选择后将使用提示词库当前已发布版本的系统提示词。' }}</pre>
+                        </div>
+                      </template>
+                      <n-input
+                        v-else
+                        v-model:value="selectedWorkflowNode.data.system_prompt"
+                        type="textarea"
+                        :autosize="{ minRows: 4, maxRows: 8 }"
+                      />
+                    </div>
                   </n-form-item>
                   <n-form-item label="用户提示词模板">
                     <n-input
@@ -1115,6 +1151,7 @@
   type SchemaRecord = Record<string, unknown>;
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
+  type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
   type WorkflowNodeType = 'start' | 'llm' | 'condition' | 'end';
@@ -1516,6 +1553,7 @@
   watch(workflowNodes, syncVariablesSchemaFromTemplate, { deep: true });
   watch(workflowExecutedEdgeIds, applyWorkflowExecutionEdgeClasses, { immediate: true });
   watch(selectedWorkflowNode, syncWorkflowSelectedStartNode, { immediate: true });
+  watch(selectedWorkflowNode, syncSelectedWorkflowPromptAssets, { immediate: true });
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
   });
@@ -1997,6 +2035,8 @@
     const data: Record<string, any> = { label: `${workflowNodeTypeLabel(type)} ${count}` };
     if (type === 'llm') {
       data.model = selectedModelKey.value || modelConfigOptions.value[0]?.value || '';
+      data.system_prompt_source = 'inline';
+      data.system_prompt_asset_key = '';
       data.system_prompt = '你是一个专业、简洁的助手。';
       data.user_prompt_template = '请处理：{{input}}';
       data.output_key = `llm_${count}_output`;
@@ -2110,6 +2150,51 @@
   function runWorkflowNode(nodeId: string) {
     openWorkflowNodeConfig(nodeId);
     message.info('节点单步运行将在 Workflow Runtime 执行链路接入后启用');
+  }
+
+  function workflowNodePromptSource(node: WorkflowNode): PromptSource {
+    return canUsePromptAsset.value && node.data?.system_prompt_source === 'asset' ? 'asset' : 'inline';
+  }
+
+  function workflowNodePromptAssetKey(node: WorkflowNode) {
+    return String(node.data?.system_prompt_asset_key || '');
+  }
+
+  function workflowNodePublishedPrompt(node: WorkflowNode) {
+    const key = workflowNodePromptAssetKey(node);
+    return key ? publishedPromptDetails[key] : null;
+  }
+
+  function updateWorkflowNodePromptSource(node: WorkflowNode, value: string | number | boolean | null) {
+    const source: PromptSource = value === 'asset' ? 'asset' : 'inline';
+    node.data.system_prompt_source = source;
+    if (source === 'asset') {
+      const assetKey = workflowNodePromptAssetKey(node);
+      if (assetKey) void applyWorkflowNodePromptAsset(node, assetKey);
+    }
+  }
+
+  function updateWorkflowNodePromptAsset(node: WorkflowNode, value: string | number | null) {
+    const assetKey = String(value || '');
+    node.data.system_prompt_asset_key = assetKey;
+    node.data.system_prompt_source = assetKey ? 'asset' : 'inline';
+    if (assetKey) void applyWorkflowNodePromptAsset(node, assetKey);
+  }
+
+  async function applyWorkflowNodePromptAsset(node: WorkflowNode, assetKey: string) {
+    await loadPublishedPromptDetail(assetKey);
+    const prompt = publishedPromptDetails[assetKey];
+    if (!prompt) return;
+    node.data.system_prompt = prompt.system_prompt || '';
+  }
+
+  function syncSelectedWorkflowPromptAssets() {
+    const node = selectedWorkflowNode.value;
+    if (!node || node.type !== 'llm' || !canUsePromptAsset.value) return;
+    const assetKey = workflowNodePromptAssetKey(node);
+    if (workflowNodePromptSource(node) === 'asset' && assetKey) {
+      void applyWorkflowNodePromptAsset(node, assetKey);
+    }
   }
 
   function syncWorkflowSelectedStartNode() {
@@ -4052,6 +4137,19 @@
     grid-column: 1 / 4;
   }
 
+  .workflow-prompt-asset-control {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workflow-prompt-asset-control :deep(.n-radio-group),
+  .workflow-prompt-asset-control :deep(.n-base-selection),
+  .workflow-prompt-asset-control :deep(.n-input) {
+    min-width: 0;
+  }
+
   .workspace-panel__head {
     display: flex;
     gap: 12px;
@@ -4647,6 +4745,12 @@
     overflow-wrap: anywhere;
     white-space: pre-wrap;
     scrollbar-gutter: stable;
+  }
+
+  .workflow-system-prompt-preview pre {
+    max-height: 120px;
+    font-size: 12px;
+    line-height: 1.55;
   }
 
   .variable-schema {
