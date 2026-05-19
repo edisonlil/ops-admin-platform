@@ -42,6 +42,7 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(result.usage["total_tokens"], 7)
         self.assertEqual(requests[0].messages[-1]["content"], "请总结：会议内容")
         self.assertEqual([item["node_id"] for item in result.trace["workflow"]["nodes"]], ["start", "llm_1", "end"])
+        self.assertNotIn("summary", result.trace["workflow"]["nodes"][0]["output"]["variables"])
 
     def test_workflow_condition_routes_false_branch(self) -> None:
         definition = {

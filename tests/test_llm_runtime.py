@@ -1132,6 +1132,46 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_ignores_downstream_schema_required_variables(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("branch-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["variables_schema"] = {"type": "object", "required": ["content"]}
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {
+                                    "id": "start",
+                                    "type": "start",
+                                    "data": {
+                                        "variables": [
+                                            {"key": "input", "label": "输入", "type": "text", "required": True}
+                                        ]
+                                    },
+                                },
+                                {"id": "condition_1", "type": "condition", "data": {"left": "{{input}}", "operator": "exists"}},
+                                {"id": "end", "type": "end", "data": {"output": "{{input}}"}},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "condition_1"},
+                                {"source": "condition_1", "target": "end", "sourceHandle": "true"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+                    result = ai_applications.run_draft_application("branch-workflow", {"variables": {"input": "hello"}})
+
+            self.assertEqual(result["answer"], "hello")
+            workflow_trace = result["trace"]["rendered_messages"][-1]["content"]["workflow"]
+            self.assertEqual([item["node_id"] for item in workflow_trace["nodes"]], ["start", "condition_1", "end"])
+            self.assertEqual(workflow_trace["nodes"][1]["branch"], "true")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_capability_owns_prompt_runtime_and_executes(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

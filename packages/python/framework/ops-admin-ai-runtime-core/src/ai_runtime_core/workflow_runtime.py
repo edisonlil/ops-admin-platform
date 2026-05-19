@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -78,7 +79,7 @@ def execute_workflow(
         }
         try:
             if node_type == "start":
-                output = {"variables": context["variables"]}
+                output = {"variables": snapshot_value(context["variables"])}
             elif node_type == "llm":
                 result = execute_llm_node(node, context, llm_executor)
                 output = {"answer": result.answer, "usage": result.usage, "model": result.model}
@@ -91,7 +92,7 @@ def execute_workflow(
             elif node_type == "end":
                 output = execute_end_node(node, context, answer)
                 answer = str(output.get("answer") or answer)
-                trace_node["output"] = output
+                trace_node["output"] = snapshot_value(output)
                 trace_node["elapsed_ms"] = elapsed_ms(started_at)
                 trace_nodes.append(trace_node)
                 break
@@ -99,7 +100,7 @@ def execute_workflow(
                 raise WorkflowRuntimeError(f"unsupported workflow node type: {node_type}")
             context["nodes"][current_id] = output
             context["last"] = output
-            trace_node["output"] = output
+            trace_node["output"] = snapshot_value(output)
             trace_node["elapsed_ms"] = elapsed_ms(started_at)
             trace_nodes.append(trace_node)
             next_id = next_node_id(current_id, outgoing, trace_node.get("branch"))
@@ -126,6 +127,10 @@ def execute_workflow(
             }
         },
     )
+
+
+def snapshot_value(value: Any) -> Any:
+    return copy.deepcopy(value)
 
 
 def normalize_workflow_definition(definition: WorkflowDefinition) -> WorkflowDefinition:

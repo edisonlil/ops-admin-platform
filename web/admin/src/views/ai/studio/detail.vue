@@ -16,39 +16,20 @@
       </nav>
 
       <div v-if="activeWorkspace === 'orchestration' && isWorkflowMode" class="workflow-fullscreen">
-        <aside class="workflow-toolbox">
-          <aside class="workflow-node-palette">
-            <h3>节点</h3>
-            <button type="button" @click="addWorkflowNode('llm')">
-              <strong>LLM</strong>
-              <span>调用模型生成文本</span>
-            </button>
-            <button type="button" @click="addWorkflowNode('condition')">
-              <strong>条件判断</strong>
-              <span>按变量选择分支</span>
-            </button>
-            <button type="button" @click="addWorkflowNode('end')">
-              <strong>结束</strong>
-              <span>输出最终结果</span>
-            </button>
-          </aside>
-        </aside>
-
         <main class="workflow-canvas-shell">
           <section class="workflow-canvas-toolbar">
             <div>
               <span>Workflow 编排</span>
-              <small>拖动画布节点连接运行路径</small>
+              <small>右键画布添加节点，拖动节点连接运行路径</small>
             </div>
             <n-space size="small">
-              <n-button size="small" secondary @click="addWorkflowNode('llm')">添加 LLM</n-button>
-              <n-button size="small" secondary @click="addWorkflowNode('condition')">添加条件</n-button>
               <n-button v-if="selectedWorkflowEdgeId" size="small" secondary type="error" @click="deleteWorkflowEdge()">删除连线</n-button>
-              <n-button size="small" tertiary @click="runDraft">预览运行</n-button>
+              <n-button size="small" tertiary @click="runDraft">{{ workflowRunPanelVisible ? '收起预览' : '预览运行' }}</n-button>
             </n-space>
           </section>
-          <section class="workflow-canvas-panel">
+          <section ref="workflowCanvasPanelRef" class="workflow-canvas-panel">
             <VueFlow
+              id="workflow-editor"
               v-model:nodes="workflowNodes"
               v-model:edges="workflowEdges"
               class="workflow-canvas"
@@ -58,9 +39,10 @@
               @edge-click="handleWorkflowEdgeClick"
               @node-click="handleWorkflowNodeClick"
               @pane-click="handleWorkflowPaneClick"
+              @pane-context-menu="handleWorkflowPaneContextMenu"
             >
               <template #node-start="{ id, data, selected }">
-                <div class="workflow-node-card workflow-node-card--start" :class="{ 'is-selected': selected }">
+                <div class="workflow-node-card workflow-node-card--start" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="source" :position="Position.Right" />
                   <div class="workflow-node-card__actions">
                     <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
@@ -80,7 +62,7 @@
               </template>
 
               <template #node-llm="{ id, data, selected }">
-                <div class="workflow-node-card workflow-node-card--llm" :class="{ 'is-selected': selected }">
+                <div class="workflow-node-card workflow-node-card--llm" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
                   <Handle type="source" :position="Position.Right" />
                   <div class="workflow-node-card__actions">
@@ -103,7 +85,7 @@
               </template>
 
               <template #node-condition="{ id, data, selected }">
-                <div class="workflow-node-card workflow-node-card--condition" :class="{ 'is-selected': selected }">
+                <div class="workflow-node-card workflow-node-card--condition" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
                   <Handle
                     id="true"
@@ -144,7 +126,7 @@
               </template>
 
               <template #node-end="{ id, data, selected }">
-                <div class="workflow-node-card workflow-node-card--end" :class="{ 'is-selected': selected }">
+                <div class="workflow-node-card workflow-node-card--end" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
                   <div class="workflow-node-card__actions">
                     <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
@@ -165,9 +147,140 @@
               <Background />
               <Controls />
             </VueFlow>
+            <div
+              v-if="workflowCanvasMenu.visible"
+              class="workflow-canvas-menu"
+              :style="{ left: `${workflowCanvasMenu.x}px`, top: `${workflowCanvasMenu.y}px` }"
+              @click.stop
+              @contextmenu.prevent
+            >
+              <div class="workflow-canvas-menu__title">添加节点</div>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('llm')">
+                <strong>LLM</strong>
+                <span>调用模型生成文本</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('condition')">
+                <strong>条件判断</strong>
+                <span>按变量选择分支</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('end')">
+                <strong>结束</strong>
+                <span>输出最终结果</span>
+              </button>
+            </div>
           </section>
 
-          <section v-if="selectedWorkflowNode" class="workflow-floating-panel">
+          <aside v-if="workflowRunPanelVisible" class="workflow-run-panel">
+            <header class="workflow-run-panel__head">
+              <div>
+                <h3>预览</h3>
+                <span>{{ running ? '正在执行 Workflow' : runResult?.trace ? '最近一次执行结果' : '填写入口变量后运行' }}</span>
+              </div>
+              <div class="workflow-run-panel__actions">
+                <n-button size="tiny" quaternary :disabled="running" @click="resetWorkflowDebugRun">重置</n-button>
+                <button type="button" class="workflow-run-panel__close" aria-label="关闭预览面板" @click="workflowRunPanelVisible = false">×</button>
+              </div>
+            </header>
+
+            <section class="workflow-run-panel__section">
+              <div class="workflow-run-panel__section-head">
+                <strong>开始节点入口变量</strong>
+                <span>{{ workflowInputVariableFields.length }} 个变量</span>
+              </div>
+              <div v-if="workflowInputVariableFields.length" class="workflow-run-inputs">
+                <div v-for="field in workflowInputVariableFields" :key="field.key" class="workflow-run-input">
+                  <label>
+                    <span>{{ field.label }}</span>
+                    <em v-if="field.required">*</em>
+                  </label>
+                  <n-select
+                    v-if="field.options?.length"
+                    v-model:value="runtimeVariableValues[field.key]"
+                    clearable
+                    :options="field.options"
+                    :placeholder="field.placeholder"
+                  />
+                  <n-switch v-else-if="field.type === 'boolean'" v-model:value="runtimeVariableValues[field.key]" />
+                  <n-input-number
+                    v-else-if="field.type === 'number'"
+                    v-model:value="runtimeVariableValues[field.key]"
+                    clearable
+                    :placeholder="field.placeholder"
+                    class="runtime-variable-number"
+                  />
+                  <n-upload
+                    v-else-if="isMediaVariableField(field)"
+                    :accept="mediaVariableAccept(field)"
+                    :default-upload="false"
+                    :max="1"
+                    @change="(options) => handleMediaVariableChange(field, options)"
+                  >
+                    <n-upload-dragger>
+                      <div class="runtime-media-upload__title">{{ mediaVariableUploadTitle(field) }}</div>
+                      <div class="runtime-media-upload__hint">{{ mediaVariableUploadHint(field) }}</div>
+                    </n-upload-dragger>
+                  </n-upload>
+                  <n-input v-else v-model:value="runtimeVariableValues[field.key]" clearable :placeholder="field.placeholder" />
+                  <div v-if="isMediaVariableField(field) && mediaVariableValue(field.key)" class="runtime-media-file">
+                    <span>{{ mediaVariableValue(field.key)?.name }}</span>
+                    <span>{{ formatBytes(mediaVariableValue(field.key)?.size || 0) }}</span>
+                  </div>
+                </div>
+              </div>
+              <n-empty v-else size="small" description="开始节点未定义入口变量，运行时将使用空变量对象。" />
+              <n-button block type="primary" :loading="running" @click="confirmWorkflowRun">
+                {{ running ? '运行中' : '运行 Workflow' }}
+              </n-button>
+            </section>
+
+            <section class="workflow-run-panel__section workflow-run-panel__section--logs">
+              <div class="workflow-run-panel__section-head">
+                <strong>执行日志</strong>
+                <span>{{ workflowTraceNodes.length ? `${workflowTraceNodes.length} 个节点` : '等待运行' }}</span>
+              </div>
+              <div v-if="workflowTraceNodes.length" class="workflow-trace-list">
+                <details
+                  v-for="traceNode in workflowTraceNodes"
+                  :key="`${traceNode.node_id}-${traceNode.node_type}`"
+                  class="workflow-trace-item"
+                  :class="`is-${workflowTraceStatus(traceNode)}`"
+                  :open="traceNode.status === 'failed'"
+                >
+                  <summary>
+                    <span class="workflow-trace-item__icon">{{ workflowTraceNodeIcon(traceNode.node_type) }}</span>
+                    <span class="workflow-trace-item__title">{{ workflowTraceNodeTitle(traceNode) }}</span>
+                    <span v-if="traceNode.branch" class="workflow-trace-item__branch">{{ traceNode.branch === 'true' ? '是' : '否' }}</span>
+                    <span class="workflow-trace-item__elapsed">{{ formatElapsedSeconds(traceNode.elapsed_ms) }} 秒</span>
+                    <span class="workflow-trace-item__status"></span>
+                  </summary>
+                  <div class="workflow-trace-item__body">
+                    <div v-if="traceNode.error" class="workflow-trace-item__error">{{ traceNode.error }}</div>
+                    <div>
+                      <strong>输出</strong>
+                      <pre>{{ stringifyJson(traceNode.output || {}) }}</pre>
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <div v-else-if="running" class="workflow-trace-placeholder">
+                <span class="rendering-spinner"></span>
+                <span>正在执行，节点日志会在后端返回 trace 后展开...</span>
+              </div>
+              <n-empty v-else size="small" description="点击上方“运行 Workflow”后展示每个节点的输入输出、耗时和状态。" />
+            </section>
+
+            <section v-if="previewAnswerText" class="workflow-run-panel__answer">
+              <strong>最终输出</strong>
+              <div v-html="previewRenderedOutput.kind === 'markdown' ? previewRenderedOutput.content : ''"></div>
+              <pre v-if="previewRenderedOutput.kind !== 'markdown'">{{ previewRenderedOutput.rawContent || previewRenderedOutput.content }}</pre>
+            </section>
+          </aside>
+
+          <section
+            v-if="selectedWorkflowNode"
+            class="workflow-floating-panel"
+            :class="{ 'is-run-panel-open': workflowRunPanelVisible }"
+          >
             <template v-if="selectedWorkflowNode">
               <header>
                 <div>
@@ -928,6 +1041,7 @@
           </div>
         </template>
       </n-modal>
+
     </n-spin>
   </DetailPageRuntime>
 </template>
@@ -936,7 +1050,7 @@
   import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
   import { Background } from '@vue-flow/background';
   import { Controls } from '@vue-flow/controls';
-  import { Handle, Position, VueFlow, type Connection, type Edge, type Node } from '@vue-flow/core';
+  import { Handle, Position, VueFlow, useVueFlow, type Connection, type Edge, type Node, type XYPosition } from '@vue-flow/core';
   import '@vue-flow/core/dist/style.css';
   import '@vue-flow/core/dist/theme-default.css';
   import { useRoute, useRouter } from 'vue-router';
@@ -988,6 +1102,16 @@
     description: string;
   }
 
+  interface WorkflowTraceNode {
+    node_id: string;
+    node_type: string;
+    status?: string;
+    branch?: string;
+    output?: Record<string, unknown>;
+    error?: string;
+    elapsed_ms?: number;
+  }
+
   type SchemaRecord = Record<string, unknown>;
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
@@ -1025,6 +1149,8 @@
   const running = ref(false);
   const activeWorkspace = ref<WorkspaceKey>('orchestration');
   const workbenchRef = ref<HTMLElement | null>(null);
+  const workflowCanvasPanelRef = ref<HTMLElement | null>(null);
+  const { project } = useVueFlow('workflow-editor');
   const previewWidthPercent = ref(42);
   const previewFocusMode = ref(false);
   const previewResizeDragged = ref(false);
@@ -1032,6 +1158,7 @@
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
   const platformPreviewModalVisible = ref(false);
+  const workflowRunPanelVisible = ref(false);
   const platformTenantsLoading = ref(false);
   const platformPreviewModelsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
@@ -1058,6 +1185,12 @@
   const selectedWorkflowNodeId = ref('');
   const selectedWorkflowEdgeId = ref('');
   const openWorkflowNodeMenuId = ref('');
+  const workflowCanvasMenu = reactive({
+    visible: false,
+    x: 0,
+    y: 0,
+    position: { x: 0, y: 0 } as XYPosition,
+  });
   const runResult = ref<AiRunResult | null>(null);
   const runLogs = ref<AiApplicationRunLog[]>([]);
   const runLogsLoading = ref(false);
@@ -1177,8 +1310,13 @@
       ? [...new Set([...workflowStartVariableKeys.value, ...workflowTemplateVariableKeys.value])]
       : extractTemplateVariableKeys(form.user_prompt_template || '')
   );
+  const runtimeVariableKeys = computed(() => (isWorkflowMode.value ? workflowStartVariableKeys.value : templateVariableKeys.value));
+  const savedInputVariableKeys = computed(() => (isWorkflowMode.value ? workflowStartVariableKeys.value : templateVariableKeys.value));
   const runtimeVariableFields = computed<RuntimeVariableField[]>(() =>
-    buildRuntimeVariableFields(parsedVariablesSchema.value, templateVariableKeys.value)
+    buildRuntimeVariableFields(parsedVariablesSchema.value, runtimeVariableKeys.value)
+  );
+  const workflowInputVariableFields = computed<RuntimeVariableField[]>(() =>
+    isWorkflowMode.value ? buildRuntimeVariableFields(parsedVariablesSchema.value, workflowStartVariableKeys.value) : []
   );
   const publishedPromptOptions = computed<SelectOption[]>(() =>
     publishedPrompts.value.map((item) => ({
@@ -1194,6 +1332,53 @@
     const messages = runResult.value?.trace?.rendered_messages || [];
     const systemMessage = messages.find((item) => item.role === 'system' && item.prompt_source === 'prompt_asset');
     return systemMessage || null;
+  });
+  const workflowTracePayload = computed(() => {
+    const trace = asSchemaRecord(runResult.value?.trace);
+    const directWorkflow = asSchemaRecord(trace?.workflow);
+    if (directWorkflow) return { workflow: directWorkflow };
+    const messages = runResult.value?.trace?.rendered_messages || [];
+    const workflowMessage = messages.find((item) => item.role === 'workflow_trace');
+    const workflowContent = asSchemaRecord(workflowMessage?.content);
+    if (workflowContent) return workflowContent;
+    return asSchemaRecord((runResult.value as unknown as SchemaRecord | null)?.workflow_trace);
+  });
+  const workflowTraceNodes = computed<WorkflowTraceNode[]>(() => {
+    const workflow = asSchemaRecord(workflowTracePayload.value?.workflow);
+    const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+    return nodes
+      .map((item) => {
+        const record = asSchemaRecord(item);
+        if (!record) return null;
+        const nodeId = String(record.node_id || '');
+        if (!nodeId) return null;
+        return {
+          node_id: nodeId,
+          node_type: String(record.node_type || ''),
+          status: String(record.status || 'success'),
+          branch: typeof record.branch === 'string' ? record.branch : undefined,
+          output: asSchemaRecord(record.output) || {},
+          error: typeof record.error === 'string' ? record.error : undefined,
+          elapsed_ms: typeof record.elapsed_ms === 'number' ? record.elapsed_ms : Number(record.elapsed_ms || 0),
+        };
+      })
+      .filter(Boolean) as WorkflowTraceNode[];
+  });
+  const workflowExecutedNodeIds = computed(() => new Set(workflowTraceNodes.value.map((node) => node.node_id)));
+  const workflowFailedNodeIds = computed(
+    () => new Set(workflowTraceNodes.value.filter((node) => node.status === 'failed').map((node) => node.node_id))
+  );
+  const workflowExecutedEdgeIds = computed(() => {
+    const edgeIds = new Set<string>();
+    workflowTraceNodes.value.slice(0, -1).forEach((node, index) => {
+      const next = workflowTraceNodes.value[index + 1];
+      const edge = workflowEdges.value.find((item) => {
+        const branchMatches = node.branch ? String(item.sourceHandle || '') === node.branch : true;
+        return item.source === node.node_id && item.target === next.node_id && branchMatches;
+      });
+      if (edge?.id) edgeIds.add(edge.id);
+    });
+    return edgeIds;
   });
   const parsedPreviewOutput = computed(() => splitThinkContent(runResult.value?.answer || ''));
   const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
@@ -1329,6 +1514,7 @@
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
   watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
   watch(workflowNodes, syncVariablesSchemaFromTemplate, { deep: true });
+  watch(workflowExecutedEdgeIds, applyWorkflowExecutionEdgeClasses, { immediate: true });
   watch(selectedWorkflowNode, syncWorkflowSelectedStartNode, { immediate: true });
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
@@ -1552,11 +1738,40 @@
 
   async function runDraft() {
     if (running.value) return;
+    if (isWorkflowMode.value) {
+      openWorkflowRunPanel();
+      return;
+    }
     if (isPlatformCapabilityRoute.value) {
       await openPlatformPreviewModal();
       return;
     }
-    const missingRequired = findUnfilledRequiredVariables();
+    await executeDraftRun();
+  }
+
+  function openWorkflowRunPanel() {
+    syncRuntimeVariableValues();
+    workflowRunPanelVisible.value = !workflowRunPanelVisible.value;
+  }
+
+  async function confirmWorkflowRun() {
+    if (running.value) return;
+    if (isPlatformCapabilityRoute.value) {
+      workflowRunPanelVisible.value = true;
+      await openPlatformPreviewModal();
+      return;
+    }
+    const missingRequired = findUnfilledRequiredVariables(workflowInputVariableFields.value);
+    if (missingRequired.length) {
+      message.warning(`请填写运行变量：${missingRequired.join('、')}`);
+      return;
+    }
+    workflowRunPanelVisible.value = true;
+    await executeDraftRun();
+  }
+
+  async function executeDraftRun() {
+    const missingRequired = findUnfilledRequiredVariables(isWorkflowMode.value ? workflowInputVariableFields.value : runtimeVariableFields.value);
     if (missingRequired.length) {
       message.warning(`请填写运行变量：${missingRequired.join('、')}`);
       return;
@@ -1567,6 +1782,7 @@
     try {
       const saved = await saveCurrent({ silent: true, refresh: false });
       if (!saved) return;
+      if (isWorkflowMode.value) workflowRunPanelVisible.value = true;
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
       await runDraftStream({
@@ -1620,7 +1836,7 @@
       message.warning('请选择租户模型或路由');
       return;
     }
-    const missingRequired = findUnfilledRequiredVariables();
+    const missingRequired = findUnfilledRequiredVariables(isWorkflowMode.value ? workflowInputVariableFields.value : runtimeVariableFields.value);
     if (missingRequired.length) {
       message.warning(`请填写运行变量：${missingRequired.join('、')}`);
       return;
@@ -1775,7 +1991,7 @@
     };
   }
 
-  function addWorkflowNode(type: Exclude<WorkflowNodeType, 'start'>) {
+  function addWorkflowNode(type: Exclude<WorkflowNodeType, 'start'>, position?: XYPosition) {
     const count = workflowNodes.value.filter((node) => node.type === type).length + 1;
     const id = `${type}_${Date.now().toString(36)}`;
     const data: Record<string, any> = { label: `${workflowNodeTypeLabel(type)} ${count}` };
@@ -1797,33 +2013,65 @@
       id,
       type,
       label: data.label,
-      position: { x: 260 + count * 80, y: 120 + count * 40 },
+      position: position || { x: 260 + count * 80, y: 120 + count * 40 },
       data,
     });
     selectedWorkflowNodeId.value = id;
     selectedWorkflowEdgeId.value = '';
     openWorkflowNodeMenuId.value = '';
+    closeWorkflowCanvasMenu();
   }
 
   function handleWorkflowNodeClick(event: { node: WorkflowNode }) {
     selectedWorkflowNodeId.value = event.node.id;
     selectedWorkflowEdgeId.value = '';
+    closeWorkflowCanvasMenu();
   }
 
   function handleWorkflowEdgeClick(event: { edge: WorkflowEdge }) {
     selectedWorkflowEdgeId.value = event.edge.id;
     selectedWorkflowNodeId.value = '';
     openWorkflowNodeMenuId.value = '';
+    closeWorkflowCanvasMenu();
   }
 
   function handleWorkflowPaneClick() {
     selectedWorkflowNodeId.value = '';
     selectedWorkflowEdgeId.value = '';
     openWorkflowNodeMenuId.value = '';
+    closeWorkflowCanvasMenu();
+  }
+
+  function handleWorkflowPaneContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    selectedWorkflowNodeId.value = '';
+    selectedWorkflowEdgeId.value = '';
+    openWorkflowNodeMenuId.value = '';
+    const panelRect = workflowCanvasPanelRef.value?.getBoundingClientRect();
+    const menuWidth = 220;
+    const menuHeight = 202;
+    const rawX = panelRect ? event.clientX - panelRect.left : event.clientX;
+    const rawY = panelRect ? event.clientY - panelRect.top : event.clientY;
+    workflowCanvasMenu.x = Math.max(8, Math.min(rawX, (panelRect?.width || rawX + menuWidth) - menuWidth - 8));
+    workflowCanvasMenu.y = Math.max(8, Math.min(rawY, (panelRect?.height || rawY + menuHeight) - menuHeight - 8));
+    workflowCanvasMenu.position = project({ x: event.clientX, y: event.clientY });
+    workflowCanvasMenu.visible = true;
+  }
+
+  function addWorkflowNodeFromCanvasMenu(type: Exclude<WorkflowNodeType, 'start'>) {
+    addWorkflowNode(type, {
+      x: Math.round(workflowCanvasMenu.position.x),
+      y: Math.round(workflowCanvasMenu.position.y),
+    });
+  }
+
+  function closeWorkflowCanvasMenu() {
+    workflowCanvasMenu.visible = false;
   }
 
   function handleWorkflowConnect(connection: Connection) {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
+    closeWorkflowCanvasMenu();
     const exists = workflowEdges.value.some(
       (edge) =>
         edge.source === connection.source &&
@@ -1849,12 +2097,14 @@
     openWorkflowNodeMenuId.value = openWorkflowNodeMenuId.value === nodeId ? '' : nodeId;
     selectedWorkflowNodeId.value = nodeId;
     selectedWorkflowEdgeId.value = '';
+    closeWorkflowCanvasMenu();
   }
 
   function openWorkflowNodeConfig(nodeId: string) {
     selectedWorkflowNodeId.value = nodeId;
     selectedWorkflowEdgeId.value = '';
     openWorkflowNodeMenuId.value = '';
+    closeWorkflowCanvasMenu();
   }
 
   function runWorkflowNode(nodeId: string) {
@@ -1926,7 +2176,7 @@
         const variable = {
           id,
           key,
-          label: String(record.label || record.title || record.name || key || ''),
+          label: typeof record.label === 'undefined' ? String(record.title || '') : String(record.label || ''),
           type: resolveRuntimeVariableType(String(record.type || '')),
           required: record.required !== false,
           description: String(record.description || record.help || ''),
@@ -2040,6 +2290,50 @@
 
   function workflowNodeTitle(node: WorkflowNode) {
     return String(node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType));
+  }
+
+  function applyWorkflowExecutionEdgeClasses() {
+    const activeEdgeIds = workflowExecutedEdgeIds.value;
+    let changed = false;
+    const nextEdges = workflowEdges.value.map((edge) => {
+      const className = activeEdgeIds.has(edge.id) ? 'is-workflow-executed-edge' : '';
+      if (String((edge as WorkflowEdge & { class?: string }).class || '') === className) return edge;
+      changed = true;
+      return { ...edge, class: className };
+    });
+    if (changed) workflowEdges.value = nextEdges;
+  }
+
+  function workflowNodeCardClass(nodeId: string, selected: boolean) {
+    return {
+      'is-selected': selected,
+      'is-executed': workflowExecutedNodeIds.value.has(nodeId),
+      'is-failed': workflowFailedNodeIds.value.has(nodeId),
+    };
+  }
+
+  function workflowTraceNodeTitle(traceNode: WorkflowTraceNode) {
+    const node = workflowNodes.value.find((item) => item.id === traceNode.node_id);
+    return node ? workflowNodeTitle(node) : traceNode.node_id;
+  }
+
+  function workflowTraceNodeIcon(type: string) {
+    if (type === 'start') return 'S';
+    if (type === 'llm') return 'AI';
+    if (type === 'condition') return 'IF';
+    if (type === 'end') return 'E';
+    return type.slice(0, 2).toUpperCase();
+  }
+
+  function workflowTraceStatus(traceNode: WorkflowTraceNode) {
+    return traceNode.status === 'failed' ? 'failed' : 'success';
+  }
+
+  function resetWorkflowDebugRun() {
+    runResult.value = null;
+    streamThinkText.value = '';
+    lastRunElapsedMs.value = 0;
+    runningElapsedMs.value = 0;
   }
 
   function conditionOperatorLabel(operator: unknown) {
@@ -2281,7 +2575,7 @@
     return {
       ...form,
       model_preferences: buildModelPreferences(),
-      variables_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
+      variables_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, savedInputVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
       trace_policy: { enabled: true },
       runtime_config: {
@@ -2317,7 +2611,7 @@
       system_prompt: form.system_prompt,
       developer_prompt: form.developer_prompt,
       user_prompt_template: form.user_prompt_template,
-      input_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, templateVariableKeys.value),
+      input_schema: buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value, savedInputVariableKeys.value),
       output_schema: parseJsonObject(outputSchemaText.value),
       model_preferences: buildModelPreferences(),
       runtime_config: runtimeConfig,
@@ -2590,7 +2884,7 @@
   }
 
   function refreshVariablesSchemaText() {
-    variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value || {}, templateVariableKeys.value));
+    variablesSchemaText.value = stringifyJson(buildVariablesSchemaFromTemplateFromKeys(parsedVariablesSchema.value || {}, savedInputVariableKeys.value));
   }
 
   function syncVariablesSchemaFromTemplate() {
@@ -2659,7 +2953,8 @@
 
   function buildRuntimeVariables() {
     const variables: Record<string, unknown> = {};
-    runtimeVariableFields.value.forEach((field) => {
+    const fields = isWorkflowMode.value ? workflowInputVariableFields.value : runtimeVariableFields.value;
+    fields.forEach((field) => {
       const value = runtimeVariableValues[field.key];
       if (value === null || typeof value === 'undefined' || value === '') return;
       assignVariableValue(variables, field.key, value);
@@ -2690,8 +2985,8 @@
     });
   }
 
-  function findUnfilledRequiredVariables() {
-    return runtimeVariableFields.value
+  function findUnfilledRequiredVariables(fields: RuntimeVariableField[] = runtimeVariableFields.value) {
+    return fields
       .filter((field) => field.required)
       .filter((field) => {
         const value = runtimeVariableValues[field.key];
@@ -2968,69 +3263,20 @@
 
   .workflow-fullscreen {
     display: grid;
-    grid-template-columns: 180px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
     min-width: 0;
     height: calc(100vh - 250px);
     min-height: 620px;
   }
 
-  .workflow-toolbox,
   .workflow-canvas-shell {
     min-width: 0;
     min-height: 0;
   }
 
-  .workflow-toolbox {
-    overflow: auto;
-    background: var(--app-surface-bg);
-    border: 1px solid var(--app-border-color, #d9e1ec);
-    border-radius: var(--app-card-radius);
-  }
-
-  .workflow-node-palette {
-    min-width: 0;
-    display: grid;
-    align-content: start;
-    gap: 10px;
-    padding: 14px;
-  }
-
-  .workflow-node-palette h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 650;
-    line-height: 1.35;
-  }
-
-  .workflow-node-palette button {
-    display: grid;
-    gap: 4px;
-    width: 100%;
-    min-height: 76px;
-    padding: 12px 13px;
-    color: var(--app-text-color-2);
-    text-align: left;
-    cursor: pointer;
-    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 54%, var(--app-surface-bg));
-    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
-    border-radius: 7px;
-  }
-
-  .workflow-node-palette button:hover,
-  .workflow-node-palette button:focus-visible {
-    color: var(--app-primary-color);
-    border-color: color-mix(in srgb, var(--app-primary-color) 48%, var(--app-border-color, #d9e1ec));
-    outline: none;
-  }
-
-  .workflow-node-palette button span {
-    color: var(--app-text-color-3);
-    font-size: 12px;
-    line-height: 1.45;
-  }
-
   .workflow-canvas-shell {
+    --workflow-panel-gap: 14px;
+    --workflow-run-panel-width: 440px;
     position: relative;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
@@ -3070,6 +3316,7 @@
   }
 
   .workflow-canvas-panel {
+    position: relative;
     min-height: 0;
     padding: 0;
     overflow: hidden;
@@ -3081,6 +3328,59 @@
   .workflow-canvas {
     width: 100%;
     height: 100%;
+  }
+
+  .workflow-canvas-menu {
+    position: absolute;
+    z-index: 25;
+    display: grid;
+    gap: 4px;
+    width: 220px;
+    padding: 8px;
+    color: var(--app-text-color-1);
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 86%, transparent);
+    border-radius: 8px;
+    box-shadow: 0 18px 42px color-mix(in srgb, #0f172a 18%, transparent);
+  }
+
+  .workflow-canvas-menu__title {
+    padding: 6px 8px 7px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.2;
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 64%, transparent);
+  }
+
+  .workflow-canvas-menu button {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 10px;
+    color: var(--app-text-color-2);
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+  }
+
+  .workflow-canvas-menu button:hover,
+  .workflow-canvas-menu button:focus-visible {
+    color: var(--app-primary-color);
+    background: color-mix(in srgb, var(--app-primary-color) 9%, transparent);
+    outline: none;
+  }
+
+  .workflow-canvas-menu button strong {
+    font-size: 14px;
+    line-height: 1.3;
+  }
+
+  .workflow-canvas-menu button span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   :deep(.vue-flow__node) {
@@ -3113,6 +3413,20 @@
     box-shadow:
       0 0 0 2px color-mix(in srgb, var(--app-primary-color) 18%, transparent),
       0 18px 36px color-mix(in srgb, var(--app-primary-color) 16%, transparent);
+  }
+
+  .workflow-node-card.is-executed {
+    border-color: color-mix(in srgb, var(--app-success-color, #18a058) 72%, var(--app-border-color, #d9e1ec));
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--app-success-color, #18a058) 14%, transparent),
+      0 18px 36px color-mix(in srgb, var(--app-success-color, #18a058) 12%, transparent);
+  }
+
+  .workflow-node-card.is-failed {
+    border-color: var(--app-error-color, #d03050);
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--app-error-color, #d03050) 16%, transparent),
+      0 18px 36px color-mix(in srgb, var(--app-error-color, #d03050) 12%, transparent);
   }
 
   .workflow-node-card--condition {
@@ -3316,10 +3630,304 @@
     stroke-width: 3;
   }
 
+  :deep(.vue-flow__edge.is-workflow-executed-edge .vue-flow__edge-path) {
+    stroke: var(--app-success-color, #18a058);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--app-success-color, #18a058) 32%, transparent));
+  }
+
+  .workflow-run-panel {
+    position: absolute;
+    top: 60px;
+    right: var(--workflow-panel-gap);
+    z-index: 9;
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    width: min(var(--workflow-run-panel-width), calc(100% - var(--workflow-panel-gap) * 2));
+    max-height: calc(100% - 76px);
+    padding: 14px;
+    overflow: auto;
+    background: color-mix(in srgb, var(--app-surface-bg) 96%, transparent);
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: var(--app-card-radius);
+    box-shadow: 0 24px 60px color-mix(in srgb, #0f172a 22%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .workflow-run-panel__head {
+    position: sticky;
+    top: -14px;
+    z-index: 2;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    background: color-mix(in srgb, var(--app-surface-bg) 96%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 62%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .workflow-run-panel__head h3 {
+    margin: 0;
+    color: var(--app-text-color-1);
+    font-size: 17px;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+
+  .workflow-run-panel__head span {
+    display: block;
+    margin-top: 3px;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .workflow-run-panel__actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .workflow-run-panel__actions .workflow-run-panel__close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    color: var(--app-text-color-3);
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+  }
+
+  .workflow-run-panel__actions .workflow-run-panel__close:hover,
+  .workflow-run-panel__actions .workflow-run-panel__close:focus-visible {
+    color: var(--app-text-color-1);
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 82%, var(--app-surface-bg));
+    outline: none;
+  }
+
+  .workflow-run-panel__section,
+  .workflow-run-panel__answer {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 44%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 68%, transparent);
+    border-radius: 8px;
+  }
+
+  .workflow-run-panel__section--logs {
+    background: color-mix(in srgb, var(--app-success-color, #18a058) 7%, var(--app-surface-bg));
+    border-color: color-mix(in srgb, var(--app-success-color, #18a058) 22%, var(--app-border-color, #d9e1ec));
+  }
+
+  .workflow-run-panel__section-head {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .workflow-run-panel__section-head strong,
+  .workflow-run-panel__answer strong {
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .workflow-run-panel__section-head span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .workflow-run-inputs {
+    display: grid;
+    gap: 10px;
+  }
+
+  .workflow-run-input {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .workflow-run-input label {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    min-width: 0;
+    color: var(--app-text-color-2);
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .workflow-run-input label span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workflow-run-input label em {
+    color: var(--app-error-color, #d03050);
+    font-style: normal;
+  }
+
+  .workflow-run-input small {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .workflow-trace-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .workflow-trace-item {
+    min-width: 0;
+    overflow: hidden;
+    background: var(--app-surface-bg);
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 72%, transparent);
+    border-radius: 8px;
+  }
+
+  .workflow-trace-item.is-success {
+    border-color: color-mix(in srgb, var(--app-success-color, #18a058) 28%, var(--app-border-color, #d9e1ec));
+  }
+
+  .workflow-trace-item.is-failed {
+    border-color: color-mix(in srgb, var(--app-error-color, #d03050) 52%, var(--app-border-color, #d9e1ec));
+  }
+
+  .workflow-trace-item summary {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) auto auto 10px;
+    gap: 8px;
+    align-items: center;
+    padding: 9px 10px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .workflow-trace-item summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .workflow-trace-item__icon {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    background: color-mix(in srgb, var(--app-primary-color) 82%, #10b981);
+    border-radius: 8px;
+  }
+
+  .workflow-trace-item__title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workflow-trace-item__branch,
+  .workflow-trace-item__elapsed {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .workflow-trace-item__status {
+    width: 9px;
+    height: 9px;
+    background: var(--app-success-color, #18a058);
+    border-radius: 999px;
+  }
+
+  .workflow-trace-item.is-failed .workflow-trace-item__status {
+    background: var(--app-error-color, #d03050);
+  }
+
+  .workflow-trace-item__body {
+    display: grid;
+    gap: 8px;
+    padding: 0 10px 10px 48px;
+  }
+
+  .workflow-trace-item__body strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--app-text-color-2);
+    font-size: 12px;
+  }
+
+  .workflow-trace-item__body pre {
+    max-height: 180px;
+    margin: 0;
+    padding: 9px;
+    overflow: auto;
+    color: var(--app-text-color-1);
+    font-size: 12px;
+    line-height: 1.55;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 76%, var(--app-surface-bg));
+    border-radius: 7px;
+  }
+
+  .workflow-trace-item__error {
+    padding: 8px 9px;
+    color: var(--app-error-color, #d03050);
+    font-size: 12px;
+    line-height: 1.45;
+    background: color-mix(in srgb, var(--app-error-color, #d03050) 8%, var(--app-surface-bg));
+    border-radius: 7px;
+  }
+
+  .workflow-trace-placeholder {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .workflow-run-panel__answer {
+    background: var(--app-surface-bg);
+  }
+
+  .workflow-run-panel__answer :deep(.markdown-answer),
+  .workflow-run-panel__answer div,
+  .workflow-run-panel__answer pre {
+    min-width: 0;
+    max-height: 240px;
+    margin: 0;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
   .workflow-floating-panel {
     position: absolute;
     top: 60px;
-    right: 14px;
+    right: var(--workflow-panel-gap);
     z-index: 8;
     display: grid;
     align-content: start;
@@ -3332,6 +3940,11 @@
     border: 1px solid var(--app-border-color, #d9e1ec);
     border-radius: var(--app-card-radius);
     box-shadow: 0 18px 42px color-mix(in srgb, #0f172a 18%, transparent);
+  }
+
+  .workflow-floating-panel.is-run-panel-open {
+    right: calc(var(--workflow-run-panel-width) + var(--workflow-panel-gap) * 2);
+    width: min(420px, calc(100% - var(--workflow-run-panel-width) - var(--workflow-panel-gap) * 3));
   }
 
   .workflow-floating-panel header {
@@ -4621,24 +5234,17 @@
       min-height: 0;
     }
 
-    .workflow-toolbox {
-      overflow: visible;
-    }
-
-    .workflow-node-palette {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .workflow-node-palette h3 {
-      grid-column: 1 / -1;
-    }
-
     .workflow-canvas-panel {
       height: 520px;
     }
 
     .workflow-floating-panel {
       top: 58px;
+      right: 10px;
+      width: min(390px, calc(100% - 20px));
+    }
+
+    .workflow-floating-panel.is-run-panel-open {
       right: 10px;
       width: min(390px, calc(100% - 20px));
     }

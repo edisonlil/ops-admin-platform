@@ -337,8 +337,8 @@ def execute_workflow_application(
     if require_published and app.get("status") != "published":
         raise HTTPException(status_code=409, detail="AI application is not published")
     variables = extract_run_variables(payload)
-    validate_variables(app, variables)
     definition = workflow_definition_from_app(app)
+    validate_workflow_variables(definition, variables)
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     answer = ""
@@ -592,6 +592,31 @@ def workflow_definition_from_app(app: dict[str, Any]) -> dict[str, Any]:
     if not workflow:
         raise HTTPException(status_code=422, detail="workflow runtime_config.workflow is required")
     return workflow
+
+
+def validate_workflow_variables(definition: dict[str, Any], variables: dict[str, Any]) -> None:
+    required = workflow_start_required_variables(definition)
+    missing = [name for name in required if variable_missing(resolve_variable_value(variables, name))]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required variables: {', '.join(missing)}")
+
+
+def workflow_start_required_variables(definition: dict[str, Any]) -> list[str]:
+    nodes = definition.get("nodes") if isinstance(definition.get("nodes"), list) else []
+    for node in nodes:
+        if not isinstance(node, dict) or str(node.get("type") or "").strip() != "start":
+            continue
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        variables = data.get("variables") if isinstance(data.get("variables"), list) else []
+        required: list[str] = []
+        for item in variables:
+            if not isinstance(item, dict) or item.get("required") is False:
+                continue
+            key = str(item.get("key") or item.get("name") or "").strip()
+            if key:
+                required.append(key)
+        return required
+    return []
 
 
 def resolve_workflow_default_model(app: dict[str, Any], payload: dict[str, Any], definition: dict[str, Any]) -> str:
