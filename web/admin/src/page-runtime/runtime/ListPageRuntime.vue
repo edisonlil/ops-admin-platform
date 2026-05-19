@@ -262,6 +262,11 @@
   import { computed, ref, watch, useSlots } from 'vue';
   import { useDialog } from 'naive-ui';
   import type { DataTableColumn, DataTableColumns, PaginationProps } from 'naive-ui';
+  import {
+    getTableColumnPreference,
+    resetTableColumnPreference,
+    saveTableColumnPreference,
+  } from '@/api/personalization';
   import AppCollectionView from '../components/AppCollectionView.vue';
   import AppFilterBar from '../components/AppFilterBar.vue';
   import AppPage from '../components/AppPage.vue';
@@ -324,6 +329,9 @@
   });
   const visibleColumnState = ref<Record<string, string[]>>({});
   const columnOrderState = ref<Record<string, string[]>>({});
+  const remotePreferenceLoaded = ref<Record<string, boolean>>({});
+  const remotePreferenceLoading = ref<Record<string, boolean>>({});
+  const columnPreferenceRevision = ref<Record<string, number>>({});
 
   const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
@@ -632,6 +640,7 @@
         ...visibleColumnState.value,
         [key]: loadVisibleColumnKeys(view),
       };
+      void loadRemoteColumnPreference(view);
     }
     return visibleColumnState.value[key];
   }
@@ -645,7 +654,9 @@
       ...visibleColumnState.value,
       [key]: nextKeys,
     };
+    bumpColumnPreferenceRevision(key);
     saveVisibleColumnKeys(key, nextKeys);
+    saveColumnPreference(key, nextKeys, getColumnOrderKeys(view));
   }
 
   function getColumnOrderKeys(view: CollectionViewSchema<Row>) {
@@ -668,7 +679,9 @@
       ...columnOrderState.value,
       [key]: nextKeys,
     };
+    bumpColumnPreferenceRevision(key);
     saveColumnOrderKeys(key, nextKeys);
+    saveColumnPreference(key, getVisibleColumnKeys(view), nextKeys);
   }
 
   function resetColumnSettings(view: CollectionViewSchema<Row>) {
@@ -683,10 +696,12 @@
       ...columnOrderState.value,
       [key]: nextOrderKeys,
     };
+    bumpColumnPreferenceRevision(key);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(columnStorageKey(key));
       window.localStorage.removeItem(columnOrderStorageKey(key));
     }
+    resetRemoteColumnPreference(key);
   }
 
   function loadVisibleColumnKeys(view: CollectionViewSchema<Row>) {
@@ -733,6 +748,86 @@
   function saveColumnOrderKeys(key: string, keys: string[]) {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(columnOrderStorageKey(key), JSON.stringify(keys));
+  }
+
+  async function loadRemoteColumnPreference(view: CollectionViewSchema<Row>) {
+    const key = getViewStorageKey(view);
+    if (remotePreferenceLoaded.value[key] || remotePreferenceLoading.value[key]) return;
+    const revision = columnPreferenceRevision.value[key] || 0;
+    remotePreferenceLoading.value = {
+      ...remotePreferenceLoading.value,
+      [key]: true,
+    };
+    try {
+      const { item } = await getTableColumnPreference(key);
+      remotePreferenceLoaded.value = {
+        ...remotePreferenceLoaded.value,
+        [key]: true,
+      };
+      if (!item) return;
+      if ((columnPreferenceRevision.value[key] || 0) !== revision) return;
+
+      const visibleKeys = mergeVisiblePreferenceKeys(view, item.visible_column_keys);
+      const orderKeys = mergePreferenceKeys(item.column_order_keys, defaultColumnOrderKeys(view));
+      visibleColumnState.value = {
+        ...visibleColumnState.value,
+        [key]: visibleKeys,
+      };
+      columnOrderState.value = {
+        ...columnOrderState.value,
+        [key]: orderKeys,
+      };
+      saveVisibleColumnKeys(key, visibleKeys);
+      saveColumnOrderKeys(key, orderKeys);
+    } catch {
+      remotePreferenceLoaded.value = {
+        ...remotePreferenceLoaded.value,
+        [key]: true,
+      };
+    } finally {
+      remotePreferenceLoading.value = {
+        ...remotePreferenceLoading.value,
+        [key]: false,
+      };
+    }
+  }
+
+  function saveColumnPreference(key: string, visibleKeys: string[], orderKeys: string[]) {
+    saveTableColumnPreference(key, {
+      visible_column_keys: visibleKeys.map(String),
+      column_order_keys: orderKeys.map(String),
+    }).catch(() => {
+      // Local storage remains the fallback when the personalization API is unavailable.
+    });
+  }
+
+  function resetRemoteColumnPreference(key: string) {
+    resetTableColumnPreference(key).catch(() => {
+      // Reset already updated local state; remote reset will retry on the next explicit change.
+    });
+  }
+
+  function bumpColumnPreferenceRevision(key: string) {
+    columnPreferenceRevision.value = {
+      ...columnPreferenceRevision.value,
+      [key]: (columnPreferenceRevision.value[key] || 0) + 1,
+    };
+  }
+
+  function mergePreferenceKeys(preferredKeys: string[] | undefined, fallbackKeys: string[]) {
+    const preferred = Array.isArray(preferredKeys) ? preferredKeys.map(String).filter(Boolean) : [];
+    const fallback = fallbackKeys.map(String);
+    return Array.from(new Set([...preferred, ...fallback]));
+  }
+
+  function mergeVisiblePreferenceKeys(view: CollectionViewSchema<Row>, preferredKeys: string[] | undefined) {
+    const runtimeColumns = getRuntimeColumns(view);
+    const runtimeKeys = new Set(runtimeColumns.map((column) => String(column.key)));
+    const requiredKeys = runtimeColumns.filter((column) => column.required).map((column) => String(column.key));
+    const preferred = Array.isArray(preferredKeys)
+      ? preferredKeys.map(String).filter((key) => runtimeKeys.has(key))
+      : [];
+    return Array.from(new Set([...preferred, ...requiredKeys]));
   }
 
   function defaultVisibleColumnKeys(view: CollectionViewSchema<Row>) {

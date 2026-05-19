@@ -35,6 +35,7 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("appearance", "appearance.entrypoints:router", fake_router("appearance")),
             FakeEntryPoint("cron", "cron.entrypoints:router", fake_router("cron")),
             FakeEntryPoint("basic_data", "basic_data.entrypoints:router", fake_router("basic_data")),
+            FakeEntryPoint("personalization", "personalization.entrypoints:router", fake_router("personalization")),
             FakeEntryPoint("file_management", "file_management.entrypoints:router", fake_router("file_management")),
             FakeEntryPoint("audit_logging", "audit_logging.entrypoints:router", fake_router("audit_logging")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
@@ -51,7 +52,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 14)
+        self.assertEqual(len(routers), 15)
         self.assertEqual(
             loaded,
             [
@@ -61,6 +62,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "organization",
                 "authorization",
                 "basic_data",
+                "personalization",
                 "file_management",
                 "audit_logging",
                 "messaging",
@@ -100,6 +102,11 @@ class PackageEntrypointTests(unittest.TestCase):
                 "basic_data",
                 "basic_data.entrypoints:init_tasks",
                 lambda: (lambda: {"basic_data": lambda conn: None}),
+            ),
+            FakeEntryPoint(
+                "personalization",
+                "personalization.entrypoints:init_tasks",
+                lambda: (lambda: {"personalization": lambda conn: None}),
             ),
             FakeEntryPoint(
                 "file_management",
@@ -149,6 +156,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "organization",
                 "authorization",
                 "basic_data",
+                "personalization",
                 "file_management",
                 "audit_logging",
                 "appearance",

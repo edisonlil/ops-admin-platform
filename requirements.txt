@@ -15,6 +15,7 @@ APScheduler>=3.10,<4
 -e packages/python/ops-admin-organization
 -e packages/python/ops-admin-authorization
 -e packages/python/ops-admin-basic-data
+-e packages/python/ops-admin-personalization
 -e packages/python/ops-admin-file-management
 -e packages/python/ops-admin-messaging
 -e packages/python/ops-admin-ai-assets

@@ -11,6 +11,7 @@ PYTHON_PACKAGES_ROOT = ROOT / "packages" / "python"
 BOUNDED_CONTEXTS = {
     "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
     "basic_data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data" / "src" / "basic_data",
+    "personalization": PYTHON_PACKAGES_ROOT / "ops-admin-personalization" / "src" / "personalization",
     "cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron" / "src" / "cron",
     "file_management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management" / "src" / "file_management",
     "ai_assets": PYTHON_PACKAGES_ROOT / "ops-admin-ai-assets" / "src" / "ai_assets",
@@ -27,6 +28,7 @@ BOUNDED_CONTEXTS = {
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
     "ops-admin-basic-data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data",
+    "ops-admin-personalization": PYTHON_PACKAGES_ROOT / "ops-admin-personalization",
     "ops-admin-cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron",
     "ops-admin-file-management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management",
     "ops-admin-ai-assets": PYTHON_PACKAGES_ROOT / "ops-admin-ai-assets",
@@ -231,6 +233,7 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
     allowed_files = {
         ROOT / "scripts" / "init_identity_access.py",
         ROOT / "scripts" / "init_basic_data.py",
+        ROOT / "scripts" / "init_personalization.py",
         ROOT / "scripts" / "init_llm_runtime.py",
         ROOT / "scripts" / "init_appearance.py",
         ROOT / "scripts" / "init_cron.py",
@@ -245,6 +248,8 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         BOUNDED_CONTEXTS["appearance"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["basic_data"] / "entrypoints.py",
         BOUNDED_CONTEXTS["basic_data"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["personalization"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["personalization"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["cron"] / "entrypoints.py",
         BOUNDED_CONTEXTS["cron"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["file_management"] / "entrypoints.py",
@@ -284,6 +289,7 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
             "ensure_audit_logging_schema",
             "ensure_organization_schema",
         "ensure_authorization_schema",
+        "ensure_personalization_schema",
     }
     package_paths = [*BOUNDED_CONTEXTS.values(), ROOT / "api"]
     for package_path in package_paths:
@@ -328,6 +334,11 @@ def test_python_packages_have_required_metadata_and_entrypoints() -> None:
     expected = {
         "ops-admin-system": ("system", "system.entrypoints:router", "system.entrypoints:init_tasks"),
         "ops-admin-basic-data": ("basic_data", "basic_data.entrypoints:router", "basic_data.entrypoints:init_tasks"),
+        "ops-admin-personalization": (
+            "personalization",
+            "personalization.entrypoints:router",
+            "personalization.entrypoints:init_tasks",
+        ),
         "ops-admin-cron": ("cron", "cron.entrypoints:router", "cron.entrypoints:init_tasks"),
         "ops-admin-file-management": (
             "file_management",
