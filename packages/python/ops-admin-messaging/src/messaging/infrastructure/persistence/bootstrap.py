@@ -21,6 +21,7 @@ def require_messaging_schema(conn: Any) -> None:
         "message_templates",
         "message_recipients",
         "message_channel_accounts",
+        "message_chat_bots",
         "message_channel_deliveries",
         "message_user_preferences",
     )

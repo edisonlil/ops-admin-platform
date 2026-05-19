@@ -11,6 +11,7 @@ from messaging.domain.models import (
     MESSAGE_STATUS_DISPATCHED,
     RECIPIENT_STATUS_READ,
     MessageChannelAccount,
+    MessageChatBot,
     MessageIntent,
     MessageRecipient,
     MessageTemplate,
@@ -60,6 +61,16 @@ CHANNEL_ACCOUNT_SORT_COLUMNS = {
     "create_time": "create_time",
     "update_time": "update_time",
 }
+CHAT_BOT_SORT_COLUMNS = {
+    "id": "id",
+    "platform": "platform",
+    "name": "name",
+    "enabled": "enabled",
+    "is_default": "is_default",
+    "last_test_status": "last_test_status",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def database_target() -> str | Path:
@@ -100,6 +111,7 @@ def create_in_app_message(
         actor=actor,
         template_id=None,
         channels=["in_app"],
+        chat_bot_ids=[],
         owner_department_id=owner_department_id,
     )
 
@@ -118,18 +130,25 @@ def create_message(
     actor: str,
     template_id: int | None,
     channels: list[str],
+    chat_bot_ids: list[int] | None = None,
     owner_department_id: int | None = None,
 ) -> MessageIntent:
     timestamp = now_iso()
     target = {"user_ids": recipient_user_ids}
+    normalized_chat_bot_ids = normalize_id_list(chat_bot_ids)
+    if normalized_chat_bot_ids:
+        target["chat_bot_ids"] = normalized_chat_bot_ids
     normalized_channels = normalize_channels(channels)
     delivery_summary = {
         channel: DELIVERY_STATUS_SENT if channel == "in_app" else DELIVERY_STATUS_PENDING
         for channel in normalized_channels
     }
+    if normalized_chat_bot_ids:
+        delivery_summary["chat_bot"] = DELIVERY_STATUS_PENDING
     with connect(database_target(), readonly=False) as conn:
         require_messaging_schema(conn)
         channel_accounts = default_channel_accounts(conn, tenant_id=tenant_id, channels=normalized_channels)
+        chat_bots = enabled_chat_bots_by_id(conn, tenant_id=tenant_id, chat_bot_ids=normalized_chat_bot_ids)
         cursor = conn.execute(
             """
             INSERT INTO message_intents (
@@ -164,7 +183,11 @@ def create_message(
             ),
         )
         message_id = inserted_id(conn, cursor, "message_intents", timestamp, actor)
-        for user_id in recipient_user_ids:
+        if recipient_user_ids:
+            recipient_payloads = [(user_id, user_id) for user_id in recipient_user_ids]
+        else:
+            recipient_payloads = [(0, -chat_bot_id) for chat_bot_id in normalized_chat_bot_ids]
+        for request_user_id, stored_recipient_user_id in recipient_payloads:
             recipient_cursor = conn.execute(
                 """
                 INSERT INTO message_recipients (
@@ -177,7 +200,7 @@ def create_message(
                 (
                     tenant_id,
                     message_id,
-                    user_id,
+                    stored_recipient_user_id,
                     "",
                     encode_json(delivery_summary),
                     actor,
@@ -208,8 +231,47 @@ def create_message(
                         channel_accounts.get(channel),
                         status,
                         timestamp if status == DELIVERY_STATUS_SENT else None,
-                        encode_json({"recipient_user_id": user_id, "title": title, "content": content}),
+                        encode_json({"recipient_user_id": request_user_id, "title": title, "content": content}),
                         encode_json(delivery_response(channel, status)),
+                        actor,
+                        sender_user_id,
+                        actor,
+                        sender_user_id,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+            for chat_bot_id in normalized_chat_bot_ids:
+                chat_bot = chat_bots.get(chat_bot_id)
+                conn.execute(
+                    """
+                    INSERT INTO message_channel_deliveries (
+                        tenant_id, message_id, recipient_id, channel, channel_account_id,
+                        status, request_json, response_json, failure_code, failure_message,
+                        creator, creator_id, editor, editor_id, create_time, update_time
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tenant_id,
+                        message_id,
+                        recipient_id,
+                        "chat_bot",
+                        None,
+                        DELIVERY_STATUS_PENDING,
+                        encode_json(
+                            {
+                                "recipient_user_id": request_user_id,
+                                "chat_bot_id": chat_bot_id,
+                                "chat_bot_name": chat_bot.name if chat_bot else "",
+                                "platform": chat_bot.platform if chat_bot else "",
+                                "title": title,
+                                "content": content,
+                            }
+                        ),
+                        encode_json({"queued": True, "message": "群聊机器人消息已记录，等待投递"}),
+                        "" if chat_bot else "BOT_NOT_AVAILABLE",
+                        "" if chat_bot else "群聊机器人不存在或未启用",
                         actor,
                         sender_user_id,
                         actor,
@@ -599,6 +661,152 @@ def get_channel_account(*, tenant_id: int, account_id: int) -> MessageChannelAcc
     return row_to_channel_account(dict(row)) if row else None
 
 
+def list_chat_bots(*, tenant_id: int, sort_by: str | None = None, sort_dir: str | None = None) -> list[MessageChatBot]:
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=CHAT_BOT_SORT_COLUMNS,
+        default="platform ASC, is_default DESC, id DESC",
+        tie_breaker="id DESC",
+    )
+    with connect(database_target(), readonly=True) as conn:
+        require_messaging_schema(conn)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM message_chat_bots
+            WHERE tenant_id = ? AND deleted = 0
+            ORDER BY {order_by}
+            """,
+            (tenant_id,),
+        ).fetchall()
+    return [row_to_chat_bot(dict(row), mask_secrets=True) for row in rows]
+
+
+def save_chat_bot(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_id: int | None) -> MessageChatBot:
+    timestamp = now_iso()
+    chat_bot_id = int(payload.get("id") or 0)
+    platform = str(payload.get("platform") or "").strip()
+    is_default = bool(payload.get("is_default", False))
+    existing_secret = ""
+    if chat_bot_id:
+        existing = raw_chat_bot_by_id(tenant_id=tenant_id, chat_bot_id=chat_bot_id)
+        existing_secret = existing.signing_secret if existing else ""
+    signing_secret = str(payload.get("signing_secret") or "").strip()
+    if signing_secret == "******":
+        signing_secret = existing_secret
+    values = (
+        platform,
+        str(payload.get("name") or "").strip(),
+        str(payload.get("description") or "").strip(),
+        str(payload.get("webhook_url") or "").strip(),
+        signing_secret,
+        str(payload.get("message_format") or "text").strip() or "text",
+        bool(payload.get("enabled", True)),
+        is_default,
+        actor,
+        actor_id,
+        timestamp,
+    )
+    with connect(database_target(), readonly=False) as conn:
+        require_messaging_schema(conn)
+        if is_default:
+            conn.execute(
+                """
+                UPDATE message_chat_bots
+                SET is_default = 0, editor = ?, editor_id = ?, update_time = ?
+                WHERE tenant_id = ? AND platform = ? AND deleted = 0
+                """,
+                (actor, actor_id, timestamp, tenant_id, platform),
+            )
+        if chat_bot_id:
+            conn.execute(
+                """
+                UPDATE message_chat_bots
+                SET platform = ?, name = ?, description = ?, webhook_url = ?, signing_secret = ?,
+                    message_format = ?, enabled = ?, is_default = ?, editor = ?, editor_id = ?, update_time = ?
+                WHERE id = ? AND tenant_id = ? AND deleted = 0
+                """,
+                (*values, chat_bot_id, tenant_id),
+            )
+            saved_id = chat_bot_id
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO message_chat_bots (
+                    tenant_id, platform, name, description, webhook_url, signing_secret,
+                    message_format, enabled, is_default, creator, creator_id, editor,
+                    editor_id, create_time, update_time
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tenant_id, *values[:8], actor, actor_id, actor, actor_id, timestamp, timestamp),
+            )
+            saved_id = inserted_id(conn, cursor, "message_chat_bots", timestamp, actor)
+        row = conn.execute("SELECT * FROM message_chat_bots WHERE id = ?", (saved_id,)).fetchone()
+    return row_to_chat_bot(dict(row), mask_secrets=True)
+
+
+def set_chat_bot_enabled(*, tenant_id: int, chat_bot_id: int, enabled: bool, actor: str, actor_id: int | None) -> MessageChatBot | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_messaging_schema(conn)
+        conn.execute(
+            """
+            UPDATE message_chat_bots
+            SET enabled = ?, editor = ?, editor_id = ?, update_time = ?
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (enabled, actor, actor_id, timestamp, chat_bot_id, tenant_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM message_chat_bots WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (chat_bot_id, tenant_id),
+        ).fetchone()
+    return row_to_chat_bot(dict(row), mask_secrets=True) if row else None
+
+
+def get_chat_bot(*, tenant_id: int, chat_bot_id: int, mask_secrets: bool = True) -> MessageChatBot | None:
+    with connect(database_target(), readonly=True) as conn:
+        require_messaging_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM message_chat_bots WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (chat_bot_id, tenant_id),
+        ).fetchone()
+    return row_to_chat_bot(dict(row), mask_secrets=mask_secrets) if row else None
+
+
+def raw_chat_bot_by_id(*, tenant_id: int, chat_bot_id: int) -> MessageChatBot | None:
+    return get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
+
+
+def update_chat_bot_test_result(
+    *,
+    tenant_id: int,
+    chat_bot_id: int,
+    status: str,
+    message: str,
+    actor: str,
+    actor_id: int | None,
+) -> MessageChatBot | None:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_messaging_schema(conn)
+        conn.execute(
+            """
+            UPDATE message_chat_bots
+            SET last_test_status = ?, last_test_message = ?, last_test_time = ?,
+                editor = ?, editor_id = ?, update_time = ?
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (status, message, timestamp, actor, actor_id, timestamp, chat_bot_id, tenant_id),
+        )
+        row = conn.execute(
+            "SELECT * FROM message_chat_bots WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (chat_bot_id, tenant_id),
+        ).fetchone()
+    return row_to_chat_bot(dict(row), mask_secrets=True) if row else None
+
+
 def get_template_by_key(*, tenant_id: int, template_key: str) -> MessageTemplate | None:
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
@@ -765,6 +973,29 @@ def row_to_channel_account(row: dict[str, Any]) -> MessageChannelAccount:
     )
 
 
+def row_to_chat_bot(row: dict[str, Any], *, mask_secrets: bool) -> MessageChatBot:
+    signing_secret = str(row.get("signing_secret") or "")
+    if mask_secrets and signing_secret:
+        signing_secret = "******"
+    return MessageChatBot(
+        id=int(row["id"]),
+        tenant_id=int(row["tenant_id"]),
+        platform=str(row.get("platform") or ""),
+        name=str(row.get("name") or ""),
+        description=str(row.get("description") or ""),
+        webhook_url=mask_webhook_url(str(row.get("webhook_url") or "")) if mask_secrets else str(row.get("webhook_url") or ""),
+        signing_secret=signing_secret,
+        message_format=str(row.get("message_format") or "text"),
+        enabled=bool(row.get("enabled")),
+        is_default=bool(row.get("is_default")),
+        last_test_status=str(row.get("last_test_status") or ""),
+        last_test_message=str(row.get("last_test_message") or ""),
+        last_test_time=str(row["last_test_time"]) if row.get("last_test_time") is not None else None,
+        create_time=str(row.get("create_time") or ""),
+        update_time=str(row.get("update_time") or ""),
+    )
+
+
 def row_to_preference(row: dict[str, Any]) -> MessageUserPreference:
     return MessageUserPreference(
         id=int(row["id"]),
@@ -784,14 +1015,32 @@ def encode_json(payload: dict[str, Any]) -> str:
 
 
 def normalize_channels(value: Any) -> list[str]:
+    if value == []:
+        return []
     if not isinstance(value, list):
         return ["in_app"]
     normalized: list[str] = []
     for item in value:
         channel = str(item or "").strip()
+        if channel == "chat_bot":
+            continue
         if channel and channel not in normalized:
             normalized.append(channel)
     return normalized or ["in_app"]
+
+
+def normalize_id_list(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[int] = []
+    for item in value:
+        try:
+            item_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if item_id > 0 and item_id not in normalized:
+            normalized.append(item_id)
+    return normalized
 
 
 def default_channel_accounts(conn: Any, *, tenant_id: int, channels: list[str]) -> dict[str, int | None]:
@@ -810,6 +1059,21 @@ def default_channel_accounts(conn: Any, *, tenant_id: int, channels: list[str]) 
         if row:
             channel_accounts[channel] = int(row["id"])
     return channel_accounts
+
+
+def enabled_chat_bots_by_id(conn: Any, *, tenant_id: int, chat_bot_ids: list[int]) -> dict[int, MessageChatBot]:
+    if not chat_bot_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in chat_bot_ids)
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM message_chat_bots
+        WHERE tenant_id = ? AND id IN ({placeholders}) AND enabled = TRUE AND deleted = 0
+        """,
+        (tenant_id, *chat_bot_ids),
+    ).fetchall()
+    return {int(row["id"]): row_to_chat_bot(dict(row), mask_secrets=False) for row in rows}
 
 
 def delivery_response(channel: str, status: str) -> dict[str, Any]:
@@ -859,3 +1123,11 @@ def mask_channel_config(config: dict[str, Any]) -> dict[str, Any]:
             if masked.get(key):
                 masked[key] = "******"
     return masked
+
+
+def mask_webhook_url(webhook_url: str) -> str:
+    if not webhook_url:
+        return ""
+    if len(webhook_url) <= 18:
+        return "******"
+    return f"{webhook_url[:12]}******{webhook_url[-6:]}"

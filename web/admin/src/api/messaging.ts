@@ -75,10 +75,31 @@ export interface MessageChannelAccount {
   update_time?: string;
 }
 
+export type MessageChatBotPlatform = 'wps' | 'wecom' | 'feishu' | 'dingtalk' | string;
+
+export interface MessageChatBot {
+  id: number;
+  tenant_id: number;
+  platform: MessageChatBotPlatform;
+  name: string;
+  description: string;
+  webhook_url: string;
+  signing_secret?: string;
+  message_format: 'text' | string;
+  enabled: boolean;
+  is_default: boolean;
+  last_test_status?: string;
+  last_test_message?: string;
+  last_test_time?: string | null;
+  create_time?: string;
+  update_time?: string;
+}
+
 export interface SendInAppMessagePayload {
   title: string;
   content: string;
   recipient_user_ids: number[];
+  chat_bot_ids?: number[];
   message_type?: string;
   priority?: string;
   payload?: Record<string, unknown>;
@@ -88,6 +109,7 @@ export interface SendTemplateMessagePayload {
   template_key: string;
   variables: Record<string, unknown>;
   recipient_user_ids: number[];
+  chat_bot_ids?: number[];
   message_type?: string;
   priority?: string;
   channels?: string[];
@@ -206,4 +228,31 @@ export function disableMessageChannelAccount(accountId: number) {
 
 export function testMessageChannelAccount(accountId: number) {
   return Alova.Post<{ ok: boolean; channel: string; message: string }>(`/messaging/channel-accounts/${accountId}/test`);
+}
+
+export function getMessageChatBots(params: SortParams = {}) {
+  return Alova.Get<{ items: MessageChatBot[] }>('/messaging/chat-bots', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function saveMessageChatBot(payload: Partial<MessageChatBot>) {
+  if (payload.id) {
+    return Alova.Put<{ item: MessageChatBot }>(`/messaging/chat-bots/${payload.id}`, payload);
+  }
+  return Alova.Post<{ item: MessageChatBot }>('/messaging/chat-bots', payload);
+}
+
+export function enableMessageChatBot(chatBotId: number) {
+  return Alova.Post<{ item: MessageChatBot }>(`/messaging/chat-bots/${chatBotId}/enable`);
+}
+
+export function disableMessageChatBot(chatBotId: number) {
+  return Alova.Post<{ item: MessageChatBot }>(`/messaging/chat-bots/${chatBotId}/disable`);
+}
+
+export function testMessageChatBot(chatBotId: number) {
+  return Alova.Post<{ item: MessageChatBot; ok: boolean; message: string; status_code: number; response: Record<string, unknown> }>(
+    `/messaging/chat-bots/${chatBotId}/test`
+  );
 }

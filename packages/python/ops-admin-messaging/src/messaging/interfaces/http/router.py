@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from identity_access.interfaces.http import dependencies as auth
 from messaging.application import services
 from messaging.interfaces.http.dtos import (
+    MessageChatBotRequest,
     MessageChannelAccountRequest,
     MessagePreferencesRequest,
     MessageTemplateRequest,
@@ -149,6 +150,58 @@ def test_channel_account(
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:test")),
 ) -> dict[str, Any]:
     return ok(services.test_channel_account(account_id, current_user))
+
+
+@router.get("/chat-bots")
+def chat_bots(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:view")),
+) -> dict[str, Any]:
+    return ok(services.list_chat_bots(current_user, sort_by=sort_by, sort_dir=sort_dir))
+
+
+@router.post("/chat-bots")
+def save_chat_bot(
+    payload: MessageChatBotRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:create")),
+) -> dict[str, Any]:
+    return ok(services.save_chat_bot(payload.model_dump(), current_user))
+
+
+@router.put("/chat-bots/{chat_bot_id}")
+def update_chat_bot(
+    chat_bot_id: int,
+    payload: MessageChatBotRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:update")),
+) -> dict[str, Any]:
+    data = payload.model_dump()
+    data["id"] = chat_bot_id
+    return ok(services.save_chat_bot(data, current_user))
+
+
+@router.post("/chat-bots/{chat_bot_id}/enable")
+def enable_chat_bot(
+    chat_bot_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:enable")),
+) -> dict[str, Any]:
+    return ok(services.set_chat_bot_enabled(chat_bot_id, True, current_user))
+
+
+@router.post("/chat-bots/{chat_bot_id}/disable")
+def disable_chat_bot(
+    chat_bot_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:disable")),
+) -> dict[str, Any]:
+    return ok(services.set_chat_bot_enabled(chat_bot_id, False, current_user))
+
+
+@router.post("/chat-bots/{chat_bot_id}/test")
+def test_chat_bot(
+    chat_bot_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:test")),
+) -> dict[str, Any]:
+    return ok(services.test_chat_bot(chat_bot_id, current_user))
 
 
 @router.get("/inbox")

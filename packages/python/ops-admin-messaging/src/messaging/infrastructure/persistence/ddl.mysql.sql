@@ -88,6 +88,30 @@ CREATE TABLE IF NOT EXISTS message_channel_accounts (
     editor_id BIGINT DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS message_chat_bots (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    platform VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL DEFAULT (''),
+    webhook_url TEXT NOT NULL,
+    signing_secret TEXT NOT NULL DEFAULT (''),
+    message_format VARCHAR(255) NOT NULL DEFAULT ('text'),
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    last_test_status VARCHAR(255) NOT NULL DEFAULT (''),
+    last_test_message TEXT NOT NULL DEFAULT (''),
+    last_test_time TEXT DEFAULT NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL
+);
+
 CREATE TABLE IF NOT EXISTS message_channel_deliveries (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     tenant_id BIGINT NOT NULL DEFAULT 1,
@@ -139,6 +163,7 @@ CREATE INDEX idx_message_templates_tenant ON message_templates(tenant_id, status
 CREATE INDEX idx_message_recipients_user ON message_recipients(tenant_id, recipient_user_id, read_status);
 CREATE INDEX idx_message_recipients_message ON message_recipients(message_id);
 CREATE INDEX idx_message_channel_accounts_tenant ON message_channel_accounts(tenant_id, channel);
+CREATE INDEX idx_message_chat_bots_tenant ON message_chat_bots(tenant_id, platform);
 CREATE INDEX idx_message_deliveries_message ON message_channel_deliveries(message_id);
 CREATE INDEX idx_message_deliveries_recipient ON message_channel_deliveries(recipient_id);
 CREATE INDEX idx_message_preferences_user ON message_user_preferences(tenant_id, user_id);

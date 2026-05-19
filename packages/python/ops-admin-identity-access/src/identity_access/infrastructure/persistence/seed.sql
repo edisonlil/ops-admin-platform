@@ -389,6 +389,30 @@ SELECT 'messaging:channels:test', 'Messaging channels test', 'Test tenant messag
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:channels:test');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:view', 'Messaging chat bots view', 'View tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:create', 'Messaging chat bots create', 'Create tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:create');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:update', 'Messaging chat bots update', 'Update tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:update');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:enable', 'Messaging chat bots enable', 'Enable tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:enable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:disable', 'Messaging chat bots disable', 'Disable tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:disable');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'messaging:chat_bots:test', 'Messaging chat bots test', 'Test tenant group chat robots'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:chat_bots:test');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'messaging:dispatch:manage', 'Messaging dispatch manage', 'Dispatch and retry tenant messages'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'messaging:dispatch:manage');
 
@@ -512,6 +536,30 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-disable
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'message-channels-test', 'tenant', '测试渠道', 'action', '', '', '', '', 'message-channels', 'messaging:channels:test', 905, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-channels-test');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots', 'tenant', '群聊机器人', 'page', '/messaging/chat-bots', 'message-chat-bots', '/messaging/chat-bots/index', 'robot', 'messaging', 'messaging:chat_bots:view', 91, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots-create', 'tenant', '新增机器人', 'action', '', '', '', '', 'message-chat-bots', 'messaging:chat_bots:create', 911, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots-update', 'tenant', '编辑机器人', 'action', '', '', '', '', 'message-chat-bots', 'messaging:chat_bots:update', 912, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots-enable', 'tenant', '启用机器人', 'action', '', '', '', '', 'message-chat-bots', 'messaging:chat_bots:enable', 913, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots-enable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots-disable', 'tenant', '停用机器人', 'action', '', '', '', '', 'message-chat-bots', 'messaging:chat_bots:disable', 914, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots-disable');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'message-chat-bots-test', 'tenant', '测试机器人', 'action', '', '', '', '', 'message-chat-bots', 'messaging:chat_bots:test', 915, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'message-chat-bots-test');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'cron', 'tenant', '定时任务', 'directory', '', '', '', 'ScheduleOutlined', '', '', 93, TRUE

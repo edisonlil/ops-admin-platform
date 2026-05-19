@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from messaging.application.ports import ChatBotSenderPort, UnavailableChatBotSender
 from messaging.infrastructure.persistence import repositories
 from system.application.sorting import InvalidSortError
 from system.application.data_access import (
@@ -15,13 +16,21 @@ from system.application.data_access import (
 
 TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 MESSAGE_RESOURCE = ResourceDescriptor(resource_key="messaging.message")
+SUPPORTED_CHAT_BOT_PLATFORMS = ("wps", "wecom", "feishu", "dingtalk")
+chat_bot_sender: ChatBotSenderPort = UnavailableChatBotSender()
+
+
+def configure_chat_bot_sender(sender: ChatBotSenderPort) -> None:
+    global chat_bot_sender
+    chat_bot_sender = sender
 
 
 def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     recipient_user_ids = normalize_recipient_ids(payload.get("recipient_user_ids"))
-    if not recipient_user_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recipient_user_ids is required")
+    chat_bot_ids = normalize_id_list(payload.get("chat_bot_ids"))
+    if not recipient_user_ids and not chat_bot_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recipient_user_ids or chat_bot_ids is required")
     title = str(payload.get("title") or "").strip()
     content = str(payload.get("content") or "").strip()
     if not title:
@@ -31,7 +40,7 @@ def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -
     actor = str(current_user.get("username") or current_user.get("name") or "")
     sender_user_id = int(current_user.get("id", 0) or 0) or None
     try:
-        message = repositories.create_in_app_message(
+        message = repositories.create_message(
             tenant_id=tenant_id,
             title=title,
             content=content,
@@ -42,18 +51,23 @@ def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -
             sender_user_id=sender_user_id,
             sender_name=actor,
             actor=actor,
+            template_id=None,
+            channels=["in_app"] if recipient_user_ids else [],
+            chat_bot_ids=chat_bot_ids,
             owner_department_id=current_user_primary_department_id(current_user),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return {"item": message.to_dict()}
+    chat_bot_results = dispatch_chat_bots(tenant_id=tenant_id, chat_bot_ids=chat_bot_ids, title=title, content=content)
+    return {"item": message.to_dict(), "chat_bot_results": chat_bot_results}
 
 
 def send_template_message(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     recipient_user_ids = normalize_recipient_ids(payload.get("recipient_user_ids"))
-    if not recipient_user_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recipient_user_ids is required")
+    chat_bot_ids = normalize_id_list(payload.get("chat_bot_ids"))
+    if not recipient_user_ids and not chat_bot_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="recipient_user_ids or chat_bot_ids is required")
     template_key = str(payload.get("template_key") or "").strip()
     if not template_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_key is required")
@@ -66,13 +80,17 @@ def send_template_message(payload: dict[str, Any], current_user: dict[str, Any])
     )
     actor = current_actor(current_user)
     sender_user_id = current_user_id_or_none(current_user)
-    channels = normalize_channels(payload.get("channels")) or template.channels
+    channels_payload = payload.get("channels")
+    channels = normalize_channels(channels_payload)
+    if channels_payload is None and not channels:
+        channels = template.channels
     business_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     business_payload = {
         **business_payload,
         "template_key": template.template_key,
         "template_variables": variables,
         "channels": channels,
+        "chat_bot_ids": chat_bot_ids,
     }
     try:
         message = repositories.create_message(
@@ -88,11 +106,18 @@ def send_template_message(payload: dict[str, Any], current_user: dict[str, Any])
             actor=actor,
             template_id=template.id,
             channels=channels,
+            chat_bot_ids=chat_bot_ids,
             owner_department_id=current_user_primary_department_id(current_user),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return {"item": message.to_dict(), "rendered": rendered, "channels": channels}
+    chat_bot_results = dispatch_chat_bots(
+        tenant_id=tenant_id,
+        chat_bot_ids=chat_bot_ids,
+        title=rendered["title"],
+        content=rendered["content"],
+    )
+    return {"item": message.to_dict(), "rendered": rendered, "channels": channels, "chat_bot_results": chat_bot_results}
 
 
 def list_messages(
@@ -307,8 +332,80 @@ def test_channel_account(account_id: int, current_user: dict[str, Any]) -> dict[
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message channel account not found")
     if item.channel == "in_app":
-        return {"ok": True, "channel": item.channel, "message": "站内信通道可用"}
-    return {"ok": False, "channel": item.channel, "message": "该外部通道适配器尚未接入"}
+        return {"ok": True, "channel": item.channel, "message": "站内信渠道已启用"}
+    return {"ok": False, "channel": item.channel, "message": "外部渠道适配器尚未接入，请使用群聊机器人配置 Webhook"}
+
+
+def list_chat_bots(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    try:
+        items = repositories.list_chat_bots(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"items": [item.to_dict() for item in items]}
+
+
+def save_chat_bot(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    validate_chat_bot_payload(payload)
+    actor = current_actor(current_user)
+    try:
+        item = repositories.save_chat_bot(
+            tenant_id=current_tenant_id(current_user),
+            payload=payload,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {"item": item.to_dict()}
+
+
+def set_chat_bot_enabled(chat_bot_id: int, enabled: bool, current_user: dict[str, Any]) -> dict[str, Any]:
+    actor = current_actor(current_user)
+    try:
+        item = repositories.set_chat_bot_enabled(
+            tenant_id=current_tenant_id(current_user),
+            chat_bot_id=chat_bot_id,
+            enabled=enabled,
+            actor=actor,
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message chat bot not found")
+    return {"item": item.to_dict()}
+
+
+def test_chat_bot(chat_bot_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    try:
+        item = repositories.get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message chat bot not found")
+    if not item.enabled:
+        result = {"ok": False, "message": "群聊机器人未启用", "status_code": 0, "response": {}}
+    else:
+        delivery = chat_bot_sender.send(chat_bot=item, title="消息中心测试", content="这是一条群聊机器人测试消息。")
+        result = {
+            "ok": delivery.ok,
+            "message": delivery.message,
+            "status_code": delivery.status_code,
+            "response": delivery.response,
+        }
+    updated = repositories.update_chat_bot_test_result(
+        tenant_id=tenant_id,
+        chat_bot_id=chat_bot_id,
+        status="success" if result["ok"] else "failed",
+        message=str(result["message"]),
+        actor=actor,
+        actor_id=current_user_id_or_none(current_user),
+    )
+    return {"item": updated.to_dict() if updated else item.to_dict(), **result}
 
 
 def get_enabled_template(*, tenant_id: int, template_key: str):
@@ -321,6 +418,42 @@ def get_enabled_template(*, tenant_id: int, template_key: str):
     if template.status != "enabled":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message template is not enabled")
     return template
+
+
+def validate_chat_bot_payload(payload: dict[str, Any]) -> None:
+    platform = str(payload.get("platform") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    webhook_url = str(payload.get("webhook_url") or "").strip()
+    message_format = str(payload.get("message_format") or "text").strip() or "text"
+    if platform not in SUPPORTED_CHAT_BOT_PLATFORMS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="platform must be wps, wecom, feishu, or dingtalk")
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
+    if not webhook_url or not webhook_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="webhook_url must be a valid URL")
+    if message_format != "text":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message_format currently only supports text")
+
+
+def dispatch_chat_bots(*, tenant_id: int, chat_bot_ids: list[int], title: str, content: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for chat_bot_id in chat_bot_ids:
+        chat_bot = repositories.get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
+        if not chat_bot or not chat_bot.enabled:
+            results.append({"chat_bot_id": chat_bot_id, "ok": False, "message": "群聊机器人不存在或未启用", "status_code": 0})
+            continue
+        delivery = chat_bot_sender.send(chat_bot=chat_bot, title=title, content=content)
+        results.append(
+            {
+                "chat_bot_id": chat_bot_id,
+                "platform": chat_bot.platform,
+                "name": chat_bot.name,
+                "ok": delivery.ok,
+                "message": delivery.message,
+                "status_code": delivery.status_code,
+            }
+        )
+    return results
 
 
 def render_template_values(*, title_template: str, content_template: str, variables: dict[str, Any]) -> dict[str, Any]:
@@ -357,6 +490,8 @@ def normalize_channels(value: Any) -> list[str]:
     normalized: list[str] = []
     for item in value:
         channel = str(item or "").strip()
+        if channel == "chat_bot":
+            continue
         if channel and channel not in normalized:
             normalized.append(channel)
     return normalized
@@ -424,4 +559,18 @@ def normalize_recipient_ids(value: Any) -> list[int]:
             continue
         if user_id > 0 and user_id not in normalized:
             normalized.append(user_id)
+    return normalized
+
+
+def normalize_id_list(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[int] = []
+    for item in value:
+        try:
+            item_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if item_id > 0 and item_id not in normalized:
+            normalized.append(item_id)
     return normalized

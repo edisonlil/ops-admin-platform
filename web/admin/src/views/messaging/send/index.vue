@@ -3,8 +3,8 @@
     <div class="send-workbench">
       <section class="send-workbench__form">
         <div class="send-workbench__heading">
-          <h2>发送站内信</h2>
-          <p>向指定用户发送租户内消息，支持直接编写或套用已启用的消息模板。</p>
+          <h2>发送消息</h2>
+          <p>向指定用户或群聊机器人发送消息，支持直接编写或套用已启用的消息模板。</p>
         </div>
 
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
@@ -13,6 +13,16 @@
               <n-radio-button value="direct">直接发送</n-radio-button>
               <n-radio-button value="template">模板发送</n-radio-button>
             </n-radio-group>
+          </n-form-item>
+
+          <n-form-item v-if="form.mode === 'direct'" label="发送渠道" path="channels">
+            <n-checkbox-group v-model:value="form.channels" @update:value="handleChannelsChange">
+              <n-space>
+                <n-checkbox v-for="channel in activeChannelOptions" :key="channel.value" :value="channel.value">
+                  {{ channel.label }}
+                </n-checkbox>
+              </n-space>
+            </n-checkbox-group>
           </n-form-item>
 
           <n-grid v-if="form.mode === 'template'" :cols="2" :x-gap="16" responsive="screen">
@@ -28,9 +38,9 @@
               />
             </n-form-item-gi>
             <n-form-item-gi label="发送渠道" path="channels">
-              <n-checkbox-group v-model:value="form.channels">
+              <n-checkbox-group v-model:value="form.channels" @update:value="handleChannelsChange">
                 <n-space>
-                  <n-checkbox v-for="channel in channelOptions" :key="channel.value" :value="channel.value">
+                  <n-checkbox v-for="channel in activeChannelOptions" :key="channel.value" :value="channel.value">
                     {{ channel.label }}
                   </n-checkbox>
                 </n-space>
@@ -38,14 +48,12 @@
             </n-form-item-gi>
           </n-grid>
 
-          <div v-if="form.mode === 'template'" class="template-variables">
+          <div v-if="form.mode === 'template' && templateVariableFields.length" class="template-variables">
             <div class="template-variables__header">
               <span>模板变量</span>
               <n-button size="tiny" text :disabled="!form.template_key" @click="renderSelectedTemplate">刷新预览</n-button>
             </div>
-            <n-empty v-if="!form.template_key" size="small" description="选择模板后填写变量" />
-            <n-empty v-else-if="!templateVariableFields.length" size="small" description="当前模板无需变量" />
-            <n-grid v-else :cols="2" :x-gap="16" responsive="screen">
+            <n-grid :cols="2" :x-gap="16" responsive="screen">
               <n-form-item-gi v-for="field in templateVariableFields" :key="field.key" :show-require-mark="field.required">
                 <template #label>
                   <span class="template-variable-label">
@@ -91,7 +99,7 @@
             <n-form-item-gi label="标题" path="title">
               <n-input v-model:value="form.title" :disabled="form.mode === 'template'" placeholder="例如：系统维护通知" />
             </n-form-item-gi>
-            <n-form-item-gi label="接收用户" path="recipient_user_ids">
+            <n-form-item-gi v-if="usesInAppChannel" label="接收用户" path="recipient_user_ids">
               <n-select
                 v-model:value="form.recipient_user_ids"
                 multiple
@@ -103,6 +111,18 @@
                 placeholder="搜索并选择接收用户"
                 @search="handleUserSearch"
                 @focus="loadUsers"
+              />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="usesChatBotChannel" label="群聊机器人" path="chat_bot_ids">
+              <n-select
+                v-model:value="form.chat_bot_ids"
+                multiple
+                filterable
+                clearable
+                :options="chatBotOptions"
+                :loading="chatBotsLoading"
+                placeholder="选择要发送到的群聊机器人"
+                @focus="loadChatBots"
               />
             </n-form-item-gi>
             <n-form-item-gi label="消息类型" path="message_type">
@@ -139,7 +159,7 @@
         <p>{{ previewContent }}</p>
         <div v-if="missingVariables.length" class="preview-warning">缺少变量：{{ missingVariables.join('、') }}</div>
         <div class="preview-foot">
-          <span>{{ form.recipient_user_ids.length }} 个接收人</span>
+          <span>{{ form.recipient_user_ids.length }} 个接收人 / {{ form.chat_bot_ids.length }} 个机器人</span>
           <span>{{ previewChannels }}</span>
         </div>
       </aside>
@@ -156,10 +176,12 @@
   import { getCurrentTenantUsers } from '@/api/business';
   import { usePermission } from '@/hooks/web/usePermission';
   import {
+    getMessageChatBots,
     getMessageTemplates,
     renderMessageTemplate,
     sendInAppMessage,
     sendTemplateMessage,
+    type MessageChatBot,
     type MessageTemplate,
   } from '@/api/messaging';
 
@@ -189,8 +211,10 @@
   const sending = ref(false);
   const usersLoading = ref(false);
   const templatesLoading = ref(false);
+  const chatBotsLoading = ref(false);
   const allUsers = ref<TenantUser[]>([]);
   const templates = ref<MessageTemplate[]>([]);
+  const chatBots = ref<MessageChatBot[]>([]);
   const userOptions = ref<SelectOption[]>([]);
   const missingVariables = ref<string[]>([]);
   const templateVariableValues = reactive<Record<string, string | number | boolean | null>>({});
@@ -205,6 +229,7 @@
     template_key: null as string | null,
     channels: ['in_app'] as string[],
     recipient_user_ids: [] as number[],
+    chat_bot_ids: [] as number[],
     message_type: 'system',
     priority: 'normal',
   });
@@ -225,6 +250,7 @@
 
   const channelOptions = [
     { label: '站内信', value: 'in_app' },
+    { label: '机器人', value: 'chat_bot' },
     { label: '飞书', value: 'feishu' },
     { label: '钉钉', value: 'dingtalk' },
     { label: '邮箱', value: 'email' },
@@ -239,6 +265,14 @@
         value: item.template_key,
       }))
   );
+  const chatBotOptions = computed<SelectOption[]>(() =>
+    chatBots.value
+      .filter((item) => item.enabled)
+      .map((item) => ({
+        label: `${platformLabel(item.platform)} / ${item.name}`,
+        value: item.id,
+      }))
+  );
   const typeLabel = computed(() => typeOptions.find((item) => item.value === form.message_type)?.label || form.message_type);
   const priorityLabel = computed(() => priorityOptions.find((item) => item.value === form.priority)?.label || form.priority);
   const previewTitle = computed(() => (form.mode === 'template' ? rendered.title : form.title) || '未填写标题');
@@ -246,6 +280,14 @@
   const previewChannels = computed(() => form.channels.map((value) => channelOptions.find((item) => item.value === value)?.label || value).join(' / '));
   const selectedTemplate = computed(() => templates.value.find((item) => item.template_key === form.template_key));
   const templateVariableFields = computed<TemplateVariableField[]>(() => buildTemplateVariableFields(selectedTemplate.value));
+  const activeChannelOptions = computed(() => {
+    if (form.mode === 'direct') {
+      return channelOptions.filter((item) => ['in_app', 'chat_bot'].includes(String(item.value)));
+    }
+    return channelOptions;
+  });
+  const usesInAppChannel = computed(() => form.channels.includes('in_app'));
+  const usesChatBotChannel = computed(() => form.channels.includes('chat_bot'));
 
   const rules: FormRules = {
     title: [
@@ -278,9 +320,27 @@
     recipient_user_ids: [
       {
         validator() {
-          return form.recipient_user_ids.length > 0;
+          return !usesInAppChannel.value || form.recipient_user_ids.length > 0;
         },
-        message: '请选择至少一个接收用户',
+        message: '请选择接收用户',
+        trigger: ['change', 'blur'],
+      },
+    ],
+    chat_bot_ids: [
+      {
+        validator() {
+          return !usesChatBotChannel.value || form.chat_bot_ids.length > 0;
+        },
+        message: '请选择群聊机器人',
+        trigger: ['change', 'blur'],
+      },
+    ],
+    channels: [
+      {
+        validator() {
+          return form.channels.length > 0;
+        },
+        message: '请选择发送渠道',
         trigger: ['change', 'blur'],
       },
     ],
@@ -298,6 +358,16 @@
         value: user.id,
         disabled: user.is_active === false,
       }));
+  }
+
+  function platformLabel(platform: string) {
+    const labels: Record<string, string> = {
+      wps: 'WPS协作',
+      wecom: '企业微信',
+      feishu: '飞书',
+      dingtalk: '钉钉',
+    };
+    return labels[platform] || platform;
   }
 
   function asSchemaRecord(value: unknown): SchemaRecord | null {
@@ -493,6 +563,21 @@
     }
   }
 
+  async function loadChatBots() {
+    if (chatBots.value.length || chatBotsLoading.value) {
+      return;
+    }
+    chatBotsLoading.value = true;
+    try {
+      const payload = await getMessageChatBots();
+      chatBots.value = payload.items || [];
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '机器人列表加载失败');
+    } finally {
+      chatBotsLoading.value = false;
+    }
+  }
+
   async function handleUserSearch(keyword: string) {
     if (!allUsers.value.length) {
       await loadUsers();
@@ -502,6 +587,8 @@
 
   async function handleModeChange() {
     formRef.value?.restoreValidation();
+    form.channels = ['in_app'];
+    form.chat_bot_ids = [];
     if (form.mode === 'template') {
       await loadTemplates();
       await renderSelectedTemplate();
@@ -510,9 +597,22 @@
 
   async function handleTemplateChange() {
     const template = selectedTemplate.value;
-    form.channels = template?.channels?.length ? [...template.channels] : ['in_app'];
+    form.channels = normalizeFormChannels(template?.channels?.length ? [...template.channels] : ['in_app']);
+    handleChannelsChange();
     syncTemplateVariableValues();
     await renderSelectedTemplate();
+  }
+
+  function handleChannelsChange() {
+    if (!usesInAppChannel.value) {
+      form.recipient_user_ids = [];
+    }
+    if (!usesChatBotChannel.value) {
+      form.chat_bot_ids = [];
+    } else {
+      loadChatBots();
+    }
+    formRef.value?.restoreValidation();
   }
 
   function scheduleRenderSelectedTemplate() {
@@ -549,6 +649,7 @@
     form.template_key = null;
     form.channels = ['in_app'];
     form.recipient_user_ids = [];
+    form.chat_bot_ids = [];
     form.message_type = 'system';
     form.priority = 'normal';
     rendered.title = '';
@@ -575,19 +676,22 @@
     sending.value = true;
     try {
       if (form.mode === 'template') {
+        const channels = deliveryChannels();
         await sendTemplateMessage({
           template_key: String(form.template_key),
           variables: buildVariables(),
           recipient_user_ids: form.recipient_user_ids,
+          chat_bot_ids: form.chat_bot_ids,
           message_type: form.message_type,
           priority: form.priority,
-          channels: form.channels,
+          channels,
         });
       } else {
         await sendInAppMessage({
           title: form.title.trim(),
           content: form.content.trim(),
           recipient_user_ids: form.recipient_user_ids,
+          chat_bot_ids: form.chat_bot_ids,
           message_type: form.message_type,
           priority: form.priority,
         });
@@ -599,8 +703,18 @@
     }
   }
 
+  function normalizeFormChannels(channels: string[]) {
+    const normalized = channels.filter((channel) => channelOptions.some((item) => item.value === channel));
+    return normalized.length ? [...new Set(normalized)] : ['in_app'];
+  }
+
+  function deliveryChannels() {
+    return form.channels.filter((channel) => channel !== 'chat_bot');
+  }
+
   loadUsers();
   loadTemplates();
+  loadChatBots();
 
   onBeforeUnmount(() => {
     if (renderTimer) {

@@ -439,10 +439,12 @@ class ApiTests(unittest.TestCase):
         self.assertIn("tenant-api-keys", keys)
         self.assertIn("message-templates", keys)
         self.assertIn("message-channels", keys)
+        self.assertIn("message-chat-bots", keys)
         self.assertNotIn("message-templates-enable", keys)
         permissions = {item["value"] for item in login_response.json()["data"]["permissions"]}
         self.assertIn("messaging:templates:enable", permissions)
         self.assertIn("messaging:channels:test", permissions)
+        self.assertIn("messaging:chat_bots:test", permissions)
         self.assertIn("cron:tasks:view", permissions)
         self.assertIn("cron:tasks:trigger", permissions)
         self.assertIn("file:object:upload", permissions)
@@ -1446,6 +1448,74 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(preferences_response.status_code, 200)
         self.assertEqual(preferences_response.json()["data"]["items"][0]["message_type"], "system")
+
+    def test_admin_can_manage_chat_bot_and_send_to_it(self) -> None:
+        self.initialize_messaging_db()
+
+        bot_response = self.request(
+            "POST",
+            "/api/messaging/chat-bots",
+            json={
+                "platform": "feishu",
+                "name": "运维告警群机器人",
+                "description": "用于系统告警通知",
+                "webhook_url": "https://example.test/robot",
+                "signing_secret": "secret-value",
+                "message_format": "text",
+                "enabled": True,
+                "is_default": True,
+            },
+        )
+        self.assertEqual(bot_response.status_code, 200)
+        bot = bot_response.json()["data"]["item"]
+        self.assertEqual(bot["platform"], "feishu")
+        self.assertEqual(bot["name"], "运维告警群机器人")
+        self.assertEqual(bot["signing_secret"], "******")
+        self.assertIn("******", bot["webhook_url"])
+
+        list_response = self.request("GET", "/api/messaging/chat-bots")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(len(list_response.json()["data"]["items"]), 1)
+
+        with mock.patch("messaging.application.services.chat_bot_sender.send") as send_mock:
+            from messaging.application.ports import ChatBotDeliveryResult
+
+            send_mock.return_value = ChatBotDeliveryResult(
+                ok=True,
+                status_code=200,
+                message="ok",
+                request={"body": {}},
+                response={"errcode": 0},
+            )
+            send_response = self.request(
+                "POST",
+                "/api/messaging/messages/send",
+                json={
+                    "title": "告警通知",
+                    "content": "CPU 使用率过高",
+                    "recipient_user_ids": [],
+                    "chat_bot_ids": [bot["id"]],
+                    "message_type": "system",
+                    "priority": "high",
+                },
+            )
+
+        self.assertEqual(send_response.status_code, 200)
+        data = send_response.json()["data"]
+        self.assertEqual(data["item"]["target"]["chat_bot_ids"], [bot["id"]])
+        self.assertTrue(data["chat_bot_results"][0]["ok"])
+        send_mock.assert_called_once()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            delivery = conn.execute(
+                "SELECT * FROM message_channel_deliveries WHERE channel = 'chat_bot'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(delivery)
+        self.assertEqual(delivery["status"], "pending")
 
     def test_message_template_enable_requires_action_permission(self) -> None:
         self.initialize_messaging_db()

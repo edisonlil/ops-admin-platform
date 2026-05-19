@@ -9,6 +9,7 @@ class SendInAppMessageRequest(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     content: str = Field(min_length=1, max_length=8000)
     recipient_user_ids: list[int] = Field(default_factory=list)
+    chat_bot_ids: list[int] = Field(default_factory=list)
     message_type: str = Field(default="system", max_length=60)
     priority: str = Field(default="normal", max_length=40)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -18,6 +19,7 @@ class SendTemplateMessageRequest(BaseModel):
     template_key: str = Field(min_length=1, max_length=120)
     variables: dict[str, Any] = Field(default_factory=dict)
     recipient_user_ids: list[int] = Field(default_factory=list)
+    chat_bot_ids: list[int] = Field(default_factory=list)
     message_type: str = Field(default="system", max_length=60)
     priority: str = Field(default="normal", max_length=40)
     channels: list[str] | None = None
@@ -47,6 +49,18 @@ class MessageChannelAccountRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     config: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str = Field(default="", max_length=300)
+    enabled: bool = True
+    is_default: bool = False
+
+
+class MessageChatBotRequest(BaseModel):
+    id: int | None = None
+    platform: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=800)
+    webhook_url: str = Field(min_length=1, max_length=1000)
+    signing_secret: str = Field(default="", max_length=500)
+    message_format: str = Field(default="text", max_length=40)
     enabled: bool = True
     is_default: bool = False
 

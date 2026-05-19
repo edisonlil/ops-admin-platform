@@ -149,6 +149,44 @@ class MessageChannelAccount:
 
 
 @dataclass(frozen=True)
+class MessageChatBot:
+    id: int
+    tenant_id: int
+    platform: str
+    name: str
+    description: str
+    webhook_url: str
+    signing_secret: str
+    message_format: str
+    enabled: bool
+    is_default: bool
+    last_test_status: str
+    last_test_message: str
+    last_test_time: str | None
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "platform": self.platform,
+            "name": self.name,
+            "description": self.description,
+            "webhook_url": self.webhook_url,
+            "signing_secret": self.signing_secret,
+            "message_format": self.message_format,
+            "enabled": self.enabled,
+            "is_default": self.is_default,
+            "last_test_status": self.last_test_status,
+            "last_test_message": self.last_test_message,
+            "last_test_time": self.last_test_time,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
 class MessageUserPreference:
     id: int
     tenant_id: int

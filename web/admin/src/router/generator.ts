@@ -55,6 +55,7 @@ const LEGACY_ICON_BY_KEY_OR_ALIAS: Record<string, string> = {
   'message-send': 'MessageOutlined',
   'message-templates': 'FileTextOutlined',
   'message-channels': 'ApiOutlined',
+  'message-chat-bots': 'RobotOutlined',
   cron: 'ScheduleOutlined',
   'cron-tasks': 'ScheduleOutlined',
   'cron-runs': 'FileSearchOutlined',

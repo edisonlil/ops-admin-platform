@@ -111,6 +111,12 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'message-channels-enable',
     'message-channels-disable',
     'message-channels-test',
+    'message-chat-bots',
+    'message-chat-bots-create',
+    'message-chat-bots-update',
+    'message-chat-bots-enable',
+    'message-chat-bots-disable',
+    'message-chat-bots-test',
   ],
   cron: [
     'cron',
@@ -260,7 +266,7 @@ export function registerBasicDataModule(options: OpsAdminModuleOptions = {}) {
 export function registerMessagingModule(options: OpsAdminModuleOptions = {}) {
   registerOpsAdminModule({
     key: 'messaging',
-    label: options.label || '消息系统',
+    label: options.label || '消息中心',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.messaging,
     routes: options.routes,
     install: options.install,
