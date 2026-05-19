@@ -70,7 +70,7 @@
                     <span class="workflow-node-card__icon">S</span>
                     <strong>{{ data.label || '开始' }}</strong>
                   </div>
-                  <p>定义运行入口变量</p>
+                  <p>{{ workflowStartVariableCount(data) ? `已定义 ${workflowStartVariableCount(data)} 个入口变量` : '定义运行入口变量' }}</p>
                   <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
                     <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
                     <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
@@ -180,7 +180,59 @@
                 <n-form-item label="节点名称">
                   <n-input v-model:value="selectedWorkflowNode.data.label" />
                 </n-form-item>
-                <template v-if="selectedWorkflowNode.type === 'llm'">
+                <template v-if="selectedWorkflowNode.type === 'start'">
+                  <section class="workflow-start-variables">
+                    <div class="workflow-start-variables__head">
+                      <div>
+                        <h4>运行入口变量</h4>
+                        <span>这些变量会同步到调试表单、访问 API 和后端变量校验。</span>
+                      </div>
+                      <n-button size="tiny" secondary @click="addWorkflowStartVariable(selectedWorkflowNode)">添加变量</n-button>
+                    </div>
+                    <div v-if="workflowStartVariables.length" class="workflow-start-variable-list">
+                      <div
+                        v-for="(variable, index) in workflowStartVariables"
+                        :key="variable.id"
+                        class="workflow-start-variable-row"
+                      >
+                        <n-input
+                          v-model:value="variable.key"
+                          size="small"
+                          placeholder="变量 Key"
+                          @update:value="syncWorkflowStartVariables"
+                        />
+                        <n-input
+                          v-model:value="variable.label"
+                          size="small"
+                          placeholder="变量名称"
+                          @update:value="syncWorkflowStartVariables"
+                        />
+                        <n-select
+                          v-model:value="variable.type"
+                          :options="variableTypeOptions"
+                          size="small"
+                          :consistent-menu-width="false"
+                          @update:value="syncWorkflowStartVariables"
+                        />
+                        <n-switch
+                          v-model:value="variable.required"
+                          size="small"
+                          @update:value="syncWorkflowStartVariables"
+                        />
+                        <n-input
+                          v-model:value="variable.description"
+                          size="small"
+                          class="workflow-start-variable-row__description"
+                          placeholder="说明"
+                          @update:value="syncWorkflowStartVariables"
+                        />
+                        <n-button size="tiny" text type="error" @click="removeWorkflowStartVariable(index)">删除</n-button>
+                      </div>
+                    </div>
+                    <div v-else class="workflow-start-variables__empty">暂无入口变量，点击“添加变量”开始定义。</div>
+                  </section>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'llm'">
                   <n-form-item :label="isPlatformCapabilityRoute ? '模型路由 Key' : '模型配置'">
                     <n-input
                       v-if="isPlatformCapabilityRoute"
@@ -927,6 +979,15 @@
     options?: SelectOption[];
   }
 
+  interface WorkflowStartVariable {
+    id: string;
+    key: string;
+    label: string;
+    type: RuntimeVariableType;
+    required: boolean;
+    description: string;
+  }
+
   type SchemaRecord = Record<string, unknown>;
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
@@ -1089,6 +1150,16 @@
   const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
+  const workflowStartNode = computed(() => workflowNodes.value.find((node) => node.type === 'start') || null);
+  const workflowStartVariables = computed<WorkflowStartVariable[]>(() =>
+    Array.isArray(workflowStartNode.value?.data?.variables) ? (workflowStartNode.value?.data?.variables as WorkflowStartVariable[]) : []
+  );
+  const workflowStartVariableMap = computed(
+    () => new Map(validWorkflowStartVariables(workflowStartVariables.value).map((variable) => [normalizeWorkflowVariableKey(variable.key), variable]))
+  );
+  const workflowStartVariableKeys = computed(() =>
+    validWorkflowStartVariables(workflowStartVariables.value).map((variable) => normalizeWorkflowVariableKey(variable.key))
+  );
   const workflowTemplateVariableKeys = computed(() => {
     if (!isWorkflowMode.value) return [];
     return [
@@ -1102,7 +1173,9 @@
     ];
   });
   const templateVariableKeys = computed(() =>
-    isWorkflowMode.value ? workflowTemplateVariableKeys.value : extractTemplateVariableKeys(form.user_prompt_template || '')
+    isWorkflowMode.value
+      ? [...new Set([...workflowStartVariableKeys.value, ...workflowTemplateVariableKeys.value])]
+      : extractTemplateVariableKeys(form.user_prompt_template || '')
   );
   const runtimeVariableFields = computed<RuntimeVariableField[]>(() =>
     buildRuntimeVariableFields(parsedVariablesSchema.value, templateVariableKeys.value)
@@ -1256,6 +1329,7 @@
   watch(runtimeVariableFields, syncRuntimeVariableValues, { immediate: true });
   watch(templateVariableKeys, syncVariablesSchemaFromTemplate);
   watch(workflowNodes, syncVariablesSchemaFromTemplate, { deep: true });
+  watch(selectedWorkflowNode, syncWorkflowSelectedStartNode, { immediate: true });
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
   });
@@ -1381,6 +1455,8 @@
     form.system_prompt = app.system_prompt || '';
     form.developer_prompt = app.developer_prompt || '';
     form.user_prompt_template = app.user_prompt_template || '';
+    variablesSchemaText.value = stringifyJson(app.variables_schema || {});
+    outputSchemaText.value = stringifyJson(app.output_schema || {});
     loadWorkflowDefinition(app.runtime_config?.workflow);
     systemPromptSource.value = app.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(app.runtime_config?.system_prompt_asset_key || '');
@@ -1389,8 +1465,6 @@
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
     selectedModelKey.value = String(app.model_preferences?.model || app.model_preferences?.route_key || '');
-    variablesSchemaText.value = stringifyJson(app.variables_schema || {});
-    outputSchemaText.value = stringifyJson(app.output_schema || {});
     runResult.value = null;
     runLogs.value = [];
     selectedRunLogId.value = '';
@@ -1415,6 +1489,8 @@
     form.system_prompt = capability.system_prompt || '';
     form.developer_prompt = capability.developer_prompt || '';
     form.user_prompt_template = capability.user_prompt_template || '';
+    variablesSchemaText.value = stringifyJson(capability.input_schema || {});
+    outputSchemaText.value = stringifyJson(capability.output_schema || {});
     loadWorkflowDefinition(capability.runtime_config?.workflow);
     systemPromptSource.value = canUsePromptAsset.value && capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = canUsePromptAsset.value ? String(capability.runtime_config?.system_prompt_asset_key || '') : '';
@@ -1423,8 +1499,6 @@
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
     selectedModelKey.value = String(capability.model_preferences?.model || capability.model_preferences?.route_key || '');
-    variablesSchemaText.value = stringifyJson(capability.input_schema || {});
-    outputSchemaText.value = stringifyJson(capability.output_schema || {});
     runResult.value = null;
     runLogs.value = [];
     selectedRunLogId.value = '';
@@ -1586,6 +1660,7 @@
     const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : defaultWorkflowDefinition().nodes;
     const edges = Array.isArray(workflow.edges) ? workflow.edges : defaultWorkflowDefinition().edges;
     workflowNodes.value = nodes.map((node, index) => normalizeWorkflowNode(node, index));
+    ensureWorkflowStartVariablesFromSchema();
     workflowEdges.value = edges.map((edge, index) => normalizeWorkflowEdge(edge, index));
     selectedWorkflowNodeId.value = workflowNodes.value[0]?.id || '';
     selectedWorkflowEdgeId.value = '';
@@ -1604,6 +1679,7 @@
       data: {
         label: String(data.label || workflowNodeTypeLabel(type)),
         ...data,
+        ...(type === 'start' ? { variables: normalizeWorkflowStartVariables(data.variables) } : {}),
       },
     };
   }
@@ -1637,7 +1713,7 @@
         id: node.id,
         type: node.type,
         position: node.position,
-        data: { ...(node.data || {}), label: node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType) },
+        data: workflowNodeDataPayload(node),
       })),
       edges: workflowEdges.value.map((edge) => ({
         id: edge.id,
@@ -1649,10 +1725,35 @@
     };
   }
 
+  function workflowNodeDataPayload(node: WorkflowNode) {
+    const data = { ...(node.data || {}), label: node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType) };
+    if (node.type === 'start') {
+      data.variables = normalizeWorkflowStartVariables(data.variables, { stripInternalId: true });
+    }
+    return data;
+  }
+
   function defaultWorkflowDefinition() {
     return {
       nodes: [
-        { id: 'start', type: 'start', position: { x: 80, y: 160 }, data: { label: '开始' } },
+        {
+          id: 'start',
+          type: 'start',
+          position: { x: 80, y: 160 },
+          data: {
+            label: '开始',
+            variables: [
+              {
+                id: createWorkflowStartVariableId(),
+                key: 'question',
+                label: '我的问题',
+                type: 'text',
+                required: true,
+                description: 'Workflow 运行时输入的问题',
+              },
+            ],
+          },
+        },
         {
           id: 'llm_1',
           type: 'llm',
@@ -1759,6 +1860,136 @@
   function runWorkflowNode(nodeId: string) {
     openWorkflowNodeConfig(nodeId);
     message.info('节点单步运行将在 Workflow Runtime 执行链路接入后启用');
+  }
+
+  function syncWorkflowSelectedStartNode() {
+    if (selectedWorkflowNode.value?.type !== 'start') return;
+    selectedWorkflowNode.value.data.variables = normalizeWorkflowStartVariables(selectedWorkflowNode.value.data.variables, {
+      keepEmptyKeys: true,
+    });
+  }
+
+  function addWorkflowStartVariable(node: WorkflowNode) {
+    const existingKeys = new Set(validWorkflowStartVariables(node.data.variables).map((variable) => variable.key));
+    let index = existingKeys.size + 1;
+    let key = `input_${index}`;
+    while (existingKeys.has(key)) {
+      index += 1;
+      key = `input_${index}`;
+    }
+    node.data.variables = [
+      ...normalizeWorkflowStartVariables(node.data.variables, { keepEmptyKeys: true }),
+      {
+        id: createWorkflowStartVariableId(),
+        key,
+        label: `输入变量 ${index}`,
+        type: 'text',
+        required: true,
+        description: '',
+      },
+    ];
+    syncWorkflowStartVariables();
+  }
+
+  function removeWorkflowStartVariable(index: number) {
+    const node = workflowStartNode.value;
+    if (!node) return;
+    node.data.variables = normalizeWorkflowStartVariables(node.data.variables, { keepEmptyKeys: true }).filter((_, itemIndex) => itemIndex !== index);
+    syncWorkflowStartVariables();
+  }
+
+  function syncWorkflowStartVariables() {
+    const node = workflowStartNode.value;
+    if (!node) return;
+    node.data.variables = normalizeWorkflowStartVariables(node.data.variables, {
+      keepEmptyKeys: true,
+      preserveDraftKeys: true,
+    });
+    syncVariablesSchemaFromTemplate();
+  }
+
+  function normalizeWorkflowStartVariables(
+    value: unknown,
+    options: { keepEmptyKeys?: boolean; preserveDraftKeys?: boolean; stripInternalId?: boolean } = {}
+  ): WorkflowStartVariable[] {
+    const rows = Array.isArray(value) ? value : [];
+    const seen = new Set<string>();
+    return rows
+      .map((item) => {
+        const record = asSchemaRecord(item);
+        if (!record) return null;
+        const key = options.preserveDraftKeys ? String(record.key || record.name || '').trim() : normalizeWorkflowVariableKey(record.key || record.name);
+        const id = String(record.id || createWorkflowStartVariableId());
+        const dedupeKey = key ? `key:${key}` : `id:${id}`;
+        if ((!key && !options.keepEmptyKeys) || seen.has(dedupeKey)) return null;
+        seen.add(dedupeKey);
+        const variable = {
+          id,
+          key,
+          label: String(record.label || record.title || record.name || key || ''),
+          type: resolveRuntimeVariableType(String(record.type || '')),
+          required: record.required !== false,
+          description: String(record.description || record.help || ''),
+        };
+        if (options.stripInternalId) {
+          delete (variable as Partial<WorkflowStartVariable>).id;
+        }
+        return variable;
+      })
+      .filter(Boolean) as WorkflowStartVariable[];
+  }
+
+  function validWorkflowStartVariables(value: unknown): WorkflowStartVariable[] {
+    return normalizeWorkflowStartVariables(value).filter((variable) => !!normalizeWorkflowVariableKey(variable.key));
+  }
+
+  function createWorkflowStartVariableId() {
+    return `start_var_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function normalizeWorkflowVariableKey(value: unknown) {
+    return String(value || '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9_.-]/g, '');
+  }
+
+  function workflowStartVariableCount(data: Record<string, any>) {
+    return Array.isArray(data?.variables)
+      ? data.variables.filter((item: unknown) => {
+          const record = asSchemaRecord(item);
+          return !!normalizeWorkflowVariableKey(record?.key || record?.name);
+        }).length
+      : 0;
+  }
+
+  function ensureWorkflowStartVariablesFromSchema() {
+    const node = workflowNodes.value.find((item) => item.type === 'start');
+    if (!node) return;
+    const current = normalizeWorkflowStartVariables(node.data.variables);
+    if (current.length) {
+      node.data.variables = current;
+      return;
+    }
+    node.data.variables = workflowStartVariablesFromSchema(parsedVariablesSchema.value);
+  }
+
+  function workflowStartVariablesFromSchema(schema: SchemaRecord | null): WorkflowStartVariable[] {
+    const { entries, requiredKeys } = collectSchemaEntries(schema || undefined);
+    return [...entries.entries()]
+      .map(([key, raw]) => {
+        const node = asSchemaRecord(raw);
+        const label = String(node?.label || node?.title || node?.name || (typeof raw === 'string' ? raw : '') || key);
+        return {
+          id: createWorkflowStartVariableId(),
+          key,
+          label,
+          type: resolveRuntimeVariableType(String(node?.type || '')),
+          required: node?.required === false ? false : requiredKeys.has(key) || node?.required === true,
+          description: String(node?.description || node?.help || ''),
+        };
+      })
+      .filter((variable) => !!variable.key);
   }
 
   function duplicateWorkflowNode(nodeId: string) {
@@ -2250,22 +2481,23 @@
     const activeKeys = [...new Set(keys)];
 
     return activeKeys.map((key) => {
+      const startVariable = isWorkflowMode.value ? workflowStartVariableMap.value.get(key) : undefined;
       const raw = entries.get(key);
       const node = asSchemaRecord(raw);
       const rawLabel = typeof raw === 'string' ? raw : undefined;
-      const label = String(node?.label || node?.title || node?.name || rawLabel || key);
-      const description = String(node?.description || node?.help || '');
-      const typeValue = String(node?.type || '').toLowerCase();
+      const label = String(startVariable?.label || node?.label || node?.title || node?.name || rawLabel || key);
+      const description = String(startVariable?.description || node?.description || node?.help || '');
+      const typeValue = String(startVariable?.type || node?.type || '').toLowerCase();
       const options = buildVariableOptions(node);
       const fieldType = variableTypeOverrides[key] || resolveRuntimeVariableType(typeValue);
-      const optional = variableOptionalOverrides[key] ?? node?.required === false;
+      const optional = variableOptionalOverrides[key] ?? (startVariable ? !startVariable.required : node?.required === false);
 
       return {
         key,
         label: variableLabelOverrides[key] || label,
         description,
         type: fieldType,
-        required: !optional && (tokenKeys.has(key) || requiredKeys.has(key) || node?.required === true),
+        required: !optional && (tokenKeys.has(key) || requiredKeys.has(key) || node?.required === true || startVariable?.required === true),
         placeholder: String(node?.placeholder || node?.example || `请输入${variableLabelOverrides[key] || label}`),
         options,
       };
@@ -2279,14 +2511,20 @@
   function buildVariablesSchemaFromTemplateFromKeys(schema: SchemaRecord | null, keys: string[]): Record<string, unknown> {
     if (!keys.length) return {};
     const existingProperties = asSchemaRecord(schema?.properties);
-    const requiredKeys = keys.filter((key) => variableOptionalOverrides[key] !== true);
+    const requiredKeys = keys.filter((key) => {
+      const startVariable = isWorkflowMode.value ? workflowStartVariableMap.value.get(key) : undefined;
+      return variableOptionalOverrides[key] !== true && startVariable?.required !== false;
+    });
     const properties = keys.reduce<Record<string, unknown>>((result, key) => {
+      const startVariable = isWorkflowMode.value ? workflowStartVariableMap.value.get(key) : undefined;
       const existing = asSchemaRecord(existingProperties?.[key]) || {};
-      const label = (variableLabelOverrides[key] || String(existing.label || existing.title || '')).trim();
+      const label = (variableLabelOverrides[key] || startVariable?.label || String(existing.label || existing.title || '')).trim();
+      const description = (startVariable?.description || String(existing.description || '')).trim();
       result[key] = {
         ...existing,
-        type: schemaTypeFromRuntimeType(variableTypeOverrides[key] || resolveRuntimeVariableType(String(existing.type || ''))),
+        type: schemaTypeFromRuntimeType(variableTypeOverrides[key] || startVariable?.type || resolveRuntimeVariableType(String(existing.type || ''))),
         ...(label ? { label } : {}),
+        ...(description ? { description } : {}),
         ...(variableOptionalOverrides[key] === true ? { required: false } : {}),
       };
       return result;
@@ -2405,7 +2643,12 @@
       if (typeof variableLabelOverrides[field.key] === 'undefined') {
         variableLabelOverrides[field.key] = field.label === field.key ? '' : field.label;
       }
-      if (typeof variableOptionalOverrides[field.key] === 'undefined') {
+      const startVariable = isWorkflowMode.value ? workflowStartVariableMap.value.get(field.key) : undefined;
+      if (startVariable) {
+        variableTypeOverrides[field.key] = startVariable.type;
+        variableLabelOverrides[field.key] = startVariable.label === field.key ? '' : startVariable.label;
+        variableOptionalOverrides[field.key] = !startVariable.required;
+      } else if (typeof variableOptionalOverrides[field.key] === 'undefined') {
         variableOptionalOverrides[field.key] = !field.required;
       }
       if (typeof runtimeVariableValues[field.key] === 'undefined') {
@@ -3141,6 +3384,59 @@
     color: var(--app-text-color-3);
     font-size: 12px;
     line-height: 1.45;
+  }
+
+  .workflow-start-variables {
+    display: grid;
+    gap: 10px;
+  }
+
+  .workflow-start-variables__head {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .workflow-start-variables__head div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .workflow-start-variables__head h4 {
+    margin: 0;
+    color: var(--app-text-color-1);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .workflow-start-variables__head span,
+  .workflow-start-variables__empty {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .workflow-start-variable-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .workflow-start-variable-row {
+    display: grid;
+    grid-template-columns: minmax(92px, 1fr) minmax(92px, 1fr) minmax(88px, 0.8fr) 44px;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 54%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 64%, transparent);
+    border-radius: 7px;
+  }
+
+  .workflow-start-variable-row__description {
+    grid-column: 1 / 4;
   }
 
   .workspace-panel__head {
