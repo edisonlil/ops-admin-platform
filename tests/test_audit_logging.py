@@ -20,6 +20,7 @@ from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.application.database import connect
 from system.domain.tenancy import TenantScope
 from system.infrastructure.persistence.connection import configure_sql_observer
+from system.interfaces.http import request_id_var
 
 
 class AuditLoggingTests(unittest.TestCase):
@@ -157,6 +158,8 @@ class AuditLoggingTests(unittest.TestCase):
                 tenant_id=11,
                 tenant_key="tenant-eleven",
                 tenant_name="Tenant Eleven",
+                principal_id=20,
+                principal_name="operator",
             )
 
         app = FastAPI()
@@ -194,12 +197,17 @@ class AuditLoggingTests(unittest.TestCase):
             current_user={"id": 20, "tenant_id": 11, "current_tenant": {"id": 11}},
         )
         self.assertEqual(visitor_response["pagination"]["total"], 1)
-        self.assertEqual(visitor_response["items"][0]["tenant_id"], 11)
-        self.assertEqual(visitor_response["items"][0]["entry_path"], "/demo")
+        visitor_item = visitor_response["items"][0]
+        self.assertEqual(visitor_item["tenant_id"], 11)
+        self.assertEqual(visitor_item["entry_path"], "/demo")
+        self.assertEqual(visitor_item["actor_user_id"], 20)
+        self.assertEqual(visitor_item["actor_name"], "operator")
+        self.assertEqual(visitor_item["actor_type"], "user")
 
     def test_visitor_track_endpoint_flushes_to_database(self) -> None:
         app = FastAPI()
         app.include_router(audit_router)
+        request_token = request_id_var.set("req_visitor_track")
 
         async def call_track() -> httpx.Response:
             transport = httpx.ASGITransport(app=app)
@@ -217,8 +225,11 @@ class AuditLoggingTests(unittest.TestCase):
                 )
 
         dispatcher.start_worker()
-        response = asyncio.run(call_track())
-        self.assertEqual(response.status_code, 200)
+        try:
+            response = asyncio.run(call_track())
+            self.assertEqual(response.status_code, 200)
+        finally:
+            request_id_var.reset(request_token)
 
         dispatcher.stop_worker()
         dispatcher.flush_now()
@@ -231,6 +242,9 @@ class AuditLoggingTests(unittest.TestCase):
         )
         self.assertEqual(response["pagination"]["total"], 1)
         self.assertEqual(response["items"][0]["entry_path"], "/platform")
+        self.assertEqual(response["items"][0]["request_id"], "req_visitor_track")
+        self.assertEqual(response["items"][0]["actor_name"], "")
+        self.assertEqual(response["items"][0]["actor_type"], "anonymous")
         self.assertEqual(response["items"][0]["summary"], "访客访问 平台信息")
 
     def test_visitor_policy_skips_regular_api_paths(self) -> None:
@@ -242,6 +256,7 @@ class AuditLoggingTests(unittest.TestCase):
 
     def test_sql_observer_uses_current_tenant_scope(self) -> None:
         dispatcher.start_worker()
+        request_token = request_id_var.set("req_sql_context")
         token = set_tenant_scope(
             TenantScope(
                 tenant_id=7,
@@ -264,6 +279,7 @@ class AuditLoggingTests(unittest.TestCase):
             )
         finally:
             reset_tenant_scope(token)
+            request_id_var.reset(request_token)
         dispatcher.stop_worker()
         dispatcher.flush_now()
 
@@ -274,7 +290,63 @@ class AuditLoggingTests(unittest.TestCase):
             current_user={"id": 10, "tenant_id": 7, "current_tenant": {"id": 7}},
         )
         self.assertEqual(response["pagination"]["total"], 1)
-        self.assertEqual(response["items"][0]["tenant_id"], 7)
+        item = response["items"][0]
+        self.assertEqual(item["tenant_id"], 7)
+        self.assertEqual(item["request_id"], "req_sql_context")
+        self.assertEqual(item["actor_user_id"], 10)
+        self.assertEqual(item["actor_name"], "tenant-admin")
+        self.assertEqual(item["actor_type"], "user")
+
+    def test_sql_observer_skips_successful_schema_introspection_sql(self) -> None:
+        dispatcher.start_worker()
+        for sql in (
+            "PRAGMA table_info(appearance_themes)",
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",
+            "SELECT 1 FROM pg_catalog.pg_indexes WHERE indexname = ?",
+        ):
+            dispatcher.observe_sql(
+                sql=sql,
+                params=("appearance_themes",),
+                duration_ms=6000,
+                success=True,
+                error_message="",
+                backend="sqlite",
+                readonly=True,
+            )
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="sql",
+            page=1,
+            page_size=20,
+            current_user={"id": 10, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True},
+        )
+        self.assertEqual(response["pagination"]["total"], 0)
+
+    def test_sql_observer_records_failed_schema_introspection_sql(self) -> None:
+        dispatcher.start_worker()
+        dispatcher.observe_sql(
+            sql="PRAGMA table_info(missing_table)",
+            params=(),
+            duration_ms=1,
+            success=False,
+            error_message="boom",
+            backend="sqlite",
+            readonly=True,
+        )
+        dispatcher.stop_worker()
+        dispatcher.flush_now()
+
+        response = services.list_logs(
+            category="sql",
+            page=1,
+            page_size=20,
+            current_user={"id": 10, "tenant_id": 0, "current_tenant": {"id": 0}, "is_platform_admin": True},
+        )
+        self.assertEqual(response["pagination"]["total"], 1)
+        self.assertEqual(response["items"][0]["event_outcome"], "failed")
 
     def test_logs_without_explicit_tenant_use_current_tenant_scope(self) -> None:
         dispatcher.start_worker()

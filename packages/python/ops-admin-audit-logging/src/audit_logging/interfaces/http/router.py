@@ -9,7 +9,7 @@ from audit_logging.application import services
 from audit_logging.application.dispatcher import record_visitor_log
 from audit_logging.interfaces.http.dtos import AuditLoggingSettingsRequest, VisitorTrackRequest
 from identity_access.interfaces.http import dependencies as auth
-from system.interfaces.http import ok
+from system.interfaces.http import current_request_id, ok
 
 
 router = APIRouter(prefix="/audit-logs")
@@ -176,10 +176,14 @@ def track_visitor(payload: VisitorTrackRequest, request: Request) -> dict[str, A
     record_visitor_log(
         {
             "tenant_id": tenant_id,
+            "request_id": current_request_id(),
             "event_action": f"VISIT {path}",
             "event_outcome": "success",
             "severity": "info",
             "source_module": "web",
+            "actor_user_id": visitor_actor_user_id(current_user),
+            "actor_name": visitor_actor_name(current_user),
+            "actor_type": visitor_actor_type(current_user),
             "client_ip": client_ip,
             "user_agent": user_agent,
             "visitor_id": digest_or_empty(payload.visitor_id) or digest_or_empty(f"{client_ip}:{user_agent}"),
@@ -202,6 +206,25 @@ def visitor_tenant_id(current_user: dict[str, Any] | None) -> int:
         return 0
     current = current_user.get("current_tenant") or {}
     return int(current.get("id") or current_user.get("tenant_id") or 0)
+
+
+def visitor_actor_user_id(current_user: dict[str, Any] | None) -> int | None:
+    if not current_user:
+        return None
+    user_id = current_user.get("id")
+    return int(user_id) if user_id is not None else None
+
+
+def visitor_actor_name(current_user: dict[str, Any] | None) -> str:
+    if not current_user:
+        return ""
+    return str(current_user.get("username") or current_user.get("name") or "")
+
+
+def visitor_actor_type(current_user: dict[str, Any] | None) -> str:
+    if not current_user:
+        return "anonymous"
+    return "user"
 
 
 def digest_or_empty(value: str) -> str:

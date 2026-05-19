@@ -129,6 +129,37 @@
     warning: '警告',
     error: '错误',
   };
+  const resourceTypeLabel: Record<string, string> = {
+    audit_logging_settings: '审计日志配置',
+    audit_system_logs: '系统日志',
+    audit_operation_logs: '操作日志',
+    audit_api_logs: '接口日志',
+    audit_sql_logs: 'SQL 日志',
+    audit_visitor_logs: '访问日志',
+    user: '用户',
+    users: '用户',
+    role: '角色',
+    roles: '角色',
+    permission: '权限',
+    permissions: '权限',
+    menu: '菜单',
+    menus: '菜单',
+    tenant: '租户',
+    tenants: '租户',
+    api_key: 'API 密钥',
+    api_keys: 'API 密钥',
+    appearance: '主题配置',
+    llm_runtime: '模型运行时',
+    file_object: '文件对象',
+    file_library: '文件库',
+    storage_profile: '存储配置',
+  };
+  const riskLevelLabel: Record<string, string> = {
+    low: '低',
+    medium: '中',
+    high: '高',
+    critical: '严重',
+  };
 
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const loading = computed(() => Object.values(loadingByCategory).some(Boolean));
@@ -182,9 +213,23 @@
   ];
 
   const operationColumns: DataTableColumns<AuditLogRow> = [
-    { title: '资源类型', key: 'resource_type', width: 150, ellipsis: { tooltip: true } },
+    {
+      title: '资源类型',
+      key: 'resource_type',
+      width: 150,
+      ellipsis: { tooltip: true },
+      render: (row) => resourceTypeLabel[row.resource_type || ''] || row.resource_type || '-',
+    },
     { title: '资源 ID', key: 'resource_id', width: 130, ellipsis: { tooltip: true } },
-    { title: '风险级别', key: 'risk_level', width: 110 },
+    {
+      title: '风险级别',
+      key: 'risk_level',
+      width: 110,
+      render(row) {
+        const tone = row.risk_level === 'critical' || row.risk_level === 'high' ? 'error' : row.risk_level === 'medium' ? 'warning' : 'info';
+        return h(AppStatusTag, { tone, label: riskLevelLabel[row.risk_level || ''] || row.risk_level || '-' });
+      },
+    },
   ];
 
   const pageSchema = computed(() =>
@@ -225,9 +270,10 @@
   }
 
   function columnsForCategory(category: AuditLogCategory): DataTableColumns<AuditLogRow> {
-    if (category === 'api') return [...baseColumns.slice(0, 3), ...apiColumns, ...baseColumns.slice(3)];
+    if (category === 'api') return [...baseColumns.slice(0, 3), ...apiColumns, ...baseColumns.slice(4, 6)];
     if (category === 'sql') return [...baseColumns.slice(0, 3), ...sqlColumns, ...baseColumns.slice(3)];
     if (category === 'operation') return [...baseColumns.slice(0, 3), ...operationColumns, ...baseColumns.slice(3)];
+    if (category === 'visitor') return [...baseColumns.slice(0, 3), ...baseColumns.slice(4)];
     return baseColumns;
   }
 

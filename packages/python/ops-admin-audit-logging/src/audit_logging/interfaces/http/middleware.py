@@ -69,6 +69,9 @@ class AuditHttpLoggingMiddleware(BaseHTTPMiddleware):
                 }
             )
             if should_record_visitor(path):
+                scope = getattr(request.state, "tenant_scope", None)
+                if scope is None:
+                    scope = current_tenant_scope_or_none()
                 record_visitor_log(
                     {
                         "tenant_id": tenant_id,
@@ -77,6 +80,9 @@ class AuditHttpLoggingMiddleware(BaseHTTPMiddleware):
                         "severity": "warning" if status_code >= 400 else "info",
                         "source_module": "http",
                         "request_id": current_request_id(),
+                        "actor_user_id": scope_principal_id(scope),
+                        "actor_name": scope_principal_name(scope),
+                        "actor_type": scope_actor_type(scope),
                         "client_ip": client_ip,
                         "user_agent": user_agent,
                         "visitor_id": visitor_id(request, ip_digest),
@@ -111,6 +117,25 @@ def request_tenant_id(request: Request) -> int:
     if scope is None:
         scope = current_tenant_scope_or_none()
     return int(getattr(scope, "tenant_id", 0) or 0)
+
+
+def scope_principal_id(scope: Any) -> int | None:
+    if scope is None:
+        return None
+    principal_id = getattr(scope, "principal_id", None)
+    return int(principal_id) if principal_id is not None else None
+
+
+def scope_principal_name(scope: Any) -> str:
+    if scope is None:
+        return ""
+    return str(getattr(scope, "principal_name", "") or "")
+
+
+def scope_actor_type(scope: Any) -> str:
+    if scope is None:
+        return ""
+    return str(getattr(scope, "source", "") or "")
 
 
 def ip_hash(value: str) -> str:

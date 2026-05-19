@@ -269,6 +269,14 @@ class ApiTests(unittest.TestCase):
 
         self.assertIn(response.status_code, {200, 503})
 
+    def test_create_app_registers_audit_lifecycle_for_each_instance(self) -> None:
+        from api.main import create_app
+
+        app_instance = create_app()
+
+        self.assertGreaterEqual(len(app_instance.router.on_startup), 1)
+        self.assertGreaterEqual(len(app_instance.router.on_shutdown), 1)
+
     def test_platform_admin_can_login_and_read_current_user(self) -> None:
         response = self.request(
             "POST",

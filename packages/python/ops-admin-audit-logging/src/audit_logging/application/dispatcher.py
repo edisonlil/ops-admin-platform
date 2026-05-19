@@ -19,6 +19,7 @@ from audit_logging.domain.models import (
     LOG_CATEGORIES,
 )
 from system.application.tenancy import current_tenant_scope_or_none
+from system.interfaces.http import current_request_id
 
 
 _repository: AuditLogRepository | None = None
@@ -151,11 +152,13 @@ def observe_sql(
     if is_suppressed() or not should_record_sql(sql, duration_ms, success):
         return
     template = sql_template(sql)
-    tenant_id = current_scope_tenant_id()
+    scope = current_tenant_scope_or_none()
+    tenant_id = scope_tenant_id(scope)
     enqueue_log(
         LOG_CATEGORY_SQL,
         {
             "tenant_id": tenant_id,
+            "request_id": current_request_id(),
             "event_action": statement_type(template),
             "event_outcome": "success" if success else "failed",
             "severity": "warning" if success else "error",
@@ -168,6 +171,9 @@ def observe_sql(
             "error_message": error_message,
             "summary": "慢 SQL" if success else "SQL 执行失败",
             "source_module": "database",
+            "actor_user_id": scope_principal_id(scope),
+            "actor_name": scope_principal_name(scope),
+            "actor_type": scope_actor_type(scope),
         },
         priority="high" if not success else "normal",
     )
@@ -183,7 +189,25 @@ def should_record_sql(sql: str, duration_ms: float, success: bool) -> bool:
         return False
     if not success:
         return True
+    if is_schema_introspection_sql(lowered):
+        return False
     return duration_ms >= effective_slow_sql_threshold_ms()
+
+
+def is_schema_introspection_sql(lowered_sql: str) -> bool:
+    compact = " ".join(lowered_sql.split())
+    return (
+        compact.startswith("pragma ")
+        or "sqlite_master" in compact
+        or "sqlite_schema" in compact
+        or "information_schema." in compact
+        or "pg_catalog." in compact
+        or "pg_indexes" in compact
+        or compact.startswith("show index ")
+        or compact.startswith("show indexes ")
+        or compact.startswith("show columns ")
+        or compact.startswith("show full columns ")
+    )
 
 
 def effective_slow_sql_threshold_ms() -> int:
@@ -233,10 +257,32 @@ def resolved_payload_tenant_id(payload: dict[str, Any]) -> int:
 
 
 def current_scope_tenant_id() -> int:
-    scope = current_tenant_scope_or_none()
+    return scope_tenant_id(current_tenant_scope_or_none())
+
+
+def scope_tenant_id(scope: Any) -> int:
     if scope is None:
         return 0
     return int(getattr(scope, "tenant_id", 0) or 0)
+
+
+def scope_principal_id(scope: Any) -> int | None:
+    if scope is None:
+        return None
+    principal_id = getattr(scope, "principal_id", None)
+    return int(principal_id) if principal_id is not None else None
+
+
+def scope_principal_name(scope: Any) -> str:
+    if scope is None:
+        return ""
+    return str(getattr(scope, "principal_name", "") or "")
+
+
+def scope_actor_type(scope: Any) -> str:
+    if scope is None:
+        return ""
+    return str(getattr(scope, "source", "") or "")
 
 
 def _worker_loop() -> None:
