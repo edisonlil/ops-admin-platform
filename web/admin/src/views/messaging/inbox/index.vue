@@ -31,7 +31,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     getMessagingInbox,
@@ -95,6 +95,7 @@
       columns,
       rowKey: (row) => Number(row.id),
       scrollX: 960,
+      sort: { remote: true },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -106,10 +107,10 @@
     pagination: { pageSize: 20 },
   });
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessagingInbox({ page: 1, page_size: 50 });
+      const payload = await getMessagingInbox({ ...runtimeListParams(state), page: 1, page_size: 50 });
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

@@ -21,9 +21,30 @@ from llm_runtime.application import gateway
 from ai_applications.infrastructure.persistence import repositories
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
 from system.application.database import connect
+from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
 
 from llm_runtime.application.services import require_database
+
+
+AI_APPLICATION_SORT_COLUMNS = {
+    "id": "id",
+    "app_key": "app_key",
+    "name": "name",
+    "app_type": "app_type",
+    "status": "status",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+TRACE_SORT_COLUMNS = {
+    "id": "id",
+    "trace_id": "trace_id",
+    "capability_key": "capability_key",
+    "app_key": "app_key",
+    "status": "status",
+    "duration_ms": "duration_ms",
+    "create_time": "create_time",
+}
 
 
 def studio_overview() -> dict[str, Any]:
@@ -54,8 +75,8 @@ def studio_overview() -> dict[str, Any]:
     }
 
 
-def list_ai_applications() -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_ai_applications(conn))
+def list_ai_applications(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_ai_applications(conn), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=AI_APPLICATION_SORT_COLUMNS)
 
 
 def get_ai_application(app_key: str) -> dict[str, Any]:
@@ -115,21 +136,21 @@ def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str
     return execute_application(app, payload, caller_type="application_api", require_published=True)
 
 
-def list_prompt_runtime_traces(limit: int = 50) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_prompt_runtime_traces(conn, limit=limit))
+def list_prompt_runtime_traces(limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_prompt_runtime_traces(conn, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
 
 
-def list_ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any]:
+def list_ai_application_run_logs(app_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit))
+    return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
 
 
-def list_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=limit))
+def list_ai_capability_run_logs(capability_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
 
 
-def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=limit))
+def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
 
 
 def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
@@ -793,7 +814,7 @@ def parse_sse_event(event: str) -> tuple[str, dict[str, Any]]:
     return event_type, payload if isinstance(payload, dict) else {}
 
 
-def read_list(loader: Any) -> dict[str, Any]:
+def read_list(loader: Any, *, sort_by: str | None = None, sort_dir: str | None = None, allowed_sort: dict[str, str] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
@@ -801,6 +822,8 @@ def read_list(loader: Any) -> dict[str, Any]:
             items = loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    if allowed_sort is not None:
+        items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
     return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
 
 

@@ -192,7 +192,7 @@
   import SemanticPanel from '@/components/AppearanceStudio/SemanticPanel.vue';
   import VisualTokenPanel from '@/components/AppearanceStudio/VisualTokenPanel.vue';
   import type { EffectiveAppearanceTheme } from '@/api/appearance';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
 
   type ThemeItem = NonNullable<EffectiveAppearanceTheme['theme']>;
@@ -272,6 +272,7 @@
       type: 'card-list',
       itemKey: (theme) => Number(theme.id),
       cardMinWidth: '236px',
+      sort: { remote: true },
     },
     toolbar: {
       primaryAction: canCreateTheme.value
@@ -432,10 +433,10 @@
     return undefined;
   }
 
-  async function loadThemes() {
+  async function loadThemes(state?: ListRuntimeState) {
     themesLoading.value = true;
     try {
-      const payload = await getAppearanceThemes();
+      const payload = await getAppearanceThemes(runtimeSortParams(state));
       themes.value = payload.items || [];
     } finally {
       themesLoading.value = false;

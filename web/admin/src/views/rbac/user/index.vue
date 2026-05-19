@@ -81,7 +81,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface UserRole extends Recordable {
@@ -236,6 +236,19 @@
       columns,
       rowKey: (row) => row.id,
       scrollX: 1380,
+      sort: { remote: true },
+      columnRuntime: {
+        columns: [
+          { key: 'id', sortable: true },
+          { key: 'username', sortable: true },
+          { key: 'roles', sortable: false },
+          { key: 'is_active', sortable: true },
+          { key: 'is_superuser', sortable: true },
+          { key: 'create_time', sortable: true },
+          { key: 'update_time', sortable: true },
+          { key: 'actions', required: true, sortable: false },
+        ],
+      },
       tableProps: {
         size: 'small',
       },
@@ -367,10 +380,10 @@
     });
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getRbacUsers();
+      const payload = await getRbacUsers(runtimeSortParams(state));
       allRows.value = payload.items || [];
       applyQuery();
     } finally {

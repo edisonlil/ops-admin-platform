@@ -65,7 +65,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { getTenants } from '@/api/business';
@@ -169,6 +169,23 @@
       columns,
       rowKey: (row) => row.tenant_id,
       scrollX: 1360,
+      sort: { remote: true },
+      columnRuntime: {
+        columns: [
+          { key: 'tenant_name', sortable: true, sortField: 'name' },
+          { key: 'tenant_key', sortable: true },
+          { key: 'tenant_id', sortable: true, sortField: 'id' },
+          { key: 'settings_source', sortable: false },
+          { key: 'api_log_enabled', sortable: false },
+          { key: 'slow_sql_threshold_ms', sortable: false },
+          { key: 'batch_size', sortable: false },
+          { key: 'flush_interval_ms', sortable: false },
+          { key: 'plaintext_ip_retention_days', sortable: false },
+          { key: 'log_retention_days', sortable: false },
+          { key: 'update_time', sortable: false },
+          { key: 'actions', required: true, sortable: false },
+        ],
+      },
       tableProps: { size: 'small' },
     },
     toolbar: { rightTools: ['refresh'] },
@@ -215,11 +232,11 @@
     }
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     loadError.value = '';
     try {
-      const payload = await getTenants({ q: query.value || undefined });
+      const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
       const tenants = ((payload as { items?: TenantRow[] }).items || []).map(normalizeTenant);
       rows.value = await Promise.all(tenants.map(loadTenantSettingsRow));
     } catch (error) {

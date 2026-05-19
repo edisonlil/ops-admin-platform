@@ -90,7 +90,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption, UploadFileInfo } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import {
     deleteRegion,
@@ -117,6 +117,7 @@
   const extraText = ref('{}');
   const importFile = ref<File | null>(null);
   const importSummary = ref<RegionImportSummary | null>(null);
+  const detailRuntimeState = ref<ListRuntimeState>({});
 
   const regionForm = reactive<Partial<Region>>({
     parent_id: null,
@@ -252,8 +253,21 @@
               columns,
               rowKey: (row) => row.id,
               scrollX: 1120,
+              sort: { remote: true },
               tableProps: { size: 'small' },
-              columnRuntime: { disabledFreezeKeys: ['actions'] },
+              columnRuntime: {
+                disabledFreezeKeys: ['actions'],
+                columns: [
+                  { key: 'code', label: '编码', sortable: true },
+                  { key: 'name', label: '名称', sortable: true },
+                  { key: 'short_name', label: '简称', sortable: true },
+                  { key: 'level', label: '层级', sortable: true },
+                  { key: 'status', label: '状态', sortable: true },
+                  { key: 'sort_order', label: '排序', sortable: true },
+                  { key: 'path', label: '路径', sortable: true },
+                  { key: 'actions', label: '操作', required: true },
+                ],
+              },
             },
             pagination: { pageSize: 20 },
           },
@@ -364,10 +378,14 @@
     }
   }
 
-  async function reloadAll(preferredId?: number) {
+  async function reloadAll(preferredIdOrState?: number | ListRuntimeState) {
+    const preferredId = typeof preferredIdOrState === 'number' ? preferredIdOrState : undefined;
+    if (preferredIdOrState && typeof preferredIdOrState !== 'number') {
+      detailRuntimeState.value = preferredIdOrState;
+    }
     loadingTree.value = true;
     try {
-      const payload = await getRegionTree({ include_disabled: true });
+      const payload = await getRegionTree({ include_disabled: true, ...detailRuntimeState.value.sort });
       regionRows.value = payload.items || [];
       syncActive(preferredId);
     } finally {

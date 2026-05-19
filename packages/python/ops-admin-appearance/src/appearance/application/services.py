@@ -6,14 +6,26 @@ from fastapi import HTTPException, status
 
 from appearance.domain.theme import AppearancePayload
 from appearance.infrastructure.persistence import repository
+from system.application.sorting import sort_dict_items
 
 
-def list_themes() -> dict[str, Any]:
+THEME_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "name": "name",
+    "status": "status",
+    "effective_source": "effective_source",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+
+
+def list_themes(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
         themes = repository.list_themes()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    items = [theme.to_dict() for theme in themes]
+    items = sort_dict_items([theme.to_dict() for theme in themes], sort_by, sort_dir, allowed=THEME_SORT_COLUMNS)
     return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
 
 

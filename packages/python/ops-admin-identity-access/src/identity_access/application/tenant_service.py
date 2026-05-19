@@ -15,8 +15,8 @@ PLATFORM_TENANT_KEY = "platform"
 TENANT_ADMIN_ROLE_KEY = "tenant-admin"
 
 
-def list_tenants(q: str | None = None) -> list[dict[str, Any]]:
-    return tenant_repository.list_tenants(q=q)
+def list_tenants(q: str | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    return tenant_repository.list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir)
 
 
 def get_tenant_by_key(tenant_key: str) -> dict[str, Any] | None:

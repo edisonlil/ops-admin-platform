@@ -116,7 +116,12 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
-export function getMessagingInbox(params: { page?: number; page_size?: number } = {}) {
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
+export function getMessagingInbox(params: { page?: number; page_size?: number } & SortParams = {}) {
   return Alova.Get<MessageListData<MessageRecipient>>('/messaging/inbox', {
     params: withNoCacheParams(params),
   });
@@ -136,7 +141,7 @@ export function markAllMessagingRead() {
   return Alova.Post<{ updated: number }>('/messaging/inbox/read-all');
 }
 
-export function getMessagingMessages(params: { page?: number; page_size?: number } = {}) {
+export function getMessagingMessages(params: { page?: number; page_size?: number } & SortParams = {}) {
   return Alova.Get<MessageListData<MessageIntent>>('/messaging/messages', {
     params: withNoCacheParams(params),
   });
@@ -153,9 +158,9 @@ export function sendTemplateMessage(payload: SendTemplateMessagePayload) {
   );
 }
 
-export function getMessageTemplates() {
+export function getMessageTemplates(params: SortParams = {}) {
   return Alova.Get<{ items: MessageTemplate[] }>('/messaging/templates', {
-    params: withNoCacheParams(),
+    params: withNoCacheParams(params),
   });
 }
 
@@ -178,9 +183,9 @@ export function disableMessageTemplate(templateId: number) {
   return Alova.Post<{ item: MessageTemplate }>(`/messaging/templates/${templateId}/disable`);
 }
 
-export function getMessageChannelAccounts() {
+export function getMessageChannelAccounts(params: SortParams = {}) {
   return Alova.Get<{ items: MessageChannelAccount[] }>('/messaging/channel-accounts', {
-    params: withNoCacheParams(),
+    params: withNoCacheParams(params),
   });
 }
 

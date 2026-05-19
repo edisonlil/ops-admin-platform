@@ -79,7 +79,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -235,6 +235,20 @@
         columns,
         rowKey: (row) => Number(row.id),
         scrollX: 1380,
+        sort: { remote: true },
+        columnRuntime: {
+          columns: [
+            { key: 'subject_type', sortable: true },
+            { key: 'subject_id', sortable: true },
+            { key: 'resource_key', sortable: true },
+            { key: 'action', sortable: true },
+            { key: 'scope', sortable: true },
+            { key: 'department_ids', sortable: false },
+            { key: 'priority', sortable: true },
+            { key: 'update_time', sortable: true },
+            { key: 'actions', required: true, sortable: false },
+          ],
+        },
         tableProps: { size: 'small' },
       },
       toolbar: {
@@ -385,12 +399,12 @@
     return build(0);
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
       const [resourcePayload, scopePayload, userPayload] = await Promise.all([
         getAuthorizationResources(),
-        getDataAccessPolicies(),
+        getDataAccessPolicies(runtimeSortParams(state)),
         getCurrentTenantUsers(),
       ]);
       resources.value = resourcePayload.items || [];

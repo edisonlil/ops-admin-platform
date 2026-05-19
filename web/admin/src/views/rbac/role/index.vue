@@ -124,7 +124,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface MenuRow extends Recordable {
@@ -279,6 +279,18 @@
       columns,
       rowKey: (row) => row.id,
       scrollX: 1440,
+      sort: { remote: true },
+      columnRuntime: {
+        columns: [
+          { key: 'id', sortable: true },
+          { key: 'name', sortable: true },
+          { key: 'key', sortable: true },
+          { key: 'description', sortable: false },
+          { key: 'status', sortable: false },
+          { key: 'create_time', sortable: false },
+          { key: 'actions', required: true, sortable: false },
+        ],
+      },
       tableProps: {
         size: 'small',
       },
@@ -595,10 +607,10 @@
     })();
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getRbacRoles();
+      const payload = await getRbacRoles(runtimeSortParams(state));
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

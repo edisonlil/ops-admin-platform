@@ -23,6 +23,7 @@ from cron.domain.models import (
 from cron.infrastructure.persistence.bootstrap import require_cron_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
 
 
 def database_target() -> str | Path:
@@ -34,6 +35,26 @@ def now_iso() -> str:
 
 
 CRON_TASK_RESOURCE = ResourceDescriptor(resource_key="cron.task")
+TASK_SORT_COLUMNS = {
+    "id": "id",
+    "task_key": "task_key",
+    "name": "name",
+    "status": "status",
+    "execution_target": "execution_target",
+    "update_time": "update_time",
+    "create_time": "create_time",
+}
+RUN_SORT_COLUMNS = {
+    "id": "id",
+    "task_id": "task_id",
+    "fire_time": "fire_time",
+    "status": "status",
+    "trigger_source": "trigger_source",
+    "started_time": "started_time",
+    "finished_time": "finished_time",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def save_task(
@@ -189,6 +210,8 @@ def list_tasks(
     page: int,
     page_size: int,
     status: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
     data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[CronTaskDetail], int]:
     offset = (page - 1) * page_size
@@ -199,6 +222,12 @@ def list_tasks(
         filters.append("status = ?")
         params.append(status)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=TASK_SORT_COLUMNS,
+        default="update_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_cron_schema(conn)
         total_row = conn.execute(
@@ -210,7 +239,7 @@ def list_tasks(
             SELECT *
             FROM cron_tasks
             WHERE {where_sql}
-            ORDER BY update_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),
@@ -540,13 +569,27 @@ def complete_run(
     return row_to_run(dict(row)) if row else None
 
 
-def list_runs(*, tenant_id: int, task_id: int | None, page: int, page_size: int) -> tuple[list[CronRun], int]:
+def list_runs(
+    *,
+    tenant_id: int,
+    task_id: int | None,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> tuple[list[CronRun], int]:
     offset = (page - 1) * page_size
     params: list[Any] = [tenant_id]
     task_filter = ""
     if task_id is not None:
         task_filter = " AND task_id = ?"
         params.append(task_id)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=RUN_SORT_COLUMNS,
+        default="fire_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_cron_schema(conn)
         total_row = conn.execute(
@@ -558,7 +601,7 @@ def list_runs(*, tenant_id: int, task_id: int | None, page: int, page_size: int)
             SELECT *
             FROM cron_runs
             WHERE tenant_id = ? AND deleted = 0{task_filter}
-            ORDER BY fire_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),

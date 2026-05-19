@@ -19,9 +19,11 @@ def tasks(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     status: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("cron:tasks:view")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_tasks(page=page, page_size=page_size, status=status, current_user=current_user))
+    return ok_or_error(lambda: services.list_tasks(page=page, page_size=page_size, status=status, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/tasks")
@@ -89,18 +91,22 @@ def task_runs(
     task_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("cron:runs:view")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_runs(task_id=task_id, page=page, page_size=page_size, current_user=current_user))
+    return ok_or_error(lambda: services.list_runs(task_id=task_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.get("/runs")
 def runs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("cron:runs:view")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_runs(task_id=None, page=page, page_size=page_size, current_user=current_user))
+    return ok_or_error(lambda: services.list_runs(task_id=None, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.get("/runs/{run_id}")

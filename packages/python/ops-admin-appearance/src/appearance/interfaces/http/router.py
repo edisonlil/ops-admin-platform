@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from appearance.application import services
 from appearance.interfaces.http.dtos import PlatformBrandingRequest, TenantAppearanceThemeRequest, TenantThemeAssignmentRequest
@@ -47,8 +47,11 @@ def update_platform_branding(
 
 
 @router.get("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:access"))])
-def themes() -> dict[str, Any]:
-    return ok(services.list_themes())
+def themes(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_themes(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:themes:create"))])

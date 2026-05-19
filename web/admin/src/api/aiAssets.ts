@@ -96,12 +96,17 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
 export function getPromptAssets(params: {
   page?: number;
   page_size?: number;
   keyword?: string;
   status?: string;
-} = {}) {
+} & SortParams = {}) {
   return Alova.Get<PromptListData<PromptAsset>>('/prompts', {
     params: withNoCacheParams(params),
   });
@@ -117,7 +122,7 @@ export function getPublishedPromptAssets(params: {
   page?: number;
   page_size?: number;
   keyword?: string;
-} = {}) {
+} & SortParams = {}) {
   return Alova.Get<PromptListData<PromptAsset>>('/prompts/published', {
     params: withNoCacheParams(params),
   });

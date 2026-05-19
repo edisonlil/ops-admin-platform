@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from messaging.infrastructure.persistence import repositories
+from system.application.sorting import InvalidSortError
 from system.application.data_access import (
     ResourceDescriptor,
     current_user_primary_department_id,
@@ -94,14 +95,25 @@ def send_template_message(payload: dict[str, Any], current_user: dict[str, Any])
     return {"item": message.to_dict(), "rendered": rendered, "channels": channels}
 
 
-def list_messages(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
+def list_messages(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items, total = repositories.list_messages(
             tenant_id=current_tenant_id(current_user),
             page=page,
             page_size=page_size,
             data_scope=resolve_data_access_filter(current_user=current_user, resource=MESSAGE_RESOURCE, action="read"),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
@@ -110,14 +122,25 @@ def list_messages(*, page: int, page_size: int, current_user: dict[str, Any]) ->
     }
 
 
-def list_my_inbox(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
+def list_my_inbox(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items, total = repositories.list_inbox(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
             page=page,
             page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {
@@ -162,9 +185,11 @@ def mark_all_read(current_user: dict[str, Any]) -> dict[str, Any]:
     return {"updated": count}
 
 
-def list_templates(current_user: dict[str, Any]) -> dict[str, Any]:
+def list_templates(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_templates(tenant_id=current_tenant_id(current_user))
+        items = repositories.list_templates(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"items": [item.to_dict() for item in items]}
@@ -227,9 +252,11 @@ def set_template_status(template_id: int, next_status: str, current_user: dict[s
     return {"item": item.to_dict()}
 
 
-def list_channel_accounts(current_user: dict[str, Any]) -> dict[str, Any]:
+def list_channel_accounts(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_channel_accounts(tenant_id=current_tenant_id(current_user))
+        items = repositories.list_channel_accounts(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"items": [item.to_dict() for item in items]}

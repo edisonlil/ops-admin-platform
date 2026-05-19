@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from ai_applications.application import services
@@ -20,18 +20,24 @@ def ai_studio_overview() -> dict[str, Any]:
 
 
 @router.get("/ai-studio/items", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def ai_studio_items() -> dict[str, Any]:
-    return ok(services.list_ai_applications())
+def ai_studio_items(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_ai_applications(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-studio/traces", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
-def ai_studio_traces(limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_prompt_runtime_traces(limit=limit))
+def ai_studio_traces(limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
+    return ok(services.list_prompt_runtime_traces(limit=limit, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def ai_applications() -> dict[str, Any]:
-    return ok(services.list_ai_applications())
+def ai_applications(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_ai_applications(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
@@ -40,8 +46,8 @@ def ai_application(app_key: str) -> dict[str, Any]:
 
 
 @router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def ai_application_run_logs(app_key: str, limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_ai_application_run_logs(app_key, limit=limit))
+def ai_application_run_logs(app_key: str, limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
+    return ok(services.list_ai_application_run_logs(app_key, limit=limit, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
@@ -80,8 +86,8 @@ def run_published_ai_application(app_key: str, payload: AIApplicationRunRequest)
 
 
 @router.get("/ai-runtime/prompt-runtime/traces", dependencies=[Depends(auth.require_permission("ai_runtime:trace:read"))])
-def prompt_runtime_traces(limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_prompt_runtime_traces(limit=limit))
+def prompt_runtime_traces(limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
+    return ok(services.list_prompt_runtime_traces(limit=limit, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-runtime/prompt-runtime/traces/{trace_id}", dependencies=[Depends(auth.require_permission("ai_runtime:trace:read"))])
@@ -102,4 +108,3 @@ def admin_tenant_ai_quota(tenant_id: int) -> dict[str, Any]:
 @router.put("/admin/tenants/{tenant_id}/ai-quota", dependencies=[Depends(auth.require_platform_admin)])
 def save_tenant_ai_quota(tenant_id: int, payload: TenantAIQuotaRequest) -> dict[str, Any]:
     return ok(services.save_tenant_ai_quota(tenant_id, payload.model_dump()))
-

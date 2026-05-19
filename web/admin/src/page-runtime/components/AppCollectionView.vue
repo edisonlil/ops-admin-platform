@@ -12,7 +12,9 @@
         :loading="loading"
         :row-key="resolvedRowKey"
         :scroll-x="schema.scrollX"
+        :remote="schema.sort?.remote"
         v-bind="resolvedTableProps"
+        @update:sorter="handleSorterUpdate"
       >
         <template #[name]="slotProps" v-for="(_, name) in $slots" :key="name">
           <slot v-if="name !== 'table-tools'" :name="name" v-bind="slotProps"></slot>
@@ -76,8 +78,8 @@
   import { NIcon, NTooltip, useDialog } from 'naive-ui';
   import { LockOutlined, UnlockOutlined } from '@vicons/antd';
   import { getCollectionViewDefinition } from '../collectionRegistry';
-  import type { CollectionViewSchema, TreeNodeAction } from '../types';
-  import type { DataTableColumn, DataTableColumns, DropdownOption, TreeRenderProps } from 'naive-ui';
+  import type { CollectionViewSchema, TableSortState, TreeNodeAction } from '../types';
+  import type { DataTableColumn, DataTableColumns, DataTableSortState, DropdownOption, TreeRenderProps } from 'naive-ui';
   import type { VNodeChild } from 'vue';
 
   const SELECTION_COLUMN_KEY = '__selection__';
@@ -91,12 +93,16 @@
       schema: CollectionViewSchema<Row>;
       rows?: Row[];
       loading?: boolean;
+      sortState?: TableSortState;
     }>(),
     {
       rows: () => [],
       loading: false,
     }
   );
+  const emit = defineEmits<{
+    sortChange: [state: TableSortState];
+  }>();
 
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
   const resolvedRowKey = computed(() => {
@@ -122,7 +128,7 @@
         ? [createSelectionColumn(), ...columns]
         : columns;
 
-    return orderRuntimeColumns(normalizeColumns(runtimeColumns));
+    return orderRuntimeColumns(applyPreferenceOrder(filterVisibleColumns(normalizeColumns(runtimeColumns))));
   });
   const resolvedTableProps = computed(() => {
     if (props.schema.type !== 'table') return props.schema.tableProps || {};
@@ -295,6 +301,18 @@
         ...column,
       } as DataTableColumn<Row>;
 
+      const preference = findColumnPreference(columnKey);
+      if (preference?.fixed && !nextColumn.fixed) {
+        nextColumn.fixed = preference.fixed;
+      }
+      if (preference?.width && !('width' in nextColumn)) {
+        nextColumn.width = preference.width;
+      }
+      if (preference?.sortable) {
+        nextColumn.sorter = nextColumn.sorter || true;
+        nextColumn.sortOrder = currentSortField.value === resolveColumnSortField(columnKey) ? currentSortOrder.value : false;
+      }
+
       if (!('resizable' in nextColumn) && defaultResizable && !disabledResizable) {
         nextColumn.resizable = true;
       }
@@ -367,6 +385,82 @@
     return [...controlLeftColumns, ...staticLeftColumns, ...lockedLeftColumns, ...normalColumns, ...rightColumns];
   }
 
+  function applyPreferenceOrder(columns: DataTableColumns<Row>): DataTableColumns<Row> {
+    const preferences = props.schema.columnRuntime?.columns || [];
+    if (!preferences.length) return columns;
+
+    const orderMap = new Map(preferences.map((preference, index) => [String(preference.key), index]));
+    const controlColumns: DataTableColumns<Row> = [];
+    const sortableColumns: DataTableColumns<Row> = [];
+    const unsortedColumns: DataTableColumns<Row> = [];
+
+    columns.forEach((column) => {
+      if (isControlColumn(column)) {
+        controlColumns.push(column);
+        return;
+      }
+
+      const columnKey = getColumnKey(column);
+      if (columnKey !== undefined && orderMap.has(String(columnKey))) {
+        sortableColumns.push(column);
+        return;
+      }
+
+      unsortedColumns.push(column);
+    });
+
+    sortableColumns.sort((left, right) => {
+      const leftIndex = orderMap.get(String(getColumnKey(left))) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = orderMap.get(String(getColumnKey(right))) ?? Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex;
+    });
+
+    return [...controlColumns, ...sortableColumns, ...unsortedColumns];
+  }
+
+  function filterVisibleColumns(columns: DataTableColumns<Row>): DataTableColumns<Row> {
+    return columns.flatMap((column) => {
+      if ('children' in column && column.children) {
+        const visibleChildren = filterVisibleColumns(column.children as DataTableColumns<Row>);
+        return visibleChildren.length ? [{ ...column, children: visibleChildren } as DataTableColumn<Row>] : [];
+      }
+      if (isControlColumn(column)) return [column];
+      const columnKey = getColumnKey(column);
+      if (columnKey === undefined) return [column];
+      const preference = findColumnPreference(columnKey);
+      if (preference?.defaultVisible === false && !preference.required) return [];
+      return [column];
+    });
+  }
+
+  const currentSortField = computed(() => props.sortState?.sort_by || props.schema.sort?.defaultSort?.sort_by || '');
+  const currentSortOrder = computed(() => {
+    const direction = props.sortState?.sort_dir || props.schema.sort?.defaultSort?.sort_dir;
+    return direction === 'asc' ? 'ascend' : direction === 'desc' ? 'descend' : false;
+  });
+
+  function handleSorterUpdate(sorter: DataTableSortState | DataTableSortState[] | null) {
+    const state = Array.isArray(sorter) ? sorter[0] : sorter;
+    if (!state || !state.order) {
+      emit('sortChange', {});
+      return;
+    }
+    const columnKey = state.columnKey;
+    if (columnKey === undefined) {
+      emit('sortChange', {});
+      return;
+    }
+    const sortField = resolveColumnSortField(columnKey);
+    if (!sortField) {
+      emit('sortChange', {});
+      return;
+    }
+    emit('sortChange', {
+      sort_by: sortField,
+      sort_dir: state.order === 'ascend' ? 'asc' : 'desc',
+    });
+  }
+
   function renderColumnTitle(column: DataTableColumn<Row>, columnKey: string | number) {
     const originalTitle = 'title' in column ? column.title : undefined;
     return () =>
@@ -426,6 +520,18 @@
   function getColumnKey(column: DataTableColumn<Row>) {
     if ('key' in column && column.key !== undefined) return column.key;
     return undefined;
+  }
+
+  function findColumnPreference(columnKey: string | number | undefined) {
+    if (columnKey === undefined) return undefined;
+    return props.schema.columnRuntime?.columns?.find((item) => String(item.key) === String(columnKey));
+  }
+
+  function resolveColumnSortField(columnKey: string | number | undefined) {
+    if (columnKey === undefined) return '';
+    const preference = findColumnPreference(columnKey);
+    if (!preference?.sortable) return '';
+    return preference.sortField || String(columnKey);
   }
 
   function isControlColumn(column: DataTableColumn<Row>) {

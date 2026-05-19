@@ -11,6 +11,11 @@ export interface BasicDataListData<TItem> {
   pagination: BasicDataPagination;
 }
 
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
 export interface DictionaryType {
   id: number;
   tenant_id: number;
@@ -116,7 +121,7 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
 }
 
 export function getDictionaryTypes(
-  params: { page?: number; page_size?: number; keyword?: string; status?: string | null; category?: string } = {}
+  params: { page?: number; page_size?: number; keyword?: string; status?: string | null; category?: string } & SortParams = {}
 ) {
   return Alova.Get<BasicDataListData<DictionaryType>>('/basic-data/dictionary-types', {
     params: withNoCacheParams(params),
@@ -145,7 +150,7 @@ export function deleteDictionaryType(typeId: number) {
 
 export function getDictionaryItems(
   typeId: number,
-  params: { page?: number; page_size?: number; keyword?: string; status?: string | null } = {}
+  params: { page?: number; page_size?: number; keyword?: string; status?: string | null } & SortParams = {}
 ) {
   return Alova.Get<BasicDataListData<DictionaryItem>>(`/basic-data/dictionary-types/${typeId}/items`, {
     params: withNoCacheParams(params),
@@ -180,14 +185,14 @@ export function getRegions(
     status?: string | null;
     level?: string | null;
     parent_id?: number | null;
-  } = {}
+  } & SortParams = {}
 ) {
   return Alova.Get<BasicDataListData<Region>>('/basic-data/regions', {
     params: withNoCacheParams(params),
   });
 }
 
-export function getRegionTree(params: { include_disabled?: boolean } = {}) {
+export function getRegionTree(params: { include_disabled?: boolean } & SortParams = {}) {
   return Alova.Get<{ items: Region[] }>('/basic-data/regions/tree', {
     params: withNoCacheParams(params),
   });

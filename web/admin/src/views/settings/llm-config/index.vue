@@ -178,8 +178,8 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
-  import type { CollectionViewSchema } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams } from '@/page-runtime';
+  import type { CollectionViewSchema, ListRuntimeState } from '@/page-runtime';
 
   type JsonObject = Record<string, unknown>;
   type EntryForm = {
@@ -410,7 +410,7 @@
           description: '管理 LLM 服务商、Base URL、密钥状态和启用状态。',
           rows: providers.value,
           loading: loading.value,
-          refresh: reloadAll,
+          refresh: (state) => loadProviders(state),
           primaryAction: canSaveProviders.value
             ? { key: 'create-provider', label: '新供应商', type: 'primary', onClick: () => openProvider() }
             : undefined,
@@ -425,7 +425,7 @@
           description: '维护模型密钥、供应商归属、上下文窗口和能力配置。',
           rows: models.value,
           loading: loading.value,
-          refresh: reloadAll,
+          refresh: (state) => loadModels(state),
           primaryAction: canSaveModels.value
             ? { key: 'create-model', label: '新增模型', type: 'primary', onClick: () => openModel() }
             : undefined,
@@ -440,7 +440,7 @@
           description: '注册业务任务 Key，后续路由策略会按任务或 fallback Key 命中。',
           rows: tasks.value,
           loading: loading.value,
-          refresh: reloadAll,
+          refresh: (state) => loadTasks(state),
           primaryAction: canRegisterTasks.value
             ? { key: 'create-task', label: '注册任务', type: 'primary', onClick: () => openTask() }
             : undefined,
@@ -455,7 +455,7 @@
           description: '为任务配置模型优先级、超时、温度和响应格式。',
           rows: policies.value,
           loading: loading.value,
-          refresh: reloadAll,
+          refresh: (state) => loadPolicies(state),
           primaryAction: canSavePolicies.value
             ? { key: 'create-policy', label: '新增策略', type: 'primary', onClick: () => openPolicy() }
             : undefined,
@@ -489,6 +489,7 @@
       columns,
       rowKey: (row) => String(row.id || row.provider_key || row.model_key || row.task_key || row.route_key || row.create_time),
       scrollX,
+      sort: { remote: true },
       tableProps: { size: 'small', pagination: false },
     };
   }
@@ -553,10 +554,30 @@
     }
   }
 
-  async function loadLogs() {
+  async function loadProviders(state?: ListRuntimeState) {
+    const payload = await getLlmProviders(runtimeSortParams(state));
+    providers.value = payload.items || [];
+  }
+
+  async function loadModels(state?: ListRuntimeState) {
+    const payload = await getLlmModels(runtimeSortParams(state));
+    models.value = payload.items || [];
+  }
+
+  async function loadTasks(state?: ListRuntimeState) {
+    const payload = await getLlmTasks(runtimeSortParams(state));
+    tasks.value = payload.items || [];
+  }
+
+  async function loadPolicies(state?: ListRuntimeState) {
+    const payload = await getLlmRoutingPolicies(runtimeSortParams(state));
+    policies.value = payload.items || [];
+  }
+
+  async function loadLogs(state?: ListRuntimeState) {
     logsLoading.value = true;
     try {
-      const payload = await getLlmCallLogs(80);
+      const payload = await getLlmCallLogs({ limit: 80, ...runtimeSortParams(state) });
       logs.value = payload.items || [];
     } finally {
       logsLoading.value = false;

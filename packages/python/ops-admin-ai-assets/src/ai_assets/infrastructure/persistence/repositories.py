@@ -17,6 +17,18 @@ from ai_assets.domain.models import (
 from ai_assets.infrastructure.persistence.bootstrap import require_ai_assets_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
+
+
+PROMPT_ASSET_SORT_COLUMNS = {
+    "id": "pa.id",
+    "prompt_key": "pa.prompt_key",
+    "name": "pa.name",
+    "status": "effective_status",
+    "version_count": "version_count",
+    "create_time": "pa.create_time",
+    "update_time": "pa.update_time",
+}
 
 
 def database_target() -> str | Path:
@@ -57,6 +69,8 @@ def list_prompt_assets(
     keyword: str = "",
     status: str = "",
     data_scope: DataAccessPredicate | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[PromptAsset], int]:
     start = (page - 1) * page_size
     filters = ["pa.tenant_id = ?", "pa.deleted = 0"]
@@ -76,6 +90,12 @@ def list_prompt_assets(
         filters.append("pa.status = ?")
         params.append(status)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=PROMPT_ASSET_SORT_COLUMNS,
+        default="pa.update_time DESC, pa.id DESC",
+        tie_breaker="pa.id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_ai_assets_schema(conn)
         total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM prompt_assets pa WHERE {where_sql}", tuple(params)))
@@ -87,7 +107,7 @@ def list_prompt_assets(
                    {effective_prompt_asset_status_sql()} AS effective_status
             FROM prompt_assets pa
             WHERE {where_sql}
-            ORDER BY pa.update_time DESC, pa.id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, start),

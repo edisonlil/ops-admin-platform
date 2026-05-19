@@ -27,6 +27,20 @@ export type DetailPageKind =
 
 export type TableHeightMode = 'natural' | 'fill';
 export type TableRowDensity = 'default' | 'medium' | 'compact';
+export type SortDirection = 'asc' | 'desc';
+
+export interface TableSortState {
+  sort_by?: string;
+  sort_dir?: SortDirection;
+}
+
+export interface ListRuntimeState {
+  pagination?: {
+    page: number;
+    pageSize: number;
+  };
+  sort?: TableSortState;
+}
 
 export interface PageRuntimeContext {
   pageId: string;
@@ -73,6 +87,24 @@ export interface TableColumnRuntimeSchema<Row = Record<string, unknown>> {
   maxWidth?: number;
   disabledResizableKeys?: Array<string | number>;
   disabledFreezeKeys?: Array<string | number>;
+  columns?: TableColumnPreferenceSchema<Row>[];
+}
+
+export interface TableColumnPreferenceSchema<Row = Record<string, unknown>> {
+  key: string | number;
+  label?: string;
+  defaultVisible?: boolean;
+  required?: boolean;
+  sortable?: boolean;
+  sortField?: string;
+  width?: number;
+  fixed?: 'left' | 'right';
+  getLabel?: (column: unknown) => string;
+}
+
+export interface TableSortRuntimeSchema {
+  remote?: boolean;
+  defaultSort?: TableSortState;
 }
 
 export interface TableLayoutRuntimeSchema<Row = Record<string, unknown>> {
@@ -100,6 +132,7 @@ export interface CollectionViewSchema<Row = Record<string, unknown>> {
     disabled?: (row: Row) => boolean;
   };
   columnRuntime?: TableColumnRuntimeSchema<Row>;
+  sort?: TableSortRuntimeSchema;
   tableLayout?: TableLayoutRuntimeSchema<Row>;
   itemKey?: string | ((row: Row) => string | number);
   cardMinWidth?: string;
@@ -126,7 +159,7 @@ export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
   description?: string;
   rows?: Row[];
   loading?: boolean;
-  refresh?: () => void | Promise<void>;
+  refresh?: (state?: ListRuntimeState) => void | Promise<void>;
   primaryAction?: PageAction;
   view: CollectionViewSchema<Row>;
   pagination?: false | PaginationProps;
@@ -137,7 +170,7 @@ export interface SplitListPaneSchema<Row = Record<string, unknown>> {
   description?: string;
   rows?: Row[];
   loading?: boolean;
-  refresh?: () => void | Promise<void>;
+  refresh?: (state?: ListRuntimeState) => void | Promise<void>;
   primaryAction?: PageAction;
   actions?: PageAction[];
   view: CollectionViewSchema<Row>;

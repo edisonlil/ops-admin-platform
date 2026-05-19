@@ -173,7 +173,7 @@
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface TenantRow extends Recordable {
@@ -417,7 +417,7 @@
       description: '管理平台租户、成员用户与租户级 API Key。',
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: tenantColumns, rowKey: (row) => Number(row.id), scrollX: 1160, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: tenantColumns, rowKey: (row) => Number(row.id), scrollX: 1160, sort: { remote: true }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenant.value ? { key: 'create', label: '新增租户', type: 'primary', onClick: () => openCreate() } : undefined,
         rightTools: ['refresh'],
@@ -433,7 +433,7 @@
       description: '管理当前租户的成员账号、角色、所属部门和启用状态。',
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         rightTools: ['refresh'],
@@ -450,7 +450,7 @@
       embedded: true,
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         rightTools: ['refresh'],
@@ -467,7 +467,7 @@
       embedded: true,
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: keyColumns, rowKey: (row) => Number(row.id), scrollX: 700, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: keyColumns, rowKey: (row) => Number(row.id), scrollX: 700, sort: { remote: true }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantApiKey.value ? { key: 'create', label: '新增 Key', type: 'primary', onClick: () => (keyCreateVisible.value = true) } : undefined,
         rightTools: ['refresh'],
@@ -475,6 +475,14 @@
       pagination: { pageSize: 20 },
     })
   );
+
+  const userColumnRuntime = [
+    { key: 'username', sortable: true },
+    { key: 'roles', sortable: false },
+    { key: 'departments', sortable: false },
+    { key: 'is_active', sortable: true },
+    { key: 'actions', required: true, sortable: false },
+  ];
 
   function resetTenantForm() {
     Object.assign(tenantForm, { id: 0, key: '', name: '', status: 'active', remark: '', theme_id: null });
@@ -591,23 +599,25 @@
     }
   }
 
-  async function loadTenantUsers() {
+  async function loadTenantUsers(state?: ListRuntimeState) {
     if (!activeTenant.value) return;
     usersLoading.value = true;
     try {
       await ensureDepartments();
-      const payload = isPlatformTenantManagement.value ? await getTenantUsers(activeTenant.value.id) : await getCurrentTenantUsers();
+      const params = runtimeSortParams(state);
+      const payload = isPlatformTenantManagement.value ? await getTenantUsers(activeTenant.value.id, params) : await getCurrentTenantUsers(params);
       tenantUsers.value = payload.items || [];
     } finally {
       usersLoading.value = false;
     }
   }
 
-  async function loadTenantKeys() {
+  async function loadTenantKeys(state?: ListRuntimeState) {
     if (!activeTenant.value) return;
     keysLoading.value = true;
     try {
-      const payload = isPlatformTenantManagement.value ? await getTenantApiKeys(activeTenant.value.id) : await getCurrentTenantApiKeys();
+      const params = runtimeSortParams(state);
+      const payload = isPlatformTenantManagement.value ? await getTenantApiKeys(activeTenant.value.id, params) : await getCurrentTenantApiKeys(params);
       tenantKeys.value = payload.items || [];
     } finally {
       keysLoading.value = false;
@@ -747,11 +757,11 @@
     return names.join(' / ');
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
       if (isPlatformTenantManagement.value) {
-        const payload = await getTenants({ q: query.value || undefined });
+        const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
         tenants.value = payload.items || [];
       } else {
         const tenant = userStore.info?.current_tenant as TenantRow | undefined;

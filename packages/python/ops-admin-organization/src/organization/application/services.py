@@ -6,9 +6,24 @@ from organization.application.ports import OrganizationRepository
 from organization.domain.exceptions import OrganizationDomainError
 from organization.domain.exceptions import OrganizationNotFoundError, OrganizationStorageNotReadyError
 from organization.domain.models import Department
+from system.application.sorting import sort_dict_items
 
 
 repository: OrganizationRepository | None = None
+DEPARTMENT_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "parent_id": "parent_id",
+    "code": "code",
+    "name": "name",
+    "manager_user_id": "manager_user_id",
+    "base_location": "base_location",
+    "region": "region",
+    "status": "status",
+    "sort_order": "sort_order",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def configure_repository(organization_repository: OrganizationRepository) -> None:
@@ -22,9 +37,15 @@ def repo() -> OrganizationRepository:
     return repository
 
 
-def list_departments(*, tenant_id: int, include_disabled: bool = False) -> dict[str, Any]:
+def list_departments(
+    *,
+    tenant_id: int,
+    include_disabled: bool = False,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     items = repo().list_departments(tenant_id=tenant_id, include_disabled=include_disabled)
-    return {"items": [department_to_dict(item) for item in items]}
+    return {"items": sort_dict_items([department_to_dict(item) for item in items], sort_by, sort_dir, allowed=DEPARTMENT_SORT_COLUMNS)}
 
 
 def save_department(payload: dict[str, Any], current_user: dict[str, Any], department_id: int | None = None) -> dict[str, Any]:

@@ -80,6 +80,11 @@ export interface CronListData<TItem> {
   pagination: CronPagination;
 }
 
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return {
     ...params,
@@ -87,7 +92,7 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
-export function getCronTasks(params: { page?: number; page_size?: number; status?: string } = {}) {
+export function getCronTasks(params: { page?: number; page_size?: number; status?: string } & SortParams = {}) {
   return Alova.Get<CronListData<CronTask>>('/cron/tasks', {
     params: withNoCacheParams(params),
   });
@@ -116,13 +121,13 @@ export function triggerCronTask(taskId: number, payload: Record<string, unknown>
   return Alova.Post<{ item: CronRun }>(`/cron/tasks/${taskId}/trigger`, { payload });
 }
 
-export function getCronTaskRuns(taskId: number, params: { page?: number; page_size?: number } = {}) {
+export function getCronTaskRuns(taskId: number, params: { page?: number; page_size?: number } & SortParams = {}) {
   return Alova.Get<CronListData<CronRun>>(`/cron/tasks/${taskId}/runs`, {
     params: withNoCacheParams(params),
   });
 }
 
-export function getCronRuns(params: { page?: number; page_size?: number } = {}) {
+export function getCronRuns(params: { page?: number; page_size?: number } & SortParams = {}) {
   return Alova.Get<CronListData<CronRun>>('/cron/runs', {
     params: withNoCacheParams(params),
   });

@@ -62,7 +62,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -90,6 +90,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const taskRows = ref<CronTask[]>([]);
+  const listState = ref<ListRuntimeState>({});
   const payloadText = ref('{}');
   const isEditingEnabledTask = computed(() => Boolean(form.id && form.status === 'enabled'));
 
@@ -196,8 +197,20 @@
     view: {
       type: 'table',
       columns: taskColumns,
+      sort: { remote: true },
       rowKey: (row) => row.id,
       scrollX: 1320,
+      columnRuntime: {
+        columns: [
+          { key: 'name', label: '任务名称', sortable: true },
+          { key: 'task_key', label: '任务编码', sortable: true },
+          { key: 'execution_target', label: '执行目标', sortable: true },
+          { key: 'status', label: '状态', sortable: true },
+          { key: 'schedule', label: '调度' },
+          { key: 'update_time', label: '更新时间', sortable: true },
+          { key: 'actions', label: '操作', required: true },
+        ],
+      },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -302,10 +315,11 @@
     router.push({ path: '/cron/runs', query: { task_id: String(row.id) } });
   }
 
-  async function reloadTasks() {
+  async function reloadTasks(state: ListRuntimeState = listState.value) {
+    listState.value = state;
     loadingTasks.value = true;
     try {
-      const payload = await getCronTasks({ page: 1, page_size: 50 });
+      const payload = await getCronTasks({ ...runtimeListParams(state), page: 1, page_size: 50 });
       taskRows.value = payload.items || [];
     } finally {
       loadingTasks.value = false;

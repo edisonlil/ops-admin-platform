@@ -18,6 +18,7 @@ from basic_data.domain.models import (
     STATUS_ACTIVE,
 )
 from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
+from system.application.sorting import InvalidSortError
 
 
 repository: BasicDataRepository | None = None
@@ -56,6 +57,8 @@ def list_dictionary_types(
     status: str | None,
     category: str,
     current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
         items, total = repo().list_dictionary_types(
@@ -65,8 +68,12 @@ def list_dictionary_types(
             keyword=keyword,
             status=status,
             category=category,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
         )
+    except InvalidSortError as exc:
+        raise BasicDataDomainError(str(exc)) from exc
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
     return {
@@ -100,6 +107,8 @@ def save_dictionary_type(payload: dict[str, Any], current_user: dict[str, Any]) 
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
         )
+    except InvalidSortError as exc:
+        raise BasicDataDomainError(str(exc)) from exc
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
     return {"item": item.to_dict()}
@@ -122,6 +131,8 @@ def delete_dictionary_type(*, type_id: int, current_user: dict[str, Any]) -> dic
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
         )
+    except InvalidSortError as exc:
+        raise BasicDataDomainError(str(exc)) from exc
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
     if not item:
@@ -137,6 +148,8 @@ def list_dictionary_items(
     keyword: str,
     status: str | None,
     current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
@@ -148,6 +161,8 @@ def list_dictionary_items(
             page_size=page_size,
             keyword=keyword,
             status=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
         )
     except RuntimeError as exc:
@@ -251,6 +266,8 @@ def list_regions(
     level: str | None,
     parent_id: int | None,
     current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     normalized_level = normalize_region_level_filter(level)
     try:
@@ -262,6 +279,8 @@ def list_regions(
             status=status,
             level=normalized_level,
             parent_id=parent_id,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             data_scope=data_access_for(current_user, REGION_RESOURCE).read(),
         )
     except RuntimeError as exc:

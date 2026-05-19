@@ -190,6 +190,7 @@ export interface FileWorkspaceData {
   breadcrumbs: FileFolder[];
   folders: FileFolder[];
   files: ManagedFile[];
+  items?: Array<(FileFolder & { kind: 'folder'; name: string }) | (ManagedFile & { kind: 'file'; name: string })>;
   usage: StorageUsage;
   current_usage?: StorageUsage;
 }
@@ -236,7 +237,12 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
-export function getFileLibraries(params: { page?: number; page_size?: number } = {}) {
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
+export function getFileLibraries(params: { page?: number; page_size?: number } & SortParams = {}) {
   return Alova.Get<FileListData<FileLibrary>>('/files/libraries', {
     params: withNoCacheParams(params),
   });
@@ -260,7 +266,7 @@ export function deleteFileLibrary(libraryId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/files/libraries/${libraryId}`);
 }
 
-export function getFileWorkspace(params: { library_id?: number; folder_id?: number; keyword?: string } = {}) {
+export function getFileWorkspace(params: { library_id?: number; folder_id?: number; keyword?: string } & SortParams = {}) {
   return Alova.Get<FileWorkspaceData>('/files/workspace', {
     params: withNoCacheParams(params),
   });
@@ -299,7 +305,7 @@ export function getFiles(params: {
   keyword?: string;
   mime_type?: string;
   status?: string;
-} = {}) {
+} & SortParams = {}) {
   return Alova.Get<FileListData<ManagedFile>>('/files', {
     params: withNoCacheParams(params),
   });
@@ -338,21 +344,21 @@ export function getFilePreviewMetadata(fileId: number) {
   });
 }
 
-export function getAccessLogs(params: { page?: number; page_size?: number; file_id?: number; action?: string } = {}) {
+export function getAccessLogs(params: { page?: number; page_size?: number; file_id?: number; action?: string } & SortParams = {}) {
   return Alova.Get<FileListData<FileAccessLog>>('/files/access-logs', {
     params: withNoCacheParams(params),
   });
 }
 
-export function getIndexJobs(params: { page?: number; page_size?: number; file_id?: number; status?: string } = {}) {
+export function getIndexJobs(params: { page?: number; page_size?: number; file_id?: number; status?: string } & SortParams = {}) {
   return Alova.Get<FileListData<FileSearchIndexJob>>('/files/index-jobs', {
     params: withNoCacheParams(params),
   });
 }
 
-export function getStorageProfiles() {
+export function getStorageProfiles(params: SortParams = {}) {
   return Alova.Get<{ items: StorageProfile[] }>('/files/admin/storage-profiles', {
-    params: withNoCacheParams(),
+    params: withNoCacheParams(params),
   });
 }
 
@@ -379,9 +385,9 @@ export function setDefaultStorageProfile(profileId: number) {
   return Alova.Post<{ item: StorageProfile }>(`/files/admin/storage-profiles/${profileId}/default`);
 }
 
-export function getPreviewProfiles() {
+export function getPreviewProfiles(params: SortParams = {}) {
   return Alova.Get<{ items: PreviewProfile[] }>('/files/admin/preview-profiles', {
-    params: withNoCacheParams(),
+    params: withNoCacheParams(params),
   });
 }
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from ai_capabilities.application import services
@@ -15,13 +15,19 @@ router = APIRouter()
 
 
 @router.get("/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
-def ai_capabilities() -> dict[str, Any]:
-    return ok(services.list_ai_capabilities())
+def ai_capabilities(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_ai_capabilities(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/ai-capabilities", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
-def platform_ai_capabilities() -> dict[str, Any]:
-    return ok(services.list_platform_ai_capabilities())
+def platform_ai_capabilities(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_platform_ai_capabilities(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-capabilities/model-options", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])

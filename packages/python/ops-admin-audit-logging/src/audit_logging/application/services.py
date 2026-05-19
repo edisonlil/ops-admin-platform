@@ -5,6 +5,7 @@ from typing import Any
 from audit_logging.application import dispatcher
 from audit_logging.infrastructure.persistence import repositories
 from system.application.data_access import ResourceDescriptor, data_access_for
+from system.application.sorting import InvalidSortError
 
 
 RESOURCE_BY_CATEGORY = {
@@ -26,20 +27,27 @@ def list_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     effective_tenant_id = requested_tenant_id(current_user, tenant_id=tenant_id)
     resource = RESOURCE_BY_CATEGORY[category]
     data_scope = data_access_for(current_user, resource).read()
-    items, total = repositories.list_logs(
-        category=category,
-        tenant_id=effective_tenant_id,
-        page=page,
-        page_size=page_size,
-        keyword=keyword,
-        outcome=outcome,
-        severity=severity,
-        data_scope=data_scope,
-    )
+    try:
+        items, total = repositories.list_logs(
+            category=category,
+            tenant_id=effective_tenant_id,
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            outcome=outcome,
+            severity=severity,
+            data_scope=data_scope,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    except InvalidSortError as exc:
+        raise ValueError(str(exc)) from exc
     return {"items": items, "pagination": {"page": page, "page_size": page_size, "total": total}}
 
 

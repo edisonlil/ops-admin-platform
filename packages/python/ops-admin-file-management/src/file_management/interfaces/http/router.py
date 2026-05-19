@@ -25,9 +25,11 @@ router = APIRouter(prefix="/files")
 def libraries(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_libraries(page=page, page_size=page_size, current_user=current_user))
+    return ok(services.list_libraries(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/libraries")
@@ -60,9 +62,20 @@ def workspace(
     library_id: int | None = None,
     folder_id: int | None = None,
     keyword: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_workspace(current_user=current_user, library_id=library_id, folder_id=folder_id, keyword=keyword))
+    return ok(
+        services.list_workspace(
+            current_user=current_user,
+            library_id=library_id,
+            folder_id=folder_id,
+            keyword=keyword,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
 
 
 @router.get("/libraries/{library_id}/tree")
@@ -108,6 +121,8 @@ def files(
     keyword: str = "",
     mime_type: str = "",
     status_filter: str = Query(default="", alias="status"),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
     return ok(
@@ -121,6 +136,8 @@ def files(
             keyword=keyword,
             mime_type=mime_type,
             status_filter=status_filter,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
     )
 
@@ -141,6 +158,8 @@ def access_logs(
     page_size: int = Query(default=20, ge=1, le=100),
     file_id: int | None = None,
     action: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
     return ok(
@@ -150,6 +169,8 @@ def access_logs(
             current_user=current_user,
             file_id=file_id,
             action=action,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
     )
 
@@ -160,6 +181,8 @@ def index_jobs(
     page_size: int = Query(default=20, ge=1, le=100),
     file_id: int | None = None,
     status_filter: str = Query(default="", alias="status"),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
     return ok(
@@ -169,6 +192,8 @@ def index_jobs(
             current_user=current_user,
             file_id=file_id,
             status_filter=status_filter,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
     )
 
@@ -214,9 +239,11 @@ def update_tenant_quota(
 
 @router.get("/admin/storage-profiles")
 def storage_profiles(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_admin),
 ) -> dict[str, Any]:
-    return ok(services.list_storage_profiles())
+    return ok(services.list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/storage-provider-options")
@@ -228,9 +255,11 @@ def storage_provider_options(
 
 @router.get("/admin/preview-profiles")
 def preview_profiles(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_admin),
 ) -> dict[str, Any]:
-    return ok(services.list_preview_profiles())
+    return ok(services.list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/preview-provider-options")

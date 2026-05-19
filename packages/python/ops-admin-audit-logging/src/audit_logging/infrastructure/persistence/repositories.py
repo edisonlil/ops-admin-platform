@@ -9,6 +9,7 @@ from audit_logging.domain.models import AuditLoggingSettings
 from audit_logging.infrastructure.persistence.bootstrap import require_audit_logging_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
 
 
 TABLE_BY_CATEGORY = {
@@ -105,6 +106,28 @@ EXTRA_COLUMNS = {
         "geo_city",
     ),
 }
+COMMON_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "event_time": "event_time",
+    "request_id": "request_id",
+    "correlation_id": "correlation_id",
+    "event_action": "event_action",
+    "event_outcome": "event_outcome",
+    "severity": "severity",
+    "source_module": "source_module",
+    "actor_user_id": "actor_user_id",
+    "actor_name": "actor_name",
+    "actor_type": "actor_type",
+    "client_ip": "client_ip",
+    "summary": "summary",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+EXTRA_SORT_COLUMNS = {
+    category: {column: column for column in columns}
+    for category, columns in EXTRA_COLUMNS.items()
+}
 
 
 def database_target() -> str | Path:
@@ -146,6 +169,8 @@ def list_logs(
     outcome: str,
     severity: str,
     data_scope: DataAccessPredicate | None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     table_name = TABLE_BY_CATEGORY[category]
     offset = (page - 1) * page_size
@@ -171,6 +196,12 @@ def list_logs(
         data_scope=data_scope,
     )
     where_sql = " AND ".join(where)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed={**COMMON_SORT_COLUMNS, **EXTRA_SORT_COLUMNS.get(category, {})},
+        default="event_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_audit_logging_schema(conn)
         total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM {table_name} WHERE {where_sql}", tuple(params)))
@@ -179,7 +210,7 @@ def list_logs(
             SELECT *
             FROM {table_name}
             WHERE {where_sql}
-            ORDER BY event_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),

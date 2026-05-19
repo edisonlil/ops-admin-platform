@@ -177,6 +177,18 @@ class BasicDataTests(unittest.TestCase):
         self.assertEqual([item["code"] for item in active["items"]], ["gold"])
         self.assertEqual(gold["extra"], {"score": 90})
 
+        sorted_items = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            status=None,
+            sort_by="code",
+            sort_dir="desc",
+            current_user=self.current_user,
+        )
+        self.assertEqual([item["code"] for item in sorted_items["items"]], ["silver", "gold"])
+
         deleted = services.delete_dictionary_item(item_id=int(silver["id"]), current_user=self.current_user)
         self.assertTrue(deleted["deleted"])
         recreated_silver = services.save_dictionary_item(
@@ -239,6 +251,14 @@ class BasicDataTests(unittest.TestCase):
         null_status_payload = null_status_response.json()
         self.assertTrue(null_status_payload["success"])
         self.assertEqual(null_status_payload["data"]["pagination"]["total"], 1)
+
+        sorted_response = self.request("GET", "/api/basic-data/dictionary-types?page=1&page_size=20&sort_by=code&sort_dir=desc")
+        self.assertEqual(sorted_response.status_code, 200)
+        self.assertEqual(sorted_response.json()["data"]["items"][0]["code"], "invoice_status")
+
+        invalid_sort_response = self.request("GET", "/api/basic-data/dictionary-types?page=1&page_size=20&sort_by=bad_field&sort_dir=asc")
+        self.assertEqual(invalid_sort_response.status_code, 400)
+        self.assertFalse(invalid_sort_response.json()["success"])
 
         duplicate_response = self.request(
             "POST",

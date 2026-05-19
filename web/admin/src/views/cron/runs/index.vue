@@ -7,13 +7,14 @@
   import { useRoute } from 'vue-router';
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { getCronRuns, getCronTaskRuns, type CronRun } from '@/api/cron';
 
   const route = useRoute();
   const loadingRuns = ref(false);
   const runRows = ref<CronRun[]>([]);
+  const listState = ref<ListRuntimeState>({});
 
   const taskId = computed(() => {
     const raw = Array.isArray(route.query.task_id) ? route.query.task_id[0] : route.query.task_id;
@@ -63,8 +64,22 @@
       view: {
         type: 'table',
         columns: runColumns,
+        sort: { remote: true },
         rowKey: (row) => row.id,
         scrollX: 1420,
+        columnRuntime: {
+          columns: [
+            { key: 'id', label: '运行 ID', sortable: true },
+            { key: 'task_id', label: '任务 ID', sortable: true },
+            { key: 'fire_time', label: '触发时间', sortable: true },
+            { key: 'status', label: '状态', sortable: true },
+            { key: 'trigger_source', label: '触发来源', sortable: true },
+            { key: 'idempotency_key', label: '幂等键' },
+            { key: 'started_time', label: '开始时间', sortable: true },
+            { key: 'finished_time', label: '结束时间', sortable: true },
+            { key: 'failure_message', label: '失败信息' },
+          ],
+        },
         tableProps: { size: 'small' },
       },
       toolbar: { rightTools: ['refresh'] },
@@ -72,12 +87,13 @@
     })
   );
 
-  async function reloadRuns() {
+  async function reloadRuns(state: ListRuntimeState = listState.value) {
+    listState.value = state;
     loadingRuns.value = true;
     try {
       const payload = taskId.value
-        ? await getCronTaskRuns(taskId.value, { page: 1, page_size: 50 })
-        : await getCronRuns({ page: 1, page_size: 50 });
+        ? await getCronTaskRuns(taskId.value, { ...runtimeListParams(state), page: 1, page_size: 50 })
+        : await getCronRuns({ ...runtimeListParams(state), page: 1, page_size: 50 });
       runRows.value = payload.items || [];
     } finally {
       loadingRuns.value = false;

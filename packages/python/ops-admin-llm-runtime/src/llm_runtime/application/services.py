@@ -21,6 +21,7 @@ from system.application.data_access import (
     resolve_data_access_filter,
 )
 from system.application.event_bus import publish_event
+from system.application.sorting import sort_dict_items
 from system.application.tenancy import current_tenant_scope
 from system.interfaces.http import current_request_id
 from llm_runtime.infrastructure.persistence import repositories
@@ -32,6 +33,51 @@ LLM_CALL_LOG_RESOURCE = ResourceDescriptor(
     owner_user_column="creator_id",
     owner_department_column="owner_department_id",
 )
+PROVIDER_SORT_COLUMNS = {
+    "id": "id",
+    "provider_key": "provider_key",
+    "display_name": "display_name",
+    "provider_type": "provider_type",
+    "enabled": "enabled",
+    "is_default": "is_default",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+MODEL_SORT_COLUMNS = {
+    "id": "id",
+    "model_key": "model_key",
+    "display_name": "display_name",
+    "provider_key": "provider_key",
+    "model_name": "model_name",
+    "enabled": "enabled",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+TASK_SORT_COLUMNS = {
+    "id": "id",
+    "task_key": "task_key",
+    "display_name": "display_name",
+    "enabled": "enabled",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+POLICY_SORT_COLUMNS = {
+    "id": "id",
+    "route_key": "route_key",
+    "display_name": "display_name",
+    "priority": "priority",
+    "enabled": "enabled",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+CALL_LOG_SORT_COLUMNS = {
+    "id": "id",
+    "provider_key": "provider_key",
+    "model_key": "model_key",
+    "success": "success",
+    "duration_ms": "duration_ms",
+    "create_time": "create_time",
+}
 
 
 def require_database() -> str | Path:
@@ -151,43 +197,46 @@ def save_llm_config(payload: dict[str, Any], current_user: dict[str, Any] | None
     return result
 
 
-def list_providers(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_providers, current_user=current_user)
+def list_providers(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_providers, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=PROVIDER_SORT_COLUMNS)
 
 
 def save_provider(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_provider(conn, owner_payload(payload, current_user)))
 
 
-def list_models(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_models, current_user=current_user)
+def list_models(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_models, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=MODEL_SORT_COLUMNS)
 
 
 def save_model(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_model(conn, owner_payload(payload, current_user)))
 
 
-def list_tasks(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_tasks, current_user=current_user)
+def list_tasks(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_tasks, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TASK_SORT_COLUMNS)
 
 
 def register_task(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.register_task(conn, owner_payload(payload, current_user)))
 
 
-def list_routing_policies(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_policies, current_user=current_user)
+def list_routing_policies(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return list_resource(repositories.list_policies, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=POLICY_SORT_COLUMNS)
 
 
 def save_routing_policy(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_routing_policy(conn, owner_payload(payload, current_user)))
 
 
-def list_call_logs(limit: int = 50, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+def list_call_logs(limit: int = 50, current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     return list_resource(
         lambda conn, data_scope=None: repositories.list_call_logs(conn, limit=limit, data_scope=data_scope),
         current_user=current_user,
         resource=LLM_CALL_LOG_RESOURCE,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=CALL_LOG_SORT_COLUMNS,
     )
 
 
@@ -280,6 +329,9 @@ def list_resource(
     current_user: dict[str, Any] | None = None,
     *,
     resource: ResourceDescriptor = LLM_MODEL_CONFIG_RESOURCE,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     database_target = require_database()
     try:
@@ -293,6 +345,8 @@ def list_resource(
             items = loader(conn, data_scope=data_scope)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    if allowed_sort is not None:
+        items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
     return {
         "items": items,
         "pagination": {"page": 1, "page_size": len(items), "total": len(items)},

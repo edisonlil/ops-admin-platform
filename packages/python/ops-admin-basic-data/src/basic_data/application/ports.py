@@ -16,6 +16,8 @@ class BasicDataRepository(Protocol):
         keyword: str,
         status: str | None,
         category: str,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryType], int]: ...
 
@@ -52,6 +54,8 @@ class BasicDataRepository(Protocol):
         page_size: int,
         keyword: str,
         status: str | None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryItem], int]: ...
 
@@ -96,6 +100,8 @@ class BasicDataRepository(Protocol):
         status: str | None,
         level: str | None,
         parent_id: int | None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[Region], int]: ...
 

@@ -52,7 +52,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -146,6 +146,7 @@
       columns,
       rowKey: (row) => row.id,
       scrollX: 1240,
+      sort: { remote: true },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -222,10 +223,10 @@
     await reload();
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const [profilePayload, providerPayload] = await Promise.all([getStorageProfiles(), getStorageProviderOptions()]);
+      const [profilePayload, providerPayload] = await Promise.all([getStorageProfiles(runtimeSortParams(state)), getStorageProviderOptions()]);
       rows.value = profilePayload.items || [];
       providerOptions.value = (providerPayload.items || []).map((item) => ({
         label: item.supported ? item.label : `${item.label}（预留）`,

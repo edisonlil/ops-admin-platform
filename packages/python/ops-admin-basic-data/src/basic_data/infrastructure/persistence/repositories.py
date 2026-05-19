@@ -11,10 +11,42 @@ from basic_data.domain.models import DictionaryItem, DictionaryType, Region, STA
 from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
 
 
 DICTIONARY_RESOURCE = ResourceDescriptor(resource_key="basic-data.dictionary")
 REGION_RESOURCE = ResourceDescriptor(resource_key="basic-data.region")
+DICTIONARY_TYPE_SORT_COLUMNS = {
+    "id": "id",
+    "code": "code",
+    "name": "name",
+    "category": "category",
+    "status": "status",
+    "sort_order": "sort_order",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+DICTIONARY_ITEM_SORT_COLUMNS = {
+    "id": "i.id",
+    "code": "i.code",
+    "value": "i.value",
+    "status": "i.status",
+    "sort_order": "i.sort_order",
+    "create_time": "i.create_time",
+    "update_time": "i.update_time",
+}
+REGION_SORT_COLUMNS = {
+    "id": "id",
+    "code": "code",
+    "name": "name",
+    "short_name": "short_name",
+    "level": "level",
+    "status": "status",
+    "sort_order": "sort_order",
+    "path": "path",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def database_target() -> str | Path:
@@ -33,6 +65,8 @@ def list_dictionary_types(
     keyword: str = "",
     status: str | None = None,
     category: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
     data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[DictionaryType], int]:
     offset = (page - 1) * page_size
@@ -51,6 +85,12 @@ def list_dictionary_types(
         where.append("category = ?")
         params.append(category.strip())
     where_sql = " AND ".join(where)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=DICTIONARY_TYPE_SORT_COLUMNS,
+        default="sort_order ASC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_basic_data_schema(conn)
         total_row = conn.execute(f"SELECT COUNT(*) AS total FROM business_dictionary_types WHERE {where_sql}", tuple(params)).fetchone()
@@ -59,7 +99,7 @@ def list_dictionary_types(
             SELECT *
             FROM business_dictionary_types
             WHERE {where_sql}
-            ORDER BY sort_order ASC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),
@@ -221,6 +261,8 @@ def list_dictionary_items(
     page_size: int,
     keyword: str = "",
     status: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
     data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[DictionaryItem], int]:
     offset = (page - 1) * page_size
@@ -236,6 +278,12 @@ def list_dictionary_items(
         where.append("i.status = ?")
         params.append(normalized_status)
     where_sql = " AND ".join(where)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=DICTIONARY_ITEM_SORT_COLUMNS,
+        default="i.sort_order ASC, i.id ASC",
+        tie_breaker="i.id ASC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_basic_data_schema(conn)
         total_row = conn.execute(
@@ -248,7 +296,7 @@ def list_dictionary_items(
             FROM business_dictionary_items i
             JOIN business_dictionary_types t ON t.id = i.type_id AND t.tenant_id = i.tenant_id
             WHERE {where_sql}
-            ORDER BY i.sort_order ASC, i.id ASC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),
@@ -414,6 +462,8 @@ def list_regions(
     status: str | None = None,
     level: str | None = None,
     parent_id: int | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
     data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[Region], int]:
     offset = (page - 1) * page_size
@@ -438,6 +488,12 @@ def list_regions(
         else:
             where.append("parent_id IS NULL")
     where_sql = " AND ".join(where)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=REGION_SORT_COLUMNS,
+        default="sort_order ASC, code ASC, id ASC",
+        tie_breaker="id ASC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_basic_data_schema(conn)
         total_row = conn.execute(f"SELECT COUNT(*) AS total FROM business_regions WHERE {where_sql}", tuple(params)).fetchone()
@@ -446,7 +502,7 @@ def list_regions(
             SELECT *
             FROM business_regions
             WHERE {where_sql}
-            ORDER BY sort_order ASC, code ASC, id ASC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             tuple([*params, page_size, offset]),

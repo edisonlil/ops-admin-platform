@@ -112,7 +112,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -145,6 +145,7 @@
   const itemKeyword = ref('');
   const itemStatus = ref<string | null>(null);
   const itemExtraText = ref('{}');
+  const itemRuntimeState = ref<ListRuntimeState>({});
 
   const typeForm = reactive<Partial<DictionaryType>>({
     parent_id: null,
@@ -322,10 +323,22 @@
             view: {
               type: 'table',
               columns: itemColumns,
+              sort: { remote: true },
               rowKey: (row) => row.id,
               scrollX: 1160,
               tableProps: { size: 'small' },
-              columnRuntime: { disabledFreezeKeys: ['actions'] },
+              columnRuntime: {
+                disabledFreezeKeys: ['actions'],
+                columns: [
+                  { key: 'code', label: '编码', sortable: true },
+                  { key: 'value', label: '值', sortable: true },
+                  { key: 'status', label: '状态', sortable: true },
+                  { key: 'color', label: '颜色' },
+                  { key: 'sort_order', label: '排序', sortable: true },
+                  { key: 'description', label: '描述' },
+                  { key: 'actions', label: '操作', required: true },
+                ],
+              },
             },
             pagination: { pageSize: 20 },
           },
@@ -477,8 +490,11 @@
     }
   }
 
-  async function reloadItems() {
+  async function reloadItems(state?: ListRuntimeState) {
     if (!activeType.value) return;
+    if (state) {
+      itemRuntimeState.value = state;
+    }
     loadingItems.value = true;
     try {
       const payload = await getDictionaryItems(activeType.value.id, {
@@ -486,6 +502,7 @@
         page_size: 100,
         keyword: itemKeyword.value,
         status: itemStatus.value,
+        ...itemRuntimeState.value.sort,
       });
       itemRows.value = payload.items || [];
     } finally {

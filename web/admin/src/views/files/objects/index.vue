@@ -97,7 +97,7 @@
               </n-breadcrumb>
             </div>
             <div class="file-browser__meta">
-              <span>{{ currentItems.length }} 个项目</span>
+              <span>{{ displayItems.length }} 个项目</span>
               <span>{{ formatBytes(currentUsage?.used_bytes || 0) }} 已用</span>
             </div>
           </header>
@@ -108,12 +108,12 @@
           <div v-else-if="loading" class="file-browser__empty">
             <n-spin size="small" />
           </div>
-          <div v-else-if="!currentItems.length" class="file-browser__empty">
+          <div v-else-if="!displayItems.length" class="file-browser__empty">
             <n-empty description="当前目录为空" />
           </div>
           <div v-else-if="viewMode === 'grid'" class="file-browser__grid">
             <button
-              v-for="item in currentItems"
+              v-for="item in displayItems"
               :key="item.key"
               class="file-tile"
               type="button"
@@ -144,12 +144,14 @@
           </div>
           <n-data-table
             v-else
-            :columns="columns"
-            :data="currentItems"
+            :columns="listColumns"
+            :data="displayItems"
             :row-key="(row: WorkspaceItem) => row.key"
             size="small"
+            remote
             :max-height="fileBodyMaxHeight"
             :pagination="false"
+            @update:sorter="handleListSorterUpdate"
           />
         </section>
       </template>
@@ -254,7 +256,7 @@
 <script lang="ts" setup>
   import { computed, h, onBeforeUnmount, reactive, ref } from 'vue';
   import { NButton, NIcon, NSpace, useMessage } from 'naive-ui';
-  import type { DataTableColumns, FormInst, FormRules, SelectOption, UploadFileInfo } from 'naive-ui';
+  import type { DataTableColumns, DataTableSortState, FormInst, FormRules, SelectOption, UploadFileInfo } from 'naive-ui';
   import MarkdownIt from 'markdown-it';
   import {
     AppstoreOutlined,
@@ -267,7 +269,7 @@
     UploadOutlined,
     UnorderedListOutlined,
   } from '@vicons/antd';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -306,6 +308,10 @@
     file?: ManagedFile;
   }
 
+  type WorkspacePayloadItem =
+    | (FileFolder & { kind: 'folder'; name: string })
+    | (ManagedFile & { kind: 'file'; name: string });
+
   const message = useMessage();
   const { hasPermission } = usePermission();
   const loading = ref(false);
@@ -335,6 +341,8 @@
   const currentUsage = ref<StorageUsage | null>(null);
   const folderFormRef = ref<FormInst | null>(null);
   const workspaceRows = ref<WorkspaceItem[]>([]);
+  const listSortState = ref<ListRuntimeState>({});
+  let workspaceReloadSeq = 0;
 
   const folderForm = reactive({
     name: '',
@@ -371,6 +379,7 @@
       file: item,
     })),
   ]);
+  const displayItems = computed(() => (workspaceRows.value.length ? workspaceRows.value : currentItems.value));
   const uploadLocationLabel = computed(() => {
     if (!currentLibrary.value) return '未选择文件库';
     const paths = [currentLibrary.value.name, ...breadcrumbs.value.map((item) => item.name)];
@@ -381,11 +390,18 @@
   const isMarkdownPreview = computed(() => previewMode.value === 'text' && isMarkdownFile(previewFile.value));
   const markdownHtml = computed(() => markdownRenderer.render(previewText.value || ''));
 
-  const columns: DataTableColumns<WorkspaceItem> = [
+  const currentListSortField = computed(() => listSortState.value.sort?.sort_by || '');
+  const currentListSortOrder = computed(() => {
+    const direction = listSortState.value.sort?.sort_dir;
+    return direction === 'asc' ? 'ascend' : direction === 'desc' ? 'descend' : false;
+  });
+
+  const baseColumns: DataTableColumns<WorkspaceItem> = [
     {
       title: '名称',
       key: 'name',
       minWidth: 280,
+      sorter: true,
       render(row) {
         return h(
           'button',
@@ -406,8 +422,20 @@
       },
     },
     { title: '类型', key: 'kind', width: 120, render: (row) => (row.kind === 'folder' ? '目录' : '文件') },
-    { title: '大小', key: 'size_bytes', width: 140, render: (row) => formatBytes(row.size_bytes || 0) },
-    { title: '更新时间', key: 'update_time', width: 190, render: (row) => formatToDateTime(row.update_time || '') },
+    {
+      title: '大小',
+      key: 'size_bytes',
+      width: 140,
+      sorter: true,
+      render: (row) => formatBytes(row.size_bytes || 0),
+    },
+    {
+      title: '更新时间',
+      key: 'update_time',
+      width: 190,
+      sorter: true,
+      render: (row) => formatToDateTime(row.update_time || ''),
+    },
     {
       title: '操作',
       key: 'actions',
@@ -445,6 +473,18 @@
     },
   ];
 
+  const listColumns = computed<DataTableColumns<WorkspaceItem>>(() =>
+    baseColumns.map((column) => {
+      if (!('key' in column)) return column;
+      const sortField = column.key === 'name' ? 'display_name' : String(column.key);
+      if (!['display_name', 'size_bytes', 'update_time'].includes(sortField)) return column;
+      return {
+        ...column,
+        sortOrder: currentListSortField.value === sortField ? currentListSortOrder.value : false,
+      };
+    })
+  );
+
   const filePage = defineListPage<WorkspaceItem>({
     id: 'files.objects',
     title: '文件',
@@ -453,9 +493,19 @@
     density: 'compact',
     view: {
       type: 'table',
-      columns,
+      columns: baseColumns,
       rowKey: (row) => row.key,
       scrollX: 900,
+      sort: { remote: true },
+      columnRuntime: {
+        columns: [
+          { key: 'name', label: 'name', sortable: true, sortField: 'display_name' },
+          { key: 'kind', label: 'kind' },
+          { key: 'size_bytes', label: 'size_bytes', sortable: true },
+          { key: 'update_time', label: 'update_time', sortable: true },
+          { key: 'actions', label: 'actions', required: true },
+        ],
+      },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -628,26 +678,35 @@
     await reload();
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState | Event) {
+    const nextState = isListRuntimeState(state) ? state : listSortState.value;
+    if (isListRuntimeState(state)) {
+      listSortState.value = state;
+    }
+    const reloadSeq = ++workspaceReloadSeq;
     loading.value = true;
     try {
       const payload = await getFileWorkspace({
         library_id: selectedLibraryId.value || undefined,
         folder_id: selectedFolderId.value || undefined,
         keyword: keyword.value.trim() || undefined,
+        ...runtimeSortParams(nextState),
       });
+      if (reloadSeq !== workspaceReloadSeq) return;
       libraries.value = payload.libraries || [];
       currentLibrary.value = payload.current_library || null;
       currentFolder.value = payload.current_folder || null;
       breadcrumbs.value = payload.breadcrumbs || [];
       folders.value = payload.folders || [];
       files.value = payload.files || [];
+      workspaceRows.value = (payload.items?.length ? payload.items.map(mapWorkspacePayloadItem) : currentItems.value);
       currentUsage.value = payload.current_usage || payload.usage || null;
       selectedLibraryId.value = currentLibrary.value?.id || null;
       selectedFolderId.value = currentFolder.value?.id || selectedFolderId.value || null;
-      workspaceRows.value = currentItems.value;
     } finally {
-      loading.value = false;
+      if (reloadSeq === workspaceReloadSeq) {
+        loading.value = false;
+      }
     }
   }
 
@@ -656,6 +715,63 @@
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
     if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
     return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  }
+
+  function handleListSorterUpdate(sorter: DataTableSortState | DataTableSortState[] | null) {
+    const state = Array.isArray(sorter) ? sorter[0] : sorter;
+    if (!state || state.columnKey === undefined) {
+      reload({ sort: {} });
+      return;
+    }
+    const sortBy = state.columnKey === 'name' ? 'display_name' : String(state.columnKey);
+    const sortDir = resolveNextSortDir(sortBy, state.order);
+    if (!sortDir) {
+      reload({ sort: {} });
+      return;
+    }
+    reload({
+      sort: {
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      },
+    });
+  }
+
+  function resolveNextSortDir(sortBy: string, emittedOrder: DataTableSortState['order']) {
+    if (emittedOrder === 'ascend') return 'asc';
+    if (emittedOrder === 'descend') return 'desc';
+    if (currentListSortField.value !== sortBy) return 'asc';
+    if (listSortState.value.sort?.sort_dir === 'asc') return 'desc';
+    if (listSortState.value.sort?.sort_dir === 'desc') return undefined;
+    return 'asc';
+  }
+
+  function isListRuntimeState(value: unknown): value is ListRuntimeState {
+    if (!value || typeof value !== 'object') return false;
+    return 'sort' in value || 'pagination' in value;
+  }
+
+  function mapWorkspacePayloadItem(item: WorkspacePayloadItem): WorkspaceItem {
+    if (item.kind === 'folder') {
+      return {
+        key: `folder-${item.id}`,
+        kind: 'folder',
+        id: item.id,
+        name: item.name,
+        size_bytes: item.size_bytes || 0,
+        update_time: item.update_time,
+        folder: item,
+      };
+    }
+    return {
+      key: `file-${item.id}`,
+      kind: 'file',
+      id: item.id,
+      name: item.display_name || item.original_name || item.name,
+      size_bytes: item.size_bytes,
+      update_time: item.update_time,
+      file: item,
+    };
   }
 
   reload();

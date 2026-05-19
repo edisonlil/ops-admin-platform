@@ -26,8 +26,8 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import { getTenants } from '@/api/business';
   import { getAuditLogs, type AuditLogCategory, type AuditLogRow } from '@/api/auditLogging';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
-  import type { CollectionViewSchema } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams } from '@/page-runtime';
+  import type { CollectionViewSchema, ListRuntimeState } from '@/page-runtime';
   import { useUserStore } from '@/store/modules/user';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { usePermission } from '@/hooks/web/usePermission';
@@ -249,7 +249,7 @@
           description: item.description,
           rows: rowsByCategory[item.category],
           loading: loadingByCategory[item.category],
-          refresh: () => loadCategory(item.category),
+          refresh: (state) => loadCategory(item.category, state),
           view: createTableView(item.category),
           pagination: { pageSize: 20, pageSizes: [20, 50, 100], showSizePicker: true },
         })),
@@ -265,6 +265,7 @@
       columns: columnsForCategory(category),
       rowKey: (row) => `${category}-${row.id}`,
       scrollX: category === 'sql' ? 1580 : 1420,
+      sort: { remote: true },
       tableProps: { size: 'small', pagination: false },
     };
   }
@@ -282,10 +283,11 @@
     await Promise.all(visibleCategories.value.map((item) => loadCategory(item.category)));
   }
 
-  async function loadCategory(category: AuditLogCategory) {
+  async function loadCategory(category: AuditLogCategory, state?: ListRuntimeState) {
     loadingByCategory[category] = true;
     try {
       const payload = await getAuditLogs(category, {
+        ...runtimeListParams(state),
         page: 1,
         page_size: 100,
         tenant_id: selectedTenantForRequest(),

@@ -18,9 +18,18 @@ router = APIRouter(prefix="/organization")
 def departments(
     include_disabled: bool = Query(default=False),
     tenant_id: int | None = Query(default=None, ge=1),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("organization:departments:read")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_departments(tenant_id=resolve_tenant_id(current_user, tenant_id), include_disabled=include_disabled))
+    return ok_or_error(
+        lambda: services.list_departments(
+            tenant_id=resolve_tenant_id(current_user, tenant_id),
+            include_disabled=include_disabled,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
 
 
 @router.post("/departments")

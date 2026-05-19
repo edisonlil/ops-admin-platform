@@ -15,8 +15,12 @@ router = APIRouter(prefix="/authorization")
 
 
 @router.get("/resources")
-def resources(_: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read"))) -> dict[str, Any]:
-    return ok_or_error(lambda: services.list_resource_descriptors())
+def resources(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_resource_descriptors(sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.put("/resources/{resource_key}")
@@ -36,6 +40,8 @@ def data_access_policies(
     subject_id: int | None = Query(default=None, ge=1),
     resource_key: str | None = Query(default=None),
     tenant_id: int | None = Query(default=None, ge=1),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("authorization:data-scope:read")),
 ) -> dict[str, Any]:
     return ok_or_error(
@@ -45,6 +51,8 @@ def data_access_policies(
             subject_id=subject_id,
             resource_key=resource_key,
             tenant_id=tenant_id,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
     )
 

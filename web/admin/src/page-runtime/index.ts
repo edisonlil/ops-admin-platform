@@ -2,6 +2,7 @@ export { defineListPage } from './defineListPage';
 export { defineDetailPage } from './defineDetailPage';
 export { getCollectionViewDefinition, getCollectionViewDefinitions } from './collectionRegistry';
 export { usePageRuntime } from './usePageRuntime';
+export { runtimeListParams, runtimeSortParams } from './runtimeState';
 export { default as ListPageRuntime } from './runtime/ListPageRuntime.vue';
 export { default as DetailPageRuntime } from './runtime/DetailPageRuntime.vue';
 export { default as AppPage } from './components/AppPage.vue';
@@ -17,11 +18,16 @@ export type {
   DetailPageSchema,
   FilterField,
   ListPageSchema,
+  ListRuntimeState,
   PageAction,
   PageRuntimeContext,
   TabbedListPaneSchema,
+  SortDirection,
+  TableColumnPreferenceSchema,
   TableColumnRuntimeSchema,
   TableHeightMode,
   TableLayoutRuntimeSchema,
   TableRowDensity,
+  TableSortRuntimeSchema,
+  TableSortState,
 } from './types';

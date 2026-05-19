@@ -19,6 +19,47 @@ from messaging.domain.models import (
 from messaging.infrastructure.persistence.bootstrap import require_messaging_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
+
+
+MESSAGE_SORT_COLUMNS = {
+    "id": "id",
+    "message_type": "message_type",
+    "priority": "priority",
+    "title": "title",
+    "sender_name": "sender_name",
+    "status": "status",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+INBOX_SORT_COLUMNS = {
+    "id": "r.id",
+    "message_type": "m.message_type",
+    "priority": "m.priority",
+    "title": "m.title",
+    "read_status": "r.read_status",
+    "archive_status": "r.archive_status",
+    "pin_status": "r.pin_status",
+    "create_time": "r.create_time",
+    "update_time": "r.update_time",
+}
+TEMPLATE_SORT_COLUMNS = {
+    "id": "id",
+    "template_key": "template_key",
+    "name": "name",
+    "status": "status",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+CHANNEL_ACCOUNT_SORT_COLUMNS = {
+    "id": "id",
+    "channel": "channel",
+    "name": "name",
+    "enabled": "enabled",
+    "is_default": "is_default",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def database_target() -> str | Path:
@@ -182,13 +223,25 @@ def create_message(
 
 
 def list_messages(
-    *, tenant_id: int, page: int, page_size: int, data_scope: DataAccessPredicate | None = None
+    *,
+    tenant_id: int,
+    page: int,
+    page_size: int,
+    data_scope: DataAccessPredicate | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[MessageIntent], int]:
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
     append_data_scope_sql(filters, params, data_scope, MESSAGE_RESOURCE)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=MESSAGE_SORT_COLUMNS,
+        default="create_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
         total_row = conn.execute(
@@ -200,7 +253,7 @@ def list_messages(
             SELECT *
             FROM message_intents
             WHERE {where_sql}
-            ORDER BY create_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),
@@ -208,8 +261,22 @@ def list_messages(
     return [row_to_message(dict(row)) for row in rows], int(total_row["total"] if total_row else 0)
 
 
-def list_inbox(*, tenant_id: int, user_id: int, page: int, page_size: int) -> tuple[list[MessageRecipient], int]:
+def list_inbox(
+    *,
+    tenant_id: int,
+    user_id: int,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> tuple[list[MessageRecipient], int]:
     offset = (page - 1) * page_size
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=INBOX_SORT_COLUMNS,
+        default="r.create_time DESC, r.id DESC",
+        tie_breaker="r.id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
         total_row = conn.execute(
@@ -224,7 +291,7 @@ def list_inbox(*, tenant_id: int, user_id: int, page: int, page_size: int) -> tu
             (tenant_id, user_id),
         ).fetchone()
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 r.*,
                 m.title,
@@ -236,7 +303,7 @@ def list_inbox(*, tenant_id: int, user_id: int, page: int, page_size: int) -> tu
             WHERE r.tenant_id = ? AND r.recipient_user_id = ?
               AND r.deleted = 0 AND m.deleted = 0
               AND r.archive_status = 'active'
-            ORDER BY r.create_time DESC, r.id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (tenant_id, user_id, page_size, offset),
@@ -338,15 +405,21 @@ def get_recipient(*, tenant_id: int, user_id: int, recipient_id: int) -> Message
     return row_to_recipient(dict(row)) if row else None
 
 
-def list_templates(*, tenant_id: int) -> list[MessageTemplate]:
+def list_templates(*, tenant_id: int, sort_by: str | None = None, sort_dir: str | None = None) -> list[MessageTemplate]:
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=TEMPLATE_SORT_COLUMNS,
+        default="update_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM message_templates
             WHERE tenant_id = ? AND deleted = 0
-            ORDER BY update_time DESC, id DESC
+            ORDER BY {order_by}
             """,
             (tenant_id,),
         ).fetchall()
@@ -420,15 +493,21 @@ def set_template_status(*, tenant_id: int, template_id: int, status: str, actor:
     return row_to_template(dict(row)) if row else None
 
 
-def list_channel_accounts(*, tenant_id: int) -> list[MessageChannelAccount]:
+def list_channel_accounts(*, tenant_id: int, sort_by: str | None = None, sort_dir: str | None = None) -> list[MessageChannelAccount]:
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=CHANNEL_ACCOUNT_SORT_COLUMNS,
+        default="channel ASC, is_default DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_messaging_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM message_channel_accounts
             WHERE tenant_id = ? AND deleted = 0
-            ORDER BY channel ASC, is_default DESC, id DESC
+            ORDER BY {order_by}
             """,
             (tenant_id,),
         ).fetchall()

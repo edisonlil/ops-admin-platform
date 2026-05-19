@@ -21,6 +21,72 @@ from file_management.domain.models import (
 from file_management.infrastructure.persistence.bootstrap import require_file_management_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, apply_data_access
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sorting import build_order_by, parse_sort_params
+
+
+LIBRARY_SORT_COLUMNS = {
+    "id": "id",
+    "name": "name",
+    "library_type": "library_type",
+    "visibility": "visibility",
+    "status": "status",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+FILE_SORT_COLUMNS = {
+    "id": "id",
+    "original_name": "original_name",
+    "display_name": "display_name",
+    "extension": "extension",
+    "mime_type": "mime_type",
+    "size_bytes": "size_bytes",
+    "status": "status",
+    "visibility": "visibility",
+    "indexed_at": "indexed_at",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+ACCESS_LOG_SORT_COLUMNS = {
+    "id": "id",
+    "file_id": "file_id",
+    "action": "action",
+    "actor_user_id": "actor_user_id",
+    "actor_name": "actor_name",
+    "result": "result",
+    "create_time": "create_time",
+}
+INDEX_JOB_SORT_COLUMNS = {
+    "id": "id",
+    "file_id": "file_id",
+    "job_type": "job_type",
+    "status": "status",
+    "attempts": "attempts",
+    "scheduled_time": "scheduled_time",
+    "finished_time": "finished_time",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+STORAGE_PROFILE_SORT_COLUMNS = {
+    "id": "id",
+    "provider": "provider",
+    "name": "name",
+    "endpoint": "endpoint",
+    "bucket": "bucket",
+    "is_default": "is_default",
+    "enabled": "enabled",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+PREVIEW_PROFILE_SORT_COLUMNS = {
+    "id": "id",
+    "provider": "provider",
+    "name": "name",
+    "base_url": "base_url",
+    "is_default": "is_default",
+    "enabled": "enabled",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def database_target() -> str | Path:
@@ -55,8 +121,21 @@ def next_file_id() -> int:
     return file_id
 
 
-def list_libraries(*, tenant_id: int, page: int, page_size: int) -> tuple[list[FileLibrary], int]:
+def list_libraries(
+    *,
+    tenant_id: int,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> tuple[list[FileLibrary], int]:
     offset = (page - 1) * page_size
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=LIBRARY_SORT_COLUMNS,
+        default="update_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         total = count_row(
@@ -66,11 +145,11 @@ def list_libraries(*, tenant_id: int, page: int, page_size: int) -> tuple[list[F
             )
         )
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM file_libraries
             WHERE tenant_id = ? AND deleted = 0
-            ORDER BY update_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (tenant_id, page_size, offset),
@@ -376,6 +455,8 @@ def list_files(
     mime_type: str = "",
     status: str = "",
     data_scope: DataAccessPredicate | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[ManagedFile], int]:
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
@@ -401,6 +482,12 @@ def list_files(
         filters.append("status = ?")
         params.append(status)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=FILE_SORT_COLUMNS,
+        default="update_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM file_objects WHERE {where_sql}", tuple(params)))
@@ -409,7 +496,7 @@ def list_files(
             SELECT *
             FROM file_objects
             WHERE {where_sql}
-            ORDER BY update_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),
@@ -662,15 +749,17 @@ def save_quota(
     return row_to_quota(dict(row))
 
 
-def list_storage_profiles() -> list[StorageProfile]:
+def list_storage_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> list[StorageProfile]:
+    sort_spec = parse_sort_params(sort_by, sort_dir)
+    order_by = build_order_by(sort_spec, allowed=STORAGE_PROFILE_SORT_COLUMNS, default="is_default DESC, provider ASC, id DESC")
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM file_storage_profiles
             WHERE deleted = 0
-            ORDER BY is_default DESC, provider ASC, id DESC
+            ORDER BY {order_by}
             """
         ).fetchall()
     return [row_to_storage_profile(dict(row)) for row in rows]
@@ -793,15 +882,17 @@ def set_default_storage_profile(*, profile_id: int, actor: str, actor_id: int | 
     return row_to_storage_profile(dict(saved)) if saved else None
 
 
-def list_preview_profiles() -> list[PreviewProfile]:
+def list_preview_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> list[PreviewProfile]:
+    sort_spec = parse_sort_params(sort_by, sort_dir)
+    order_by = build_order_by(sort_spec, allowed=PREVIEW_PROFILE_SORT_COLUMNS, default="is_default DESC, provider ASC, id DESC")
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT *
             FROM file_preview_profiles
             WHERE deleted = 0
-            ORDER BY is_default DESC, provider ASC, id DESC
+            ORDER BY {order_by}
             """
         ).fetchall()
     return [row_to_preview_profile(dict(row)) for row in rows]
@@ -958,6 +1049,8 @@ def list_access_logs(
     page_size: int,
     file_id: int | None = None,
     action: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[FileAccessLog], int]:
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
@@ -969,6 +1062,12 @@ def list_access_logs(
         filters.append("action = ?")
         params.append(action)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=ACCESS_LOG_SORT_COLUMNS,
+        default="create_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM file_access_logs WHERE {where_sql}", tuple(params)))
@@ -977,7 +1076,7 @@ def list_access_logs(
             SELECT *
             FROM file_access_logs
             WHERE {where_sql}
-            ORDER BY create_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),
@@ -1040,6 +1139,8 @@ def list_index_jobs(
     page_size: int,
     file_id: int | None = None,
     status: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> tuple[list[FileSearchIndexJob], int]:
     offset = (page - 1) * page_size
     filters = ["tenant_id = ?", "deleted = 0"]
@@ -1051,6 +1152,12 @@ def list_index_jobs(
         filters.append("status = ?")
         params.append(status)
     where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=INDEX_JOB_SORT_COLUMNS,
+        default="create_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
     with connect(database_target(), readonly=True) as conn:
         require_file_management_schema(conn)
         total = count_row(conn.execute(f"SELECT COUNT(*) AS total FROM file_search_index_jobs WHERE {where_sql}", tuple(params)))
@@ -1059,7 +1166,7 @@ def list_index_jobs(
             SELECT *
             FROM file_search_index_jobs
             WHERE {where_sql}
-            ORDER BY create_time DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),

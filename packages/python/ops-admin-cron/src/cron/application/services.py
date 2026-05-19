@@ -12,6 +12,7 @@ from system.application.data_access import (
     data_access_for,
     data_owner_fields,
 )
+from system.application.sorting import InvalidSortError
 
 
 repository: CronRepository | None = None
@@ -35,15 +36,27 @@ def repo() -> CronRepository:
     return repository
 
 
-def list_tasks(*, page: int, page_size: int, status: str | None, current_user: dict[str, Any]) -> dict[str, Any]:
+def list_tasks(
+    *,
+    page: int,
+    page_size: int,
+    status: str | None,
+    current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items, total = repo().list_tasks(
             tenant_id=current_tenant_id(current_user),
             page=page,
             page_size=page_size,
             status=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).read(),
         )
+    except InvalidSortError as exc:
+        raise CronDomainError(str(exc)) from exc
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
     return {
@@ -59,6 +72,8 @@ def get_task(*, task_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
             task_id=task_id,
             data_scope=data_access_for(current_user, CRON_TASK_RESOURCE).read(),
         )
+    except InvalidSortError as exc:
+        raise CronDomainError(str(exc)) from exc
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
     if not detail:
@@ -193,6 +208,8 @@ def list_runs(
     page: int,
     page_size: int,
     current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
         items, total = repo().list_runs(
@@ -200,6 +217,8 @@ def list_runs(
             task_id=task_id,
             page=page,
             page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc

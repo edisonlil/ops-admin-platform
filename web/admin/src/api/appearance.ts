@@ -36,8 +36,13 @@ export interface PlatformBranding {
   update_time?: string;
 }
 
-function withNoCacheParams() {
-  return { _t: Date.now() };
+function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
+  return { ...params, _t: Date.now() };
+}
+
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
 }
 
 export function getEffectiveAppearanceTheme() {
@@ -68,9 +73,9 @@ export function publishCurrentTenantAppearanceTheme(payload: PublishAppearanceTh
   return Alova.Put<EffectiveAppearanceTheme>('/appearance/tenant-theme', payload);
 }
 
-export function getAppearanceThemes() {
+export function getAppearanceThemes(params: SortParams = {}) {
   return Alova.Get<{ items: NonNullable<EffectiveAppearanceTheme['theme']>[] }>('/appearance/themes', {
-    params: withNoCacheParams(),
+    params: withNoCacheParams(params),
   });
 }
 

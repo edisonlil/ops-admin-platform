@@ -11,18 +11,30 @@ from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capa
 from identity_access.application import tenant_service
 from llm_runtime.application import services as llm_services
 from system.application.database import connect
+from system.application.sorting import sort_dict_items
 from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.domain.tenancy import TenantScope
 
 from llm_runtime.application.services import require_database
 
 
-def list_ai_capabilities() -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_ai_capabilities(conn))
+AI_CAPABILITY_SORT_COLUMNS = {
+    "id": "id",
+    "capability_key": "capability_key",
+    "name": "name",
+    "status": "status",
+    "scope": "scope",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
-def list_platform_ai_capabilities() -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_platform_ai_capabilities(conn))
+def list_ai_capabilities(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_ai_capabilities(conn), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=AI_CAPABILITY_SORT_COLUMNS)
+
+
+def list_platform_ai_capabilities(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    return read_list(lambda conn: repositories.list_platform_ai_capabilities(conn), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=AI_CAPABILITY_SORT_COLUMNS)
 
 
 def list_capability_model_options() -> dict[str, Any]:
@@ -250,7 +262,7 @@ class tenant_scope_for_platform_preview:
             reset_tenant_scope(self._token)
 
 
-def read_list(loader: Any) -> dict[str, Any]:
+def read_list(loader: Any, *, sort_by: str | None = None, sort_dir: str | None = None, allowed_sort: dict[str, str] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
@@ -258,6 +270,8 @@ def read_list(loader: Any) -> dict[str, Any]:
             items = loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    if allowed_sort is not None:
+        items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
     return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
 
 

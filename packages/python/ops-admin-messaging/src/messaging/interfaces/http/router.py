@@ -24,9 +24,11 @@ router = APIRouter(prefix="/messaging")
 def messages(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:messages:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_messages(page=page, page_size=page_size, current_user=current_user))
+    return ok(services.list_messages(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/messages/send")
@@ -47,9 +49,11 @@ def send_template_message(
 
 @router.get("/templates")
 def templates(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_templates(current_user))
+    return ok(services.list_templates(current_user, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/templates/render")
@@ -97,9 +101,11 @@ def disable_template(
 
 @router.get("/channel-accounts")
 def channel_accounts(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_channel_accounts(current_user))
+    return ok(services.list_channel_accounts(current_user, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/channel-accounts")
@@ -149,9 +155,11 @@ def test_channel_account(
 def inbox(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:inbox:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_my_inbox(page=page, page_size=page_size, current_user=current_user))
+    return ok(services.list_my_inbox(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.get("/inbox/unread-count")

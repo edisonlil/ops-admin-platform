@@ -55,6 +55,8 @@ class CronRepository(Protocol):
         page: int,
         page_size: int,
         status: str | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[CronTaskDetail], int]:
         ...
@@ -104,6 +106,8 @@ class CronRepository(Protocol):
         task_id: int | None,
         page: int,
         page_size: int,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
     ) -> tuple[list[CronRun], int]:
         ...
 

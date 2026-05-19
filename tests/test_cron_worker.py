@@ -266,6 +266,61 @@ class CronWorkerTests(unittest.TestCase):
                 self.assertIsNotNone(allowed)
                 self.assertIsNone(denied)
 
+    def test_repository_lists_tasks_with_dynamic_sort(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "cron-sort.db"
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                    "FG_AGENT_DATABASE_URL": "",
+                    "SUPABASE_DB_URL": "",
+                    "DATABASE_URL": "",
+                    "FG_AGENT_DB_PATH": str(db_path),
+                },
+                clear=False,
+            ):
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                try:
+                    ensure_cron_schema(conn)
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                repositories.save_task(
+                    tenant_id=7,
+                    payload={"task_key": "beta.task", "name": "Beta", "execution_target": "system.health.snapshot"},
+                    actor="admin",
+                    actor_id=1,
+                )
+                repositories.save_task(
+                    tenant_id=7,
+                    payload={"task_key": "alpha.task", "name": "Alpha", "execution_target": "system.health.snapshot"},
+                    actor="admin",
+                    actor_id=1,
+                )
+
+                items, total = repositories.list_tasks(
+                    tenant_id=7,
+                    page=1,
+                    page_size=20,
+                    sort_by="task_key",
+                    sort_dir="asc",
+                )
+
+                self.assertEqual(total, 2)
+                self.assertEqual([item.task.task_key for item in items], ["alpha.task", "beta.task"])
+
+                with self.assertRaisesRegex(ValueError, "unsupported sort field"):
+                    repositories.list_tasks(
+                        tenant_id=7,
+                        page=1,
+                        page_size=20,
+                        sort_by="bad_field",
+                        sort_dir="asc",
+                    )
+
 
 def fixed_time() -> datetime:
     return datetime(2026, 5, 12, 1, 2, 3, tzinfo=timezone.utc)

@@ -218,7 +218,7 @@
   import { useMessage } from 'naive-ui';
   import { HighlightOutlined, RobotOutlined } from '@vicons/antd';
   import type { FormInst, FormRules, SelectOption, TagProps } from 'naive-ui';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -327,6 +327,7 @@
       type: 'card-list',
       itemKey: (row) => row.id,
       cardMinWidth: '236px',
+      sort: { remote: true },
     },
     toolbar: {
       primaryAction: canManage.value
@@ -568,10 +569,10 @@
     await loadVersions(selectedPrompt.value.id);
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getPromptAssets({ page: 1, page_size: 100 });
+      const payload = await getPromptAssets({ ...runtimeListParams(state), page: 1, page_size: 100 });
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

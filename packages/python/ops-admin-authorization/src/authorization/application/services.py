@@ -26,6 +26,7 @@ from system.application.data_access import (
     SCOPE_SELF,
     SCOPE_TENANT,
 )
+from system.application.sorting import sort_dict_items
 
 
 repository: AuthorizationRepository | None = None
@@ -36,6 +37,26 @@ SCOPE_RANK = {
     DATA_SCOPE_CUSTOM_DEPARTMENTS: 25,
     DATA_SCOPE_DEPARTMENT_AND_CHILDREN: 30,
     DATA_SCOPE_TENANT: 40,
+}
+RESOURCE_SORT_COLUMNS = {
+    "id": "id",
+    "resource_key": "resource_key",
+    "name": "name",
+    "requires_data_scope": "requires_data_scope",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+POLICY_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "subject_type": "subject_type",
+    "subject_id": "subject_id",
+    "resource_key": "resource_key",
+    "action": "action",
+    "scope": "scope",
+    "priority": "priority",
+    "create_time": "create_time",
+    "update_time": "update_time",
 }
 
 
@@ -50,8 +71,9 @@ def repo() -> AuthorizationRepository:
     return repository
 
 
-def list_resource_descriptors() -> dict[str, Any]:
-    return {"items": [resource_descriptor_to_dict(item) for item in repo().list_resource_descriptors()]}
+def list_resource_descriptors(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+    items = [resource_descriptor_to_dict(item) for item in repo().list_resource_descriptors()]
+    return {"items": sort_dict_items(items, sort_by, sort_dir, allowed=RESOURCE_SORT_COLUMNS)}
 
 
 def save_resource_descriptor(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -70,18 +92,21 @@ def list_data_access_policies(
     subject_id: int | None = None,
     resource_key: str | None = None,
     tenant_id: int | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     resolved_tenant_id = resolve_managed_tenant_id(current_user or {}, tenant_id)
+    items = [
+        data_access_policy_to_dict(item)
+        for item in repo().list_data_access_policies(
+            tenant_id=resolved_tenant_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            resource_key=resource_key,
+        )
+    ]
     return {
-        "items": [
-            data_access_policy_to_dict(item)
-            for item in repo().list_data_access_policies(
-                tenant_id=resolved_tenant_id,
-                subject_type=subject_type,
-                subject_id=subject_id,
-                resource_key=resource_key,
-            )
-        ]
+        "items": sort_dict_items(items, sort_by, sort_dir, allowed=POLICY_SORT_COLUMNS)
     }
 
 

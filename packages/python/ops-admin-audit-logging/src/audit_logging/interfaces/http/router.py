@@ -9,7 +9,7 @@ from audit_logging.application import services
 from audit_logging.application.dispatcher import record_visitor_log
 from audit_logging.interfaces.http.dtos import AuditLoggingSettingsRequest, VisitorTrackRequest
 from identity_access.interfaces.http import dependencies as auth
-from system.interfaces.http import current_request_id, ok
+from system.interfaces.http import current_request_id, error_response, ok
 
 
 router = APIRouter(prefix="/audit-logs")
@@ -23,20 +23,29 @@ def system_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("audit:system-log:view")),
 ) -> dict[str, Any]:
-    return ok(
-        services.list_logs(
-            category="system",
-            page=page,
-            page_size=page_size,
-            current_user=current_user,
-            tenant_id=tenant_id,
-            keyword=keyword,
-            outcome=outcome,
-            severity=severity,
-        )
+    return list_logs_response(
+        category="system",
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        outcome=outcome,
+        severity=severity,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
+
+
+def list_logs_response(**kwargs: Any) -> dict[str, Any]:
+    try:
+        return ok(services.list_logs(**kwargs))
+    except ValueError as exc:
+        return error_response(status_code=400, code="INVALID_SORT", message=str(exc))
 
 
 @router.get("/operations")
@@ -47,19 +56,21 @@ def operation_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("audit:operation-log:view")),
 ) -> dict[str, Any]:
-    return ok(
-        services.list_logs(
-            category="operation",
-            page=page,
-            page_size=page_size,
-            current_user=current_user,
-            tenant_id=tenant_id,
-            keyword=keyword,
-            outcome=outcome,
-            severity=severity,
-        )
+    return list_logs_response(
+        category="operation",
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        outcome=outcome,
+        severity=severity,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
@@ -71,19 +82,21 @@ def api_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("audit:api-log:view")),
 ) -> dict[str, Any]:
-    return ok(
-        services.list_logs(
-            category="api",
-            page=page,
-            page_size=page_size,
-            current_user=current_user,
-            tenant_id=tenant_id,
-            keyword=keyword,
-            outcome=outcome,
-            severity=severity,
-        )
+    return list_logs_response(
+        category="api",
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        outcome=outcome,
+        severity=severity,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
@@ -95,19 +108,21 @@ def sql_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("audit:sql-log:view")),
 ) -> dict[str, Any]:
-    return ok(
-        services.list_logs(
-            category="sql",
-            page=page,
-            page_size=page_size,
-            current_user=current_user,
-            tenant_id=tenant_id,
-            keyword=keyword,
-            outcome=outcome,
-            severity=severity,
-        )
+    return list_logs_response(
+        category="sql",
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        outcome=outcome,
+        severity=severity,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
@@ -119,19 +134,21 @@ def visitor_logs(
     keyword: str = "",
     outcome: str = "",
     severity: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("audit:visitor-log:view")),
 ) -> dict[str, Any]:
-    return ok(
-        services.list_logs(
-            category="visitor",
-            page=page,
-            page_size=page_size,
-            current_user=current_user,
-            tenant_id=tenant_id,
-            keyword=keyword,
-            outcome=outcome,
-            severity=severity,
-        )
+    return list_logs_response(
+        category="visitor",
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        tenant_id=tenant_id,
+        keyword=keyword,
+        outcome=outcome,
+        severity=severity,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

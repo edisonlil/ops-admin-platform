@@ -131,7 +131,7 @@
   import { useRoute, useRouter } from 'vue-router';
   import { NButton, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui';
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUser } from '@/store/modules/user';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -393,6 +393,7 @@
               type: 'card-list',
               itemKey: 'app_key',
               cardMinWidth: '320px',
+              sort: { remote: true },
             }
           : {
               type: 'table',
@@ -400,6 +401,19 @@
               columns: capabilityColumns.value as DataTableColumns<AiApplication | AiCapability>,
               selectable: false,
               scrollX: 1180,
+              sort: { remote: true },
+              columnRuntime: {
+                columns: [
+                  { key: 'capability_key', sortable: true },
+                  { key: 'name', sortable: true },
+                  { key: 'model', sortable: false },
+                  { key: 'scope', sortable: true },
+                  { key: 'enabled', sortable: true },
+                  { key: 'call_method', sortable: true },
+                  { key: 'update_time', sortable: true },
+                  { key: 'actions', required: true, sortable: false },
+                ],
+              },
               tableLayout: { rowDensity: 'medium', maxHeight: 'calc(100vh - 360px)' },
             },
       pagination: { pageSize: currentView.value === 'applications' ? 12 : 20 },
@@ -518,20 +532,25 @@
     });
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
+      const sortParams = runtimeSortParams(state);
       const tasks: Promise<unknown>[] = isPlatformCapabilityPage.value ? [] : [getTenantAiQuota()];
       applications.value = canReadApplications.value ? applications.value : [];
       capabilities.value = canReadCapabilities.value ? capabilities.value : [];
       if (canReadApplications.value) {
-        tasks.push(getAiApplications());
+        tasks.push(getAiApplications(currentView.value === 'applications' ? sortParams : undefined));
       }
       if (canManageCapabilities.value) {
         tasks.push(getAiCapabilityModelOptions());
       }
       if (canReadCapabilities.value) {
-        tasks.push(isPlatformCapabilityPage.value || isPlatformAdmin.value ? getPlatformAiCapabilities() : getAiCapabilities());
+        tasks.push(
+          isPlatformCapabilityPage.value || isPlatformAdmin.value
+            ? getPlatformAiCapabilities(currentView.value === 'capabilities' ? sortParams : undefined)
+            : getAiCapabilities(currentView.value === 'capabilities' ? sortParams : undefined)
+        );
       }
       const payloads = await Promise.all(tasks);
       let payloadIndex = 0;

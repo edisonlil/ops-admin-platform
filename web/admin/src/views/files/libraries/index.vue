@@ -42,7 +42,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -131,6 +131,7 @@
       columns,
       rowKey: (row) => row.id,
       scrollX: 1040,
+      sort: { remote: true },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -187,10 +188,10 @@
     await reload();
   }
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getFileLibraries({ page: 1, page_size: 100 });
+      const payload = await getFileLibraries({ ...runtimeListParams(state), page: 1, page_size: 100 });
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

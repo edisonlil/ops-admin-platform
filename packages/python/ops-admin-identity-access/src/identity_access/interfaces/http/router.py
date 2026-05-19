@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_login.exceptions import InvalidCredentialsException
 
@@ -86,8 +86,12 @@ def naive_admin_info(current_user: dict[str, Any] = Depends(auth.require_user)) 
 
 
 @router.get("/api-keys")
-def api_keys(current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys(current_user=current_user)})
+def api_keys(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_api_keys(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
 
 
 @router.post("/api-keys")
@@ -106,9 +110,11 @@ def revoke_api_key(key_id: int, _: dict[str, Any] = Depends(auth.require_permiss
 @router.get("/tenants")
 def tenants(
     q: str | None = None,
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_tenants(q=q)})
+    return ok({"items": services.list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/tenants")
@@ -139,8 +145,13 @@ def suspend_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_plat
 
 
 @router.get("/tenants/{tenant_id}/users")
-def tenant_users(tenant_id: int, _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_tenant_users(tenant_id)})
+def tenant_users(
+    tenant_id: int,
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/tenants/{tenant_id}/users")
@@ -181,8 +192,13 @@ def disable_tenant_user(
 
 
 @router.get("/tenants/{tenant_id}/api-keys")
-def tenant_api_keys(tenant_id: int, current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id, current_user=current_user)})
+def tenant_api_keys(
+    tenant_id: int,
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_api_keys(tenant_id=tenant_id, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
 
 
 @router.post("/tenants/{tenant_id}/api-keys")
@@ -208,9 +224,13 @@ def revoke_tenant_api_key(
 
 
 @router.get("/tenant/users")
-def current_tenant_users(current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage"))) -> dict[str, Any]:
+def current_tenant_users(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"items": services.list_tenant_users(tenant_id)})
+    return ok({"items": services.list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/tenant/users")
@@ -251,14 +271,22 @@ def disable_current_tenant_user(
 
 
 @router.get("/tenant/roles")
-def current_tenant_roles(_: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage"))) -> dict[str, Any]:
-    return ok({"items": [role for role in services.list_roles() if role.get("role_scope") == "tenant"]})
+def current_tenant_roles(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+) -> dict[str, Any]:
+    return ok({"items": [role for role in services.list_roles(sort_by=sort_by, sort_dir=sort_dir) if role.get("role_scope") == "tenant"]})
 
 
 @router.get("/tenant/api-keys")
-def current_tenant_api_keys(current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage"))) -> dict[str, Any]:
+def current_tenant_api_keys(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
+) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id, current_user=current_user)})
+    return ok({"items": services.list_api_keys(tenant_id=tenant_id, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
 
 
 @router.post("/tenant/api-keys")
@@ -283,8 +311,12 @@ def revoke_current_tenant_api_key(
 
 
 @router.get("/rbac/users")
-def rbac_users(_: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_platform_users()})
+def rbac_users(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_platform_users(sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/rbac/users")
@@ -340,8 +372,12 @@ def disable_rbac_user(
 
 
 @router.get("/rbac/roles")
-def rbac_roles(_: dict[str, Any] = Depends(auth.require_platform_permission("system:role:access"))) -> dict[str, Any]:
-    return ok({"items": services.list_roles()})
+def rbac_roles(
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:role:access")),
+) -> dict[str, Any]:
+    return ok({"items": services.list_roles(sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/rbac/roles")
@@ -398,9 +434,11 @@ def rbac_permissions(_: dict[str, Any] = Depends(auth.require_platform_permissio
 @router.get("/rbac/menus")
 def rbac_menus(
     scope: str | None = None,
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_menus(menu_scope=scope)})
+    return ok({"items": services.list_menus(menu_scope=scope, sort_by=sort_by, sort_dir=sort_dir)})
 
 
 @router.post("/rbac/menus")

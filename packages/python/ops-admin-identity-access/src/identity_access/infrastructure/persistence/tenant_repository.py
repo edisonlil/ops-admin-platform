@@ -13,6 +13,20 @@ from identity_access.infrastructure.persistence.common import (
     now_iso,
     require_auth_ready,
 )
+from system.application.sorting import build_order_by, parse_sort_params
+
+
+TENANT_SORT_COLUMNS = {
+    "id": "t.id",
+    "key": "t.tenant_key",
+    "tenant_key": "t.tenant_key",
+    "name": "t.name",
+    "status": "t.status",
+    "user_count": "user_count",
+    "api_key_count": "api_key_count",
+    "create_time": "t.create_time",
+    "update_time": "t.update_time",
+}
 
 
 def row_to_tenant(row: dict[str, Any]) -> dict[str, Any]:
@@ -53,7 +67,7 @@ def get_tenant_by_key(conn: Any, tenant_key: str) -> dict[str, Any] | None:
     return row_to_tenant(dict(row)) if row else None
 
 
-def list_tenants(*, q: str | None = None) -> list[dict[str, Any]]:
+def list_tenants(*, q: str | None = None, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
         params: list[Any] = [PLATFORM_TENANT_KEY]
@@ -62,6 +76,12 @@ def list_tenants(*, q: str | None = None) -> list[dict[str, Any]]:
             where += " AND (lower(t.tenant_key) LIKE ? OR lower(t.name) LIKE ?)"
             like = f"%{q.strip().lower()}%"
             params.extend([like, like])
+        order_by = build_order_by(
+            parse_sort_params(sort_by, sort_dir),
+            allowed=TENANT_SORT_COLUMNS,
+            default="t.id ASC",
+            tie_breaker="t.id ASC",
+        )
         rows = conn.execute(
             f"""
             SELECT
@@ -70,7 +90,7 @@ def list_tenants(*, q: str | None = None) -> list[dict[str, Any]]:
                 (SELECT COUNT(*) FROM api_keys ak WHERE ak.tenant_id = t.id AND ak.is_active = ?) AS api_key_count
             FROM tenants t
             {where}
-            ORDER BY t.id
+            ORDER BY {order_by}
             """,
             (True, *params),
         ).fetchall()

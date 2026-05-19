@@ -7,7 +7,56 @@ from fastapi import Response
 from identity_access.application import api_key_service, auth_service, rbac_service, tenant_service
 from identity_access.domain import events
 from system.application.event_bus import publish_event
+from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
+
+
+TENANT_SORT_COLUMNS = {
+    "id": "id",
+    "key": "key",
+    "tenant_key": "tenant_key",
+    "name": "name",
+    "status": "status",
+    "user_count": "user_count",
+    "api_key_count": "api_key_count",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+USER_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "username": "username",
+    "is_active": "is_active",
+    "is_superuser": "is_superuser",
+    "is_tenant_admin": "is_tenant_admin",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
+ROLE_SORT_COLUMNS = {
+    "id": "id",
+    "key": "key",
+    "role_key": "key",
+    "name": "name",
+    "role_scope": "role_scope",
+}
+MENU_SORT_COLUMNS = {
+    "id": "id",
+    "key": "key",
+    "label": "label",
+    "menu_scope": "menu_scope",
+    "menu_type": "menu_type",
+    "sort_order": "sort_order",
+    "is_visible": "is_visible",
+}
+API_KEY_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "name": "name",
+    "prefix": "prefix",
+    "is_active": "is_active",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def authenticate(
@@ -185,8 +234,8 @@ def switch_tenant(
     return tenant_service.switch_tenant(username, tenant_id, response=response, auth_scope=auth_scope)
 
 
-def list_tenants(q: str | None = None) -> list[dict[str, Any]]:
-    return tenant_service.list_tenants(q=q)
+def list_tenants(q: str | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    return tenant_service.list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir)
 
 
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
@@ -205,8 +254,8 @@ def suspend_tenant(tenant_id: int) -> dict[str, Any]:
     return tenant_service.suspend_tenant(tenant_id)
 
 
-def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
-    return tenant_service.list_tenant_users(tenant_id)
+def list_tenant_users(tenant_id: int, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    return sort_dict_items(tenant_service.list_tenant_users(tenant_id), sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -225,8 +274,9 @@ def list_users() -> list[dict[str, Any]]:
     return [enrich_user_with_departments(item) for item in rbac_service.list_users()]
 
 
-def list_platform_users() -> list[dict[str, Any]]:
-    return [enrich_user_with_departments(item) for item in rbac_service.list_platform_users()]
+def list_platform_users(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    items = [enrich_user_with_departments(item) for item in rbac_service.list_platform_users()]
+    return sort_dict_items(items, sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
 
 
 def create_user(
@@ -283,8 +333,8 @@ def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
     return rbac_service.set_user_active(user_id, is_active)
 
 
-def list_roles() -> list[dict[str, Any]]:
-    return rbac_service.list_roles()
+def list_roles(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    return sort_dict_items(rbac_service.list_roles(), sort_by, sort_dir, allowed=ROLE_SORT_COLUMNS)
 
 
 def create_role(
@@ -341,8 +391,8 @@ def list_permissions() -> list[dict[str, str]]:
     return rbac_service.list_permissions()
 
 
-def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
-    return rbac_service.list_menus(menu_scope=menu_scope)
+def list_menus(menu_scope: str | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+    return sort_dict_items(rbac_service.list_menus(menu_scope=menu_scope), sort_by, sort_dir, allowed=MENU_SORT_COLUMNS)
 
 
 def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
@@ -460,8 +510,14 @@ def create_api_key(
     return payload
 
 
-def list_api_keys(tenant_id: int | None = None, current_user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    return api_key_service.list_api_keys(tenant_id=tenant_id, current_user=current_user)
+def list_api_keys(
+    tenant_id: int | None = None,
+    current_user: dict[str, Any] | None = None,
+    *,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict[str, Any]]:
+    return api_key_service.list_api_keys(tenant_id=tenant_id, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir)
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:

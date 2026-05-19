@@ -21,6 +21,8 @@ def dictionary_types(
     keyword: str = "",
     status: str | None = Query(default=None),
     category: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:read")),
 ) -> dict[str, Any]:
     return ok_or_error(
@@ -30,6 +32,8 @@ def dictionary_types(
             keyword=keyword,
             status=status,
             category=category,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             current_user=current_user,
         )
     )
@@ -69,6 +73,8 @@ def dictionary_items(
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str = "",
     status: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:read")),
 ) -> dict[str, Any]:
     return ok_or_error(
@@ -78,6 +84,8 @@ def dictionary_items(
             page_size=page_size,
             keyword=keyword,
             status=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             current_user=current_user,
         )
     )
@@ -126,6 +134,8 @@ def regions(
     status: str | None = Query(default=None),
     level: str | None = Query(default=None),
     parent_id: int | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:region:read")),
 ) -> dict[str, Any]:
     return ok_or_error(
@@ -136,6 +146,8 @@ def regions(
             status=status,
             level=level,
             parent_id=parent_id,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             current_user=current_user,
         )
     )

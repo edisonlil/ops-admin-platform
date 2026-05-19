@@ -14,9 +14,19 @@ from identity_access.infrastructure.persistence.common import (
 )
 from identity_access.infrastructure.security import generate_api_key, hash_api_key
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.sorting import build_order_by, parse_sort_params
 
 
 API_KEY_RESOURCE = ResourceDescriptor(resource_key="identity.api-key")
+API_KEY_SORT_COLUMNS = {
+    "id": "id",
+    "tenant_id": "tenant_id",
+    "name": "name",
+    "prefix": "prefix",
+    "is_active": "is_active",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def create_api_key(
@@ -69,7 +79,13 @@ def create_api_key(
     return {"key": key, "item": row_to_api_key(dict(row))}
 
 
-def list_api_keys(*, tenant_id: int | None = None, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+def list_api_keys(
+    *,
+    tenant_id: int | None = None,
+    data_scope: DataAccessPredicate | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
         filters = ["deleted = 0"]
@@ -79,12 +95,18 @@ def list_api_keys(*, tenant_id: int | None = None, data_scope: DataAccessPredica
             params.insert(0, tenant_id)
         append_data_scope_sql(filters, params, data_scope, API_KEY_RESOURCE)
         where = f"WHERE {' AND '.join(filters)}"
+        order_by = build_order_by(
+            parse_sort_params(sort_by, sort_dir),
+            allowed=API_KEY_SORT_COLUMNS,
+            default="is_active DESC, create_time DESC, id DESC",
+            tie_breaker="id DESC",
+        )
         rows = conn.execute(
             f"""
             SELECT *
             FROM api_keys
             {where}
-            ORDER BY is_active DESC, create_time DESC, id DESC
+            ORDER BY {order_by}
             """,
             tuple(params),
         ).fetchall()

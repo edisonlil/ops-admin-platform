@@ -91,9 +91,14 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
+export interface SortParams {
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
 export function getAuditLogs(
   category: AuditLogCategory,
-  params: { page?: number; page_size?: number; tenant_id?: number; keyword?: string; outcome?: string; severity?: string } = {}
+  params: { page?: number; page_size?: number; tenant_id?: number; keyword?: string; outcome?: string; severity?: string } & SortParams = {}
 ) {
   return Alova.Get<AuditLogListData>(pathByCategory[category], {
     params: withNoCacheParams(params),

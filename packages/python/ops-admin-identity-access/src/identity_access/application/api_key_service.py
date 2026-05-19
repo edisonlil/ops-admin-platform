@@ -29,13 +29,19 @@ def create_api_key(
     )
 
 
-def list_api_keys(tenant_id: int | None = None, current_user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def list_api_keys(
+    tenant_id: int | None = None,
+    current_user: dict[str, Any] | None = None,
+    *,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict[str, Any]]:
     data_scope = (
         resolve_data_access_filter(current_user=current_user, resource=API_KEY_RESOURCE, action="read")
         if current_user is not None
         else None
     )
-    return repositories.list_api_keys(tenant_id=tenant_id, data_scope=data_scope)
+    return repositories.list_api_keys(tenant_id=tenant_id, data_scope=data_scope, sort_by=sort_by, sort_dir=sort_dir)
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:

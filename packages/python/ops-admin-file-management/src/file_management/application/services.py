@@ -61,12 +61,25 @@ from system.application.data_access import (
     data_access_for,
     data_owner_fields,
 )
+from system.application.sorting import InvalidSortError, sort_dict_items
 
 
 _storage: StoragePort = MinioObjectStorage()
 _indexer: FileIndexerPort = NoopFileIndexer()
 _preview_provider: PreviewProviderPort = NativePreviewProvider()
 FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
+WORKSPACE_FOLDER_SORT_COLUMNS = {
+    "display_name": "name",
+    "name": "name",
+    "size_bytes": "size_bytes",
+    "update_time": "update_time",
+}
+WORKSPACE_ITEM_SORT_COLUMNS = {
+    "display_name": "name",
+    "name": "name",
+    "size_bytes": "size_bytes",
+    "update_time": "update_time",
+}
 
 
 def configure_storage(storage: StoragePort) -> None:
@@ -109,10 +122,25 @@ def external_url_prefix() -> str:
     return config_string(config, "public_api_url_prefix", "api_url_prefix", "url_prefix") or "/api"
 
 
-def list_libraries(*, page: int, page_size: int, current_user: dict[str, Any]) -> dict[str, Any]:
+def list_libraries(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_libraries(tenant_id=tenant_id, page=page, page_size=page_size)
+        items, total = repositories.list_libraries(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -180,6 +208,8 @@ def list_files(
     keyword: str = "",
     mime_type: str = "",
     status_filter: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
@@ -194,7 +224,11 @@ def list_files(
             mime_type=mime_type,
             status=status_filter,
             data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).read(),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -209,6 +243,8 @@ def list_workspace(
     library_id: int | None = None,
     folder_id: int | None = None,
     keyword: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
@@ -240,6 +276,8 @@ def list_workspace(
             current_folder_only=not bool(keyword.strip()),
             keyword=keyword.strip(),
             data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).read(),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
         usage = repositories.storage_usage(tenant_id=tenant_id)
         folder_usages = (
@@ -252,6 +290,13 @@ def list_workspace(
             else {}
         )
         current_usage = workspace_usage_from_items(tenant_id=tenant_id, folders=folders, folder_usages=folder_usages, files=files)
+        folder_items = [folder_to_workspace_dict(item, folder_usages) for item in folders]
+        folder_items = sort_dict_items(folder_items, sort_by, sort_dir, allowed=WORKSPACE_FOLDER_SORT_COLUMNS)
+        file_items = [file_to_workspace_dict(item) for item in files]
+        workspace_items = folder_items + file_items
+        workspace_items = sort_dict_items(workspace_items, sort_by, sort_dir, allowed=WORKSPACE_ITEM_SORT_COLUMNS)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
@@ -261,8 +306,9 @@ def list_workspace(
         "current_library": selected_library.to_dict() if selected_library else None,
         "current_folder": selected_folder.to_dict() if selected_folder else None,
         "breadcrumbs": [item.to_dict() for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
-        "folders": [folder_to_workspace_dict(item, folder_usages) for item in folders],
+        "folders": folder_items,
         "files": [item.to_dict() for item in files],
+        "items": workspace_items,
         "usage": usage.to_dict(),
         "current_usage": current_usage,
     }
@@ -621,17 +667,21 @@ def save_quota(tenant_id: int, payload: dict[str, Any], current_user: dict[str, 
     return {"quota": quota.to_dict(), "usage": repositories.storage_usage(tenant_id=tenant_id).to_dict()}
 
 
-def list_storage_profiles() -> dict[str, Any]:
+def list_storage_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_storage_profiles()
+        items = repositories.list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {"items": [item.to_dict() for item in items]}
 
 
-def list_preview_profiles() -> dict[str, Any]:
+def list_preview_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_preview_profiles()
+        items = repositories.list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {"items": [item.to_dict() for item in items]}
@@ -816,6 +866,8 @@ def list_access_logs(
     current_user: dict[str, Any],
     file_id: int | None = None,
     action: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
@@ -825,7 +877,11 @@ def list_access_logs(
             page_size=page_size,
             file_id=file_id,
             action=action,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -841,6 +897,8 @@ def list_index_jobs(
     current_user: dict[str, Any],
     file_id: int | None = None,
     status_filter: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
@@ -850,7 +908,11 @@ def list_index_jobs(
             page_size=page_size,
             file_id=file_id,
             status=status_filter,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -901,6 +963,15 @@ def folder_to_workspace_dict(item: FileFolder, folder_usages: dict[int, Any]) ->
     usage = folder_usages.get(item.id)
     payload["size_bytes"] = int(usage.used_bytes) if usage else 0
     payload["file_count"] = int(usage.file_count) if usage else 0
+    payload["kind"] = "folder"
+    payload["name"] = item.name
+    return payload
+
+
+def file_to_workspace_dict(item: ManagedFile) -> dict[str, Any]:
+    payload = item.to_dict()
+    payload["kind"] = "file"
+    payload["name"] = item.display_name or item.original_name
     return payload
 
 

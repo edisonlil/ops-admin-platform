@@ -30,7 +30,7 @@
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   const message = useMessage();
@@ -103,6 +103,7 @@
       columnRuntime: {
         minWidth: 80,
       },
+      sort: { remote: true },
       tableLayout: {
         headerHeight: 44,
         minRowHeight: 48,
@@ -128,10 +129,11 @@
     pagination: { pageSize: 20 },
   });
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = usePlatformApiKeys.value ? await getApiKeys() : await getCurrentTenantApiKeys();
+      const params = runtimeSortParams(state);
+      const payload = usePlatformApiKeys.value ? await getApiKeys(params) : await getCurrentTenantApiKeys(params);
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

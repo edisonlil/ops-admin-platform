@@ -6,7 +6,7 @@
   import { h, ref } from 'vue';
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
-  import { defineListPage, ListPageRuntime } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { getMessagingMessages, type MessageIntent } from '@/api/messaging';
 
@@ -44,6 +44,7 @@
       columns,
       rowKey: (row) => Number(row.id),
       scrollX: 1020,
+      sort: { remote: true },
       tableProps: { size: 'small' },
     },
     toolbar: {
@@ -52,10 +53,10 @@
     pagination: { pageSize: 20 },
   });
 
-  async function reload() {
+  async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessagingMessages({ page: 1, page_size: 50 });
+      const payload = await getMessagingMessages({ ...runtimeListParams(state), page: 1, page_size: 50 });
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

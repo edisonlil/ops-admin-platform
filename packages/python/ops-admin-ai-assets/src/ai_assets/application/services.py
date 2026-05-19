@@ -24,6 +24,7 @@ from ai_assets.domain.models import (
     PromptAsset,
 )
 from ai_assets.infrastructure.persistence import repositories
+from system.application.sorting import InvalidSortError
 from system.application.data_access import (
     ResourceDescriptor,
     data_access_for,
@@ -43,6 +44,8 @@ def list_prompt_assets(
     current_user: dict[str, Any],
     keyword: str = "",
     status_filter: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
@@ -53,7 +56,11 @@ def list_prompt_assets(
             keyword=keyword.strip(),
             status=status_filter.strip(),
             data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).read(),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -74,6 +81,8 @@ def list_published_prompt_assets(
     keyword: str = "",
     page: int = 1,
     page_size: int = 100,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return list_prompt_assets(
         page=page,
@@ -81,6 +90,8 @@ def list_published_prompt_assets(
         current_user=current_user,
         keyword=keyword,
         status_filter=PROMPT_ASSET_STATUS_PUBLISHED,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

@@ -23,6 +23,8 @@ def prompt_assets(
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str = "",
     status_filter: str = Query(default="", alias="status"),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
 ) -> dict[str, Any]:
     return ok(
@@ -31,6 +33,8 @@ def prompt_assets(
             page_size=page_size,
             keyword=keyword,
             status_filter=status_filter,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             current_user=current_user,
         )
     )
@@ -49,6 +53,8 @@ def published_prompt_assets(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=100),
     keyword: str = "",
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("prompt:assets:view")),
 ) -> dict[str, Any]:
     return ok(
@@ -56,6 +62,8 @@ def published_prompt_assets(
             page=page,
             page_size=page_size,
             keyword=keyword,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
             current_user=current_user,
         )
     )
