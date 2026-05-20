@@ -36,8 +36,19 @@ export interface PlatformBranding {
   update_time?: string;
 }
 
+interface RequestCacheOptions {
+  forceRefresh?: boolean;
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return { ...params, _t: Date.now() };
+}
+
+function withRefreshParams<T extends Record<string, unknown>>(
+  params: T = {} as T,
+  options: RequestCacheOptions = {}
+) {
+  return options.forceRefresh ? withNoCacheParams(params) : params;
 }
 
 export interface SortParams {
@@ -45,21 +56,21 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
-export function getEffectiveAppearanceTheme() {
+export function getEffectiveAppearanceTheme(options: RequestCacheOptions = {}) {
   return Alova.Get<EffectiveAppearanceTheme>('/appearance/effective-theme', {
-    params: withNoCacheParams(),
+    params: withRefreshParams({}, options),
   });
 }
 
-export function getPlatformAppearanceTheme() {
+export function getPlatformAppearanceTheme(options: RequestCacheOptions = {}) {
   return Alova.Get<EffectiveAppearanceTheme>('/appearance/platform-theme', {
-    params: withNoCacheParams(),
+    params: withRefreshParams({}, options),
   });
 }
 
-export function getPlatformBranding() {
+export function getPlatformBranding(options: RequestCacheOptions = {}) {
   return Alova.Get<{ branding: PlatformBranding }>('/appearance/platform-branding', {
-    params: withNoCacheParams(),
+    params: withRefreshParams({}, options),
   });
 }
 

@@ -1,30 +1,36 @@
 # -*- mode: python ; coding: utf-8 -*-
-
-block_cipher = None
+"""
+PyInstaller spec for ops-cli executable.
+"""
+from PyInstaller.building.build_main import Analysis, PYZ, EXE
 
 a = Analysis(
     ['ops_cli/__main__.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[
-        'paramiko',
-        'cryptography',
-        'yaml',
-        'jinja2',
-        'packaging',
-    ],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'numpy',
+        'pandas',
+        'PIL',
+        'Pillow',
+        'cv2',
+        'torch',
+        'tensorflow',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
-    cipher=block_cipher,
+    cipher=None,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 exe = EXE(
     pyz,
@@ -46,4 +52,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=None,
 )

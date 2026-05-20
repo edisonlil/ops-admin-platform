@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import Response
 
 from identity_access.application import api_key_service, auth_service, rbac_service, tenant_service
+from identity_access.application.access_context_cache import clear_access_context_cache
 from identity_access.domain import events
 from system.application.event_bus import publish_event
 from system.application.sorting import sort_dict_items
@@ -57,6 +58,11 @@ API_KEY_SORT_COLUMNS = {
     "create_time": "create_time",
     "update_time": "update_time",
 }
+
+
+def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
+    clear_access_context_cache()
+    return payload
 
 
 def authenticate(
@@ -239,19 +245,19 @@ def list_tenants(q: str | None = None, *, sort_by: str | None = None, sort_dir: 
 
 
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
-    return tenant_service.create_tenant(payload)
+    return _after_access_context_change(tenant_service.create_tenant(payload))
 
 
 def update_tenant(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return tenant_service.update_tenant(tenant_id, payload)
+    return _after_access_context_change(tenant_service.update_tenant(tenant_id, payload))
 
 
 def activate_tenant(tenant_id: int) -> dict[str, Any]:
-    return tenant_service.activate_tenant(tenant_id)
+    return _after_access_context_change(tenant_service.activate_tenant(tenant_id))
 
 
 def suspend_tenant(tenant_id: int) -> dict[str, Any]:
-    return tenant_service.suspend_tenant(tenant_id)
+    return _after_access_context_change(tenant_service.suspend_tenant(tenant_id))
 
 
 def list_tenant_users(tenant_id: int, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
@@ -259,15 +265,15 @@ def list_tenant_users(tenant_id: int, *, sort_by: str | None = None, sort_dir: s
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return tenant_service.create_tenant_user(tenant_id, payload)
+    return _after_access_context_change(tenant_service.create_tenant_user(tenant_id, payload))
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return tenant_service.update_tenant_user(tenant_id, user_id, payload)
+    return _after_access_context_change(tenant_service.update_tenant_user(tenant_id, user_id, payload))
 
 
 def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
-    return tenant_service.set_tenant_user_active(tenant_id, user_id, is_active)
+    return _after_access_context_change(tenant_service.set_tenant_user_active(tenant_id, user_id, is_active))
 
 
 def list_users() -> list[dict[str, Any]]:
@@ -300,7 +306,7 @@ def create_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
-    return enrich_user_with_departments(user)
+    return _after_access_context_change(enrich_user_with_departments(user))
 
 
 def update_user(
@@ -326,11 +332,11 @@ def update_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
-    return enrich_user_with_departments(user)
+    return _after_access_context_change(enrich_user_with_departments(user))
 
 
 def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
-    return rbac_service.set_user_active(user_id, is_active)
+    return _after_access_context_change(rbac_service.set_user_active(user_id, is_active))
 
 
 def list_roles(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
@@ -353,7 +359,7 @@ def create_role(
         menu_keys=menu_keys,
     )
     publish_event(events.role_permissions_changed(int(role["id"]), correlation_id=current_request_id()))
-    return role
+    return _after_access_context_change(role)
 
 
 def update_role(
@@ -372,19 +378,19 @@ def update_role(
         menu_keys=menu_keys,
     )
     publish_event(events.role_permissions_changed(role_id, correlation_id=current_request_id()))
-    return role
+    return _after_access_context_change(role)
 
 
 def update_role_menus(role_id: int, menu_keys: list[str]) -> dict[str, Any]:
     role = rbac_service.update_role_menus(role_id, menu_keys)
     publish_event(events.role_permissions_changed(role_id, correlation_id=current_request_id()))
-    return role
+    return _after_access_context_change(role)
 
 
 def delete_role(role_id: int) -> dict[str, Any]:
     role = rbac_service.delete_role(role_id)
     publish_event(events.role_deleted(role_id, correlation_id=current_request_id()))
-    return role
+    return _after_access_context_change(role)
 
 
 def list_permissions() -> list[dict[str, str]]:
@@ -449,7 +455,7 @@ def create_menu(
     sort_order: int = 0,
     is_visible: bool = True,
 ) -> dict[str, Any]:
-    return rbac_service.create_menu(
+    return _after_access_context_change(rbac_service.create_menu(
         menu_key=menu_key,
         label=label,
         menu_scope=menu_scope,
@@ -462,7 +468,7 @@ def create_menu(
         permission_code=permission_code,
         sort_order=sort_order,
         is_visible=is_visible,
-    )
+    ))
 
 
 def update_menu(
@@ -481,7 +487,7 @@ def update_menu(
     sort_order: int = 0,
     is_visible: bool = True,
 ) -> dict[str, Any]:
-    return rbac_service.update_menu(
+    return _after_access_context_change(rbac_service.update_menu(
         menu_id,
         menu_key=menu_key,
         label=label,
@@ -495,11 +501,11 @@ def update_menu(
         permission_code=permission_code,
         sort_order=sort_order,
         is_visible=is_visible,
-    )
+    ))
 
 
 def delete_menu(menu_id: int) -> dict[str, Any]:
-    return rbac_service.delete_menu(menu_id)
+    return _after_access_context_change(rbac_service.delete_menu(menu_id))
 
 
 def create_api_key(

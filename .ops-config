@@ -5,14 +5,17 @@
     "ai_assets",
     "ai_capabilities",
     "appearance",
+    "audit_logging",
     "authorization",
     "basic_data",
     "cron",
     "file_management",
     "identity_access",
     "llm_runtime",
+    "metadata_support",
     "messaging",
     "organization",
+    "personalization",
     "system"
   ],
   "linked_at": "2026-05-17T10:31:27.306777"

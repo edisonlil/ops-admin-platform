@@ -7,8 +7,9 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from fastapi_login.exceptions import InvalidCredentialsException
 
 from identity_access.application.api_key_service import validate_api_key
+from identity_access.application.access_context_cache import get_access_context, set_access_context
 from identity_access.application.auth_service import load_user
-from identity_access.infrastructure.persistence.common import DEFAULT_TENANT_KEY
+from identity_access.infrastructure.persistence.common import DEFAULT_TENANT_KEY, auth_database_target
 from identity_access.infrastructure.security import COOKIE_NAME, login_manager
 from identity_access.application import tenant_service
 from system.application.data_access import current_user_primary_department_id
@@ -22,6 +23,10 @@ bearer_header = HTTPBearer(auto_error=False)
 # Importing load_user registers the LoginManager user loader for the legacy
 # OAuth dependency path. Tenant-aware routes decode the token explicitly below.
 _ = load_user
+
+
+def _access_context_namespace() -> str:
+    return str(auth_database_target())
 
 
 def _activate_tenant_scope(scope: TenantScope, request: Request | None = None) -> None:
@@ -48,7 +53,7 @@ def _token_from_request(request: Request) -> str:
     raise InvalidCredentialsException
 
 
-def _user_and_payload_from_request(request: Request) -> tuple[dict[str, Any], dict[str, Any]]:
+def _payload_identity_from_request(request: Request) -> tuple[dict[str, Any], str, int | None, str]:
     payload = login_manager._get_payload(_token_from_request(request))
     username = str(payload.get("sub", "")).strip()
     if not username:
@@ -59,6 +64,11 @@ def _user_and_payload_from_request(request: Request) -> tuple[dict[str, Any], di
     except (TypeError, ValueError):
         raise InvalidCredentialsException from None
     auth_scope = str(payload.get("auth_scope") or "tenant")
+    return payload, username, tenant_id, auth_scope
+
+
+def _user_and_payload_from_request(request: Request) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload, username, tenant_id, auth_scope = _payload_identity_from_request(request)
     current_user = tenant_service.load_user_for_tenant(username, tenant_id, auth_scope=auth_scope)
     if not current_user or not bool(current_user.get("is_active", True)):
         raise InvalidCredentialsException
@@ -69,6 +79,34 @@ def _user_and_payload_from_request(request: Request) -> tuple[dict[str, Any], di
             raise InvalidCredentialsException
         payload["auth_scope"] = auth_scope
     return current_user, payload
+
+
+def _activate_scope_from_user(current_user: dict[str, Any], request: Request | None = None) -> None:
+    current = current_user.get("current_tenant")
+    if not current:
+        return
+    scope = TenantScope(
+        tenant_id=int(current["id"]),
+        tenant_key=str(current["tenant_key"]),
+        tenant_name=str(current["name"]),
+        is_platform_admin=bool(current_user.get("is_platform_admin", False)),
+        source="user",
+        principal_id=int(current_user.get("id", 0) or 0),
+        principal_name=str(current_user.get("username", "") or ""),
+    )
+    primary_department_id = current_user_primary_department_id(current_user)
+    if primary_department_id is not None:
+        scope = TenantScope(
+            tenant_id=scope.tenant_id,
+            tenant_key=scope.tenant_key,
+            tenant_name=scope.tenant_name,
+            is_platform_admin=scope.is_platform_admin,
+            source=scope.source,
+            principal_id=scope.principal_id,
+            principal_name=scope.principal_name,
+            principal_department_id=primary_department_id,
+        )
+    _activate_tenant_scope(scope, request)
 
 
 def _attach_user_tenant_scope(
@@ -115,10 +153,23 @@ def _attach_user_tenant_scope(
 
 
 async def require_user(request: Request) -> dict[str, Any]:
+    payload, username, tenant_id, auth_scope = _payload_identity_from_request(request)
+    if payload.get("auth_scope"):
+        cached_user = get_access_context(username, tenant_id, auth_scope, namespace=_access_context_namespace())
+        if cached_user is not None:
+            if not bool(cached_user.get("is_active", True)):
+                raise InvalidCredentialsException
+            _activate_scope_from_user(cached_user, request)
+            return cached_user
+
     current_user, payload = _user_and_payload_from_request(request)
     if not bool(current_user.get("is_active", True)):
         raise InvalidCredentialsException
-    return _attach_user_tenant_scope(current_user, payload, request)
+    current_user = _attach_user_tenant_scope(current_user, payload, request)
+    cache_tenant_id = int(payload["tenant_id"]) if payload.get("tenant_id") else None
+    cache_auth_scope = str(payload.get("auth_scope") or auth_scope)
+    set_access_context(username, cache_tenant_id, cache_auth_scope, current_user, namespace=_access_context_namespace())
+    return current_user
 
 
 def optional_user_from_request(request: Request) -> dict[str, Any] | None:

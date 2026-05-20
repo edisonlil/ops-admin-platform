@@ -466,7 +466,7 @@
     if (!themeId) return;
     await publishAppearanceTheme(themeId);
     if (appearanceStore.backendThemeId === themeId) {
-      await appearanceStore.loadEffectiveThemeForCurrentTenant();
+      await appearanceStore.loadEffectiveThemeForCurrentTenant({ forceRefresh: true });
     }
     window.$message?.success('主题已发布');
     await loadThemes();
@@ -476,7 +476,7 @@
     if (!themeId) return;
     await setPlatformDefaultAppearanceTheme(themeId);
     if (appearanceStore.backendThemeSource !== 'tenant') {
-      await appearanceStore.loadEffectiveThemeForCurrentTenant();
+      await appearanceStore.loadEffectiveThemeForCurrentTenant({ forceRefresh: true });
     }
     window.$message?.success('已设为平台默认主题');
     await loadThemes();
@@ -486,7 +486,7 @@
     if (!themeId) return;
     await disableAppearanceTheme(themeId);
     if (appearanceStore.backendThemeId === themeId) {
-      await appearanceStore.loadEffectiveThemeForCurrentTenant();
+      await appearanceStore.loadEffectiveThemeForCurrentTenant({ forceRefresh: true });
     }
     window.$message?.success('主题已停用');
     await loadThemes();
@@ -504,7 +504,7 @@
       await appearanceStore.saveEditingThemeDraft();
       await publishAppearanceTheme(appearanceStore.editingThemeId);
       if (appearanceStore.backendThemeId === appearanceStore.editingThemeId) {
-        await appearanceStore.loadEffectiveThemeForCurrentTenant();
+        await appearanceStore.loadEffectiveThemeForCurrentTenant({ forceRefresh: true });
       }
       window.$message?.success('主题已发布');
     } finally {

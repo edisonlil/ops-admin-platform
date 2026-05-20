@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException, Response, status
 
+from identity_access.application.access_context_cache import clear_access_context_cache
 from identity_access.application import auth_service, rbac_service
 from identity_access.infrastructure.persistence import tenant_repository
 from identity_access.infrastructure.persistence.common import auth_database_target, connect, require_auth_ready
@@ -13,6 +14,11 @@ from system.domain.tenancy import DEFAULT_TENANT_KEY
 
 PLATFORM_TENANT_KEY = "platform"
 TENANT_ADMIN_ROLE_KEY = "tenant-admin"
+
+
+def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
+    clear_access_context_cache()
+    return payload
 
 
 def list_tenants(q: str | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
@@ -110,16 +116,16 @@ def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
         tenant["user_count"] = 1
-    return tenant
+    return _after_access_context_change(tenant)
 
 
 def update_tenant(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return tenant_repository.update_tenant(
+    return _after_access_context_change(tenant_repository.update_tenant(
         tenant_id,
         name=str(payload.get("name", "")),
         remark=str(payload.get("remark", "")),
         status_value=str(payload.get("status", "active")),
-    )
+    ))
 
 
 def activate_tenant(tenant_id: int) -> dict[str, Any]:
@@ -296,7 +302,7 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
         )
-    return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user)
+    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user))
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -337,7 +343,7 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
         )
-    return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
+    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user))
 
 
 def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
@@ -354,7 +360,7 @@ def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dic
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant user not found")
 
     user = rbac_service.set_user_active(user_id, is_active)
-    return next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user)
+    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user))
 
 
 def sync_tenant_user_departments_if_available(
