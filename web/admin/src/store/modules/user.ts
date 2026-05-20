@@ -14,9 +14,15 @@ export type UserInfoType = {
   full_name?: string;
   email?: string;
   avatar?: string;
+  roles?: Recordable[];
+  departments?: Recordable[];
+  department_ids?: number[];
+  primary_department_id?: number | null;
   current_tenant?: Recordable;
   tenant_memberships?: Recordable[];
+  auth_scope?: string;
   is_platform_admin?: boolean;
+  is_tenant_admin?: boolean;
   permissions?: any[];
   menus?: Recordable[];
 };
@@ -141,6 +147,9 @@ function normalizeUserInfo(info: UserInfoType | null | undefined = {}): UserInfo
     ...safeInfo,
     permissions: Array.isArray(safeInfo.permissions) ? safeInfo.permissions : [],
     menus: Array.isArray(safeInfo.menus) ? safeInfo.menus : [],
+    roles: Array.isArray(safeInfo.roles) ? safeInfo.roles : [],
+    departments: Array.isArray(safeInfo.departments) ? safeInfo.departments : [],
+    department_ids: Array.isArray(safeInfo.department_ids) ? safeInfo.department_ids : [],
     tenant_memberships: Array.isArray(safeInfo.tenant_memberships) ? safeInfo.tenant_memberships : [],
   };
 }

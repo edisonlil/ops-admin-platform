@@ -336,21 +336,21 @@
       const avatarOptions = [
         {
           label: '个人设置',
-          key: 1,
+          key: 'profile',
         },
         {
           label: '退出登录',
-          key: 2,
+          key: 'logout',
         },
       ];
 
       //头像下拉菜单
       const avatarSelect = (key) => {
         switch (key) {
-          case 1:
-            router.push({ name: 'Setting' });
+          case 'profile':
+            router.push({ name: 'profile-setting' });
             break;
-          case 2:
+          case 'logout':
             doLogout();
             break;
         }

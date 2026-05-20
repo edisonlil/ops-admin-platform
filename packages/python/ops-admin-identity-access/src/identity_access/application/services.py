@@ -216,6 +216,13 @@ def scaffold_permissions(permission_codes: list[str]) -> list[dict[str, str]]:
 
 def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
     roles = current_user.get("roles", [])
+    current_tenant_id = None if bool(current_user.get("is_platform_admin", False)) else current_user.get("tenant_id")
+    tenant_payload = tenant_service.tenant_access_payload(current_user, current_tenant_id)
+    departments = tenant_service.user_departments_for_current_tenant({**current_user, **tenant_payload})
+    primary_department = next(
+        (department for department in departments if bool(department.get("is_primary"))),
+        departments[0] if departments else None,
+    )
     payload = {
         "username": str(current_user.get("username", "")),
         "full_name": str(current_user.get("full_name", "") or ""),
@@ -230,9 +237,11 @@ def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
         ],
         "permissions": scaffold_permissions(list(current_user.get("permissions", []))),
         "menus": current_user.get("menus", []),
+        "departments": departments,
+        "department_ids": [int(department["department_id"]) for department in departments],
+        "primary_department_id": int(primary_department["department_id"]) if primary_department else None,
     }
-    current_tenant_id = None if bool(current_user.get("is_platform_admin", False)) else current_user.get("tenant_id")
-    payload.update(tenant_service.tenant_access_payload(current_user, current_tenant_id))
+    payload.update(tenant_payload)
     return payload
 
 

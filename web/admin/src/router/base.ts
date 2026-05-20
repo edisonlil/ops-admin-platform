@@ -43,3 +43,24 @@ export const RedirectRoute: RouteRecordRaw = {
     },
   ],
 };
+
+export const ProfileSettingRoute: RouteRecordRaw = {
+  path: '/profile',
+  name: 'ProfileSetting',
+  component: Layout,
+  meta: {
+    title: '个人设置',
+    hideBreadcrumb: true,
+  },
+  children: [
+    {
+      path: '',
+      name: 'profile-setting',
+      component: () => import('@/views/setting/account/account.vue'),
+      meta: {
+        title: '个人设置',
+        hideBreadcrumb: true,
+      },
+    },
+  ],
+};

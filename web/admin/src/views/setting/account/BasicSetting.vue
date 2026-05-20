@@ -1,47 +1,91 @@
 <template>
-  <n-grid cols="1 s:1 m:2 l:2 xl:2 2xl:2" responsive="screen" :x-gap="24" :y-gap="16">
-    <n-grid-item>
-      <n-form ref="profileFormRef" :model="profileForm" :rules="profileRules" label-placement="left" :label-width="96">
-        <n-form-item label="用户名">
-          <n-input :value="userInfo.username || '-'" disabled />
-        </n-form-item>
+  <div class="profile-basic">
+    <section class="profile-basic__main">
+      <header class="profile-section-header">
+        <span class="profile-section-header__eyebrow">个人基本信息</span>
+        <h2>基本设置</h2>
+        <p>维护当前账号的姓名，并查看该账号在当前租户下的部门与角色。</p>
+      </header>
+
+      <n-form
+        ref="profileFormRef"
+        :model="profileForm"
+        :rules="profileRules"
+        label-placement="top"
+        class="profile-form"
+      >
         <n-form-item label="姓名" path="full_name">
           <n-input v-model:value="profileForm.full_name" clearable placeholder="请输入姓名" maxlength="120" show-count />
+        </n-form-item>
+        <n-form-item label="用户名">
+          <n-input :value="userInfo.username || '-'" disabled />
         </n-form-item>
         <n-form-item label="当前租户">
           <n-input :value="currentTenantName" disabled />
         </n-form-item>
-        <n-form-item label="角色">
-          <n-space>
-            <n-tag v-for="role in roleTags" :key="role.value" size="small" type="info">
-              {{ role.label }}
-            </n-tag>
-            <n-text v-if="!roleTags.length" depth="3">暂无角色</n-text>
-          </n-space>
-        </n-form-item>
         <n-space>
-          <n-button type="primary" :loading="saving" @click="submitProfile">保存资料</n-button>
+          <n-button type="primary" :loading="saving" @click="submitProfile">保存基本信息</n-button>
         </n-space>
       </n-form>
-    </n-grid-item>
 
-    <n-grid-item>
-      <n-form ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-placement="left" :label-width="96">
-        <n-form-item label="当前密码" path="current_password">
-          <n-input v-model:value="passwordForm.current_password" type="password" show-password-on="mousedown" />
-        </n-form-item>
-        <n-form-item label="新密码" path="new_password">
-          <n-input v-model:value="passwordForm.new_password" type="password" show-password-on="mousedown" />
-        </n-form-item>
-        <n-form-item label="确认密码" path="confirm_password">
-          <n-input v-model:value="passwordForm.confirm_password" type="password" show-password-on="mousedown" />
-        </n-form-item>
-        <n-space>
-          <n-button type="primary" secondary :loading="savingPassword" @click="submitPassword">修改密码</n-button>
-        </n-space>
-      </n-form>
-    </n-grid-item>
-  </n-grid>
+      <section class="profile-info-block">
+        <div class="profile-info-block__head">
+          <h3>所在部门</h3>
+          <span>{{ departmentTags.length }} 个部门</span>
+        </div>
+        <div class="profile-tag-list">
+          <n-tag
+            v-for="department in departmentTags"
+            :key="department.value"
+            size="small"
+            :type="department.primary ? 'success' : 'info'"
+          >
+            {{ department.label }}
+            <template v-if="department.primary"> · 主部门</template>
+          </n-tag>
+          <n-text v-if="!departmentTags.length" depth="3">暂无部门</n-text>
+        </div>
+      </section>
+
+      <section class="profile-info-block">
+        <div class="profile-info-block__head">
+          <h3>角色</h3>
+          <span>{{ roleTags.length }} 个角色</span>
+        </div>
+        <div class="profile-tag-list">
+          <n-tag v-for="role in roleTags" :key="role.value" size="small" type="info">
+            {{ role.label }}
+          </n-tag>
+          <n-text v-if="!roleTags.length" depth="3">暂无角色</n-text>
+        </div>
+      </section>
+    </section>
+
+    <aside class="profile-basic__side" :class="{ 'profile-basic__side--compact': !avatarSrc }">
+      <div v-if="avatarSrc" class="profile-avatar-panel">
+        <n-avatar round :size="104" :src="avatarSrc">
+          {{ avatarFallback }}
+        </n-avatar>
+        <h3>{{ displayName }}</h3>
+        <p>{{ userInfo.username || '-' }}</p>
+      </div>
+
+      <dl class="profile-summary">
+        <div>
+          <dt>当前租户</dt>
+          <dd>{{ currentTenantName }}</dd>
+        </div>
+        <div>
+          <dt>主部门</dt>
+          <dd>{{ primaryDepartmentName }}</dd>
+        </div>
+        <div>
+          <dt>角色</dt>
+          <dd>{{ roleSummary }}</dd>
+        </div>
+      </dl>
+    </aside>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -51,48 +95,55 @@
   import { getProfile, updateProfile } from '@/api/system/user';
   import { useUserStore } from '@/store/modules/user';
 
+  type TagItem = {
+    label: string;
+    value: string;
+    primary?: boolean;
+  };
+
   const message = useMessage();
   const userStore = useUserStore();
   const profileFormRef = ref<FormInst | null>(null);
-  const passwordFormRef = ref<FormInst | null>(null);
   const saving = ref(false);
-  const savingPassword = ref(false);
 
   const profileForm = reactive({
     full_name: '',
   });
-  const passwordForm = reactive({
-    current_password: '',
-    new_password: '',
-    confirm_password: '',
-  });
 
   const userInfo = computed(() => userStore.info || {});
+  const avatarSrc = computed(() => String(userInfo.value.avatar || '').trim());
+  const displayName = computed(() => profileForm.full_name || userInfo.value.full_name || userInfo.value.username || '-');
+  const avatarFallback = computed(() => String(displayName.value || userInfo.value.username || '用').slice(0, 1).toUpperCase());
   const currentTenantName = computed(() => {
     const tenant = userInfo.value.current_tenant || {};
     return String(tenant.name || tenant.tenant_key || tenant.key || '-');
   });
-  const roleTags = computed(() =>
-    (userInfo.value.roles || []).map((role: any) => ({
-      label: String(role.label || role.name || role.value || role.key || ''),
-      value: String(role.value || role.key || role.label || role.name || ''),
-    })).filter((role) => role.value)
+
+  const departmentTags = computed<TagItem[]>(() =>
+    (userInfo.value.departments || [])
+      .map((department: Recordable) => ({
+        label: String(department.name || department.code || department.department_id || ''),
+        value: String(department.department_id || department.id || department.code || department.name || ''),
+        primary: Boolean(department.is_primary),
+      }))
+      .filter((department) => department.value)
   );
+  const primaryDepartmentName = computed(() => {
+    const primary = departmentTags.value.find((department) => department.primary) || departmentTags.value[0];
+    return primary?.label || '暂无部门';
+  });
+  const roleTags = computed<TagItem[]>(() =>
+    (userInfo.value.roles || [])
+      .map((role: Recordable) => ({
+        label: String(role.label || role.name || role.value || role.key || role.role_key || ''),
+        value: String(role.value || role.key || role.role_key || role.label || role.name || ''),
+      }))
+      .filter((role) => role.value)
+  );
+  const roleSummary = computed(() => roleTags.value.map((role) => role.label).join('、') || '暂无角色');
 
   const profileRules: FormRules = {
     full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
-  };
-  const passwordRules: FormRules = {
-    current_password: [{ required: true, message: '请输入当前密码', trigger: ['blur', 'input'] }],
-    new_password: [{ required: true, min: 6, message: '请输入至少 6 位新密码', trigger: ['blur', 'input'] }],
-    confirm_password: [
-      { required: true, message: '请再次输入新密码', trigger: ['blur', 'input'] },
-      {
-        validator: (_rule, value) => value === passwordForm.new_password,
-        message: '两次输入的新密码不一致',
-        trigger: ['blur', 'input'],
-      },
-    ],
   };
 
   async function refreshProfile() {
@@ -112,37 +163,163 @@
       const profile = await updateProfile({ full_name: profileForm.full_name.trim() });
       userStore.setUserInfo(profile);
       profileForm.full_name = String(profile.full_name || '');
-      message.success('个人资料已保存');
+      message.success('基本信息已保存');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '个人资料保存失败');
+      message.error(error instanceof Error ? error.message : '基本信息保存失败');
     } finally {
       saving.value = false;
     }
   }
 
-  async function submitPassword() {
-    try {
-      await passwordFormRef.value?.validate();
-    } catch {
-      return;
-    }
-    savingPassword.value = true;
-    try {
-      const profile = await updateProfile({
-        full_name: profileForm.full_name.trim(),
-        current_password: passwordForm.current_password,
-        new_password: passwordForm.new_password,
-      });
-      userStore.setUserInfo(profile);
-      Object.assign(passwordForm, { current_password: '', new_password: '', confirm_password: '' });
-      passwordFormRef.value?.restoreValidation();
-      message.success('密码已修改');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '密码修改失败');
-    } finally {
-      savingPassword.value = false;
-    }
-  }
-
   refreshProfile();
 </script>
+
+<style lang="less" scoped>
+  .profile-basic {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 48px;
+  }
+
+  .profile-basic__main,
+  .profile-basic__side {
+    min-width: 0;
+  }
+
+  .profile-section-header {
+    margin-bottom: 24px;
+  }
+
+  .profile-section-header__eyebrow {
+    color: var(--app-primary-color);
+    font-family: var(--app-font-family-mono);
+    font-size: var(--app-font-size-sm);
+    font-weight: var(--app-font-weight-strong);
+  }
+
+  .profile-section-header h2 {
+    margin: 8px 0 8px;
+    color: var(--app-text-color);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .profile-section-header p {
+    max-width: 560px;
+    margin: 0;
+    color: var(--app-text-color-secondary);
+    font-size: var(--app-font-size-md);
+    line-height: 1.7;
+  }
+
+  .profile-form {
+    max-width: 520px;
+  }
+
+  .profile-info-block {
+    max-width: 640px;
+    padding-top: 24px;
+    margin-top: 26px;
+    border-top: 1px solid var(--app-border-color);
+  }
+
+  .profile-info-block__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .profile-info-block__head h3 {
+    margin: 0;
+    color: var(--app-text-color);
+    font-size: var(--app-font-size-lg);
+    font-weight: var(--app-font-weight-strong);
+  }
+
+  .profile-info-block__head span {
+    color: var(--app-text-color-secondary);
+    font-size: var(--app-font-size-sm);
+  }
+
+  .profile-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-height: 30px;
+    align-items: center;
+  }
+
+  .profile-basic__side {
+    padding-top: 82px;
+  }
+
+  .profile-basic__side--compact {
+    padding-top: 64px;
+  }
+
+  .profile-avatar-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 26px 20px;
+    background: var(--app-surface-bg, #ffffff);
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-card-radius);
+  }
+
+  .profile-avatar-panel h3 {
+    margin: 16px 0 4px;
+    color: var(--app-text-color);
+    font-size: var(--app-font-size-lg);
+    font-weight: var(--app-font-weight-strong);
+  }
+
+  .profile-avatar-panel p {
+    margin: 0;
+    color: var(--app-text-color-secondary);
+    font-size: var(--app-font-size-sm);
+  }
+
+  .profile-summary {
+    padding: 4px 0 0;
+    margin: 18px 0 0;
+  }
+
+  .profile-summary div {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--app-border-color);
+  }
+
+  .profile-summary dt,
+  .profile-summary dd {
+    margin: 0;
+    font-size: var(--app-font-size-sm);
+    line-height: 1.55;
+  }
+
+  .profile-summary dt {
+    color: var(--app-text-color-secondary);
+  }
+
+  .profile-summary dd {
+    color: var(--app-text-color);
+    word-break: break-word;
+  }
+
+  @media (max-width: 1100px) {
+    .profile-basic {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+
+    .profile-basic__side {
+      padding-top: 0;
+    }
+  }
+</style>

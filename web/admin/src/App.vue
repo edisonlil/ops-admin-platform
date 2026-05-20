@@ -19,7 +19,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, onMounted, onUnmounted, watch } from 'vue';
+  import { computed, onMounted, onUnmounted, watch, watchEffect } from 'vue';
   import { zhCN, dateZhCN, darkTheme } from 'naive-ui';
   import { LockScreen } from '@/components/Lockscreen';
   import { AppProvider } from '@/components/Application';
@@ -41,6 +41,13 @@
   const getDarkTheme = computed(() => (designStore.darkTheme ? darkTheme : undefined));
 
   let timer: NodeJS.Timer;
+
+  watchEffect(() => {
+    if (typeof document === 'undefined') return;
+    Object.entries(appearanceStore.cssVars).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(key, String(value));
+    });
+  });
 
   const syncAppearanceTheme = () => {
     appearanceStore.loadPlatformBranding().catch(() => undefined);

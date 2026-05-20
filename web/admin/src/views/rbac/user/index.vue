@@ -27,11 +27,11 @@
         label-placement="left"
         :label-width="110"
       >
-        <n-form-item label="用户名" path="username">
-          <n-input v-model:value="userForm.username" placeholder="请输入用户名" />
-        </n-form-item>
         <n-form-item label="姓名" path="full_name">
           <n-input v-model:value="userForm.full_name" placeholder="请输入用户姓名" />
+        </n-form-item>
+        <n-form-item label="用户名" path="username">
+          <n-input v-model:value="userForm.username" placeholder="请输入用户名" />
         </n-form-item>
         <n-form-item :label="userFormMode === 'create' ? '登录密码' : '重置密码'" path="password">
           <n-input
