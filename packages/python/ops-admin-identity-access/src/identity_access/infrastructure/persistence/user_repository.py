@@ -36,6 +36,7 @@ def public_user(
         "id": int(row.get("id", 0) or 0),
         "tenant_id": effective_tenant_id,
         "username": str(row.get("username", "")),
+        "full_name": str(row.get("full_name", "") or ""),
         "is_active": bool(row.get("is_active", True)),
         "is_superuser": bool(row.get("is_superuser", False)),
     }
@@ -140,7 +141,7 @@ def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, An
             params.append(tenant_key)
         rows = conn.execute(
             f"""
-            SELECT u.id, u.tenant_id, u.username, u.is_active, u.is_superuser, u.create_time, u.update_time
+            SELECT u.id, u.tenant_id, u.username, u.full_name, u.is_active, u.is_superuser, u.create_time, u.update_time
             FROM users u
             {tenant_filter}
             ORDER BY u.tenant_id, u.username, u.id
@@ -169,9 +170,10 @@ def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, An
         )
     return [
         {
-              "id": int(dict(row)["id"]),
-              "tenant_id": int(dict(row).get("tenant_id", 1) or 1),
-              "username": str(dict(row)["username"]),
+            "id": int(dict(row)["id"]),
+            "tenant_id": int(dict(row).get("tenant_id", 1) or 1),
+            "username": str(dict(row)["username"]),
+            "full_name": str(dict(row).get("full_name", "") or ""),
             "is_active": bool(dict(row)["is_active"]),
             "is_superuser": bool(dict(row)["is_superuser"]),
             "roles": roles_by_user.get(int(dict(row)["id"]), []),
@@ -245,6 +247,7 @@ def create_user(
     *,
     username: str,
     password: str,
+    full_name: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
     is_active: bool = True,
@@ -271,10 +274,10 @@ def create_user(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
         cursor = conn.execute(
             """
-            INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (tenant_id, username, full_name, hashed_password, is_active, is_superuser, create_time, update_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tenant_id, normalized_username, hash_password(password), bool(is_active), bool(is_superuser), now, now),
+            (tenant_id, normalized_username, full_name.strip(), hash_password(password), bool(is_active), bool(is_superuser), now, now),
         )
         user_id = int(getattr(cursor, "lastrowid", 0) or 0)
         if not user_id:
@@ -295,6 +298,7 @@ def update_user(
     user_id: int,
     *,
     username: str,
+    full_name: str = "",
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
@@ -324,11 +328,11 @@ def update_user(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
         ensure_last_superuser_survives(conn, user_id, is_active=bool(is_active), is_superuser=bool(is_superuser))
 
-        fields = ["tenant_id = ?", "username = ?", "is_active = ?", "is_superuser = ?", "update_time = ?"]
-        params: list[Any] = [effective_tenant_id, normalized_username, bool(is_active), bool(is_superuser), now]
+        fields = ["tenant_id = ?", "username = ?", "full_name = ?", "is_active = ?", "is_superuser = ?", "update_time = ?"]
+        params: list[Any] = [effective_tenant_id, normalized_username, full_name.strip(), bool(is_active), bool(is_superuser), now]
         if password.strip():
-            fields.insert(3, "hashed_password = ?")
-            params.insert(3, hash_password(password))
+            fields.insert(4, "hashed_password = ?")
+            params.insert(4, hash_password(password))
         params.append(user_id)
         conn.execute(
             f"""
@@ -344,6 +348,36 @@ def update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user
+
+
+def update_own_profile(user_id: int, *, full_name: str, current_password: str = "", new_password: str = "") -> dict[str, Any]:
+    now = now_iso()
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+
+        fields = ["full_name = ?", "update_time = ?"]
+        params: list[Any] = [full_name.strip(), now]
+        if new_password.strip():
+            if not current_password.strip() or not verify_password(current_password, str(row["hashed_password"])):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="current password is incorrect")
+            fields.insert(1, "hashed_password = ?")
+            params.insert(1, hash_password(new_password))
+        params.append(user_id)
+        conn.execute(
+            f"""
+            UPDATE users
+            SET {", ".join(fields)}
+            WHERE id = ?
+            """,
+            tuple(params),
+        )
+        updated = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    return public_user(dict(updated))
 
 
 def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:

@@ -657,6 +657,8 @@ def repair_sqlite_identity_tables_before_schema(conn: Any) -> None:
             continue
         if "tenant_id" not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN tenant_id INTEGER DEFAULT 1")
+        if table_name == "users" and "full_name" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")
         if table_name == "api_keys" and "owner_user_id" not in columns:
             conn.execute("ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER DEFAULT NULL")
         if table_name == "api_keys" and "owner_department_id" not in columns:
@@ -685,6 +687,7 @@ def ensure_menu_schema(conn: Any) -> None:
     now = now_iso()
     if backend_name(conn) in {"postgres", "mysql"}:
         add_column_if_missing(conn, "users", "tenant_id", "BIGINT DEFAULT 1")
+        add_column_if_missing(conn, "users", "full_name", "VARCHAR(255) DEFAULT ''")
         add_column_if_missing(conn, "roles", "tenant_id", "BIGINT DEFAULT NULL")
         add_column_if_missing(conn, "roles", "role_scope", "TEXT DEFAULT 'platform'")
         add_column_if_missing(conn, "menus", "menu_type", "TEXT DEFAULT 'page'")
@@ -824,6 +827,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     column_names = {str(row["name"]) for row in user_columns}
     required_columns = {
         "tenant_id",
+        "full_name",
         "lock_version",
         "deleted",
         "create_time",
@@ -856,6 +860,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER DEFAULT 1,
             username TEXT NOT NULL,
+            full_name TEXT NOT NULL DEFAULT '',
             hashed_password TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
             is_superuser INTEGER DEFAULT 0,
@@ -873,6 +878,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     )
 
     select_tenant = "tenant_id" if "tenant_id" in column_names else "1 AS tenant_id"
+    select_full_name = "full_name" if "full_name" in column_names else "'' AS full_name"
     select_lock_version = "lock_version" if "lock_version" in column_names else "0 AS lock_version"
     select_deleted = "deleted" if "deleted" in column_names else "0 AS deleted"
     select_creator = "creator" if "creator" in column_names else "NULL AS creator"
@@ -882,10 +888,10 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     conn.execute(
         f"""
         INSERT INTO users_tenant_migration (
-            id, tenant_id, username, hashed_password, is_active, is_superuser,
+            id, tenant_id, username, full_name, hashed_password, is_active, is_superuser,
             lock_version, deleted, create_time, creator, creator_id, update_time, editor, editor_id
         )
-        SELECT id, {select_tenant}, username, hashed_password, is_active, is_superuser,
+        SELECT id, {select_tenant}, username, {select_full_name}, hashed_password, is_active, is_superuser,
             {select_lock_version}, {select_deleted}, create_time, {select_creator}, {select_creator_id},
             update_time, {select_editor}, {select_editor_id}
         FROM users
@@ -1037,12 +1043,13 @@ def ensure_default_admin(conn: Any) -> None:
 
     conn.execute(
         """
-        INSERT INTO users (tenant_id, username, hashed_password, is_active, is_superuser, create_time, update_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (tenant_id, username, full_name, hashed_password, is_active, is_superuser, create_time, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             tenant_id,
             username,
+            "平台管理员",
             hash_password(default_admin_password()),
             True,
             True,

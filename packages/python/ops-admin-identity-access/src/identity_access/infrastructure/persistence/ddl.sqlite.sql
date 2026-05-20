@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER NOT NULL DEFAULT 1,
     username TEXT NOT NULL,
+    full_name TEXT NOT NULL DEFAULT '',
     hashed_password TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     is_superuser INTEGER NOT NULL DEFAULT 0,

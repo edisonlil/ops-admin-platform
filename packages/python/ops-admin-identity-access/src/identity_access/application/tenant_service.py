@@ -122,6 +122,7 @@ def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
             int(tenant["id"]),
             {
                 "username": admin_username,
+                "full_name": str(payload.get("admin_full_name") or ""),
                 "password": admin_password,
                 "role_keys": [TENANT_ADMIN_ROLE_KEY],
                 "is_active": True,
@@ -236,6 +237,7 @@ def switch_tenant(username: str, tenant_id: int, response: Response | None = Non
             "access_token": token,
             "token_type": "bearer",
             "username": str(row["username"]),
+            "full_name": str(row.get("full_name", "") or ""),
             "roles": refreshed_public.get("roles", []),
             "permissions": refreshed_public.get("permissions", []),
             "menus": refreshed_public.get("menus", []),
@@ -268,7 +270,7 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
         rows = conn.execute(
             """
-            SELECT u.id, u.username, u.is_active, u.is_superuser, u.create_time, u.update_time, tm.is_tenant_admin
+            SELECT u.id, u.username, u.full_name, u.is_active, u.is_superuser, u.create_time, u.update_time, tm.is_tenant_admin
             FROM tenant_memberships tm
             JOIN users u ON u.id = tm.user_id
             WHERE tm.tenant_id = ? AND tm.deleted = 0 AND u.deleted = 0
@@ -286,6 +288,7 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
             "id": user_id,
             "tenant_id": int(tenant_id),
             "username": str(row["username"]),
+            "full_name": str(row["full_name"] or ""),
             "is_active": bool(row["is_active"]),
             "is_superuser": bool(row["is_superuser"]),
             "roles": roles_by_user.get(user_id, []),
@@ -336,6 +339,7 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
     role_keys = list(payload.get("role_keys") or [])
     user = rbac_service.create_user(
         username=str(payload.get("username", "")),
+        full_name=str(payload.get("full_name", "") or ""),
         password=str(payload.get("password", "")),
         tenant_id=tenant_id,
         role_keys=role_keys,
@@ -380,6 +384,7 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
     user = rbac_service.update_user(
         user_id,
         username=str(payload.get("username", "")),
+        full_name=str(payload.get("full_name", "") or ""),
         password=str(payload.get("password", "")),
         tenant_id=tenant_id,
         role_keys=role_keys,

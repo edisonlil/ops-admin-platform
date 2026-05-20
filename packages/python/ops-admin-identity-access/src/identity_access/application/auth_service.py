@@ -42,6 +42,21 @@ def platform_user_by_username(username: str) -> dict[str, Any] | None:
     return repositories.platform_user_by_username(username)
 
 
+def update_own_profile(
+    user_id: int,
+    *,
+    full_name: str,
+    current_password: str = "",
+    new_password: str = "",
+) -> dict[str, Any]:
+    return repositories.update_own_profile(
+        user_id,
+        full_name=full_name,
+        current_password=current_password,
+        new_password=new_password,
+    )
+
+
 def public_user(
     row: dict[str, Any],
     *,

@@ -296,7 +296,19 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(me_response.status_code, 200)
         self.assertEqual(me_response.json()["data"]["username"], "admin")
+        self.assertEqual(me_response.json()["data"]["full_name"], "平台管理员")
         self.assertTrue(me_response.json()["data"]["is_platform_admin"])
+
+    def test_current_user_can_update_profile(self) -> None:
+        response = self.request("PUT", "/api/auth/profile", json={"full_name": "林子鹏"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["full_name"], "林子鹏")
+
+        info_response = self.request("GET", "/api/admin_info")
+
+        self.assertEqual(info_response.status_code, 200)
+        self.assertEqual(info_response.json()["data"]["full_name"], "林子鹏")
 
     def test_business_endpoints_require_auth(self) -> None:
         response = self.request("GET", "/api/tenants", auth=False)
@@ -389,6 +401,7 @@ class ApiTests(unittest.TestCase):
             f"/api/tenants/{tenant_id}/users",
             json={
                 "username": "tenant-member",
+                "full_name": "租户成员",
                 "password": "tenant-member-pass",
                 "role_keys": ["tenant-admin"],
                 "is_active": True,
@@ -405,6 +418,7 @@ class ApiTests(unittest.TestCase):
         usernames = {item["username"] for item in users}
         self.assertIn("admin", usernames)
         self.assertNotIn("tenant-member", usernames)
+        self.assertEqual(create_tenant_user_response.json()["data"]["item"]["full_name"], "租户成员")
         self.assertNotIn(tenant_user_id, {int(item["id"]) for item in users})
         self.assertNotIn(tenant_id, {int(item["tenant_id"]) for item in users})
 

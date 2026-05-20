@@ -81,6 +81,9 @@
         <n-form-item label="用户名" path="username">
           <n-input v-model:value="userForm.username" />
         </n-form-item>
+        <n-form-item label="姓名" path="full_name">
+          <n-input v-model:value="userForm.full_name" placeholder="请输入成员姓名" />
+        </n-form-item>
         <n-form-item :label="userFormMode === 'create' ? '初始密码' : '新密码'" path="password">
           <n-input v-model:value="userForm.password" type="password" show-password-on="mousedown" />
         </n-form-item>
@@ -190,6 +193,7 @@
   interface TenantUserRow extends Recordable {
     id: number;
     username: string;
+    full_name?: string;
     roles?: Array<{ key?: string; name?: string }>;
     departments?: DepartmentRow[];
     department_ids?: number[];
@@ -244,6 +248,7 @@
   const userForm = reactive({
     id: 0,
     username: '',
+    full_name: '',
     password: '',
     role_keys: [] as string[],
     department_ids: [] as number[],
@@ -282,6 +287,7 @@
 
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
+    full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
     password: userFormMode.value === 'create' ? [{ required: true, message: '请输入初始密码', trigger: ['blur', 'input'] }] : [],
   }));
 
@@ -330,6 +336,7 @@
 
   const userColumns: DataTableColumns<TenantUserRow> = [
     { title: '用户名', key: 'username', minWidth: 160 },
+    { title: '姓名', key: 'full_name', minWidth: 150 },
     {
       title: '角色',
       key: 'roles',
@@ -433,7 +440,7 @@
       description: '管理当前租户的成员账号、角色、所属部门和启用状态。',
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         rightTools: ['refresh'],
@@ -450,7 +457,7 @@
       embedded: true,
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 820, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         rightTools: ['refresh'],
@@ -478,6 +485,7 @@
 
   const userColumnRuntime = [
     { key: 'username', sortable: true },
+    { key: 'full_name', sortable: true },
     { key: 'roles', sortable: false },
     { key: 'departments', sortable: false },
     { key: 'is_active', sortable: true },
@@ -491,7 +499,7 @@
   }
 
   function resetUserForm() {
-    Object.assign(userForm, { id: 0, username: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
+    Object.assign(userForm, { id: 0, username: '', full_name: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
     userFormRef.value?.restoreValidation();
   }
 
@@ -640,6 +648,7 @@
     Object.assign(userForm, {
       id: row.id,
       username: row.username,
+      full_name: row.full_name || '',
       password: '',
       role_keys: (row.roles || []).map((role) => String(role.key)),
       department_ids: [...(row.department_ids || [])],
@@ -662,6 +671,7 @@
       const primaryId = userForm.primary_department_id && userForm.department_ids.includes(userForm.primary_department_id) ? userForm.primary_department_id : null;
       const payload = {
         username: userForm.username,
+        full_name: userForm.full_name,
         password: userForm.password || undefined,
         role_keys: userForm.role_keys,
         department_ids: [...userForm.department_ids],

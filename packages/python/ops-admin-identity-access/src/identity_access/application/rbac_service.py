@@ -23,6 +23,7 @@ def create_user(
     *,
     username: str,
     password: str,
+    full_name: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
     is_active: bool = True,
@@ -31,6 +32,7 @@ def create_user(
     return _after_access_context_change(repositories.create_user(
         username=username,
         password=password,
+        full_name=full_name,
         tenant_id=tenant_id,
         role_keys=role_keys,
         is_active=is_active,
@@ -42,6 +44,7 @@ def update_user(
     user_id: int,
     *,
     username: str,
+    full_name: str = "",
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
@@ -51,6 +54,7 @@ def update_user(
     return _after_access_context_change(repositories.update_user(
         user_id,
         username=username,
+        full_name=full_name,
         password=password,
         tenant_id=tenant_id,
         role_keys=role_keys,

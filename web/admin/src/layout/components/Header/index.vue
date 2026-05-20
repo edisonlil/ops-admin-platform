@@ -177,7 +177,6 @@
       const { navMode, navTheme, headerSetting, menuSetting, crumbsSetting } = useProjectSetting();
 
       const state = reactive({
-        username: userStore?.info?.username ?? '',
         unreadCount: 0,
         fullscreenIcon: 'FullscreenOutlined',
         navMode,
@@ -190,6 +189,8 @@
         const tenant = userStore.info?.current_tenant || {};
         return String(tenant.name || tenant.tenant_key || tenant.key || '');
       });
+
+      const username = computed(() => userStore.info?.full_name || userStore.info?.username || userStore.username || '');
 
       const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
 
@@ -387,6 +388,7 @@
 
       return {
         ...toRefs(state),
+        username,
         iconList,
         toggleFullScreen,
         doLogout,

@@ -2,7 +2,7 @@
   <div>
     <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" @refresh="reload">
       <template #filters>
-        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名" @keyup.enter="reload" />
+        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名或姓名" @keyup.enter="reload" />
         <n-select
           v-model:value="query.status"
           clearable
@@ -29,6 +29,9 @@
       >
         <n-form-item label="用户名" path="username">
           <n-input v-model:value="userForm.username" placeholder="请输入用户名" />
+        </n-form-item>
+        <n-form-item label="姓名" path="full_name">
+          <n-input v-model:value="userForm.full_name" placeholder="请输入用户姓名" />
         </n-form-item>
         <n-form-item :label="userFormMode === 'create' ? '登录密码' : '重置密码'" path="password">
           <n-input
@@ -92,6 +95,7 @@
   interface UserRow extends Recordable {
     id: number;
     username: string;
+    full_name?: string;
     roles?: UserRole[];
     is_active: boolean;
     is_superuser: boolean;
@@ -102,6 +106,7 @@
   interface UserFormState {
     id: number | null;
     username: string;
+    full_name: string;
     password: string;
     role_keys: string[];
     is_active: boolean;
@@ -126,6 +131,7 @@
   const userForm = reactive<UserFormState>({
     id: null,
     username: '',
+    full_name: '',
     password: '',
     role_keys: [],
     is_active: true,
@@ -141,6 +147,7 @@
 
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
+    full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
     password:
       userFormMode.value === 'create'
         ? [{ required: true, message: '请输入登录密码', trigger: ['blur', 'input'] }]
@@ -150,6 +157,7 @@
   const columns: DataTableColumns<UserRow> = [
     { title: 'ID', key: 'id', width: 80 },
     { title: '用户名', key: 'username', minWidth: 180 },
+    { title: '姓名', key: 'full_name', minWidth: 160 },
     {
       title: '角色',
       key: 'roles',
@@ -241,6 +249,7 @@
         columns: [
           { key: 'id', sortable: true },
           { key: 'username', sortable: true },
+          { key: 'full_name', sortable: true },
           { key: 'roles', sortable: false },
           { key: 'is_active', sortable: true },
           { key: 'is_superuser', sortable: true },
@@ -254,7 +263,7 @@
       },
     },
     filters: [
-      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名' },
+      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名或姓名' },
       { key: 'status', type: 'select', placeholder: '用户状态', options: statusOptions },
     ],
     toolbar: {
@@ -269,6 +278,7 @@
   function resetUserForm() {
     userForm.id = null;
     userForm.username = '';
+    userForm.full_name = '';
     userForm.password = '';
     userForm.role_keys = [];
     userForm.is_active = true;
@@ -279,6 +289,7 @@
   function applyUserToForm(row: UserRow) {
     userForm.id = row.id;
     userForm.username = String(row.username || '');
+    userForm.full_name = String(row.full_name || '');
     userForm.password = '';
     userForm.role_keys = (row.roles || []).map((role) => String(role.key));
     userForm.is_active = !!row.is_active;
@@ -315,6 +326,7 @@
     try {
       const payload = {
         username: userForm.username.trim(),
+        full_name: userForm.full_name.trim(),
         password: userForm.password,
         role_keys: userForm.role_keys,
         is_active: userForm.is_active,
@@ -372,11 +384,12 @@
     const keyword = query.keyword.trim();
     rows.value = allRows.value.filter((row) => {
       const keywordMatched = !keyword || String(row.username || '').includes(keyword);
+      const nameMatched = !keyword || String(row.full_name || '').includes(keyword);
       const statusMatched =
         !query.status ||
         (query.status === 'active' && row.is_active) ||
         (query.status === 'disabled' && !row.is_active);
-      return keywordMatched && statusMatched;
+      return (keywordMatched || nameMatched) && statusMatched;
     });
   }
 

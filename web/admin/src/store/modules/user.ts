@@ -11,6 +11,7 @@ import { TABS_ROUTES } from '@/store/mutation-types';
 
 export type UserInfoType = {
   username?: string;
+  full_name?: string;
   email?: string;
   avatar?: string;
   current_tenant?: Recordable;
@@ -75,7 +76,7 @@ export const useUserStore = defineStore({
     },
     setUserInfo(info: UserInfoType) {
       this.info = normalizeUserInfo(info);
-      this.username = info?.username ?? this.username;
+      this.username = info?.full_name || info?.username || this.username;
     },
     // 登录
     async login(params: any) {
@@ -88,7 +89,7 @@ export const useUserStore = defineStore({
         storage.set(IS_SCREENLOCKED, false);
         this.setToken(result.token);
         this.setUserInfo(result);
-        this.username = result.username ?? this.username;
+        this.username = result.full_name || result.username || this.username;
       }
       return { code: ResultEnum.SUCCESS, message: 'success', result };
     },
@@ -99,7 +100,7 @@ export const useUserStore = defineStore({
       const userInfo = normalizeUserInfo(result || {});
       this.setPermissions(userInfo.permissions);
       this.setUserInfo(userInfo);
-      this.username = userInfo.username ?? this.username;
+      this.username = userInfo.full_name || userInfo.username || this.username;
       this.setAvatar(userInfo.avatar);
       return userInfo;
     },

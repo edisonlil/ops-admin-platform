@@ -42,6 +42,7 @@ export interface RbacRoleUpdatePayload {
 export interface RbacUserCreatePayload {
   tenant_id?: number;
   username: string;
+  full_name?: string;
   password: string;
   role_keys?: string[];
   department_ids?: number[] | null;
@@ -53,6 +54,7 @@ export interface RbacUserCreatePayload {
 export interface RbacUserUpdatePayload {
   tenant_id?: number;
   username: string;
+  full_name?: string;
   password?: string;
   role_keys?: string[];
   department_ids?: number[] | null;

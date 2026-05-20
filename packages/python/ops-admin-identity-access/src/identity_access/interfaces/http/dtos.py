@@ -12,6 +12,7 @@ class RbacUserListResponse(BaseModel):
 class RbacUserCreateRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
     username: str = Field(min_length=1, max_length=120)
+    full_name: str = Field(default="", max_length=120)
     password: str = Field(min_length=1, max_length=200)
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
@@ -27,6 +28,11 @@ class RbacUserCreateRequest(BaseModel):
             raise ValueError("Username must not be blank")
         return value
 
+    @field_validator("full_name")
+    @classmethod
+    def normalize_full_name(cls, value: str) -> str:
+        return value.strip()
+
     @field_validator("password")
     @classmethod
     def password_must_not_be_blank(cls, value: str) -> str:
@@ -39,6 +45,7 @@ class RbacUserCreateRequest(BaseModel):
 class RbacUserUpdateRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
     username: str = Field(min_length=1, max_length=120)
+    full_name: str = Field(default="", max_length=120)
     password: str = Field(default="", max_length=200)
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
@@ -53,6 +60,22 @@ class RbacUserUpdateRequest(BaseModel):
         if not value:
             raise ValueError("Username must not be blank")
         return value
+
+    @field_validator("full_name")
+    @classmethod
+    def normalize_full_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class CurrentProfileUpdateRequest(BaseModel):
+    full_name: str = Field(default="", max_length=120)
+    current_password: str = Field(default="", max_length=200)
+    new_password: str = Field(default="", max_length=200)
+
+    @field_validator("full_name", "current_password", "new_password")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        return value.strip()
 
 
 class RbacRoleListResponse(BaseModel):

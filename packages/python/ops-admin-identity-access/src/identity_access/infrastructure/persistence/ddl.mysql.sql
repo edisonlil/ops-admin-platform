@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     tenant_id BIGINT NOT NULL DEFAULT 1,
     username VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255) NOT NULL DEFAULT (''),
     hashed_password VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     is_superuser TINYINT(1) NOT NULL DEFAULT 0,

@@ -8,6 +8,7 @@ from fastapi_login.exceptions import InvalidCredentialsException
 
 from identity_access.interfaces.http.dtos import (
     ApiKeyCreateRequest,
+    CurrentProfileUpdateRequest,
     RbacMenuCreateRequest,
     RbacMenuUpdateRequest,
     RbacRoleCreateRequest,
@@ -83,6 +84,19 @@ def naive_admin_logout(response: Response) -> dict[str, Any]:
 @router.get("/admin_info")
 def naive_admin_info(current_user: dict[str, Any] = Depends(auth.require_user)) -> dict[str, Any]:
     return ok(services.scaffold_user(current_user))
+
+
+@router.get("/auth/profile")
+def current_profile(current_user: dict[str, Any] = Depends(auth.require_user)) -> dict[str, Any]:
+    return ok(services.scaffold_user(current_user))
+
+
+@router.put("/auth/profile")
+def update_current_profile(
+    payload: CurrentProfileUpdateRequest,
+    current_user: dict[str, Any] = Depends(auth.require_user),
+) -> dict[str, Any]:
+    return ok(services.update_current_profile(current_user, payload.model_dump()))
 
 
 @router.get("/api-keys")
@@ -327,6 +341,7 @@ def create_rbac_user(
     return ok({"item": services.create_user(
         tenant_id=payload.tenant_id,
         username=payload.username,
+        full_name=payload.full_name,
         password=payload.password,
         role_keys=payload.role_keys,
         department_ids=payload.department_ids,
@@ -346,6 +361,7 @@ def update_rbac_user(
         user_id,
         tenant_id=payload.tenant_id,
         username=payload.username,
+        full_name=payload.full_name,
         password=payload.password,
         role_keys=payload.role_keys,
         department_ids=payload.department_ids,

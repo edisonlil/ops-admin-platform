@@ -7,6 +7,20 @@ export function getUserInfo() {
   return Alova.Get('/admin_info');
 }
 
+export interface ProfileUpdatePayload {
+  full_name?: string;
+  current_password?: string;
+  new_password?: string;
+}
+
+export function getProfile() {
+  return Alova.Get('/auth/profile');
+}
+
+export function updateProfile(payload: ProfileUpdatePayload) {
+  return Alova.Put('/auth/profile', payload);
+}
+
 /**
  * @description: 用户登录
  */

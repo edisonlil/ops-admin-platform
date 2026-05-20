@@ -27,6 +27,7 @@ USER_SORT_COLUMNS = {
     "id": "id",
     "tenant_id": "tenant_id",
     "username": "username",
+    "full_name": "full_name",
     "is_active": "is_active",
     "is_superuser": "is_superuser",
     "is_tenant_admin": "is_tenant_admin",
@@ -91,6 +92,7 @@ def authenticate(
             "access_token": token,
             "token_type": "bearer",
             "username": user["username"],
+            "full_name": user.get("full_name", ""),
             "expires_in": auth_service.ACCESS_TOKEN_EXPIRE_SECONDS,
             "roles": user.get("roles", []),
             "permissions": user.get("permissions", []),
@@ -126,6 +128,7 @@ def authenticate(
         "access_token": token,
         "token_type": "bearer",
         "username": user["username"],
+        "full_name": user.get("full_name", ""),
         "expires_in": auth_service.ACCESS_TOKEN_EXPIRE_SECONDS,
         "roles": user.get("roles", []),
         "permissions": user.get("permissions", []),
@@ -152,6 +155,7 @@ def login_for_admin(username: str, password: str, response: Response, *, tenant_
         return {
             "token": token,
             "username": user["username"],
+            "full_name": user.get("full_name", ""),
             "avatar": "",
             "permissions": scaffold_permissions(list(user.get("permissions", []))),
             "roles": user.get("roles", []),
@@ -185,6 +189,7 @@ def login_for_admin(username: str, password: str, response: Response, *, tenant_
     return {
         "token": token,
         "username": user["username"],
+        "full_name": user.get("full_name", ""),
         "avatar": "",
         "permissions": scaffold_permissions(list(user.get("permissions", []))),
         "roles": user.get("roles", []),
@@ -213,6 +218,7 @@ def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
     roles = current_user.get("roles", [])
     payload = {
         "username": str(current_user.get("username", "")),
+        "full_name": str(current_user.get("full_name", "") or ""),
         "email": "",
         "avatar": "",
         "roles": [
@@ -228,6 +234,16 @@ def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
     current_tenant_id = None if bool(current_user.get("is_platform_admin", False)) else current_user.get("tenant_id")
     payload.update(tenant_service.tenant_access_payload(current_user, current_tenant_id))
     return payload
+
+
+def update_current_profile(current_user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    updated = auth_service.update_own_profile(
+        int(current_user.get("id", 0) or 0),
+        full_name=str(payload.get("full_name", "") or ""),
+        current_password=str(payload.get("current_password", "") or ""),
+        new_password=str(payload.get("new_password", "") or ""),
+    )
+    return _after_access_context_change(scaffold_user({**current_user, **updated}))
 
 
 def switch_tenant(
@@ -289,6 +305,7 @@ def create_user(
     *,
     username: str,
     password: str,
+    full_name: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
     department_ids: list[int] | None = None,
@@ -299,6 +316,7 @@ def create_user(
     user = rbac_service.create_user(
         username=username,
         password=password,
+        full_name=full_name,
         tenant_id=tenant_id,
         role_keys=role_keys,
         is_active=is_active,
@@ -313,6 +331,7 @@ def update_user(
     user_id: int,
     *,
     username: str,
+    full_name: str = "",
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
@@ -324,6 +343,7 @@ def update_user(
     user = rbac_service.update_user(
         user_id,
         username=username,
+        full_name=full_name,
         password=password,
         tenant_id=tenant_id,
         role_keys=role_keys,
