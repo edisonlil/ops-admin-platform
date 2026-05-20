@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import parse_qsl, unquote, urlparse
 
+from sqlalchemy.pool import QueuePool
+
 
 SqlObserver = Callable[[str, tuple[Any, ...], float, bool, str, str, bool], None]
 _sql_observer: SqlObserver | None = None
+_mysql_pools: dict[str, QueuePool] = {}
+_mysql_pools_lock = threading.Lock()
 
 
 def configure_sql_observer(observer: SqlObserver | None) -> None:
@@ -175,6 +181,55 @@ class MySQLConnection:
     def close(self) -> None:
         self._conn.close()
 
+    def ping(self, *args: Any, **kwargs: Any) -> None:
+        if args or kwargs:
+            self._conn.ping(*args, **kwargs)
+            return
+        self._conn.ping(reconnect=True)
+
+    def reset_for_reuse(self, *, readonly: bool) -> None:
+        self._readonly = readonly
+        try:
+            self.rollback()
+        except Exception:
+            pass
+
+
+class PooledMySQLConnection:
+    backend = "mysql"
+
+    def __init__(self, pool_connection: Any, *, readonly: bool) -> None:
+        self._pool_connection = pool_connection
+        self._conn: MySQLConnection = (
+            getattr(pool_connection, "driver_connection", None)
+            or getattr(pool_connection, "dbapi_connection", None)
+            or pool_connection
+        )
+        self._readonly = readonly
+        self._released = False
+        self.database_identity = self._conn.database_identity
+
+    def execute(self, sql: str, params: Iterable[Any] | None = None) -> Any:
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql: str, params: Iterable[Iterable[Any]]) -> Any:
+        return self._conn.executemany(sql, params)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self._pool_connection.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
+
 
 def connect_url(database_url: str, *, backend: str, readonly: bool) -> Any:
     if backend == "postgres":
@@ -191,11 +246,82 @@ def connect_postgres(database_url: str, *, readonly: bool) -> PostgresConnection
     return conn
 
 
-def connect_mysql(database_url: str, *, readonly: bool) -> MySQLConnection:
-    conn = MySQLConnection(database_url, readonly=readonly)
-    if readonly:
-        conn.execute("SET TRANSACTION READ ONLY")
-    return conn
+def connect_mysql(database_url: str, *, readonly: bool) -> PooledMySQLConnection:
+    pool = mysql_pool(database_url)
+    pool_connection = pool.connect()
+    conn = (
+        getattr(pool_connection, "driver_connection", None)
+        or getattr(pool_connection, "dbapi_connection", None)
+        or pool_connection
+    )
+    try:
+        try:
+            conn.ping()
+        except Exception as exc:
+            pool_connection.invalidate(exc)
+            pool_connection.close()
+            pool_connection = pool.connect()
+            conn = (
+                getattr(pool_connection, "driver_connection", None)
+                or getattr(pool_connection, "dbapi_connection", None)
+                or pool_connection
+            )
+            conn.ping()
+        conn.reset_for_reuse(readonly=readonly)
+        if readonly:
+            conn.execute("SET TRANSACTION READ ONLY")
+    except Exception:
+        pool_connection.close()
+        raise
+    return PooledMySQLConnection(pool_connection, readonly=readonly)
+
+
+def mysql_pool(database_url: str) -> QueuePool:
+    with _mysql_pools_lock:
+        pool = _mysql_pools.get(database_url)
+        if pool is None:
+            pool = QueuePool(
+                creator=lambda: MySQLConnection(database_url),
+                pool_size=mysql_pool_size(),
+                max_overflow=mysql_pool_max_overflow(),
+                timeout=mysql_pool_timeout_seconds(),
+                recycle=mysql_pool_recycle_seconds(),
+                reset_on_return="rollback",
+            )
+            _mysql_pools[database_url] = pool
+        return pool
+
+
+def mysql_pool_size() -> int:
+    raw = os.environ.get("OPS_ADMIN_MYSQL_POOL_SIZE") or os.environ.get("FG_AGENT_MYSQL_POOL_SIZE") or "10"
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 10
+
+
+def mysql_pool_max_overflow() -> int:
+    raw = os.environ.get("OPS_ADMIN_MYSQL_POOL_MAX_OVERFLOW") or os.environ.get("FG_AGENT_MYSQL_POOL_MAX_OVERFLOW") or "20"
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 20
+
+
+def mysql_pool_timeout_seconds() -> float:
+    raw = os.environ.get("OPS_ADMIN_MYSQL_POOL_TIMEOUT_SECONDS") or os.environ.get("FG_AGENT_MYSQL_POOL_TIMEOUT_SECONDS") or "30"
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 30.0
+
+
+def mysql_pool_recycle_seconds() -> int:
+    raw = os.environ.get("OPS_ADMIN_MYSQL_POOL_RECYCLE_SECONDS") or os.environ.get("FG_AGENT_MYSQL_POOL_RECYCLE_SECONDS") or "1800"
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 1800
 
 
 def to_postgres_sql(sql: str) -> str:

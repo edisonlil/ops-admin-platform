@@ -61,9 +61,21 @@ export function createRouterGuards(router: Router) {
       return;
     }
 
-    const userInfo = await userStore.getInfo();
-
-    const routes = await asyncRouteStore.generateRoutes(userInfo);
+    let routes: RouteRecordRaw[] = [];
+    try {
+      const userInfo = await userStore.getInfo();
+      routes = await asyncRouteStore.generateRoutes(userInfo);
+    } catch (error) {
+      console.warn(error, '获取用户信息失败');
+      await userStore.logout();
+      next({
+        path: LOGIN_PATH,
+        replace: true,
+        query: to.fullPath ? { redirect: to.fullPath } : undefined,
+      });
+      Loading && Loading.finish();
+      return;
+    }
 
     // 动态添加可访问路由表
     routes.forEach((item) => {

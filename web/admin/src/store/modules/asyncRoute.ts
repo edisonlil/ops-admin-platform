@@ -88,18 +88,18 @@ export const useAsyncRouteStore = defineStore({
     },
     async generateRoutes(data) {
       let accessedRouters;
-      const permissionsList = data.permissions ?? [];
+      const permissionsList = Array.isArray(data?.permissions) ? data.permissions : [];
       const routeFilter = (route) => {
         const { meta } = route;
         const { permissions } = meta || {};
         if (!permissions) return true;
-        return permissionsList.some((item) => permissions.includes(item.value));
+        return permissionsList.some((item) => permissions.includes(item?.value || item?.code || item));
       };
       const { permissionMode } = useProjectSetting();
       if (unref(permissionMode) === 'BACK') {
         // 动态获取菜单
         try {
-          accessedRouters = await generateDynamicRoutes(data.menus || []);
+          accessedRouters = await generateDynamicRoutes(Array.isArray(data?.menus) ? data.menus : []);
         } catch (error) {
           console.log(error);
         }

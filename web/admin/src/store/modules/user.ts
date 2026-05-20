@@ -12,10 +12,11 @@ import { TABS_ROUTES } from '@/store/mutation-types';
 export type UserInfoType = {
   username?: string;
   email?: string;
+  avatar?: string;
   current_tenant?: Recordable;
   tenant_memberships?: Recordable[];
   is_platform_admin?: boolean;
-  permissions?: Recordable[];
+  permissions?: any[];
   menus?: Recordable[];
 };
 
@@ -48,7 +49,7 @@ export const useUserStore = defineStore({
     getNickname(): string {
       return this.username;
     },
-    getPermissions(): [any][] {
+    getPermissions(): any[] {
       return this.permissions;
     },
     getUserInfo(): UserInfoType {
@@ -66,14 +67,14 @@ export const useUserStore = defineStore({
     setToken(token: string) {
       this.token = token;
     },
-    setAvatar(avatar: string) {
-      this.avatar = avatar;
+    setAvatar(avatar?: string) {
+      this.avatar = avatar || '';
     },
     setPermissions(permissions) {
-      this.permissions = permissions;
+      this.permissions = Array.isArray(permissions) ? permissions : [];
     },
     setUserInfo(info: UserInfoType) {
-      this.info = info;
+      this.info = normalizeUserInfo(info);
       this.username = info?.username ?? this.username;
     },
     // 登录
@@ -95,16 +96,12 @@ export const useUserStore = defineStore({
     // 获取用户信息
     async getInfo() {
       const result = await getUserInfoApi();
-      if (result.permissions && result.permissions.length) {
-        const permissionsList = result.permissions;
-        this.setPermissions(permissionsList);
-        this.setUserInfo(result);
-      } else {
-        throw new Error('getInfo: permissionsList must be a non-null array !');
-      }
-      this.username = result.username ?? this.username;
-      this.setAvatar(result.avatar);
-      return result;
+      const userInfo = normalizeUserInfo(result || {});
+      this.setPermissions(userInfo.permissions);
+      this.setUserInfo(userInfo);
+      this.username = userInfo.username ?? this.username;
+      this.setAvatar(userInfo.avatar);
+      return userInfo;
     },
     async switchTenant(tenantId: number) {
       const result = await switchTenantApi(tenantId);
@@ -135,4 +132,14 @@ export const useUserStore = defineStore({
 // Need to be used outside the setup
 export function useUser() {
   return useUserStore(store);
+}
+
+function normalizeUserInfo(info: UserInfoType | null | undefined = {}): UserInfoType {
+  const safeInfo = info || {};
+  return {
+    ...safeInfo,
+    permissions: Array.isArray(safeInfo.permissions) ? safeInfo.permissions : [],
+    menus: Array.isArray(safeInfo.menus) ? safeInfo.menus : [],
+    tenant_memberships: Array.isArray(safeInfo.tenant_memberships) ? safeInfo.tenant_memberships : [],
+  };
 }
