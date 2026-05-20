@@ -11,6 +11,7 @@ TEST_IMPORT_PATHS = (
     ROOT / "packages" / "python" / "ops-admin-cron" / "src",
     ROOT / "packages" / "python" / "ops-admin-identity-access" / "src",
     ROOT / "packages" / "python" / "ops-admin-basic-data" / "src",
+    ROOT / "packages" / "python" / "ops-admin-metadata-support" / "src",
     ROOT / "packages" / "python" / "ops-admin-organization" / "src",
     ROOT / "packages" / "python" / "ops-admin-authorization" / "src",
     ROOT / "packages" / "python" / "ops-admin-personalization" / "src",

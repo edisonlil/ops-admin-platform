@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import BinaryIO, Literal, Protocol
+from typing import Any, BinaryIO, Literal, Protocol
 
 from file_management.domain.models import ManagedFile, StorageProfile
 
@@ -78,4 +78,31 @@ class PreviewProviderPort(Protocol):
     engine: str
 
     def metadata_for(self, file: ManagedFile) -> FilePreview:
+        ...
+
+
+class MetadataBindingPort(Protocol):
+    def bind_resource(
+        self,
+        *,
+        tenant_id: int,
+        resource_type_code: str,
+        resource_id: str | int,
+        metadata: dict[str, Any],
+        tag_codes: list[str],
+        actor: str,
+        actor_id: int | None,
+    ) -> None:
+        ...
+
+    def search_resource_ids(
+        self,
+        *,
+        tenant_id: int,
+        resource_type_code: str,
+        metadata_filters: list[dict[str, Any]],
+        tag_codes: list[str],
+        max_results: int,
+        offset: int,
+    ) -> tuple[list[int], int]:
         ...

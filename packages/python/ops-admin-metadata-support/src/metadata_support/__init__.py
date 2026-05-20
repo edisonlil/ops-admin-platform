@@ -1,0 +1,1 @@
+"""Metadata support bounded context."""

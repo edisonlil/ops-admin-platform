@@ -107,26 +107,27 @@ def run_rerun_module(args) -> None:
         python_exe = Path(fallback)
 
     print(f"Running module init: {args.module} -> {script_name}")
+    timeout_seconds = max(1, int(getattr(args, "init_timeout", 1800)))
     run_env = os.environ.copy()
     if app_config_path:
         run_env["OPS_ADMIN_APPLICATION_CONFIG"] = str(app_config_path.resolve())
         run_env.pop("FG_AGENT_DATABASE_CONFIG", None)
     elif legacy_db_config_path:
         run_env["FG_AGENT_DATABASE_CONFIG"] = str(legacy_db_config_path.resolve())
-    result = subprocess.run(
-        [str(python_exe), str(script_path)],
-        cwd=project_path,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=run_env,
-    )
+    try:
+        result = subprocess.run(
+            [str(python_exe), str(script_path)],
+            cwd=project_path,
+            text=True,
+            timeout=timeout_seconds,
+            env=run_env,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Module '{args.module}' timed out after {timeout_seconds} seconds")
+        return
 
     if result.returncode == 0:
         print(f"Module '{args.module}' reinitialized")
-        if result.stdout:
-            print(result.stdout.strip())
         return
 
-    msg = (result.stderr or result.stdout or "unknown error").strip()
-    print(f"Module '{args.module}' failed: {msg}")
+    print(f"Module '{args.module}' failed with exit code {result.returncode}")

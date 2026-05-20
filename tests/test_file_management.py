@@ -105,11 +105,15 @@ class FileManagementTests(unittest.TestCase):
 
     def initialize_db(self) -> None:
         from file_management.infrastructure.persistence.bootstrap import ensure_file_management_schema
+        from metadata_support.infrastructure.persistence.bootstrap import ensure_metadata_support_schema
+        from metadata_support.entrypoints import init_tasks
 
+        init_tasks()
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
             ensure_file_management_schema(conn)
+            ensure_metadata_support_schema(conn)
             conn.commit()
         finally:
             conn.close()
@@ -206,6 +210,14 @@ class FileManagementTests(unittest.TestCase):
 
         search = services.search_files(page=1, page_size=20, keyword="contract", current_user=self.current_user)
         self.assertEqual(search["pagination"]["total"], 1)
+        metadata_search = services.search_files(
+            page=1,
+            page_size=20,
+            keyword="",
+            current_user=self.current_user,
+            metadata_filters=[{"field_key": "source", "op": "eq", "value": "test"}],
+        )
+        self.assertEqual(metadata_search["pagination"]["total"], 1)
 
         item, download = services.download_file(int(upload["id"]), self.current_user)
         self.assertEqual(item.original_name, "contract.txt")

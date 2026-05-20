@@ -11,7 +11,8 @@ from typing import Any, BinaryIO
 
 from fastapi import HTTPException, status
 
-from file_management.application.ports import DownloadObject, FileIndexerPort, PreviewProviderPort, StoragePort
+from file_management.application.metadata_support import default_metadata_binding
+from file_management.application.ports import DownloadObject, FileIndexerPort, MetadataBindingPort, PreviewProviderPort, StoragePort
 from file_management.application.preview import NativePreviewProvider
 from file_management.domain.exceptions import (
     FilePreviewUnsupported,
@@ -67,6 +68,8 @@ from system.application.sorting import InvalidSortError, sort_dict_items
 _storage: StoragePort = MinioObjectStorage()
 _indexer: FileIndexerPort = NoopFileIndexer()
 _preview_provider: PreviewProviderPort = NativePreviewProvider()
+_metadata_binding: MetadataBindingPort = default_metadata_binding()
+FILE_METADATA_RESOURCE_TYPE = "file_management.file_object"
 FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
 WORKSPACE_FOLDER_SORT_COLUMNS = {
     "display_name": "name",
@@ -397,10 +400,33 @@ def delete_folder(folder_id: int, current_user: dict[str, Any]) -> dict[str, Any
     return {"id": folder_id, "deleted": True}
 
 
-def search_files(*, page: int, page_size: int, keyword: str, current_user: dict[str, Any]) -> dict[str, Any]:
+def search_files(
+    *,
+    page: int,
+    page_size: int,
+    keyword: str,
+    current_user: dict[str, Any],
+    metadata_filters: list[dict[str, Any]] | None = None,
+    tag_codes: list[str] | None = None,
+) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
+    normalized_metadata_filters = metadata_filters or []
+    normalized_tag_codes = tag_codes or []
+    file_ids: list[int] | None = None
+    if normalized_metadata_filters or normalized_tag_codes:
+        try:
+            file_ids, _ = _metadata_binding.search_resource_ids(
+                tenant_id=tenant_id,
+                resource_type_code=FILE_METADATA_RESOURCE_TYPE,
+                metadata_filters=normalized_metadata_filters,
+                tag_codes=normalized_tag_codes,
+                max_results=5000,
+                offset=0,
+            )
+        except RuntimeError as exc:
+            raise storage_unavailable(exc) from exc
     try:
-        items, total = DatabaseFileSearch().search(tenant_id=tenant_id, keyword=keyword, page=page, page_size=page_size)
+        items, total = DatabaseFileSearch().search(tenant_id=tenant_id, keyword=keyword, page=page, page_size=page_size, file_ids=file_ids)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -433,6 +459,7 @@ def upload_file(
     library_id: int | None,
     visibility: str,
     metadata: dict[str, Any],
+    tag_codes: list[str] | None = None,
     folder_id: int | None = None,
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
@@ -500,6 +527,15 @@ def upload_file(
             actor=actor,
             actor_id=actor_id,
             **data_owner_fields(current_user),
+        )
+        _metadata_binding.bind_resource(
+            tenant_id=tenant_id,
+            resource_type_code=FILE_METADATA_RESOURCE_TYPE,
+            resource_id=item.id,
+            metadata=metadata,
+            tag_codes=tag_codes or [],
+            actor=actor,
+            actor_id=actor_id,
         )
         create_index_job_for_file(item, "upsert", current_user)
         repositories.record_access_log(

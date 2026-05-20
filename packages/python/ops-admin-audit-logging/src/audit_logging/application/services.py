@@ -66,6 +66,7 @@ def save_settings(tenant_id: int, payload: dict[str, Any], current_user: dict[st
         actor=current_actor(current_user),
         actor_id=current_user_id_or_none(current_user),
     )
+    dispatcher.cache_settings(item)
     dispatcher.enqueue_log(
         "operation",
         {

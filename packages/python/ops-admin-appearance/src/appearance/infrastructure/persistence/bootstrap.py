@@ -16,15 +16,21 @@ from system.infrastructure.persistence.dialect import (
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
+_schema_ready = False
 
 
 def ensure_appearance_schema(conn: Any) -> None:
+    global _schema_ready
     apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
     ensure_draft_columns(conn)
     ensure_platform_branding_columns(conn)
+    _schema_ready = True
 
 
 def require_appearance_schema(conn: Any) -> None:
+    global _schema_ready
+    if _schema_ready:
+        return
     required_tables = (
         "appearance_themes",
         "appearance_theme_assignments",
@@ -64,6 +70,7 @@ def require_appearance_schema(conn: Any) -> None:
             "appearance storage is not initialized; run `python scripts/init_appearance.py`"
             + f" (missing columns: {', '.join(missing_branding_columns)})"
         )
+    _schema_ready = True
 
 
 def ensure_draft_columns(conn: Any) -> None:

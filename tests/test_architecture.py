@@ -11,6 +11,7 @@ PYTHON_PACKAGES_ROOT = ROOT / "packages" / "python"
 BOUNDED_CONTEXTS = {
     "appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance" / "src" / "appearance",
     "basic_data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data" / "src" / "basic_data",
+    "metadata_support": PYTHON_PACKAGES_ROOT / "ops-admin-metadata-support" / "src" / "metadata_support",
     "personalization": PYTHON_PACKAGES_ROOT / "ops-admin-personalization" / "src" / "personalization",
     "cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron" / "src" / "cron",
     "file_management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management" / "src" / "file_management",
@@ -28,6 +29,7 @@ BOUNDED_CONTEXTS = {
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
     "ops-admin-basic-data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data",
+    "ops-admin-metadata-support": PYTHON_PACKAGES_ROOT / "ops-admin-metadata-support",
     "ops-admin-personalization": PYTHON_PACKAGES_ROOT / "ops-admin-personalization",
     "ops-admin-cron": PYTHON_PACKAGES_ROOT / "ops-admin-cron",
     "ops-admin-file-management": PYTHON_PACKAGES_ROOT / "ops-admin-file-management",
@@ -248,6 +250,8 @@ def test_runtime_code_does_not_trigger_database_initialization() -> None:
         BOUNDED_CONTEXTS["appearance"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["basic_data"] / "entrypoints.py",
         BOUNDED_CONTEXTS["basic_data"] / "infrastructure" / "persistence" / "bootstrap.py",
+        BOUNDED_CONTEXTS["metadata_support"] / "entrypoints.py",
+        BOUNDED_CONTEXTS["metadata_support"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["personalization"] / "entrypoints.py",
         BOUNDED_CONTEXTS["personalization"] / "infrastructure" / "persistence" / "bootstrap.py",
         BOUNDED_CONTEXTS["cron"] / "entrypoints.py",
@@ -334,6 +338,11 @@ def test_python_packages_have_required_metadata_and_entrypoints() -> None:
     expected = {
         "ops-admin-system": ("system", "system.entrypoints:router", "system.entrypoints:init_tasks"),
         "ops-admin-basic-data": ("basic_data", "basic_data.entrypoints:router", "basic_data.entrypoints:init_tasks"),
+        "ops-admin-metadata-support": (
+            "metadata_support",
+            "metadata_support.entrypoints:router",
+            "metadata_support.entrypoints:init_tasks",
+        ),
         "ops-admin-personalization": (
             "personalization",
             "personalization.entrypoints:router",

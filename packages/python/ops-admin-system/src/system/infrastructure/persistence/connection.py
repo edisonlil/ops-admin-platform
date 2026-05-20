@@ -80,6 +80,19 @@ class PostgresConnection:
         notify_sql_observer(sql, execute_params, started, True, "", self.backend, self._readonly)
         return cursor
 
+    def executemany(self, sql: str, params: Iterable[Iterable[Any]]) -> Any:
+        cursor = self._conn.cursor()
+        params_list = [tuple(row) for row in params]
+        started = time.perf_counter()
+        try:
+            cursor.executemany(to_postgres_sql(sql), params_list)
+        except Exception as exc:
+            notify_sql_observer(sql, (), started, False, str(exc), self.backend, self._readonly)
+            self._conn.rollback()
+            raise
+        notify_sql_observer(sql, (), started, True, "", self.backend, self._readonly)
+        return cursor
+
     def commit(self) -> None:
         self._conn.commit()
 
@@ -133,6 +146,18 @@ class MySQLConnection:
             notify_sql_observer(sql, execute_params, started, False, str(exc), self.backend, self._readonly)
             raise
         notify_sql_observer(sql, execute_params, started, True, "", self.backend, self._readonly)
+        return cursor
+
+    def executemany(self, sql: str, params: Iterable[Iterable[Any]]) -> Any:
+        cursor = self._conn.cursor()
+        params_list = [tuple(row) for row in params]
+        started = time.perf_counter()
+        try:
+            cursor.executemany(to_percent_sql(sql), params_list)
+        except Exception as exc:
+            notify_sql_observer(sql, (), started, False, str(exc), self.backend, self._readonly)
+            raise
+        notify_sql_observer(sql, (), started, True, "", self.backend, self._readonly)
         return cursor
 
     def commit(self) -> None:

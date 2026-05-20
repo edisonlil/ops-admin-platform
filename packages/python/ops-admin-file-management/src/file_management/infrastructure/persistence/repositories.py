@@ -454,6 +454,7 @@ def list_files(
     keyword: str = "",
     mime_type: str = "",
     status: str = "",
+    file_ids: list[int] | None = None,
     data_scope: DataAccessPredicate | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
@@ -481,6 +482,12 @@ def list_files(
     if status:
         filters.append("status = ?")
         params.append(status)
+    if file_ids is not None:
+        if not file_ids:
+            return [], 0
+        placeholders = ", ".join("?" for _ in file_ids)
+        filters.append(f"id IN ({placeholders})")
+        params.extend(file_ids)
     where_sql = " AND ".join(filters)
     order_by = build_order_by(
         parse_sort_params(sort_by, sort_dir),

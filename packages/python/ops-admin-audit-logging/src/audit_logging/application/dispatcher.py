@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from audit_logging.application.ports import AuditLogRepository
+from audit_logging.domain.models import AuditLoggingSettings
 from audit_logging.domain.models import (
     LOG_CATEGORY_API,
     LOG_CATEGORY_OPERATION,
@@ -28,6 +29,8 @@ _worker: threading.Thread | None = None
 _stop_event = threading.Event()
 _stats = {"accepted": 0, "dropped": 0, "written": 0, "failed": 0}
 _suppress_var: contextvars.ContextVar[bool] = contextvars.ContextVar("audit_logging_suppress", default=False)
+_settings_cache: dict[int, AuditLoggingSettings] = {}
+_settings_cache_lock = threading.Lock()
 
 DEFAULT_QUEUE_SIZE = 10000
 DEFAULT_BATCH_SIZE = 100
@@ -45,6 +48,20 @@ CATEGORY_ENABLED_SETTING = {
 def configure_repository(repository: AuditLogRepository) -> None:
     global _repository
     _repository = repository
+    clear_settings_cache()
+
+
+def clear_settings_cache(tenant_id: int | None = None) -> None:
+    with _settings_cache_lock:
+        if tenant_id is None:
+            _settings_cache.clear()
+            return
+        _settings_cache.pop(int(tenant_id or 0), None)
+
+
+def cache_settings(settings: AuditLoggingSettings) -> None:
+    with _settings_cache_lock:
+        _settings_cache[int(settings.tenant_id or 0)] = settings
 
 
 def suppress_logging() -> contextvars.Token[bool]:
@@ -101,6 +118,7 @@ def reset_for_tests() -> None:
     _queue = None
     _worker = None
     _stop_event.clear()
+    clear_settings_cache()
     for key in _stats:
         _stats[key] = 0
 
@@ -183,14 +201,12 @@ def should_record_sql(sql: str, duration_ms: float, success: bool) -> bool:
     if not sql.strip():
         return False
     lowered = sql.lower()
-    if "audit_" in lowered:
+    if "audit_" in lowered or is_schema_introspection_sql(lowered):
         return False
     if not effective_settings_value("sql_log_enabled", True, tenant_id=current_scope_tenant_id()):
         return False
     if not success:
         return True
-    if is_schema_introspection_sql(lowered):
-        return False
     return duration_ms >= effective_slow_sql_threshold_ms()
 
 
@@ -222,15 +238,29 @@ def category_log_enabled(category: str, tenant_id: int) -> bool:
 
 
 def effective_settings_value(key: str, default: Any, *, tenant_id: int = 0) -> Any:
-    if _repository is None:
+    settings = effective_settings(int(tenant_id or 0))
+    if settings is None:
         return default
+    return getattr(settings, key, default)
+
+
+def effective_settings(tenant_id: int) -> AuditLoggingSettings | None:
+    if _repository is None:
+        return None
+    normalized_tenant_id = int(tenant_id or 0)
+    with _settings_cache_lock:
+        cached = _settings_cache.get(normalized_tenant_id)
+    if cached is not None:
+        return cached
     token = suppress_logging()
     try:
-        return getattr(_repository.get_effective_settings(int(tenant_id or 0)), key)
+        settings = _repository.get_effective_settings(normalized_tenant_id)
     except Exception:
-        return default
+        return None
     finally:
         reset_suppress_logging(token)
+    cache_settings(settings)
+    return settings
 
 
 def normalize_payload(category: str, payload: dict[str, Any]) -> dict[str, Any]:

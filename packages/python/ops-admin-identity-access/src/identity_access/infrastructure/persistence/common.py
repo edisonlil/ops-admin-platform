@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime
 from typing import Any
 
@@ -30,6 +31,123 @@ AUTH_INIT_COMMAND = "python scripts/init_identity_access.py"
 class DisabledUserException(HTTPException):
     def __init__(self) -> None:
         super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail="user is disabled")
+
+
+def _run_init_step(label: str, step: Any) -> None:
+    started = time.perf_counter()
+    print(f"[identity_access:init] {label}...", flush=True)
+    step()
+    elapsed = time.perf_counter() - started
+    print(f"[identity_access:init] {label} done in {elapsed:.2f}s", flush=True)
+
+
+def _row_first_value(row: Any) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return next(iter(row.values()), None)
+    try:
+        return row[0]
+    except Exception:
+        return None
+
+
+def _acquire_mysql_init_lock(conn: Any) -> None:
+    row = conn.execute("SELECT GET_LOCK(?, ?)", ("ops_admin_identity_init", 30)).fetchone()
+    value = _row_first_value(row)
+    if value in (1, True, "1"):
+        return
+    if value is None:
+        raise RuntimeError("Could not acquire MySQL identity init lock; GET_LOCK returned NULL")
+    raise RuntimeError("Could not acquire MySQL identity init lock within 30 seconds; another init process may still be running")
+
+
+def _executemany(conn: Any, sql: str, rows: list[tuple[Any, ...]]) -> None:
+    if not rows:
+        return
+    if hasattr(conn, "executemany"):
+        conn.executemany(sql, rows)
+        return
+    for row in rows:
+        conn.execute(sql, row)
+
+
+def _insert_menu_rows_if_missing(conn: Any, menu_scope: str, rows: list[tuple[Any, ...]]) -> None:
+    insert_rows = [
+        (
+            key,
+            menu_scope,
+            label,
+            DEFAULT_MENU_METADATA[key]["menu_type"],
+            path,
+            route_name,
+            DEFAULT_MENU_METADATA[key]["component"],
+            icon,
+            parent_key,
+            permission_code,
+            sort_order,
+            True,
+        )
+        for key, label, path, route_name, icon, parent_key, permission_code, sort_order in rows
+    ]
+    if backend_name(conn) == "mysql":
+        _executemany(
+            conn,
+            """
+            INSERT IGNORE INTO menus (
+                menu_key, menu_scope, label, menu_type, path, route_name, component, icon,
+                parent_key, permission_code, sort_order, is_visible
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            insert_rows,
+        )
+        return
+    _executemany(
+        conn,
+        """
+        INSERT INTO menus (
+            menu_key, menu_scope, label, menu_type, path, route_name, component, icon,
+            parent_key, permission_code, sort_order, is_visible
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = ?)
+        """,
+        [(*row, row[0]) for row in insert_rows],
+    )
+
+
+def _upsert_permissions(conn: Any, rows: list[tuple[str, str, str]]) -> None:
+    if not rows:
+        return
+    if backend_name(conn) == "mysql":
+        _executemany(
+            conn,
+            """
+            INSERT IGNORE INTO permissions (code, name, description)
+            VALUES (?, ?, ?)
+            """,
+            rows,
+        )
+    else:
+        _executemany(
+            conn,
+            """
+            INSERT INTO permissions (code, name, description)
+            SELECT ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = ?)
+            """,
+            [(code, name, description, code) for code, name, description in rows],
+        )
+    _executemany(
+        conn,
+        """
+        UPDATE permissions
+        SET name = ?, description = ?
+        WHERE code = ?
+        """,
+        [(name, description, code) for code, name, description in rows],
+    )
 
 
 DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
@@ -967,47 +1085,53 @@ def ensure_default_admin_membership(conn: Any) -> None:
 
 
 def ensure_default_rbac(conn: Any) -> None:
-    admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
-    ensure_identity_seed(conn)
-    ensure_file_management_permissions(conn)
-    retire_tenant_menu_keys(conn, RETIRED_AI_ASSETS_MENU_KEYS)
-    retire_permission_codes(conn, RETIRED_AI_ASSETS_PERMISSION_CODES)
-    ensure_platform_default_menus(conn)
-    backfill_default_menu_metadata(conn)
+    _run_init_step("default RBAC: load admin role", lambda: conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone())
+    _run_init_step("default RBAC: apply identity seed", lambda: ensure_identity_seed(conn))
+    _run_init_step("default RBAC: ensure file/basic/org permissions", lambda: ensure_file_management_permissions(conn))
+    _run_init_step("default RBAC: retire AI assets tenant menus", lambda: retire_tenant_menu_keys(conn, RETIRED_AI_ASSETS_MENU_KEYS))
+    _run_init_step("default RBAC: retire AI assets permissions", lambda: retire_permission_codes(conn, RETIRED_AI_ASSETS_PERMISSION_CODES))
+    _run_init_step("default RBAC: ensure platform default menus", lambda: ensure_platform_default_menus(conn))
+    _run_init_step("default RBAC: backfill menu metadata", lambda: backfill_default_menu_metadata(conn))
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
     if not admin_role:
         return
     role_id = int(admin_role["id"])
-    conn.execute(
-        """
-        INSERT INTO user_roles (user_id, role_id)
-        SELECT id, ? FROM users
-        WHERE is_superuser = ? AND NOT EXISTS (
-            SELECT 1 FROM user_roles WHERE user_id = users.id AND role_id = ?
-        )
-        """,
-        (role_id, True, role_id),
+    _run_init_step(
+        "default RBAC: bind superusers to admin role",
+        lambda: conn.execute(
+            """
+            INSERT INTO user_roles (user_id, role_id)
+            SELECT id, ? FROM users
+            WHERE is_superuser = ? AND NOT EXISTS (
+                SELECT 1 FROM user_roles WHERE user_id = users.id AND role_id = ?
+            )
+            """,
+            (role_id, True, role_id),
+        ),
     )
-    ensure_default_admin_membership(conn)
-    ensure_tenant_default_menus(conn)
-    ensure_tenant_default_roles(conn)
-    ensure_role_menus_by_key(
-        conn,
-        DEFAULT_ROLE_KEY,
-        [
-            "platform-management",
-            "platform-branding",
-            "platform-branding-update",
-            "platform-audit-logs",
-            "platform-audit-system-logs",
-            "platform-audit-operation-logs",
-            "platform-audit-api-logs",
-            "platform-audit-sql-logs",
-            "platform-audit-visitor-logs",
-        ],
+    _run_init_step("default RBAC: ensure default admin membership", lambda: ensure_default_admin_membership(conn))
+    _run_init_step("default RBAC: ensure tenant default menus", lambda: ensure_tenant_default_menus(conn))
+    _run_init_step("default RBAC: ensure tenant default roles", lambda: ensure_tenant_default_roles(conn))
+    _run_init_step(
+        "default RBAC: bind platform admin menus",
+        lambda: ensure_role_menus_by_key(
+            conn,
+            DEFAULT_ROLE_KEY,
+            [
+                "platform-management",
+                "platform-branding",
+                "platform-branding-update",
+                "platform-audit-logs",
+                "platform-audit-system-logs",
+                "platform-audit-operation-logs",
+                "platform-audit-api-logs",
+                "platform-audit-sql-logs",
+                "platform-audit-visitor-logs",
+            ],
+        ),
     )
-    repair_tenant_rbac_boundaries(conn)
-    ensure_all_tenant_menu_defaults(conn)
+    _run_init_step("default RBAC: repair tenant RBAC boundaries", lambda: repair_tenant_rbac_boundaries(conn))
+    _run_init_step("default RBAC: ensure all tenant menu defaults", lambda: ensure_all_tenant_menu_defaults(conn))
 
 
 def ensure_file_management_permissions(conn: Any) -> None:
@@ -1104,23 +1228,7 @@ def ensure_file_management_permissions(conn: Any) -> None:
             ("ai_studio:quota:manage", "AI Studio quota manage", "Manage tenant AI Studio quotas"),
         ]
     )
-    for code, name, description in permission_rows:
-        conn.execute(
-            """
-            INSERT INTO permissions (code, name, description)
-            SELECT ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = ?)
-            """,
-            (code, name, description, code),
-        )
-        conn.execute(
-            """
-            UPDATE permissions
-            SET name = ?, description = ?
-            WHERE code = ?
-            """,
-            (name, description, code),
-        )
+    _upsert_permissions(conn, permission_rows)
 
 
 def backfill_default_menu_metadata(conn: Any) -> None:
@@ -1135,8 +1243,28 @@ def backfill_default_menu_metadata(conn: Any) -> None:
         "tenant-management",
         "appearance-studio",
     }
+    menu_keys = list(DEFAULT_MENU_METADATA)
+    existing_rows = conn.execute(
+        f"""
+        SELECT menu_key, menu_scope
+        FROM menus
+        WHERE menu_key IN ({_placeholders(menu_keys)})
+        """,
+        tuple(menu_keys),
+    ).fetchall()
+    existing_by_key = {str(row["menu_key"]): row for row in existing_rows}
+    child_rows = conn.execute(
+        f"""
+        SELECT DISTINCT parent_key
+        FROM menus
+        WHERE parent_key IN ({_placeholders(menu_keys)})
+        """,
+        tuple(menu_keys),
+    ).fetchall()
+    parent_keys_with_children = {str(row["parent_key"]) for row in child_rows}
+    metadata_rows: list[tuple[Any, ...]] = []
     for menu_key, metadata in DEFAULT_MENU_METADATA.items():
-        existing = conn.execute("SELECT id, menu_scope FROM menus WHERE menu_key = ?", (menu_key,)).fetchone()
+        existing = existing_by_key.get(menu_key)
         should_set_scope = existing is None or (
             metadata["menu_scope"] != str(existing["menu_scope"] or "")
         ) or (
@@ -1144,20 +1272,9 @@ def backfill_default_menu_metadata(conn: Any) -> None:
             and menu_key in default_tenant_scoped_platform_keys
             and str(existing["menu_scope"] or "") == "tenant"
         )
-        child_exists = bool(conn.execute("SELECT 1 FROM menus WHERE parent_key = ? LIMIT 1", (menu_key,)).fetchone())
+        child_exists = menu_key in parent_keys_with_children
         next_menu_type = metadata["menu_type"] if not child_exists or metadata["menu_type"] != "directory" else "directory"
-        conn.execute(
-            """
-            UPDATE menus
-            SET menu_type = CASE
-                    WHEN menu_type IS NULL OR menu_type = '' THEN ?
-                    WHEN ? = 'directory' AND menu_type = 'page' AND ? THEN 'directory'
-                    ELSE menu_type
-                END,
-                component = CASE WHEN component IS NULL OR component = '' THEN ? ELSE component END,
-                menu_scope = CASE WHEN ? THEN ? ELSE menu_scope END
-            WHERE menu_key = ?
-            """,
+        metadata_rows.append(
             (
                 metadata["menu_type"],
                 next_menu_type,
@@ -1166,8 +1283,23 @@ def backfill_default_menu_metadata(conn: Any) -> None:
                 should_set_scope,
                 metadata["menu_scope"],
                 menu_key,
-            ),
+            )
         )
+    _executemany(
+        conn,
+        """
+        UPDATE menus
+        SET menu_type = CASE
+                WHEN menu_type IS NULL OR menu_type = '' THEN ?
+                WHEN ? = 'directory' AND menu_type = 'page' AND ? THEN 'directory'
+                ELSE menu_type
+            END,
+            component = CASE WHEN component IS NULL OR component = '' THEN ? ELSE component END,
+            menu_scope = CASE WHEN ? THEN ? ELSE menu_scope END
+        WHERE menu_key = ?
+        """,
+        metadata_rows,
+    )
     conn.execute("UPDATE menus SET menu_scope = 'tenant' WHERE menu_key IN ('llm', 'llm-config', 'llm-debug')")
     conn.execute("UPDATE menus SET parent_key = '' WHERE menu_key = 'llm' AND menu_scope = 'tenant' AND parent_key IS NULL")
     conn.execute("UPDATE menus SET parent_key = 'llm' WHERE menu_key IN ('llm-config', 'llm-debug') AND (parent_key IS NULL OR parent_key = '')")
@@ -1217,20 +1349,17 @@ def backfill_default_menu_metadata(conn: Any) -> None:
         ("menu-management", "菜单权限"),
         ("role-management", "角色权限"),
     ]
-    for menu_key, label in label_rows:
-        conn.execute("UPDATE menus SET label = ? WHERE menu_key = ? AND (label IS NULL OR label = '')", (label, menu_key))
+    _update_menu_labels(conn, label_rows, only_missing=True)
     platform_ai_label_rows = [
         ("ai-platform-capabilities", "平台AI能力"),
         ("ai-platform-capabilities-manage", "管理平台AI能力"),
     ]
-    for menu_key, label in platform_ai_label_rows:
-        conn.execute("UPDATE menus SET label = ? WHERE menu_key = ?", (label, menu_key))
+    _update_menu_labels(conn, platform_ai_label_rows)
     basic_data_label_rows = [
         ("basic-data", "基础数据"),
         ("basic-data-dictionaries", "业务字典"),
     ]
-    for menu_key, label in basic_data_label_rows:
-        conn.execute("UPDATE menus SET label = ? WHERE menu_key = ?", (label, menu_key))
+    _update_menu_labels(conn, basic_data_label_rows)
     conn.execute(
         """
         UPDATE menus
@@ -1424,33 +1553,7 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("platform-audit-sql-logs", "SQL 日志", "/audit/sql", "platform-audit-sql-logs", "database", "platform-audit-logs", "audit:sql-log:view", 10974),
         ("platform-audit-visitor-logs", "访客日志", "/audit/visitors", "platform-audit-visitor-logs", "user", "platform-audit-logs", "audit:visitor-log:view", 10975),
     ]
-    for key, label, path, route_name, icon, parent_key, permission_code, sort_order in platform_menu_rows:
-        conn.execute(
-            """
-            INSERT INTO menus (
-                menu_key, menu_scope, label, menu_type, path, route_name, component, icon,
-                parent_key, permission_code, sort_order, is_visible
-            )
-            SELECT ?, 'platform', ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE
-            WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = ?)
-            """,
-            (
-                key,
-                label,
-                DEFAULT_MENU_METADATA[key]["menu_type"],
-                path,
-                route_name,
-                DEFAULT_MENU_METADATA[key]["component"],
-                icon,
-                parent_key,
-                permission_code,
-                sort_order,
-                key,
-            ),
-        )
-    backfill_default_menu_metadata(conn)
-
-
+    _insert_menu_rows_if_missing(conn, "platform", platform_menu_rows)
 def ensure_tenant_default_menus(conn: Any) -> None:
     tenant_menu_rows = [
         (
@@ -2354,32 +2457,11 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             9311,
         ),
     ]
-    for key, label, path, route_name, icon, parent_key, permission_code, sort_order in tenant_menu_rows:
-        if key in RETIRED_AI_ASSETS_MENU_KEYS:
-            continue
-        conn.execute(
-            """
-            INSERT INTO menus (
-                menu_key, menu_scope, label, menu_type, path, route_name, component, icon,
-                parent_key, permission_code, sort_order, is_visible
-            )
-            SELECT ?, 'tenant', ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE
-            WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = ?)
-            """,
-            (
-                key,
-                label,
-                DEFAULT_MENU_METADATA[key]["menu_type"],
-                path,
-                route_name,
-                DEFAULT_MENU_METADATA[key]["component"],
-                icon,
-                parent_key,
-                permission_code,
-                sort_order,
-                key,
-            ),
-        )
+    _insert_menu_rows_if_missing(
+        conn,
+        "tenant",
+        [row for row in tenant_menu_rows if row[0] not in RETIRED_AI_ASSETS_MENU_KEYS],
+    )
 
 
 def repair_tenant_rbac_boundaries(conn: Any) -> None:
@@ -2456,6 +2538,103 @@ def repair_tenant_rbac_boundaries(conn: Any) -> None:
         )
 
 
+def _unique_non_empty(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def _placeholders(values: list[str]) -> str:
+    return ", ".join("?" for _ in values)
+
+
+def _update_menu_labels(conn: Any, rows: list[tuple[str, str]], *, only_missing: bool = False) -> None:
+    if not rows:
+        return
+    label_case = " ".join("WHEN ? THEN ?" for _ in rows)
+    placeholders = ", ".join("?" for _ in rows)
+    where = f"menu_key IN ({placeholders})"
+    if only_missing:
+        where += " AND (label IS NULL OR label = '')"
+    params: list[Any] = []
+    for menu_key, label in rows:
+        params.extend([menu_key, label])
+    params.extend(menu_key for menu_key, _ in rows)
+    conn.execute(
+        f"""
+        UPDATE menus
+        SET label = CASE menu_key {label_case} ELSE label END
+        WHERE {where}
+        """,
+        tuple(params),
+    )
+
+
+def _fetch_menus_by_key(conn: Any, role_scope: str, menu_keys: list[str]) -> list[Any]:
+    normalized_keys = _unique_non_empty(menu_keys)
+    if not normalized_keys:
+        return []
+    rows = conn.execute(
+        f"""
+        SELECT id, menu_key, permission_code
+        FROM menus
+        WHERE menu_scope = ? AND menu_key IN ({_placeholders(normalized_keys)})
+        """,
+        (role_scope, *normalized_keys),
+    ).fetchall()
+    return list(rows)
+
+
+def _insert_role_menus(conn: Any, role_id: int, menu_ids: list[int], *, ignore_existing: bool) -> None:
+    rows = [(role_id, menu_id) for menu_id in menu_ids]
+    if not rows:
+        return
+    if backend_name(conn) == "mysql":
+        verb = "INSERT IGNORE" if ignore_existing else "INSERT"
+        _executemany(conn, f"{verb} INTO role_menus (role_id, menu_id) VALUES (?, ?)", rows)
+        return
+    if not ignore_existing:
+        _executemany(conn, "INSERT INTO role_menus (role_id, menu_id) VALUES (?, ?)", rows)
+        return
+    _executemany(
+        conn,
+        """
+        INSERT INTO role_menus (role_id, menu_id)
+        SELECT ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM role_menus WHERE role_id = ? AND menu_id = ?
+        )
+        """,
+        [(role_id, menu_id, role_id, menu_id) for menu_id in menu_ids],
+    )
+
+
+def _insert_role_permissions(conn: Any, role_id: int, permission_ids: list[int]) -> None:
+    if not permission_ids:
+        return
+    rows = [(role_id, permission_id) for permission_id in permission_ids]
+    if backend_name(conn) == "mysql":
+        _executemany(conn, "INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)", rows)
+        return
+    _executemany(
+        conn,
+        """
+        INSERT INTO role_permissions (role_id, permission_id)
+        SELECT ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ?
+        )
+        """,
+        [(role_id, permission_id, role_id, permission_id) for permission_id in permission_ids],
+    )
+
+
 def ensure_role_access_by_key(conn: Any, role_key: str, menu_keys: list[str]) -> None:
     role_row = conn.execute("SELECT id, role_scope FROM roles WHERE role_key = ?", (role_key,)).fetchone()
     if not role_row:
@@ -2464,35 +2643,15 @@ def ensure_role_access_by_key(conn: Any, role_key: str, menu_keys: list[str]) ->
     role_scope = str(role_row["role_scope"] or "platform")
     conn.execute("DELETE FROM role_menus WHERE role_id = ?", (role_id,))
     conn.execute("DELETE FROM role_permissions WHERE role_id = ?", (role_id,))
-    for menu_key in menu_keys:
-        menu_row = conn.execute(
-            "SELECT id, permission_code FROM menus WHERE menu_key = ? AND menu_scope = ?",
-            (menu_key, role_scope),
-        ).fetchone()
-        if not menu_row:
-            continue
-        conn.execute(
-            """
-            INSERT INTO role_menus (role_id, menu_id)
-            VALUES (?, ?)
-            """,
-            (role_id, int(menu_row["id"])),
-        )
+    permission_codes: list[str] = []
+    menu_ids: list[int] = []
+    for menu_row in _fetch_menus_by_key(conn, role_scope, menu_keys):
+        menu_ids.append(int(menu_row["id"]))
         permission_code = str(menu_row["permission_code"] or "").strip()
-        if not permission_code:
-            continue
-        permission_row = conn.execute("SELECT id FROM permissions WHERE code = ?", (permission_code,)).fetchone()
-        if permission_row:
-            conn.execute(
-                """
-                INSERT INTO role_permissions (role_id, permission_id)
-                SELECT ?, ?
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ?
-                )
-                """,
-                (role_id, int(permission_row["id"]), role_id, int(permission_row["id"])),
-            )
+        if permission_code:
+            permission_codes.append(permission_code)
+    _insert_role_menus(conn, role_id, menu_ids, ignore_existing=False)
+    ensure_role_permissions_by_code(conn, role_key, permission_codes)
 
 
 def ensure_role_menus_by_key(conn: Any, role_key: str, menu_keys: list[str]) -> None:
@@ -2501,27 +2660,15 @@ def ensure_role_menus_by_key(conn: Any, role_key: str, menu_keys: list[str]) -> 
         return
     role_id = int(role_row["id"])
     role_scope = str(role_row["role_scope"] or "platform")
-    for menu_key in menu_keys:
-        menu_row = conn.execute(
-            "SELECT id, permission_code FROM menus WHERE menu_key = ? AND menu_scope = ?",
-            (str(menu_key).strip(), role_scope),
-        ).fetchone()
-        if not menu_row:
-            continue
-        menu_id = int(menu_row["id"])
-        conn.execute(
-            """
-            INSERT INTO role_menus (role_id, menu_id)
-            SELECT ?, ?
-            WHERE NOT EXISTS (
-                SELECT 1 FROM role_menus WHERE role_id = ? AND menu_id = ?
-            )
-            """,
-            (role_id, menu_id, role_id, menu_id),
-        )
+    permission_codes: list[str] = []
+    menu_ids: list[int] = []
+    for menu_row in _fetch_menus_by_key(conn, role_scope, menu_keys):
+        menu_ids.append(int(menu_row["id"]))
         permission_code = str(menu_row["permission_code"] or "").strip()
         if permission_code:
-            ensure_role_permissions_by_code(conn, role_key, [permission_code])
+            permission_codes.append(permission_code)
+    _insert_role_menus(conn, role_id, menu_ids, ignore_existing=True)
+    ensure_role_permissions_by_code(conn, role_key, permission_codes)
 
 
 def ensure_role_permissions_by_code(conn: Any, role_key: str, permission_codes: list[str]) -> None:
@@ -2529,24 +2676,18 @@ def ensure_role_permissions_by_code(conn: Any, role_key: str, permission_codes: 
     if not role_row:
         return
     role_id = int(role_row["id"])
-    for permission_code in permission_codes:
-        normalized = str(permission_code).strip()
-        if not normalized:
-            continue
-        permission_row = conn.execute("SELECT id FROM permissions WHERE code = ?", (normalized,)).fetchone()
-        if not permission_row:
-            continue
-        permission_id = int(permission_row["id"])
-        conn.execute(
-            """
-            INSERT INTO role_permissions (role_id, permission_id)
-            SELECT ?, ?
-            WHERE NOT EXISTS (
-                SELECT 1 FROM role_permissions WHERE role_id = ? AND permission_id = ?
-            )
-            """,
-            (role_id, permission_id, role_id, permission_id),
-        )
+    normalized_codes = _unique_non_empty(permission_codes)
+    if not normalized_codes:
+        return
+    permission_rows = conn.execute(
+        f"""
+        SELECT id, code
+        FROM permissions
+        WHERE code IN ({_placeholders(normalized_codes)})
+        """,
+        tuple(normalized_codes),
+    ).fetchall()
+    _insert_role_permissions(conn, role_id, [int(row["id"]) for row in permission_rows])
 
 
 def ensure_tenant_default_roles(conn: Any) -> None:
@@ -2575,17 +2716,17 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             (role_key,),
         )
         if is_new_role:
-            ensure_role_access_by_key(conn, role_key, menu_keys)
+            _run_init_step(f"default RBAC: reset {role_key} menus", lambda role_key=role_key, menu_keys=menu_keys: ensure_role_access_by_key(conn, role_key, menu_keys))
         if role_key == "tenant-admin":
-            ensure_role_menus_by_key(conn, role_key, TENANT_MESSAGING_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_ORGANIZATION_MENU_KEYS)
-            ensure_role_menus_by_key(conn, role_key, TENANT_AUDIT_LOG_MENU_KEYS)
-            ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES)
+            _run_init_step("default RBAC: bind tenant-admin messaging menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_MESSAGING_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin LLM menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin cron menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin file menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin basic data menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin AI asset menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin organization menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_ORGANIZATION_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin audit menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_AUDIT_LOG_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin extra permissions", lambda: ensure_role_permissions_by_code(conn, role_key, TENANT_ADMIN_EXTRA_PERMISSION_CODES))
 
     admin_role = conn.execute("SELECT id FROM roles WHERE role_key = ?", (DEFAULT_ROLE_KEY,)).fetchone()
     has_platform_user = False
@@ -2635,30 +2776,30 @@ def ensure_tenant_default_roles(conn: Any) -> None:
 
 def initialize_auth_storage(conn: Any) -> None:
     if backend_name(conn) == "postgres":
-        conn.execute("SELECT pg_advisory_xact_lock(?)", (7183001,))
-        ensure_auth_schema(conn)
-        ensure_platform_tenant(conn)
-        ensure_default_tenant(conn)
-        ensure_default_admin(conn)
-        ensure_default_rbac(conn)
+        _run_init_step("acquire postgres init lock", lambda: conn.execute("SELECT pg_advisory_xact_lock(?)", (7183001,)))
+        _run_init_step("ensure auth schema", lambda: ensure_auth_schema(conn))
+        _run_init_step("ensure platform tenant", lambda: ensure_platform_tenant(conn))
+        _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
+        _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
+        _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
         return
     if backend_name(conn) == "mysql":
-        conn.execute("SELECT GET_LOCK(?, ?)", ("ops_admin_identity_init", 30))
+        _run_init_step("acquire mysql init lock", lambda: _acquire_mysql_init_lock(conn))
         try:
-            ensure_auth_schema(conn)
-            ensure_platform_tenant(conn)
-            ensure_default_tenant(conn)
-            ensure_default_admin(conn)
-            ensure_default_rbac(conn)
+            _run_init_step("ensure auth schema", lambda: ensure_auth_schema(conn))
+            _run_init_step("ensure platform tenant", lambda: ensure_platform_tenant(conn))
+            _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
+            _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
+            _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
         finally:
-            conn.execute("SELECT RELEASE_LOCK(?)", ("ops_admin_identity_init",))
+            _run_init_step("release mysql init lock", lambda: conn.execute("SELECT RELEASE_LOCK(?)", ("ops_admin_identity_init",)))
         return
     with _auth_schema_lock:
-        ensure_auth_schema(conn)
-        ensure_platform_tenant(conn)
-        ensure_default_tenant(conn)
-        ensure_default_admin(conn)
-        ensure_default_rbac(conn)
+        _run_init_step("ensure auth schema", lambda: ensure_auth_schema(conn))
+        _run_init_step("ensure platform tenant", lambda: ensure_platform_tenant(conn))
+        _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
+        _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
+        _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
 
 
 def require_auth_ready(conn: Any) -> None:

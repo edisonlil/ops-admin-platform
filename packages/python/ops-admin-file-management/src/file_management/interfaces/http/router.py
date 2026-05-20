@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import urllib.parse
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from file_management.application import services
@@ -145,11 +146,22 @@ def files(
 @router.get("/search")
 def search_files(
     keyword: str = "",
+    metadata: str | None = Query(default=None),
+    tag_codes: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
-    return ok(services.search_files(page=page, page_size=page_size, keyword=keyword, current_user=current_user))
+    return ok(
+        services.search_files(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            metadata_filters=parse_metadata_filters(metadata),
+            tag_codes=parse_string_list(tag_codes),
+            current_user=current_user,
+        )
+    )
 
 
 @router.get("/access-logs")
@@ -204,6 +216,8 @@ def upload_file(
     library_id: int | None = Form(default=None),
     folder_id: int | None = Form(default=None),
     visibility: str = Form(default="tenant"),
+    metadata: str | None = Form(default=None),
+    tag_codes: str | None = Form(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:upload")),
 ) -> dict[str, Any]:
     return ok(
@@ -215,9 +229,53 @@ def upload_file(
             library_id=library_id,
             folder_id=folder_id,
             visibility=visibility,
-            metadata={},
+            metadata=parse_metadata_object(metadata),
+            tag_codes=parse_string_list(tag_codes),
         )
     )
+
+
+def parse_metadata_object(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be a JSON object")
+    return payload
+
+
+def parse_metadata_filters(value: str | None) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be valid JSON") from exc
+    if isinstance(payload, dict):
+        return [{"field_key": key, "op": "eq", "value": item} for key, item in payload.items()]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be a JSON object or filter array")
+
+
+def parse_string_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    text = value.strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tag_codes must be valid JSON") from exc
+        if not isinstance(payload, list):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tag_codes must be a JSON array")
+        return [str(item).strip() for item in payload if str(item).strip()]
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
 @router.get("/admin/tenants/{tenant_id}/quota")

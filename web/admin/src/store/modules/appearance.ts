@@ -34,6 +34,10 @@ const BRANDING_NAME_STORAGE_KEY = 'ops-admin-platform:branding:platform-name';
 const BRANDING_LOGO_STORAGE_KEY = 'ops-admin-platform:branding:logo-url';
 const BRANDING_FONT_SIZE_STORAGE_KEY = 'ops-admin-platform:branding:platform-name-font-size';
 
+let effectiveThemeRequest: Promise<void> | null = null;
+let platformThemeRequest: Promise<void> | null = null;
+let platformBrandingRequest: Promise<void> | null = null;
+
 type BackendAppearancePayload = Partial<AppearanceStoragePayload> & {
   preset_id?: string;
   token_overrides?: TokenOverrides;
@@ -495,9 +499,10 @@ export const useAppearanceStore = defineStore({
       this.backendThemeSource = 'local';
     },
     async loadEffectiveThemeForCurrentTenant() {
+      if (effectiveThemeRequest) return effectiveThemeRequest;
       this.ensureLoadedForCurrentTenant();
       this.isLoadingRemote = true;
-      try {
+      effectiveThemeRequest = (async () => {
         const response = await getEffectiveAppearanceTheme();
         this.loadedStorageKey = this.storageKey;
         if (!response?.theme) {
@@ -516,14 +521,19 @@ export const useAppearanceStore = defineStore({
         if (response.source === 'platform') {
           this.cachePlatformPayload(toStoragePayload(this.runtimeState));
         }
+      })();
+      try {
+        return await effectiveThemeRequest;
       } finally {
+        effectiveThemeRequest = null;
         this.isLoadingRemote = false;
       }
     },
     async loadPlatformTheme() {
+      if (platformThemeRequest) return platformThemeRequest;
       this.reloadPlatformTheme();
       this.isLoadingRemote = true;
-      try {
+      platformThemeRequest = (async () => {
         const response = await getPlatformAppearanceTheme();
         this.loadedStorageKey = PLATFORM_THEME_STORAGE_KEY;
         if (!response?.theme) {
@@ -538,13 +548,18 @@ export const useAppearanceStore = defineStore({
         this.backendThemeId = response.theme.id || null;
         this.backendThemeUpdatedAt = response.theme.update_time || '';
         this.cachePlatformPayload(toStoragePayload(this.runtimeState));
+      })();
+      try {
+        return await platformThemeRequest;
       } finally {
+        platformThemeRequest = null;
         this.isLoadingRemote = false;
       }
     },
     async loadPlatformBranding() {
+      if (platformBrandingRequest) return platformBrandingRequest;
       this.isLoadingBranding = true;
-      try {
+      platformBrandingRequest = (async () => {
         const response = await getPlatformBranding();
         const branding = response?.branding;
         if (!branding) return;
@@ -557,7 +572,11 @@ export const useAppearanceStore = defineStore({
         cacheBrandingPlatformNameFontSize(this.platformNameFontSize);
         syncDocumentTitle(this.platformName);
         syncDocumentFavicon(this.platformLogoUrl);
+      })();
+      try {
+        return await platformBrandingRequest;
       } finally {
+        platformBrandingRequest = null;
         this.isLoadingBranding = false;
       }
     },

@@ -178,6 +178,12 @@ Examples:
         dest="sqlite_path",
         help="SQLite database path",
     )
+    setup_parser.add_argument(
+        "--init-timeout",
+        type=int,
+        default=1800,
+        help="Init script timeout in seconds (default: 1800)",
+    )
 
     # rerun-module command
     rerun_parser = subparsers.add_parser(
@@ -193,6 +199,12 @@ Examples:
         "--name",
         "-n",
         help="Project name (auto-detected from current directory if not provided)",
+    )
+    rerun_parser.add_argument(
+        "--init-timeout",
+        type=int,
+        default=1800,
+        help="Init script timeout in seconds (default: 1800)",
     )
 
     # deploy command
