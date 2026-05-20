@@ -41,7 +41,7 @@ def connect(database_target: str | Path, *, readonly: bool) -> Iterator[Any]:
     else:
         conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
-    wrapped_conn = ObservedSqliteConnection(conn, readonly=readonly)
+    wrapped_conn = ObservedSqliteConnection(conn, readonly=readonly, database_identity=str(db_file.resolve()))
     try:
         yield wrapped_conn
         if not readonly:
@@ -66,6 +66,11 @@ class PostgresConnection:
 
         self._conn = psycopg.connect(database_url, row_factory=dict_row)
         self._readonly = readonly
+        parsed = urlparse(database_url)
+        host = parsed.hostname or ""
+        port = parsed.port or 5432
+        database = unquote(parsed.path.lstrip("/"))
+        self.database_identity = f"{host}:{port}/{database}"
 
     def execute(self, sql: str, params: Iterable[Any] | None = None) -> Any:
         cursor = self._conn.cursor()
@@ -135,6 +140,7 @@ class MySQLConnection:
                 connect_args.setdefault("ssl", {})[key.removeprefix("ssl_")] = options.pop(key)
         self._conn = pymysql.connect(**connect_args)
         self._readonly = readonly
+        self.database_identity = f"{parsed.hostname}:{parsed.port or 3306}/{database}"
 
     def execute(self, sql: str, params: Iterable[Any] | None = None) -> Any:
         cursor = self._conn.cursor()
@@ -216,9 +222,10 @@ def is_database_url(value: str) -> bool:
 class ObservedSqliteConnection:
     backend = "sqlite"
 
-    def __init__(self, conn: sqlite3.Connection, *, readonly: bool) -> None:
+    def __init__(self, conn: sqlite3.Connection, *, readonly: bool, database_identity: str) -> None:
         self._conn = conn
         self._readonly = readonly
+        self.database_identity = database_identity
 
     def execute(self, sql: str, params: Iterable[Any] | None = None) -> Any:
         execute_params = tuple(params or ())

@@ -4,22 +4,21 @@ from pathlib import Path
 from typing import Any
 
 from system.infrastructure.persistence.dialect import apply_sql_script, ddl_filename, table_exists
+from system.infrastructure.persistence.readiness import is_ready, mark_ready
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
-_schema_ready = False
+SCHEMA_NAME = "audit_logging"
 
 
 def ensure_audit_logging_schema(conn: Any) -> None:
-    global _schema_ready
     apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
     apply_sql_script(conn, PERSISTENCE_DIR / "seed.sql")
-    _schema_ready = True
+    mark_ready(conn, SCHEMA_NAME)
 
 
 def require_audit_logging_schema(conn: Any) -> None:
-    global _schema_ready
-    if _schema_ready:
+    if is_ready(conn, SCHEMA_NAME):
         return
     required_tables = (
         "audit_system_logs",
@@ -35,4 +34,4 @@ def require_audit_logging_schema(conn: Any) -> None:
             "audit logging storage is not initialized; run `python scripts/init_audit_logging.py`"
             + f" (missing tables: {', '.join(missing)})"
         )
-    _schema_ready = True
+    mark_ready(conn, SCHEMA_NAME)

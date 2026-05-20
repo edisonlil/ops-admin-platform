@@ -12,9 +12,11 @@ from system.infrastructure.persistence.dialect import (
     ensure_soft_delete_active_marker_unique,
     table_exists,
 )
+from system.infrastructure.persistence.readiness import is_ready, mark_ready
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
+SCHEMA_NAME = "file_management"
 
 
 def ensure_file_management_schema(conn: Any) -> None:
@@ -22,9 +24,12 @@ def ensure_file_management_schema(conn: Any) -> None:
     ensure_file_management_active_markers(conn)
     apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
     ensure_file_management_active_markers(conn)
+    mark_ready(conn, SCHEMA_NAME)
 
 
 def require_file_management_schema(conn: Any) -> None:
+    if is_ready(conn, SCHEMA_NAME):
+        return
     required_tables = (
         "file_libraries",
         "file_folders",
@@ -50,6 +55,7 @@ def require_file_management_schema(conn: Any) -> None:
             "file management storage is not initialized; run `python scripts/init_file_management.py`"
             + f" (missing columns: {', '.join(missing_columns)})"
         )
+    mark_ready(conn, SCHEMA_NAME)
 
 def ensure_file_management_columns(conn: Any) -> None:
     add_column_if_missing(conn, "file_objects", "folder_id", "BIGINT DEFAULT NULL")

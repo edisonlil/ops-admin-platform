@@ -5,11 +5,13 @@ from pathlib import Path
 from system.application.health_service import database_source_label, mask_database_url
 from system.infrastructure.persistence.connection import database_backend_for_target, is_database_url, to_percent_sql
 from system.infrastructure.persistence.dialect import ddl_filename, mysql_index_statement
+from system.infrastructure.persistence.readiness import clear_readiness, is_ready, mark_ready
 
 
 class DummyConnection:
-    def __init__(self, backend: str) -> None:
+    def __init__(self, backend: str, database_identity: str = "") -> None:
         self.backend = backend
+        self.database_identity = database_identity
 
 
 def test_database_backend_for_target_recognizes_supported_urls() -> None:
@@ -49,3 +51,14 @@ def test_mysql_index_statement_removes_if_not_exists() -> None:
 def test_health_helpers_label_and_mask_mysql_urls() -> None:
     assert database_source_label("mysql") == "MySQL"
     assert mask_database_url("mysql://root:secret@example:3306/ops_admin") == "mysql://***@example:3306/ops_admin"
+
+
+def test_schema_readiness_is_scoped_to_database_identity() -> None:
+    clear_readiness()
+    first = DummyConnection("mysql", "db-host-1:3306/ops_admin")
+    second = DummyConnection("mysql", "db-host-2:3306/ops_admin")
+
+    mark_ready(first, "appearance")
+
+    assert is_ready(first, "appearance")
+    assert not is_ready(second, "appearance")

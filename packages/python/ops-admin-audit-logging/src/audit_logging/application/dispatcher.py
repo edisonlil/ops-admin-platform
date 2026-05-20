@@ -201,7 +201,9 @@ def should_record_sql(sql: str, duration_ms: float, success: bool) -> bool:
     if not sql.strip():
         return False
     lowered = sql.lower()
-    if "audit_" in lowered or is_schema_introspection_sql(lowered):
+    if "audit_" in lowered:
+        return False
+    if success and is_schema_introspection_sql(lowered):
         return False
     if not effective_settings_value("sql_log_enabled", True, tenant_id=current_scope_tenant_id()):
         return False

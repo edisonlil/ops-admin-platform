@@ -16,6 +16,7 @@ from identity_access.infrastructure.persistence.bootstrap import ensure_identity
 from identity_access.infrastructure.security import hash_password
 from system.infrastructure.persistence.dialect import add_column_if_missing, backend_name, column_exists, index_exists, table_exists
 from system.infrastructure.persistence.connection import connect
+from system.infrastructure.persistence.readiness import is_ready, mark_ready
 
 
 PLATFORM_TENANT_KEY = "platform"
@@ -26,6 +27,7 @@ _auth_schema_lock = threading.Lock()
 
 
 AUTH_INIT_COMMAND = "python scripts/init_identity_access.py"
+SCHEMA_NAME = "identity_access"
 
 
 class DisabledUserException(HTTPException):
@@ -2782,6 +2784,7 @@ def initialize_auth_storage(conn: Any) -> None:
         _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
         _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
         _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
+        mark_ready(conn, SCHEMA_NAME)
         return
     if backend_name(conn) == "mysql":
         _run_init_step("acquire mysql init lock", lambda: _acquire_mysql_init_lock(conn))
@@ -2791,6 +2794,7 @@ def initialize_auth_storage(conn: Any) -> None:
             _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
             _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
             _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
+            mark_ready(conn, SCHEMA_NAME)
         finally:
             _run_init_step("release mysql init lock", lambda: conn.execute("SELECT RELEASE_LOCK(?)", ("ops_admin_identity_init",)))
         return
@@ -2800,9 +2804,12 @@ def initialize_auth_storage(conn: Any) -> None:
         _run_init_step("ensure default tenant", lambda: ensure_default_tenant(conn))
         _run_init_step("ensure default admin", lambda: ensure_default_admin(conn))
         _run_init_step("ensure default RBAC", lambda: ensure_default_rbac(conn))
+        mark_ready(conn, SCHEMA_NAME)
 
 
 def require_auth_ready(conn: Any) -> None:
+    if is_ready(conn, SCHEMA_NAME):
+        return
     try:
         platform_row = conn.execute(
             "SELECT id FROM tenants WHERE tenant_key = ?",
@@ -2837,6 +2844,7 @@ def require_auth_ready(conn: Any) -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"identity storage is not initialized; run `{AUTH_INIT_COMMAND}`",
         )
+    mark_ready(conn, SCHEMA_NAME)
 
 
 def row_to_api_key(row: dict[str, Any]) -> dict[str, Any]:
