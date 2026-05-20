@@ -603,9 +603,12 @@
     if (!activeTenant.value) return;
     usersLoading.value = true;
     try {
-      await ensureDepartments();
+      const tenantId = activeTenant.value.id;
       const params = runtimeSortParams(state);
-      const payload = isPlatformTenantManagement.value ? await getTenantUsers(activeTenant.value.id, params) : await getCurrentTenantUsers(params);
+      const departmentsPromise = ensureDepartments();
+      const usersPromise = isPlatformTenantManagement.value ? getTenantUsers(tenantId, params) : getCurrentTenantUsers(params);
+      const [payload] = await Promise.all([usersPromise, departmentsPromise]);
+      if (!activeTenant.value || Number(activeTenant.value.id) !== Number(tenantId)) return;
       tenantUsers.value = payload.items || [];
     } finally {
       usersLoading.value = false;

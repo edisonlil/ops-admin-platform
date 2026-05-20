@@ -98,6 +98,10 @@ def user_departments(*, tenant_id: int, user_id: int) -> list[dict[str, Any]]:
     return repo().user_departments(tenant_id=tenant_id, user_id=user_id)
 
 
+def users_departments(*, tenant_id: int, user_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    return repo().users_departments(tenant_id=tenant_id, user_ids=user_ids)
+
+
 def department_descendant_ids(*, tenant_id: int, department_id: int, include_self: bool = True) -> list[int]:
     departments = repo().list_departments(tenant_id=tenant_id, include_disabled=False)
     children_by_parent: dict[int | None, list[Department]] = {}

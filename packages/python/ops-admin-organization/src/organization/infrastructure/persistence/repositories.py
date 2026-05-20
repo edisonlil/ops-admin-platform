@@ -252,32 +252,50 @@ def set_user_departments(
 
 
 def user_departments(*, tenant_id: int, user_id: int) -> list[dict[str, Any]]:
+    return users_departments(tenant_id=tenant_id, user_ids=[user_id]).get(int(user_id), [])
+
+
+def users_departments(*, tenant_id: int, user_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    normalized_ids: list[int] = []
+    seen: set[int] = set()
+    for value in user_ids:
+        user_id = int(value or 0)
+        if user_id and user_id not in seen:
+            normalized_ids.append(user_id)
+            seen.add(user_id)
+    if not normalized_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized_ids)
     with connect(database_target(), readonly=True) as conn:
         require_organization_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT udm.*, d.code, d.name, d.parent_id, d.base_location, d.region
             FROM user_department_memberships udm
             JOIN departments d ON d.id = udm.department_id AND d.tenant_id = udm.tenant_id
-            WHERE udm.tenant_id = ? AND udm.user_id = ? AND udm.deleted = 0 AND d.deleted = 0
-            ORDER BY udm.is_primary DESC, d.sort_order ASC, d.id ASC
+            WHERE udm.tenant_id = ? AND udm.user_id IN ({placeholders}) AND udm.deleted = 0 AND d.deleted = 0
+            ORDER BY udm.user_id ASC, udm.is_primary DESC, d.sort_order ASC, d.id ASC
             """,
-            (tenant_id, user_id),
+            (tenant_id, *normalized_ids),
         ).fetchall()
-    return [
-        {
-            "id": int(row["department_id"]),
-            "department_id": int(row["department_id"]),
-            "tenant_id": int(row["tenant_id"]),
-            "code": str(row["code"]),
-            "name": str(row["name"]),
-            "parent_id": int(row["parent_id"]) if row["parent_id"] not in (None, "") else None,
-            "base_location": str(row["base_location"] or ""),
-            "region": str(row["region"] or ""),
-            "is_primary": bool(row["is_primary"]),
-        }
-        for row in rows
-    ]
+    departments_by_user = {user_id: [] for user_id in normalized_ids}
+    for row in rows:
+        departments_by_user.setdefault(int(row["user_id"]), []).append(row_to_user_department(dict(row)))
+    return departments_by_user
+
+
+def row_to_user_department(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["department_id"]),
+        "department_id": int(row["department_id"]),
+        "tenant_id": int(row["tenant_id"]),
+        "code": str(row["code"]),
+        "name": str(row["name"]),
+        "parent_id": int(row["parent_id"]) if row["parent_id"] not in (None, "") else None,
+        "base_location": str(row["base_location"] or ""),
+        "region": str(row["region"] or ""),
+        "is_primary": bool(row["is_primary"]),
+    }
 
 
 def validate_department_parent(conn: Any, *, tenant_id: int, department_id: int, parent_id: int | None) -> None:

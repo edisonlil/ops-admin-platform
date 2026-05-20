@@ -93,6 +93,7 @@ ops-cli sync --check       # Preview only
 2. **Extend, don't modify** - Create new files/dirs for custom code
 3. **Business isolation** - Keep custom code in `business/` or separate bounded contexts
 4. **Sync-safe** - Business code survives `ops-cli sync` intact
+5. **Batch bounded reads** - Within DDD boundaries, avoid full-table/all-tenant reads and N+1 query patterns. Prefer tenant-scoped, set-based queries exposed through the owning bounded context's application services or ports.
 
 ### 5. Codex/AI Development Guidelines
 

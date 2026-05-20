@@ -14,6 +14,7 @@
   - `interfaces/http`: FastAPI routers, DTOs, and HTTP response mapping.
 - Dependency direction is inward: `interfaces` and `infrastructure` may depend on `application`; `application` may depend on `domain`; `domain` must not depend on FastAPI, database clients, storage adapters, or other frameworks.
 - Cross-context collaboration should use application ports or domain events. Do not import another context's `infrastructure` package directly.
+- When optimizing reads without violating DDD boundaries, avoid full-table/all-tenant reads and N+1 query patterns. Prefer bounded, tenant-scoped queries, batch application ports, or application services that let the owning bounded context perform one set-based query internally.
 - Each bounded context owns its persistence resources under `infrastructure/persistence`: `ddl.sqlite.sql`, `ddl.postgres.sql`, and `seed.sql`.
 - `api` is only an entrypoint/composition compatibility layer. New business capability must be implemented inside a bounded context and exposed through that context's `interfaces/http` router.
 - Shared backend framework and reusable capability packages live under `packages/python/framework/`.

@@ -95,6 +95,9 @@ class OrganizationTests(unittest.TestCase):
 
         self.assertEqual([item["department_id"] for item in switched], [second.id])
         self.assertEqual([item["department_id"] for item in restored], [first.id])
+        batch = repositories.users_departments(tenant_id=1, user_ids=[9, 10])
+        self.assertEqual([item["department_id"] for item in batch[9]], [first.id])
+        self.assertEqual(batch[10], [])
         conn = sqlite3.connect(self.db_path)
         try:
             rows = conn.execute(

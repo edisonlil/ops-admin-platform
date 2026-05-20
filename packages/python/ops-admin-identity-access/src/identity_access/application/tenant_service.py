@@ -95,6 +95,19 @@ def user_departments_for_current_tenant(current_user: dict[str, Any]) -> list[di
         return []
 
 
+def tenant_users_departments_if_available(tenant_id: int, user_ids: list[int]) -> dict[int, list[dict[str, Any]]] | None:
+    if not user_ids:
+        return {}
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return None
+    try:
+        return organization_services.users_departments(tenant_id=tenant_id, user_ids=user_ids)
+    except Exception:
+        return None
+
+
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
     tenant = tenant_repository.create_tenant(
         tenant_key=str(payload.get("tenant_key") or payload.get("key") or ""),
@@ -248,7 +261,7 @@ def ensure_tenant_admin_access(current_user: dict[str, Any], tenant_id: int) -> 
 
 
 def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
-    with connect(auth_database_target(), readonly=False) as conn:
+    with connect(auth_database_target(), readonly=True) as conn:
         require_auth_ready(conn)
         tenant = tenant_repository.get_business_tenant_by_id(conn, tenant_id)
         if not tenant:
@@ -258,20 +271,65 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
             SELECT u.id, u.username, u.is_active, u.is_superuser, u.create_time, u.update_time, tm.is_tenant_admin
             FROM tenant_memberships tm
             JOIN users u ON u.id = tm.user_id
-            WHERE tm.tenant_id = ?
+            WHERE tm.tenant_id = ? AND tm.deleted = 0 AND u.deleted = 0
             ORDER BY u.id
             """,
             (tenant_id,),
         ).fetchall()
-    users = rbac_service.list_users()
-    by_id = {int(item["id"]): item for item in users}
+        user_ids = [int(row["id"]) for row in rows]
+        roles_by_user = tenant_user_roles(conn, user_ids)
+    departments_by_user = tenant_users_departments_if_available(tenant_id, user_ids)
     result = []
     for row in rows:
-        item = dict(by_id.get(int(row["id"]), {}))
+        user_id = int(row["id"])
+        item = {
+            "id": user_id,
+            "tenant_id": int(tenant_id),
+            "username": str(row["username"]),
+            "is_active": bool(row["is_active"]),
+            "is_superuser": bool(row["is_superuser"]),
+            "roles": roles_by_user.get(user_id, []),
+            "create_time": str(row["create_time"] or ""),
+            "update_time": str(row["update_time"] or ""),
+        }
         item["is_tenant_admin"] = bool(row["is_tenant_admin"])
-        item = enrich_tenant_user_with_departments(item, tenant_id)
+        if departments_by_user is not None:
+            apply_tenant_user_departments(item, departments_by_user.get(user_id, []))
         result.append(item)
     return result
+
+
+def tenant_user_roles(conn: Any, user_ids: list[int]) -> dict[int, list[dict[str, str]]]:
+    if not user_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in user_ids)
+    rows = conn.execute(
+        f"""
+        SELECT ur.user_id, r.role_key, r.name, r.role_scope
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id IN ({placeholders})
+          AND r.role_scope = ?
+          AND ur.deleted = 0
+          AND r.deleted = 0
+        ORDER BY ur.user_id ASC, r.role_key ASC
+        """,
+        (*user_ids, "tenant"),
+    ).fetchall()
+    roles_by_user: dict[int, list[dict[str, str]]] = {}
+    for row in rows:
+        roles_by_user.setdefault(int(row["user_id"]), []).append(
+            {"key": str(row["role_key"]), "name": str(row["name"]), "role_scope": str(row["role_scope"] or "tenant")}
+        )
+    return roles_by_user
+
+
+def apply_tenant_user_departments(item: dict[str, Any], departments: list[dict[str, Any]]) -> dict[str, Any]:
+    item["departments"] = departments
+    item["department_ids"] = [int(department["department_id"]) for department in departments]
+    primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
+    item["primary_department_id"] = int(primary["department_id"]) if primary else None
+    return item
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -395,8 +453,4 @@ def enrich_tenant_user_with_departments(item: dict[str, Any], tenant_id: int) ->
         departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
     except Exception:
         return item
-    item["departments"] = departments
-    item["department_ids"] = [int(department["department_id"]) for department in departments]
-    primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
-    item["primary_department_id"] = int(primary["department_id"]) if primary else None
-    return item
+    return apply_tenant_user_departments(item, departments)
