@@ -70,6 +70,7 @@ _indexer: FileIndexerPort = NoopFileIndexer()
 _preview_provider: PreviewProviderPort = NativePreviewProvider()
 _metadata_binding: MetadataBindingPort = default_metadata_binding()
 FILE_METADATA_RESOURCE_TYPE = "file_management.file_object"
+FILE_FOLDER_METADATA_RESOURCE_TYPE = "file_management.file_folder"
 FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
 WORKSPACE_FOLDER_SORT_COLUMNS = {
     "display_name": "name",
@@ -235,7 +236,7 @@ def list_files(
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
-        "items": [item.to_dict() for item in items],
+        "items": [file_to_dict(item) for item in items],
         "pagination": {"page": page, "page_size": page_size, "total": total},
     }
 
@@ -307,10 +308,10 @@ def list_workspace(
     return {
         "libraries": [item.to_dict() for item in libraries],
         "current_library": selected_library.to_dict() if selected_library else None,
-        "current_folder": selected_folder.to_dict() if selected_folder else None,
-        "breadcrumbs": [item.to_dict() for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
+        "current_folder": folder_to_dict(selected_folder) if selected_folder else None,
+        "breadcrumbs": [folder_to_dict(item) for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
         "folders": folder_items,
-        "files": [item.to_dict() for item in files],
+        "files": [file_to_dict(item) for item in files],
         "items": workspace_items,
         "usage": usage.to_dict(),
         "current_usage": current_usage,
@@ -328,7 +329,7 @@ def folder_tree(*, library_id: int, current_user: dict[str, Any]) -> dict[str, A
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
         raise domain_http_error(exc) from exc
-    return {"library": library.to_dict(), "items": [item.to_dict() for item in folders]}
+    return {"library": library.to_dict(), "items": [folder_to_dict(item) for item in folders]}
 
 
 def save_folder(payload: dict[str, Any], current_user: dict[str, Any], folder_id: int | None = None) -> dict[str, Any]:
@@ -368,13 +369,49 @@ def save_folder(payload: dict[str, Any], current_user: dict[str, Any], folder_id
             actor=actor,
             actor_id=actor_id,
         )
+        if item and ("metadata" in payload or "tag_codes" in payload):
+            _metadata_binding.bind_resource(
+                tenant_id=tenant_id,
+                resource_type_code=FILE_FOLDER_METADATA_RESOURCE_TYPE,
+                resource_id=item.id,
+                metadata=dict(payload.get("metadata") or {}),
+                tag_codes=list(payload.get("tag_codes") or []),
+                actor=actor,
+                actor_id=actor_id,
+            )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
         raise domain_http_error(exc) from exc
     if not item:
         raise domain_http_error(FileFolderNotFound("file folder not found"))
-    return {"item": item.to_dict()}
+    return {"item": folder_to_dict(item, tag_codes=list(payload.get("tag_codes") or []))}
+
+
+def update_folder_metadata(folder_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    try:
+        item = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+        if not item:
+            raise FileFolderNotFound("file folder not found")
+        metadata = dict(payload.get("metadata") or {})
+        tag_codes = list(payload.get("tag_codes") or [])
+        _metadata_binding.bind_resource(
+            tenant_id=tenant_id,
+            resource_type_code=FILE_FOLDER_METADATA_RESOURCE_TYPE,
+            resource_id=folder_id,
+            metadata=metadata,
+            tag_codes=tag_codes,
+            actor=actor,
+            actor_id=actor_id,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    except FileManagementError as exc:
+        raise domain_http_error(exc) from exc
+    return {"item": folder_to_dict(item, metadata=metadata, tag_codes=tag_codes)}
 
 
 def delete_folder(folder_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -437,7 +474,38 @@ def search_files(
 
 def get_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_tenant_file(file_id=file_id, current_user=current_user)
-    return {"item": item.to_dict()}
+    return {"item": file_to_dict(item)}
+
+
+def update_file_metadata(file_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    item = load_tenant_file(file_id=file_id, current_user=current_user)
+    metadata = payload.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be an object")
+    tag_codes = [str(value).strip() for value in payload.get("tag_codes") or [] if str(value).strip()]
+    try:
+        item = repositories.update_file_metadata(
+            tenant_id=tenant_id,
+            file_id=item.id,
+            metadata=metadata,
+            actor=actor,
+            actor_id=actor_id,
+        )
+        _metadata_binding.bind_resource(
+            tenant_id=tenant_id,
+            resource_type_code=FILE_METADATA_RESOURCE_TYPE,
+            resource_id=item.id,
+            metadata=metadata,
+            tag_codes=tag_codes,
+            actor=actor,
+            actor_id=actor_id,
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {"item": file_to_dict(item, tag_codes=tag_codes)}
 
 
 def get_file_preview_metadata(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -995,7 +1063,7 @@ def folder_breadcrumbs(folder: FileFolder | None, *, tenant_id: int) -> list[Fil
 
 
 def folder_to_workspace_dict(item: FileFolder, folder_usages: dict[int, Any]) -> dict[str, Any]:
-    payload = item.to_dict()
+    payload = folder_to_dict(item)
     usage = folder_usages.get(item.id)
     payload["size_bytes"] = int(usage.used_bytes) if usage else 0
     payload["file_count"] = int(usage.file_count) if usage else 0
@@ -1004,11 +1072,46 @@ def folder_to_workspace_dict(item: FileFolder, folder_usages: dict[int, Any]) ->
     return payload
 
 
-def file_to_workspace_dict(item: ManagedFile) -> dict[str, Any]:
+def folder_to_dict(item: FileFolder, *, metadata: dict[str, Any] | None = None, tag_codes: list[str] | None = None) -> dict[str, Any]:
     payload = item.to_dict()
+    payload["metadata"] = metadata or {}
+    payload["tag_codes"] = tag_codes if tag_codes is not None else tag_codes_for_folder(item)
+    return payload
+
+
+def file_to_workspace_dict(item: ManagedFile) -> dict[str, Any]:
+    payload = file_to_dict(item)
     payload["kind"] = "file"
     payload["name"] = item.display_name or item.original_name
     return payload
+
+
+def file_to_dict(item: ManagedFile, *, tag_codes: list[str] | None = None) -> dict[str, Any]:
+    payload = item.to_dict()
+    payload["tag_codes"] = tag_codes if tag_codes is not None else tag_codes_for_file(item)
+    return payload
+
+
+def tag_codes_for_file(item: ManagedFile) -> list[str]:
+    try:
+        return _metadata_binding.resource_tag_codes(
+            tenant_id=item.tenant_id,
+            resource_type_code=FILE_METADATA_RESOURCE_TYPE,
+            resource_id=item.id,
+        )
+    except RuntimeError:
+        return []
+
+
+def tag_codes_for_folder(item: FileFolder) -> list[str]:
+    try:
+        return _metadata_binding.resource_tag_codes(
+            tenant_id=item.tenant_id,
+            resource_type_code=FILE_FOLDER_METADATA_RESOURCE_TYPE,
+            resource_id=item.id,
+        )
+    except RuntimeError:
+        return []
 
 
 def workspace_usage_from_items(

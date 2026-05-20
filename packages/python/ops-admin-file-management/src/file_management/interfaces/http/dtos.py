@@ -19,6 +19,13 @@ class FileFolderRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=800)
     status: str = Field(default="active", max_length=60)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tag_codes: list[str] = Field(default_factory=list)
+
+
+class FileMetadataRequest(BaseModel):
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tag_codes: list[str] = Field(default_factory=list)
 
 
 class TenantStorageQuotaRequest(BaseModel):

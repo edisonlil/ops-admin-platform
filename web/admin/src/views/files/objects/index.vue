@@ -22,6 +22,51 @@
       </template>
 
       <template #toolbar-left>
+        <div v-if="selectedFile || selectedFolder" class="file-object-page__selection-tools">
+          <n-checkbox :checked="true" @update:checked="clearSelectedFile" />
+          <span class="file-object-page__selected-name" :title="selectedResourceName">
+            {{ selectedResourceName }}
+          </span>
+          <n-popover
+            v-model:show="tagPopoverVisible"
+            trigger="click"
+            placement="bottom"
+            :width="360"
+            content-class="file-tag-popover"
+          >
+            <template #trigger>
+              <n-button size="small">
+                <template #icon>
+                  <n-icon><PlusOutlined /></n-icon>
+                </template>
+                标签
+              </n-button>
+            </template>
+            <div class="file-tag-picker">
+              <header class="file-tag-picker__header">
+                <strong>所有标签</strong>
+                <n-button quaternary circle size="small" @click="focusTagInput">
+                  <template #icon>
+                    <n-icon><PlusOutlined /></n-icon>
+                  </template>
+                </n-button>
+              </header>
+              <n-dynamic-tags
+                ref="tagInputRef"
+                v-model:value="selectedFileTagDraft"
+                size="small"
+                round
+                :max="12"
+              />
+              <n-empty v-if="!selectedFileTagDraft.length" size="small" description="还没有标签" />
+              <footer class="file-tag-picker__footer">
+                <n-button size="small" @click="tagPopoverVisible = false">取消</n-button>
+                <n-button size="small" type="primary" :loading="savingMetadata" @click="saveSelectedFileTags">保存</n-button>
+              </footer>
+            </div>
+          </n-popover>
+          <n-button v-if="selectedFile" size="small" secondary @click="openMetadataDrawer(selectedFile)">元数据</n-button>
+        </div>
         <n-button
           v-if="hasPermission(['file:library:manage'])"
           :disabled="!currentLibrary"
@@ -116,7 +161,9 @@
               v-for="item in displayItems"
               :key="item.key"
               class="file-tile"
+              :class="{ 'file-tile--selected': isSelectedItem(item) }"
               type="button"
+              @click="selectItem(item)"
               @dblclick="openItem(item)"
             >
               <span class="file-tile__icon" :class="`file-tile__icon--${item.kind}`">
@@ -126,6 +173,9 @@
                 </n-icon>
               </span>
               <span class="file-tile__name" :title="item.name">{{ item.name }}</span>
+              <span v-if="itemTags(item).length" class="file-tag-strip">
+                <span v-for="tag in itemTags(item).slice(0, 3)" :key="tag" class="file-tag-chip">{{ tag }}</span>
+              </span>
               <span class="file-tile__meta">{{ formatBytes(item.size_bytes || 0) }}</span>
               <span class="file-tile__actions">
                 <n-button v-if="item.kind === 'file'" text size="tiny" @click.stop="preview(item.file!)">预览</n-button>
@@ -199,6 +249,37 @@
       </n-drawer-content>
     </n-drawer>
 
+    <n-drawer v-model:show="metadataDrawerVisible" width="520">
+      <n-drawer-content :title="metadataDrawerTitle">
+        <n-form label-placement="top">
+          <n-form-item label="标签">
+            <n-dynamic-tags v-model:value="metadataForm.tag_codes" round />
+          </n-form-item>
+          <n-form-item label="元数据">
+            <div class="metadata-editor">
+              <div v-for="(row, index) in metadataRows" :key="row.id" class="metadata-editor__row">
+                <n-input v-model:value="row.key" placeholder="字段名" />
+                <n-input v-model:value="row.value" placeholder="字段值" />
+                <n-button quaternary circle type="error" @click="removeMetadataRow(index)">×</n-button>
+              </div>
+              <n-button size="small" secondary @click="addMetadataRow">
+                <template #icon>
+                  <n-icon><PlusOutlined /></n-icon>
+                </template>
+                添加字段
+              </n-button>
+            </div>
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="metadataDrawerVisible = false">取消</n-button>
+            <n-button type="primary" :loading="savingMetadata" @click="submitMetadata">保存</n-button>
+          </n-space>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
+
     <n-drawer v-model:show="previewVisible" :width="previewDrawerWidth" @after-leave="clearPreview">
       <n-drawer-content :title="previewTitle">
         <div class="file-preview">
@@ -265,6 +346,7 @@
     FileTextFilled,
     FolderAddOutlined,
     FolderFilled,
+    PlusOutlined,
     ReloadOutlined,
     UploadOutlined,
     UnorderedListOutlined,
@@ -280,6 +362,8 @@
     getFilePreviewMetadata,
     getFileWorkspace,
     saveFileFolder,
+    updateFileFolderMetadata,
+    updateManagedFileMetadata,
     uploadManagedFile,
     type FilePreviewMode,
     type FileFolder,
@@ -318,6 +402,8 @@
   const uploading = ref(false);
   const savingFolder = ref(false);
   const uploadVisible = ref(false);
+  const metadataDrawerVisible = ref(false);
+  const tagPopoverVisible = ref(false);
   const folderDrawerVisible = ref(false);
   const previewVisible = ref(false);
   const previewLoading = ref(false);
@@ -342,6 +428,17 @@
   const folderFormRef = ref<FormInst | null>(null);
   const workspaceRows = ref<WorkspaceItem[]>([]);
   const listSortState = ref<ListRuntimeState>({});
+  const selectedFile = ref<ManagedFile | null>(null);
+  const selectedFolder = ref<FileFolder | null>(null);
+  const selectedFileTagDraft = ref<string[]>([]);
+  const savingMetadata = ref(false);
+  const tagInputRef = ref<{ activate?: () => void } | null>(null);
+  const metadataRows = ref<Array<{ id: number; key: string; value: string }>>([]);
+  const metadataForm = reactive<{ file: ManagedFile | null; tag_codes: string[] }>({
+    file: null,
+    tag_codes: [],
+  });
+  let metadataRowSeq = 0;
   let workspaceReloadSeq = 0;
 
   const folderForm = reactive({
@@ -389,6 +486,13 @@
   const previewDrawerWidth = computed(() => (previewMode.value === 'text' ? 'min(760px, 100vw)' : 'min(980px, 100vw)'));
   const isMarkdownPreview = computed(() => previewMode.value === 'text' && isMarkdownFile(previewFile.value));
   const markdownHtml = computed(() => markdownRenderer.render(previewText.value || ''));
+  const metadataDrawerTitle = computed(() => `编辑元数据：${metadataForm.file?.display_name || metadataForm.file?.original_name || ''}`);
+
+  const selectedResourceName = computed(() => {
+    if (selectedFile.value) return selectedFile.value.display_name || selectedFile.value.original_name;
+    if (selectedFolder.value) return selectedFolder.value.name;
+    return '';
+  });
 
   const currentListSortField = computed(() => listSortState.value.sort?.sort_by || '');
   const currentListSortOrder = computed(() => {
@@ -408,6 +512,7 @@
           {
             class: 'file-list-name',
             type: 'button',
+            onClick: () => selectItem(row),
             onDblclick: () => openItem(row),
           },
           [
@@ -417,6 +522,13 @@
               { default: () => h(row.kind === 'folder' ? FolderFilled : FileTextFilled) }
             ),
             h('span', row.name),
+            itemTags(row).length
+              ? h(
+                  'span',
+                  { class: 'file-list-name__tags' },
+                  itemTags(row).slice(0, 3).map((tag) => h('span', { class: 'file-tag-chip' }, tag))
+                )
+              : null,
           ]
         );
       },
@@ -544,6 +656,110 @@
     }
   }
 
+  function itemTags(item: WorkspaceItem) {
+    return item.kind === 'folder' ? item.folder?.tag_codes || [] : item.file?.tag_codes || [];
+  }
+
+  function isSelectedItem(item: WorkspaceItem) {
+    if (item.kind === 'folder') return selectedFolder.value?.id === item.folder?.id;
+    return selectedFile.value?.id === item.file?.id;
+  }
+
+  function selectItem(item: WorkspaceItem) {
+    if (item.kind === 'folder' && item.folder) {
+      selectedFolder.value = item.folder;
+      selectedFile.value = null;
+      selectedFileTagDraft.value = [...(item.folder.tag_codes || [])];
+      return;
+    }
+    if (item.kind === 'file' && item.file) {
+      selectedFile.value = item.file;
+      selectedFolder.value = null;
+      selectedFileTagDraft.value = [...(item.file.tag_codes || [])];
+    }
+  }
+
+  function clearSelectedFile(value: boolean) {
+    if (value) return;
+    selectedFile.value = null;
+    selectedFolder.value = null;
+    selectedFileTagDraft.value = [];
+    tagPopoverVisible.value = false;
+  }
+
+  function focusTagInput() {
+    tagInputRef.value?.activate?.();
+  }
+
+  async function saveSelectedFileTags() {
+    if (!selectedFile.value && !selectedFolder.value) return;
+    savingMetadata.value = true;
+    try {
+      if (selectedFolder.value) {
+        const response = await updateFileFolderMetadata(selectedFolder.value.id, {
+          metadata: selectedFolder.value.metadata || {},
+          tag_codes: selectedFileTagDraft.value,
+        });
+        patchFolder(response.item);
+        selectedFolder.value = response.item;
+      } else if (selectedFile.value) {
+        const response = await updateManagedFileMetadata(selectedFile.value.id, {
+          metadata: selectedFile.value.metadata || {},
+          tag_codes: selectedFileTagDraft.value,
+        });
+        patchFile(response.item);
+        selectedFile.value = response.item;
+      }
+      tagPopoverVisible.value = false;
+      message.success('标签已保存');
+    } finally {
+      savingMetadata.value = false;
+    }
+  }
+
+  function openMetadataDrawer(file: ManagedFile) {
+    metadataForm.file = file;
+    metadataForm.tag_codes = [...(file.tag_codes || [])];
+    metadataRows.value = Object.entries(file.metadata || {}).map(([key, value]) => ({
+      id: ++metadataRowSeq,
+      key,
+      value: value == null ? '' : String(value),
+    }));
+    metadataDrawerVisible.value = true;
+  }
+
+  function addMetadataRow() {
+    metadataRows.value.push({ id: ++metadataRowSeq, key: '', value: '' });
+  }
+
+  function removeMetadataRow(index: number) {
+    metadataRows.value.splice(index, 1);
+  }
+
+  async function submitMetadata() {
+    if (!metadataForm.file) return;
+    const metadata: Record<string, unknown> = {};
+    metadataRows.value.forEach((row) => {
+      const key = row.key.trim();
+      if (!key) return;
+      metadata[key] = parseMetadataValue(row.value);
+    });
+    savingMetadata.value = true;
+    try {
+      const response = await updateManagedFileMetadata(metadataForm.file.id, {
+        metadata,
+        tag_codes: metadataForm.tag_codes,
+      });
+      patchFile(response.item);
+      selectedFile.value = response.item;
+      selectedFileTagDraft.value = [...(response.item.tag_codes || [])];
+      metadataDrawerVisible.value = false;
+      message.success('元数据已保存');
+    } finally {
+      savingMetadata.value = false;
+    }
+  }
+
   function goUp() {
     const parent = breadcrumbs.value[breadcrumbs.value.length - 2];
     selectedFolderId.value = parent?.id || null;
@@ -605,6 +821,46 @@
     } finally {
       uploading.value = false;
     }
+  }
+
+  function patchFile(file: ManagedFile) {
+    const replace = (item: ManagedFile) => (item.id === file.id ? file : item);
+    files.value = files.value.map(replace);
+    workspaceRows.value = workspaceRows.value.map((row) =>
+      row.kind === 'file' && row.file?.id === file.id
+        ? {
+            ...row,
+            name: file.display_name || file.original_name,
+            file,
+          }
+        : row
+    );
+  }
+
+  function patchFolder(folder: FileFolder) {
+    const replace = (item: FileFolder) => (item.id === folder.id ? { ...item, ...folder } : item);
+    folders.value = folders.value.map(replace);
+    breadcrumbs.value = breadcrumbs.value.map(replace);
+    if (currentFolder.value?.id === folder.id) {
+      currentFolder.value = { ...currentFolder.value, ...folder };
+    }
+    workspaceRows.value = workspaceRows.value.map((row) =>
+      row.kind === 'folder' && row.folder?.id === folder.id
+        ? {
+            ...row,
+            name: folder.name,
+            folder: { ...row.folder, ...folder },
+          }
+        : row
+    );
+  }
+
+  function parseMetadataValue(value: string) {
+    const text = value.trim();
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+    if (text && !Number.isNaN(Number(text))) return Number(text);
+    return value;
   }
 
   async function download(row: ManagedFile) {
@@ -700,6 +956,17 @@
       folders.value = payload.folders || [];
       files.value = payload.files || [];
       workspaceRows.value = (payload.items?.length ? payload.items.map(mapWorkspacePayloadItem) : currentItems.value);
+      if (selectedFile.value) {
+        selectedFile.value = files.value.find((item) => item.id === selectedFile.value?.id) || null;
+        selectedFileTagDraft.value = [...(selectedFile.value?.tag_codes || [])];
+      }
+      if (selectedFolder.value) {
+        selectedFolder.value =
+          folders.value.find((item) => item.id === selectedFolder.value?.id) ||
+          breadcrumbs.value.find((item) => item.id === selectedFolder.value?.id) ||
+          (currentFolder.value?.id === selectedFolder.value.id ? currentFolder.value : null);
+        selectedFileTagDraft.value = [...(selectedFolder.value?.tag_codes || [])];
+      }
       currentUsage.value = payload.current_usage || payload.usage || null;
       selectedLibraryId.value = currentLibrary.value?.id || null;
       selectedFolderId.value = currentFolder.value?.id || selectedFolderId.value || null;
@@ -795,6 +1062,89 @@
     padding: 24px 0;
     color: var(--app-text-color-2);
     text-align: center;
+  }
+
+  .file-object-page__selection-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(560px, 100%);
+    height: 32px;
+    padding: 0 8px;
+    background: var(--app-fill-color-lighter);
+    border: 1px solid var(--app-border-color);
+    border-radius: 6px;
+  }
+
+  .file-object-page__selected-name {
+    max-width: 220px;
+    overflow: hidden;
+    color: var(--app-text-color);
+    font-size: 13px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-tag-picker {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .file-tag-picker__header,
+  .file-tag-picker__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .file-tag-picker__header strong {
+    color: var(--app-text-color);
+    font-size: 15px;
+  }
+
+  .file-tag-picker__footer {
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
+  .metadata-editor {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .metadata-editor__row {
+    display: grid;
+    grid-template-columns: minmax(110px, 0.55fr) minmax(150px, 1fr) 32px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .file-tag-strip,
+  :deep(.file-list-name__tags) {
+    display: inline-flex;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .file-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 72px;
+    height: 20px;
+    padding: 0 7px;
+    overflow: hidden;
+    color: #1d4ed8;
+    font-size: 12px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
   }
 
   .file-browser {
@@ -894,6 +1244,11 @@
     border-color: var(--app-border-color);
   }
 
+  .file-tile--selected {
+    background: #eaf2ff;
+    border-color: #9ec5ff;
+  }
+
   .file-tile__icon {
     display: inline-grid;
     width: 52px;
@@ -919,6 +1274,13 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow-wrap: anywhere;
+  }
+
+  .file-tile .file-tag-strip {
+    width: 100%;
+    justify-content: center;
+    min-height: 20px;
+    overflow: hidden;
   }
 
   .file-tile__meta {
@@ -948,6 +1310,10 @@
     cursor: pointer;
     background: transparent;
     border: 0;
+  }
+
+  :deep(.file-list-name__tags) {
+    max-width: 230px;
   }
 
   :deep(.file-list-name span:last-child) {
@@ -1130,6 +1496,10 @@
 
     .file-tile {
       width: 104px;
+    }
+
+    .metadata-editor__row {
+      grid-template-columns: 1fr;
     }
 
     .file-preview,

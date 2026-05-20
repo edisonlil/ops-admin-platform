@@ -31,6 +31,9 @@ class NoopMetadataBinding:
     ) -> tuple[list[int], int]:
         return [], 0
 
+    def resource_tag_codes(self, *, tenant_id: int, resource_type_code: str, resource_id: str | int) -> list[str]:
+        return []
+
 
 class OptionalMetadataSupportBinding:
     def bind_resource(
@@ -92,6 +95,22 @@ class OptionalMetadataSupportBinding:
             except (TypeError, ValueError):
                 continue
         return ids, int(result["total"])
+
+    def resource_tag_codes(self, *, tenant_id: int, resource_type_code: str, resource_id: str | int) -> list[str]:
+        try:
+            from metadata_support.application import services as metadata_services
+        except ImportError:
+            return []
+        try:
+            return metadata_services.get_resource_tag_codes(
+                tenant_id=tenant_id,
+                resource_type_code=resource_type_code,
+                resource_id=resource_id,
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ == "MetadataSupportStorageNotReadyError":
+                return []
+            raise
 
 
 def default_metadata_binding() -> MetadataBindingPort:

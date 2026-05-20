@@ -621,6 +621,24 @@ def delete_file(*, tenant_id: int, file_id: int, actor: str, actor_id: int | Non
     return int(getattr(cursor, "rowcount", 0) or 0) > 0
 
 
+def update_file_metadata(*, tenant_id: int, file_id: int, metadata: dict[str, Any], actor: str, actor_id: int | None) -> ManagedFile:
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_file_management_schema(conn)
+        cursor = conn.execute(
+            """
+            UPDATE file_objects
+            SET metadata_json = ?, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (encode_json(metadata), actor, actor_id, timestamp, file_id, tenant_id),
+        )
+        if int(getattr(cursor, "rowcount", 0) or 0) <= 0:
+            raise RuntimeError("file metadata update failed")
+        row = conn.execute("SELECT * FROM file_objects WHERE id = ?", (file_id,)).fetchone()
+    return row_to_file(dict(row))
+
+
 def mark_file_indexed(*, tenant_id: int, file_id: int) -> None:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:

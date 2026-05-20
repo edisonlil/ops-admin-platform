@@ -208,6 +208,19 @@ class FileManagementTests(unittest.TestCase):
         self.assertEqual(len(workspace["files"]), 1)
         self.assertEqual(workspace["current_usage"]["used_bytes"], 5)
 
+        updated_folder = services.update_folder_metadata(
+            int(folder["id"]),
+            {"metadata": {"phase": "archive"}, "tag_codes": ["folder-project"]},
+            self.current_user,
+        )["item"]
+        self.assertEqual(updated_folder["tag_codes"], ["folder-project"])
+        tagged_workspace = services.list_workspace(
+            current_user=self.current_user,
+            library_id=int(library["id"]),
+        )
+        tagged_folder = next(item for item in tagged_workspace["folders"] if item["id"] == int(folder["id"]))
+        self.assertEqual(tagged_folder["tag_codes"], ["folder-project"])
+
         search = services.search_files(page=1, page_size=20, keyword="contract", current_user=self.current_user)
         self.assertEqual(search["pagination"]["total"], 1)
         metadata_search = services.search_files(
@@ -218,6 +231,22 @@ class FileManagementTests(unittest.TestCase):
             metadata_filters=[{"field_key": "source", "op": "eq", "value": "test"}],
         )
         self.assertEqual(metadata_search["pagination"]["total"], 1)
+
+        updated = services.update_file_metadata(
+            int(upload["id"]),
+            {"metadata": {"source": "test", "project_code": "P001"}, "tag_codes": ["合同"]},
+            self.current_user,
+        )["item"]
+        self.assertEqual(updated["metadata"]["project_code"], "P001")
+        self.assertEqual(updated["tag_codes"], ["合同"])
+        tag_search = services.search_files(
+            page=1,
+            page_size=20,
+            keyword="",
+            current_user=self.current_user,
+            tag_codes=["合同"],
+        )
+        self.assertEqual(tag_search["pagination"]["total"], 1)
 
         item, download = services.download_file(int(upload["id"]), self.current_user)
         self.assertEqual(item.original_name, "contract.txt")

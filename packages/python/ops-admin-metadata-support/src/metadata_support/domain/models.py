@@ -10,6 +10,7 @@ STATUS_ACTIVE = "active"
 STATUS_DISABLED = "disabled"
 STATUSES = {STATUS_ACTIVE, STATUS_DISABLED}
 RESOURCE_TYPE_FILE_OBJECT = "file_management.file_object"
+RESOURCE_TYPE_FILE_FOLDER = "file_management.file_folder"
 VALUE_TYPE_STRING = "string"
 VALUE_TYPE_NUMBER = "number"
 VALUE_TYPE_DATETIME = "datetime"

@@ -33,6 +33,8 @@ export interface FileFolder {
   name: string;
   description: string;
   status: string;
+  metadata?: Record<string, unknown>;
+  tag_codes?: string[];
   size_bytes?: number;
   file_count?: number;
   create_time?: string;
@@ -55,6 +57,7 @@ export interface ManagedFile {
   status: string;
   visibility: string;
   metadata: Record<string, unknown>;
+  tag_codes?: string[];
   indexed_at?: string | null;
   create_time?: string;
   update_time?: string;
@@ -181,6 +184,8 @@ export interface FileFolderPayload {
   name: string;
   description?: string;
   status?: string;
+  metadata?: Record<string, unknown>;
+  tag_codes?: string[];
 }
 
 export interface FileWorkspaceData {
@@ -285,6 +290,8 @@ export function saveFileFolder(payload: FileFolderPayload) {
     name: String(payload.name || '').trim(),
     description: payload.description || '',
     status: payload.status || 'active',
+    ...(payload.metadata ? { metadata: payload.metadata } : {}),
+    ...(payload.tag_codes ? { tag_codes: payload.tag_codes } : {}),
   };
   if (payload.id) {
     return Alova.Put<{ item: FileFolder }>(`/files/folders/${payload.id}`, body);
@@ -294,6 +301,13 @@ export function saveFileFolder(payload: FileFolderPayload) {
 
 export function deleteFileFolder(folderId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/files/folders/${folderId}`);
+}
+
+export function updateFileFolderMetadata(folderId: number, payload: { metadata?: Record<string, unknown>; tag_codes?: string[] }) {
+  return Alova.Put<{ item: FileFolder }>(`/files/folders/${folderId}/metadata`, {
+    metadata: payload.metadata || {},
+    tag_codes: payload.tag_codes || [],
+  });
 }
 
 export function getFiles(params: {
@@ -317,7 +331,14 @@ export function searchFiles(params: { keyword?: string; page?: number; page_size
   });
 }
 
-export function uploadManagedFile(payload: { file: File; library_id?: number | null; folder_id?: number | null; visibility?: string }) {
+export function uploadManagedFile(payload: {
+  file: File;
+  library_id?: number | null;
+  folder_id?: number | null;
+  visibility?: string;
+  metadata?: Record<string, unknown>;
+  tag_codes?: string[];
+}) {
   const form = new FormData();
   form.append('upload', payload.file);
   if (payload.library_id) {
@@ -327,7 +348,20 @@ export function uploadManagedFile(payload: { file: File; library_id?: number | n
     form.append('folder_id', String(payload.folder_id));
   }
   form.append('visibility', payload.visibility || 'tenant');
+  if (payload.metadata && Object.keys(payload.metadata).length) {
+    form.append('metadata', JSON.stringify(payload.metadata));
+  }
+  if (payload.tag_codes?.length) {
+    form.append('tag_codes', JSON.stringify(payload.tag_codes));
+  }
   return Alova.Post<{ item: ManagedFile }>('/files/upload', form);
+}
+
+export function updateManagedFileMetadata(fileId: number, payload: { metadata?: Record<string, unknown>; tag_codes?: string[] }) {
+  return Alova.Put<{ item: ManagedFile }>(`/files/${fileId}/metadata`, {
+    metadata: payload.metadata || {},
+    tag_codes: payload.tag_codes || [],
+  });
 }
 
 export function deleteManagedFile(fileId: number) {

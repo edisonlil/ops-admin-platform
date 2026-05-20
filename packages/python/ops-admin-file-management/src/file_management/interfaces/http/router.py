@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from file_management.application import services
 from file_management.interfaces.http.dtos import (
+    FileMetadataRequest,
     FileFolderRequest,
     FileLibraryRequest,
     PreviewProfileRequest,
@@ -92,7 +93,7 @@ def create_folder(
     payload: FileFolderRequest,
     current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
 ) -> dict[str, Any]:
-    return ok(services.save_folder(payload.model_dump(), current_user))
+    return ok(services.save_folder(payload.model_dump(exclude_unset=True), current_user))
 
 
 @router.put("/folders/{folder_id}")
@@ -101,7 +102,16 @@ def update_folder(
     payload: FileFolderRequest,
     current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
 ) -> dict[str, Any]:
-    return ok(services.save_folder(payload.model_dump(), current_user, folder_id=folder_id))
+    return ok(services.save_folder(payload.model_dump(exclude_unset=True), current_user, folder_id=folder_id))
+
+
+@router.put("/folders/{folder_id}/metadata")
+def update_folder_metadata(
+    folder_id: int,
+    payload: FileMetadataRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:library:manage")),
+) -> dict[str, Any]:
+    return ok(services.update_folder_metadata(folder_id, payload.model_dump(), current_user))
 
 
 @router.delete("/folders/{folder_id}")
@@ -463,6 +473,15 @@ def reindex_file(
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:upload")),
 ) -> dict[str, Any]:
     return ok(services.reindex_file(file_id, current_user))
+
+
+@router.put("/{file_id}/metadata")
+def update_file_metadata(
+    file_id: int,
+    payload: FileMetadataRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("file:object:upload")),
+) -> dict[str, Any]:
+    return ok(services.update_file_metadata(file_id, payload.model_dump(), current_user))
 
 
 @router.delete("/{file_id}")

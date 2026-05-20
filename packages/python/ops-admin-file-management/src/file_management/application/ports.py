@@ -106,3 +106,6 @@ class MetadataBindingPort(Protocol):
         offset: int,
     ) -> tuple[list[int], int]:
         ...
+
+    def resource_tag_codes(self, *, tenant_id: int, resource_type_code: str, resource_id: str | int) -> list[str]:
+        ...

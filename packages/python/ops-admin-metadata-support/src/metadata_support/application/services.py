@@ -202,6 +202,15 @@ def get_resource_metadata(*, resource_type_code: str, resource_id: str | int, cu
     return {"item": item.to_dict() if item else None, "tags": [tag.to_dict() for tag in tags]}
 
 
+def get_resource_tag_codes(*, tenant_id: int, resource_type_code: str, resource_id: str | int) -> list[str]:
+    _, tags = repo().get_resource(
+        tenant_id=tenant_id,
+        resource_type_code=normalize_resource_type_code(resource_type_code),
+        resource_id=normalize_resource_id(resource_id),
+    )
+    return [tag.code for tag in tags]
+
+
 def search_resource_ids(
     *,
     tenant_id: int,
