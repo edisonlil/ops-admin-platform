@@ -138,3 +138,11 @@ export function getCronRun(runId: number) {
     params: withNoCacheParams(),
   });
 }
+
+export function stopCronRun(runId: number) {
+  return Alova.Post<{ item: CronRun; attempts: CronAttempt[] }>(`/cron/runs/${runId}/stop`);
+}
+
+export function deleteCronRun(runId: number) {
+  return Alova.Delete<{ item: CronRun }>(`/cron/runs/${runId}`);
+}

@@ -13,9 +13,11 @@ from cron.domain.models import (
     CronTaskDetail,
     ExternalScheduleBinding,
     ATTEMPT_STATUS_RUNNING,
+    ATTEMPT_STATUS_STOPPED,
     RUN_STATUS_FAILED,
     RUN_STATUS_PENDING,
     RUN_STATUS_RUNNING,
+    RUN_STATUS_STOPPED,
     RUN_STATUS_SUCCEEDED,
     TASK_STATUS_DISABLED,
     TASK_STATUS_ENABLED,
@@ -452,8 +454,9 @@ def mark_run_running(*, tenant_id: int, run_id: int, actor: str) -> CronRun | No
             SET status = ?, started_time = COALESCE(started_time, ?),
                 editor = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
+              AND status = ?
             """,
-            (RUN_STATUS_RUNNING, timestamp, actor, timestamp, run_id, tenant_id),
+            (RUN_STATUS_RUNNING, timestamp, actor, timestamp, run_id, tenant_id, RUN_STATUS_PENDING),
         )
         row = conn.execute(
             "SELECT * FROM cron_runs WHERE id = ? AND tenant_id = ? AND deleted = 0",
@@ -519,8 +522,9 @@ def complete_attempt(
             SET status = ?, finished_time = ?, error_code = ?, error_message = ?,
                 editor = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
+              AND status = ?
             """,
-            (status, timestamp, error_code, error_message, actor, timestamp, attempt_id, tenant_id),
+            (status, timestamp, error_code, error_message, actor, timestamp, attempt_id, tenant_id, ATTEMPT_STATUS_RUNNING),
         )
         row = conn.execute(
             "SELECT * FROM cron_attempts WHERE id = ? AND tenant_id = ? AND deleted = 0",
@@ -540,7 +544,7 @@ def complete_run(
     actor: str,
 ) -> CronRun | None:
     timestamp = now_iso()
-    normalized_status = status if status in {RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED} else RUN_STATUS_FAILED
+    normalized_status = status if status in {RUN_STATUS_SUCCEEDED, RUN_STATUS_FAILED, RUN_STATUS_STOPPED} else RUN_STATUS_FAILED
     with connect(database_target(), readonly=False) as conn:
         require_cron_schema(conn)
         conn.execute(
@@ -549,6 +553,7 @@ def complete_run(
             SET status = ?, finished_time = ?, result_json = ?, failure_code = ?, failure_message = ?,
                 editor = ?, update_time = ?, lock_version = lock_version + 1
             WHERE id = ? AND tenant_id = ? AND deleted = 0
+              AND status != ?
             """,
             (
                 normalized_status,
@@ -560,6 +565,7 @@ def complete_run(
                 timestamp,
                 run_id,
                 tenant_id,
+                RUN_STATUS_STOPPED,
             ),
         )
         row = conn.execute(
@@ -567,6 +573,105 @@ def complete_run(
             (run_id, tenant_id),
         ).fetchone()
     return row_to_run(dict(row)) if row else None
+
+
+def stop_run(
+    *,
+    tenant_id: int,
+    run_id: int,
+    actor: str,
+    actor_id: int | None,
+    reason: str,
+) -> CronRun | None:
+    timestamp = now_iso()
+    stop_reason = reason.strip() or "用户停止任务"
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET status = ?, finished_time = COALESCE(finished_time, ?),
+                failure_code = ?, failure_message = ?,
+                editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+              AND status IN (?, ?)
+            """,
+            (
+                RUN_STATUS_STOPPED,
+                timestamp,
+                "STOPPED",
+                stop_reason,
+                actor,
+                actor_id,
+                timestamp,
+                run_id,
+                tenant_id,
+                RUN_STATUS_PENDING,
+                RUN_STATUS_RUNNING,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE cron_attempts
+            SET status = ?, finished_time = COALESCE(finished_time, ?),
+                error_code = ?, error_message = ?,
+                editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
+            WHERE run_id = ? AND tenant_id = ? AND deleted = 0
+              AND status = ?
+            """,
+            (
+                ATTEMPT_STATUS_STOPPED,
+                timestamp,
+                "STOPPED",
+                stop_reason,
+                actor,
+                actor_id,
+                timestamp,
+                run_id,
+                tenant_id,
+                ATTEMPT_STATUS_RUNNING,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM cron_runs WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (run_id, tenant_id),
+        ).fetchone()
+    if not row:
+        return None
+    stopped = row_to_run(dict(row))
+    return stopped if stopped.status == RUN_STATUS_STOPPED else None
+
+
+def delete_run(*, tenant_id: int, run_id: int, actor: str, actor_id: int | None) -> CronRun | None:
+    timestamp = now_iso()
+    archived_idempotency_key = f"deleted:{run_id}:{timestamp}"
+    with connect(database_target(), readonly=False) as conn:
+        require_cron_schema(conn)
+        existing = conn.execute(
+            "SELECT * FROM cron_runs WHERE id = ? AND tenant_id = ? AND deleted = 0",
+            (run_id, tenant_id),
+        ).fetchone()
+        if not existing:
+            return None
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET deleted = 1, idempotency_key = ?, editor = ?, editor_id = ?,
+                update_time = ?, lock_version = lock_version + 1
+            WHERE id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (archived_idempotency_key, actor, actor_id, timestamp, run_id, tenant_id),
+        )
+        conn.execute(
+            """
+            UPDATE cron_attempts
+            SET deleted = 1, editor = ?, editor_id = ?,
+                update_time = ?, lock_version = lock_version + 1
+            WHERE run_id = ? AND tenant_id = ? AND deleted = 0
+            """,
+            (actor, actor_id, timestamp, run_id, tenant_id),
+        )
+    return row_to_run(dict(existing))
 
 
 def list_runs(

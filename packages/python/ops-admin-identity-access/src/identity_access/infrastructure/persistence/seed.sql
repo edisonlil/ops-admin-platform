@@ -448,6 +448,14 @@ INSERT INTO permissions (code, name, description)
 SELECT 'cron:runs:view', '查看运行记录', '查看定时任务运行记录'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:runs:view');
 
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:runs:stop', '停止运行任务', '停止等待中或运行中的定时任务运行记录'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:runs:stop');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'cron:runs:delete', '删除运行记录', '删除定时任务运行记录和关联执行尝试'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'cron:runs:delete');
+
 UPDATE permissions SET name = '查看定时任务', description = '查看定时任务' WHERE code = 'cron:tasks:view';
 UPDATE permissions SET name = '新增定时任务', description = '新增定时任务' WHERE code = 'cron:tasks:create';
 UPDATE permissions SET name = '编辑定时任务', description = '编辑定时任务' WHERE code = 'cron:tasks:update';
@@ -596,6 +604,14 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-tasks-trigger');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'cron-runs', 'tenant', '运行记录', 'page', '/cron/runs', 'cron-runs', '/cron/runs/index', 'FileSearchOutlined', 'cron', 'cron:runs:view', 932, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-runs');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-runs-stop', 'tenant', '停止运行任务', 'action', '', '', '', '', 'cron-runs', 'cron:runs:stop', 9321, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-runs-stop');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'cron-runs-delete', 'tenant', '删除运行记录', 'action', '', '', '', '', 'cron-runs', 'cron:runs:delete', 9322, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'cron-runs-delete');
 
 UPDATE menus SET label = '定时任务' WHERE menu_key = 'cron';
 UPDATE menus SET label = '任务管理' WHERE menu_key = 'cron-tasks';

@@ -219,6 +219,8 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "cron-tasks-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "cron-tasks-trigger": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "cron-runs": {"menu_type": "page", "component": "/cron/runs/index", "menu_scope": "tenant"},
+    "cron-runs-stop": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "cron-runs-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "llm": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "llm-config": {"menu_type": "page", "component": "/settings/llm-config/index", "menu_scope": "tenant"},
     "llm-providers-save": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -396,6 +398,8 @@ TENANT_CRON_MENU_KEYS = [
     "cron-tasks-delete",
     "cron-tasks-trigger",
     "cron-runs",
+    "cron-runs-stop",
+    "cron-runs-delete",
 ]
 TENANT_AI_ASSETS_MENU_KEYS = [
     "ai-studio",
@@ -559,6 +563,8 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "cron:tasks:delete",
     "cron:tasks:trigger",
     "cron:runs:view",
+    "cron:runs:stop",
+    "cron:runs:delete",
     "audit:system-log:view",
     "audit:operation-log:view",
     "audit:api-log:view",

@@ -461,6 +461,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("messaging:chat_bots:test", permissions)
         self.assertIn("cron:tasks:view", permissions)
         self.assertIn("cron:tasks:trigger", permissions)
+        self.assertIn("cron:runs:stop", permissions)
+        self.assertIn("cron:runs:delete", permissions)
         self.assertIn("file:object:upload", permissions)
         self.assertIn("file:library:manage", permissions)
         self.assertIn("basic-data:dictionary:read", permissions)
@@ -1443,6 +1445,93 @@ class ApiTests(unittest.TestCase):
         run_detail_response = self.request("GET", f"/api/cron/runs/{run['id']}")
         self.assertEqual(run_detail_response.status_code, 200)
         self.assertEqual(run_detail_response.json()["data"]["item"]["result"]["command"], "system.health.snapshot")
+        self.assertEqual(len(run_detail_response.json()["data"]["attempts"]), 1)
+
+    def test_admin_can_stop_pending_cron_run(self) -> None:
+        self.initialize_cron_db()
+        from cron.infrastructure.persistence import repositories as cron_repositories
+
+        created = cron_repositories.save_task(
+            tenant_id=1,
+            actor="test",
+            actor_id=None,
+            payload={
+                "task_key": "system.health_snapshot",
+                "name": "ç³»ç»Ÿå¥åº·å¿«ç…§",
+                "status": "enabled",
+                "execution_target": "system.health.snapshot",
+                "default_payload": {"scope": "platform"},
+                "schedule": {
+                    "trigger_type": "interval",
+                    "trigger_expression": "60",
+                    "timezone": "UTC",
+                },
+            },
+        )
+        run = cron_repositories.create_manual_run(
+            tenant_id=1,
+            task_id=created.task.id,
+            payload={"scope": "platform"},
+            idempotency_key="manual:stop-test",
+            actor="test",
+            actor_id=None,
+        )
+
+        stop_response = self.request("POST", f"/api/cron/runs/{run.id}/stop")
+        self.assertEqual(stop_response.status_code, 200)
+        stopped = stop_response.json()["data"]["item"]
+        self.assertEqual(stopped["status"], "stopped")
+        self.assertEqual(stopped["failure_code"], "STOPPED")
+        self.assertIn("停止", stopped["failure_message"])
+
+        second_stop_response = self.request("POST", f"/api/cron/runs/{run.id}/stop")
+        self.assertEqual(second_stop_response.status_code, 400)
+
+    def test_admin_can_delete_cron_run_and_reuse_idempotency_key(self) -> None:
+        self.initialize_cron_db()
+        from cron.infrastructure.persistence import repositories as cron_repositories
+
+        created = cron_repositories.save_task(
+            tenant_id=1,
+            actor="test",
+            actor_id=None,
+            payload={
+                "task_key": "system.health_snapshot",
+                "name": "ç³»ç»Ÿå¥åº·å¿«ç…§",
+                "status": "enabled",
+                "execution_target": "system.health.snapshot",
+                "default_payload": {"scope": "platform"},
+                "schedule": {
+                    "trigger_type": "interval",
+                    "trigger_expression": "60",
+                    "timezone": "UTC",
+                },
+            },
+        )
+        run = cron_repositories.create_manual_run(
+            tenant_id=1,
+            task_id=created.task.id,
+            payload={"scope": "platform"},
+            idempotency_key="manual:delete-test",
+            actor="test",
+            actor_id=None,
+        )
+
+        delete_response = self.request("DELETE", f"/api/cron/runs/{run.id}")
+        self.assertEqual(delete_response.status_code, 200)
+
+        detail_response = self.request("GET", f"/api/cron/runs/{run.id}")
+        self.assertEqual(detail_response.status_code, 404)
+
+        recreated = cron_repositories.create_manual_run(
+            tenant_id=1,
+            task_id=created.task.id,
+            payload={"scope": "platform"},
+            idempotency_key="manual:delete-test",
+            actor="test",
+            actor_id=None,
+        )
+        self.assertNotEqual(recreated.id, run.id)
 
     def test_cron_executor_persists_default_command_result(self) -> None:
         self.initialize_cron_db()

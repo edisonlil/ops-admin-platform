@@ -128,6 +128,8 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'cron-tasks-delete',
     'cron-tasks-trigger',
     'cron-runs',
+    'cron-runs-stop',
+    'cron-runs-delete',
   ],
   file_management: [
     'file-management',

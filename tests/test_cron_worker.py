@@ -14,9 +14,11 @@ from cron.application.executor import CronTaskExecutor
 from cron.domain.models import (
     ATTEMPT_STATUS_FAILED,
     ATTEMPT_STATUS_SUCCEEDED,
+    ATTEMPT_STATUS_STOPPED,
     RUN_STATUS_FAILED,
     RUN_STATUS_PENDING,
     RUN_STATUS_RUNNING,
+    RUN_STATUS_STOPPED,
     RUN_STATUS_SUCCEEDED,
     CronAttempt,
     CronRun,
@@ -79,6 +81,44 @@ class FakeRepository:
         run = self.runs[run_id]
         updated = CronRun(**{**run.__dict__, "status": RUN_STATUS_RUNNING, "started_time": run.fire_time})
         self.runs[run_id] = updated
+        return updated
+
+    def get_run(self, *, tenant_id: int, run_id: int) -> CronRun | None:
+        return self.runs.get(run_id)
+
+    def stop_run(
+        self,
+        *,
+        tenant_id: int,
+        run_id: int,
+        actor: str,
+        actor_id: int | None,
+        reason: str,
+    ) -> CronRun | None:
+        run = self.runs[run_id]
+        if run.status not in {RUN_STATUS_PENDING, RUN_STATUS_RUNNING}:
+            return None
+        updated = CronRun(
+            **{
+                **run.__dict__,
+                "status": RUN_STATUS_STOPPED,
+                "finished_time": run.fire_time,
+                "failure_code": "STOPPED",
+                "failure_message": reason,
+            }
+        )
+        self.runs[run_id] = updated
+        for attempt_id, attempt in list(self.attempts.items()):
+            if attempt.run_id == run_id and attempt.status == "running":
+                self.attempts[attempt_id] = CronAttempt(
+                    **{
+                        **attempt.__dict__,
+                        "status": ATTEMPT_STATUS_STOPPED,
+                        "finished_time": attempt.started_time,
+                        "error_code": "STOPPED",
+                        "error_message": reason,
+                    }
+                )
         return updated
 
     def start_attempt(self, *, tenant_id: int, run_id: int, worker_id: str, actor: str) -> CronAttempt:

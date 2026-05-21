@@ -117,6 +117,22 @@ def run_detail(
     return ok_or_error(lambda: services.get_run(run_id=run_id, current_user=current_user))
 
 
+@router.post("/runs/{run_id}/stop")
+def stop_run(
+    run_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("cron:runs:stop")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.stop_run(run_id=run_id, current_user=current_user))
+
+
+@router.delete("/runs/{run_id}")
+def delete_run(
+    run_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("cron:runs:delete")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.delete_run(run_id=run_id, current_user=current_user))
+
+
 def ok_or_error(action: Any) -> dict[str, Any]:
     try:
         return ok(action())

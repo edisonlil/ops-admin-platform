@@ -9,6 +9,8 @@ from cron.domain.models import (
     ATTEMPT_STATUS_SUCCEEDED,
     RUN_STATUS_FAILED,
     RUN_STATUS_PENDING,
+    RUN_STATUS_RUNNING,
+    RUN_STATUS_STOPPED,
     RUN_STATUS_SUCCEEDED,
     CronTaskDetail,
     CronRun,
@@ -47,11 +49,20 @@ class CronTaskExecutor:
             idempotency_key=idempotency_key,
             actor=self.worker_id,
         )
-        self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        if run.status != RUN_STATUS_PENDING:
+            return {"run": run.to_dict(), "attempt": None, "ok": True, "skipped": True}
+        running_run = self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        if not running_run or running_run.status != RUN_STATUS_RUNNING:
+            current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+            is_stopped = bool(current_run and current_run.status == RUN_STATUS_STOPPED)
+            return {"run": (current_run or run).to_dict(), "attempt": None, "ok": not is_stopped, "stopped": is_stopped, "skipped": not is_stopped}
         attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
         try:
             result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
         except Exception as exc:
+            current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+            if current_run and current_run.status == RUN_STATUS_STOPPED:
+                return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "ok": False, "stopped": True}
             error_message = str(exc)
             self.repository.complete_attempt(
                 tenant_id=run.tenant_id,
@@ -71,6 +82,9 @@ class CronTaskExecutor:
                 actor=self.worker_id,
             )
             return {"run": failed_run.to_dict() if failed_run else run.to_dict(), "attempt": attempt.to_dict(), "ok": False}
+        current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+        if current_run and current_run.status == RUN_STATUS_STOPPED:
+            return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "result": result, "ok": False, "stopped": True}
         self.repository.complete_attempt(
             tenant_id=run.tenant_id,
             attempt_id=attempt.id,
@@ -98,11 +112,17 @@ class CronTaskExecutor:
     def execute_manual_run(self, detail: CronTaskDetail, run: CronRun) -> dict[str, Any]:
         if run.status != RUN_STATUS_PENDING:
             return {"run": run.to_dict(), "attempt": None, "ok": True, "skipped": True}
-        self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        running_run = self.repository.mark_run_running(tenant_id=run.tenant_id, run_id=run.id, actor=self.worker_id)
+        if not running_run or running_run.status != RUN_STATUS_RUNNING:
+            current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+            return {"run": (current_run or run).to_dict(), "attempt": None, "ok": False, "stopped": True}
         attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
         try:
             result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
         except Exception as exc:
+            current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+            if current_run and current_run.status == RUN_STATUS_STOPPED:
+                return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "ok": False, "stopped": True}
             error_message = str(exc)
             self.repository.complete_attempt(
                 tenant_id=run.tenant_id,
@@ -122,6 +142,9 @@ class CronTaskExecutor:
                 actor=self.worker_id,
             )
             return {"run": failed_run.to_dict() if failed_run else run.to_dict(), "attempt": attempt.to_dict(), "ok": False}
+        current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
+        if current_run and current_run.status == RUN_STATUS_STOPPED:
+            return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "result": result, "ok": False, "stopped": True}
         self.repository.complete_attempt(
             tenant_id=run.tenant_id,
             attempt_id=attempt.id,

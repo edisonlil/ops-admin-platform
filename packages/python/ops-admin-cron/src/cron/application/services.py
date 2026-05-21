@@ -6,7 +6,7 @@ from uuid import uuid4
 from cron.application.executor import CronTaskExecutor
 from cron.application.ports import CronRepository, NoopTaskDispatcher, TaskDispatcher
 from cron.domain.exceptions import CronDomainError, CronNotFoundError, CronStorageNotReadyError
-from cron.domain.models import TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
+from cron.domain.models import RUN_STATUS_PENDING, RUN_STATUS_RUNNING, TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
 from system.application.data_access import (
     ResourceDescriptor,
     data_access_for,
@@ -238,6 +238,47 @@ def get_run(*, run_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     except RuntimeError as exc:
         raise CronStorageNotReadyError(str(exc)) from exc
     return {"item": run.to_dict(), "attempts": [item.to_dict() for item in attempts]}
+
+
+def stop_run(*, run_id: int, current_user: dict[str, Any], reason: str = "用户停止任务") -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    try:
+        run = repo().get_run(tenant_id=tenant_id, run_id=run_id)
+        if not run:
+            raise CronNotFoundError("cron run not found")
+        if run.status not in {RUN_STATUS_PENDING, RUN_STATUS_RUNNING}:
+            raise CronDomainError("only pending or running cron runs can be stopped")
+        stopped = repo().stop_run(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            actor=actor,
+            actor_id=actor_id,
+            reason=reason,
+        )
+        if not stopped:
+            raise CronDomainError("cron run cannot be stopped in its current status")
+        attempts = repo().list_attempts(tenant_id=tenant_id, run_id=run_id)
+    except RuntimeError as exc:
+        raise CronStorageNotReadyError(str(exc)) from exc
+    return {"item": stopped.to_dict(), "attempts": [item.to_dict() for item in attempts]}
+
+
+def delete_run(*, run_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    actor = current_actor(current_user)
+    actor_id = current_user_id_or_none(current_user)
+    try:
+        run = repo().get_run(tenant_id=tenant_id, run_id=run_id)
+        if not run:
+            raise CronNotFoundError("cron run not found")
+        deleted = repo().delete_run(tenant_id=tenant_id, run_id=run_id, actor=actor, actor_id=actor_id)
+        if not deleted:
+            raise CronNotFoundError("cron run not found")
+    except RuntimeError as exc:
+        raise CronStorageNotReadyError(str(exc)) from exc
+    return {"item": deleted.to_dict()}
 
 
 def build_task_for_validation(*, tenant_id: int, payload: dict[str, Any]) -> CronTask:

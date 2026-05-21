@@ -163,3 +163,24 @@ class CronRepository(Protocol):
         actor: str,
     ) -> CronRun | None:
         ...
+
+    def stop_run(
+        self,
+        *,
+        tenant_id: int,
+        run_id: int,
+        actor: str,
+        actor_id: int | None,
+        reason: str,
+    ) -> CronRun | None:
+        ...
+
+    def delete_run(
+        self,
+        *,
+        tenant_id: int,
+        run_id: int,
+        actor: str,
+        actor_id: int | None,
+    ) -> CronRun | None:
+        ...
