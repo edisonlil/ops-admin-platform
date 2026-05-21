@@ -84,7 +84,9 @@
 
   const SELECTION_COLUMN_KEY = '__selection__';
   const DEFAULT_TABLE_COLUMN_WIDTH = 140;
+  const SORT_SUPPRESS_AFTER_COLUMN_RESIZE_MS = 450;
   const lockedColumnKeys = ref<Array<string | number>>([]);
+  const lastColumnResizeAt = ref(0);
   const dialog = useDialog();
 
   const props = withDefaults(
@@ -366,6 +368,7 @@
     const width = Number.isFinite(limitedWidth) ? limitedWidth : resizedWidth;
     if (columnKey === undefined || !isPositiveNumber(width)) return;
 
+    lastColumnResizeAt.value = Date.now();
     emit('columnResize', {
       columnKey,
       width,
@@ -469,6 +472,9 @@
   });
 
   function handleSorterUpdate(sorter: DataTableSortState | DataTableSortState[] | null) {
+    if (Date.now() - lastColumnResizeAt.value < SORT_SUPPRESS_AFTER_COLUMN_RESIZE_MS) {
+      return;
+    }
     const state = Array.isArray(sorter) ? sorter[0] : sorter;
     if (!state || !state.order) {
       emit('sortChange', {});
@@ -721,8 +727,10 @@
     }
 
     :deep(.n-data-table-resize-button) {
-      width: 10px;
+      right: -8px;
+      width: 18px;
       opacity: 0.38;
+      z-index: 2;
     }
 
     :deep(.n-data-table-resize-button::after) {
@@ -739,6 +747,10 @@
     :deep(.n-data-table-th:hover .n-data-table-resize-button),
     :deep(.n-data-table-resize-button--active) {
       opacity: 1;
+    }
+
+    :deep(.n-data-table-resize-button--active) {
+      cursor: col-resize;
     }
 
     :deep(.n-data-table-th:hover .n-data-table-resize-button::after) {

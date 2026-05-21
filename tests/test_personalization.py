@@ -108,6 +108,59 @@ class PersonalizationTests(unittest.TestCase):
         self.assertIsNotNone(loaded)
         self.assertEqual(loaded.settings["column_widths"], {"ticket_no": 72, "project_name": 388})
 
+    def test_table_column_preference_recovers_from_concurrent_insert_duplicate(self) -> None:
+        from personalization.infrastructure.persistence import repositories
+
+        repositories.save_table_column_preference(
+            tenant_id=3,
+            user_id=11,
+            view_key="organization.departments:table:default",
+            visible_column_keys=["name"],
+            column_order_keys=["name"],
+            settings={"column_widths": {"name": 180}},
+            actor="admin",
+            actor_id=11,
+        )
+
+        original_insert = repositories.insert_table_column_preference
+        original_update = repositories.update_table_column_preference
+        raised_duplicate = False
+        update_calls = 0
+
+        def raise_duplicate_once(*args, **kwargs):
+            nonlocal raised_duplicate
+            if not raised_duplicate:
+                raised_duplicate = True
+                raise sqlite3.IntegrityError("UNIQUE constraint failed: personalization_table_column_preferences")
+            return original_insert(*args, **kwargs)
+
+        def miss_then_update(*args, **kwargs):
+            nonlocal update_calls
+            update_calls += 1
+            if update_calls == 1:
+                return False
+            return original_update(*args, **kwargs)
+
+        with (
+            mock.patch.object(repositories, "update_table_column_preference", side_effect=miss_then_update),
+            mock.patch.object(repositories, "insert_table_column_preference", side_effect=raise_duplicate_once),
+        ):
+            saved = repositories.save_table_column_preference(
+                tenant_id=3,
+                user_id=11,
+                view_key="organization.departments:table:default",
+                visible_column_keys=["name", "code"],
+                column_order_keys=["code", "name"],
+                settings={"column_widths": {"name": 96, "code": 84}},
+                actor="admin",
+                actor_id=11,
+            )
+
+        self.assertTrue(raised_duplicate)
+        self.assertEqual(saved.visible_column_keys, ["name", "code"])
+        self.assertEqual(saved.column_order_keys, ["code", "name"])
+        self.assertEqual(saved.settings["column_widths"], {"name": 96, "code": 84})
+
 
 if __name__ == "__main__":
     unittest.main()
