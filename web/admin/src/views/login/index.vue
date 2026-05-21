@@ -141,9 +141,9 @@
   const LOGIN_NAME = PageEnum.BASE_LOGIN_NAME;
 
   const formInline = reactive({
-    tenant_key: 'platform',
-    username: 'admin',
-    password: 'edc3000',
+    tenant_key: '',
+    username: '',
+    password: '',
     isCaptcha: true,
   });
 
