@@ -288,6 +288,8 @@
   const DEFAULT_PAGE = 1;
   const DEFAULT_PAGE_SIZE = 20;
   const DEFAULT_PAGE_SIZES = [20, 50, 100];
+  const DEFAULT_TABLE_COLUMN_WIDTH = 140;
+  const DEFAULT_SELECTION_COLUMN_WIDTH = 48;
 
   interface RuntimePaginationState {
     page: number;
@@ -420,17 +422,19 @@
     const runtimeColumns = getOrderedRuntimeColumns(view);
     const columnWidths = getColumnWidths(view);
     const rowHeight = ROW_HEIGHT_BY_DENSITY[runtimeTableRowDensity.value];
+    const resolvedRuntimeColumns = runtimeColumns.map((column) => ({
+      ...column,
+      width: columnWidths[String(column.key)] || column.width,
+      defaultVisible: column.required ? true : visibleKeys.includes(String(column.key)),
+    }));
     return {
       ...view,
       selectable: view.selectable ?? true,
+      scrollX: resolveTableScrollX(view, resolvedRuntimeColumns),
       columnRuntime: {
         defaultResizable: true,
         ...view.columnRuntime,
-        columns: runtimeColumns.map((column) => ({
-          ...column,
-          width: columnWidths[String(column.key)] || column.width,
-          defaultVisible: column.required ? true : visibleKeys.includes(String(column.key)),
-        })),
+        columns: resolvedRuntimeColumns,
       },
       tableLayout: {
         tableLayout: 'fixed',
@@ -441,6 +445,41 @@
         rowDensity: runtimeTableRowDensity.value,
       },
     };
+  }
+
+  function resolveTableScrollX(view: CollectionViewSchema<Row>, columns: TableColumnPreferenceSchema<Row>[]) {
+    const visibleWidth = estimateVisibleTableWidth(view, columns);
+    const configuredScrollX = view.scrollX;
+    if (typeof configuredScrollX === 'number') {
+      return Math.max(configuredScrollX, visibleWidth);
+    }
+    if (typeof configuredScrollX === 'string') {
+      return configuredScrollX;
+    }
+    return visibleWidth || configuredScrollX;
+  }
+
+  function estimateVisibleTableWidth(view: CollectionViewSchema<Row>, columns: TableColumnPreferenceSchema<Row>[]) {
+    if (view.type !== 'table') return 0;
+    const visibleColumns = columns.filter((column) => column.defaultVisible !== false || column.required);
+    const columnWidth = visibleColumns.reduce((total, column) => total + estimateRuntimeColumnWidth(column, view), 0);
+    return columnWidth + estimateControlColumnWidth(view);
+  }
+
+  function estimateRuntimeColumnWidth(column: TableColumnPreferenceSchema<Row>, view: CollectionViewSchema<Row>) {
+    if (isPositiveNumber(column.width)) return column.width;
+    return view.columnRuntime?.defaultWidth || DEFAULT_TABLE_COLUMN_WIDTH;
+  }
+
+  function estimateControlColumnWidth(view: CollectionViewSchema<Row>) {
+    const explicitControlWidth = (view.columns || []).reduce((total, column) => {
+      if (!('type' in column) || (column.type !== 'selection' && column.type !== 'expand')) return total;
+      if ('width' in column && isPositiveNumber(column.width)) return total + column.width;
+      if ('minWidth' in column && isPositiveNumber(column.minWidth)) return total + column.minWidth;
+      return total + DEFAULT_SELECTION_COLUMN_WIDTH;
+    }, 0);
+    if (explicitControlWidth > 0 || view.selectable === false) return explicitControlWidth;
+    return view.selectionColumn?.width || DEFAULT_SELECTION_COLUMN_WIDTH;
   }
 
   function formatPaneTab(pane: TabbedListPaneSchema<Row>) {

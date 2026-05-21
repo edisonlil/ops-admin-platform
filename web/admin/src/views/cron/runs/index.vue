@@ -2,39 +2,43 @@
   <div class="cron-run-page">
     <ListPageRuntime :schema="runPage" :rows="runRows" :loading="loadingRuns" :pagination-total="paginationTotal" @refresh="reloadRuns" />
 
-    <n-drawer v-model:show="logDrawerVisible" width="min(920px, 96vw)">
-      <n-drawer-content :title="selectedRun ? `运行日志 #${selectedRun.id}` : '运行日志'">
-        <n-spin :show="loadingDetail">
-          <div v-if="selectedRun" class="cron-run-log">
-            <n-descriptions bordered :column="2" size="small">
-              <n-descriptions-item label="运行 ID">{{ selectedRun.id }}</n-descriptions-item>
-              <n-descriptions-item label="任务 ID">{{ selectedRun.task_id }}</n-descriptions-item>
-              <n-descriptions-item label="状态">{{ runStatusLabel(selectedRun.status) }}</n-descriptions-item>
-              <n-descriptions-item label="触发来源">{{ triggerSourceLabel(selectedRun.trigger_source) }}</n-descriptions-item>
-              <n-descriptions-item label="触发时间">{{ formatToDateTime(selectedRun.fire_time) }}</n-descriptions-item>
-              <n-descriptions-item label="开始时间">{{ formatToDateTime(selectedRun.started_time || '') }}</n-descriptions-item>
-              <n-descriptions-item label="结束时间">{{ formatToDateTime(selectedRun.finished_time || '') }}</n-descriptions-item>
-              <n-descriptions-item label="幂等键">{{ selectedRun.idempotency_key || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="失败编码">{{ selectedRun.failure_code || '-' }}</n-descriptions-item>
-              <n-descriptions-item label="失败信息">{{ selectedRun.failure_message || '-' }}</n-descriptions-item>
-            </n-descriptions>
-
-            <n-tabs type="line" animated>
-              <n-tab-pane name="result" tab="输出结果">
-                <n-code :code="formatJson(selectedRun.result)" language="json" word-wrap />
-              </n-tab-pane>
-              <n-tab-pane name="payload" tab="输入参数">
-                <n-code :code="formatJson(selectedRun.payload)" language="json" word-wrap />
-              </n-tab-pane>
-              <n-tab-pane name="attempts" tab="执行尝试">
-                <n-data-table :columns="attemptColumns" :data="selectedAttempts" :pagination="false" size="small" />
-              </n-tab-pane>
-            </n-tabs>
+    <n-modal
+      v-model:show="logDrawerVisible"
+      preset="card"
+      :title="selectedRun ? '运行日志 #' + selectedRun.id : '运行日志'"
+      class="cron-run-log-modal"
+      :bordered="false"
+      :segmented="{ content: true }"
+    >
+      <n-spin :show="loadingDetail">
+        <div v-if="selectedRun" class="cron-run-log">
+          <div class="cron-run-log__meta">
+            <span>运行 ID：{{ selectedRun.id }}</span>
+            <span>任务 ID：{{ selectedRun.task_id }}</span>
+            <span>状态：{{ runStatusLabel(selectedRun.status) }}</span>
+            <span>来源：{{ triggerSourceLabel(selectedRun.trigger_source) }}</span>
+            <span>开始：{{ formatToDateTime(selectedRun.started_time || selectedRun.fire_time) }}</span>
+            <span>结束：{{ formatToDateTime(selectedRun.finished_time || '') || '-' }}</span>
           </div>
-          <n-empty v-else description="请选择一条运行记录" />
-        </n-spin>
-      </n-drawer-content>
-    </n-drawer>
+
+          <n-tabs type="line" animated>
+            <n-tab-pane name="terminal" tab="终端日志">
+              <pre class="cron-run-log__terminal">{{ terminalLogText }}</pre>
+            </n-tab-pane>
+            <n-tab-pane name="result" tab="输出结果">
+              <n-code :code="formatJson(displayResult)" language="json" word-wrap />
+            </n-tab-pane>
+            <n-tab-pane name="payload" tab="输入参数">
+              <n-code :code="formatJson(selectedRun.payload)" language="json" word-wrap />
+            </n-tab-pane>
+            <n-tab-pane name="attempts" tab="执行尝试">
+              <n-data-table :columns="attemptColumns" :data="selectedAttempts" :pagination="false" size="small" />
+            </n-tab-pane>
+          </n-tabs>
+        </div>
+        <n-empty v-else description="请选择一条运行记录" />
+      </n-spin>
+    </n-modal>
   </div>
 </template>
 
@@ -63,6 +67,35 @@
   const selectedAttempts = ref<CronAttempt[]>([]);
   const stoppingRunId = ref<number | null>(null);
   const deletingRunId = ref<number | null>(null);
+
+  const displayResult = computed<Record<string, unknown>>(() => {
+    const result = selectedRun.value?.result || {};
+    const { _logs, ...rest } = result;
+    return rest;
+  });
+
+  const terminalLogText = computed(() => {
+    const run = selectedRun.value;
+    if (!run) return '';
+    const logs = extractRunLogs(run.result);
+    const chunks: string[] = [];
+    if (logs.stdout.trim()) {
+      chunks.push(logs.stdout.trimEnd());
+    }
+    if (logs.stderr.trim()) {
+      chunks.push(`[stderr]\n${logs.stderr.trimEnd()}`);
+    }
+    if (chunks.length) {
+      return chunks.join('\n\n');
+    }
+    const lines = [`$ cron run #${run.id}`, `status: ${runStatusLabel(run.status)}`];
+    if (run.failure_message) {
+      lines.push(`error: ${run.failure_message}`);
+    } else {
+      lines.push('no stdout/stderr captured for this run');
+    }
+    return lines.join('\n');
+  });
 
   const taskId = computed(() => {
     const raw = Array.isArray(route.query.task_id) ? route.query.task_id[0] : route.query.task_id;
@@ -292,6 +325,18 @@
     return JSON.stringify(value || {}, null, 2);
   }
 
+  function extractRunLogs(result: Record<string, unknown>) {
+    const raw = result?._logs;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { stdout: '', stderr: '' };
+    }
+    const logs = raw as Record<string, unknown>;
+    return {
+      stdout: typeof logs.stdout === 'string' ? logs.stdout : '',
+      stderr: typeof logs.stderr === 'string' ? logs.stderr : '',
+    };
+  }
+
   watch(taskId, () => reloadRuns());
   reloadRuns();
 </script>
@@ -299,6 +344,15 @@
 <style lang="less" scoped>
   .cron-run-page {
     min-width: 0;
+  }
+
+  :global(.cron-run-log-modal) {
+    width: min(960px, calc(100vw - 48px));
+  }
+
+  :global(.cron-run-log-modal .n-card__content) {
+    max-height: min(720px, calc(100vh - 160px));
+    overflow: auto;
   }
 
   .cron-run-log {
@@ -312,5 +366,30 @@
       border: 1px solid var(--app-border-color, #e5e7eb);
       border-radius: 6px;
     }
+  }
+
+  .cron-run-log__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    color: var(--text-color-2);
+    font-size: 13px;
+  }
+
+  .cron-run-log__terminal {
+    min-height: 360px;
+    max-height: 520px;
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    border: 1px solid #182235;
+    border-radius: 6px;
+    background: #0b1220;
+    color: #d7e1f2;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 </style>

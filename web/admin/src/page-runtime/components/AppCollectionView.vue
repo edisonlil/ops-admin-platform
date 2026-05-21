@@ -312,6 +312,7 @@
       if (isPositiveNumber(preference?.width)) {
         nextColumn.width = preference.width;
       }
+      const stableWidth = resolveStableColumnWidth(nextColumn, preference?.width, runtime.defaultWidth);
       if (preference?.sortable) {
         nextColumn.sorter = nextColumn.sorter || true;
         nextColumn.sortOrder = currentSortField.value === resolveColumnSortField(columnKey) ? currentSortOrder.value : false;
@@ -338,10 +339,16 @@
       if (!disabledFreeze && columnKey !== undefined) {
         if (isColumnLocked(columnKey)) {
           nextColumn.fixed = 'left';
+          nextColumn.width = stableWidth;
+          nextColumn.minWidth = stableWidth;
         } else if (!nextColumn.fixed && runtime.freeze?.left?.includes(columnKey)) {
           nextColumn.fixed = 'left';
+          nextColumn.width = stableWidth;
+          nextColumn.minWidth = stableWidth;
         } else if (!nextColumn.fixed && runtime.freeze?.right?.includes(columnKey)) {
           nextColumn.fixed = 'right';
+          nextColumn.width = stableWidth;
+          nextColumn.minWidth = stableWidth;
         }
       }
 
@@ -571,6 +578,14 @@
 
   function isPositiveNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  }
+
+  function resolveStableColumnWidth(column: DataTableColumn<Row>, preferredWidth: unknown, defaultWidth: unknown) {
+    if (isPositiveNumber(preferredWidth)) return Math.round(preferredWidth);
+    if ('width' in column && isPositiveNumber(column.width)) return Math.round(column.width);
+    if ('minWidth' in column && isPositiveNumber(column.minWidth)) return Math.round(column.minWidth);
+    if (isPositiveNumber(defaultWidth)) return Math.round(defaultWidth);
+    return DEFAULT_TABLE_COLUMN_WIDTH;
   }
 
   function isControlColumn(column: DataTableColumn<Row>) {

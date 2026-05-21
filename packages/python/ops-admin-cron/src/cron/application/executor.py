@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +18,13 @@ from cron.domain.models import (
     CronTaskDetail,
     CronRun,
 )
+
+
+class CapturedDispatchError(Exception):
+    def __init__(self, original: Exception, logs: dict[str, str]) -> None:
+        super().__init__(str(original))
+        self.original = original
+        self.logs = logs
 
 
 class CronTaskExecutor:
@@ -58,8 +68,9 @@ class CronTaskExecutor:
             return {"run": (current_run or run).to_dict(), "attempt": None, "ok": not is_stopped, "stopped": is_stopped, "skipped": not is_stopped}
         attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
         try:
-            result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
-        except Exception as exc:
+            result, logs = self._dispatch_with_logs(detail.task.execution_target, run.payload)
+        except CapturedDispatchError as captured:
+            exc = captured.original
             current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
             if current_run and current_run.status == RUN_STATUS_STOPPED:
                 return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "ok": False, "stopped": True}
@@ -76,7 +87,7 @@ class CronTaskExecutor:
                 tenant_id=run.tenant_id,
                 run_id=run.id,
                 status=RUN_STATUS_FAILED,
-                result={},
+                result=attach_run_logs({}, captured.logs),
                 failure_code=exc.__class__.__name__,
                 failure_message=error_message,
                 actor=self.worker_id,
@@ -97,7 +108,7 @@ class CronTaskExecutor:
             tenant_id=run.tenant_id,
             run_id=run.id,
             status=RUN_STATUS_SUCCEEDED,
-            result=result if isinstance(result, dict) else {"value": result},
+            result=attach_run_logs(result if isinstance(result, dict) else {"value": result}, logs),
             failure_code="",
             failure_message="",
             actor=self.worker_id,
@@ -109,6 +120,23 @@ class CronTaskExecutor:
             "ok": True,
         }
 
+    def _dispatch_with_logs(self, execution_target: str, payload: dict[str, Any]) -> tuple[Any, dict[str, str]]:
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        log_handler = logging.StreamHandler(stderr_buffer)
+        log_handler.setLevel(logging.INFO)
+        logger = logging.getLogger()
+        logger.addHandler(log_handler)
+        try:
+            try:
+                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                    result = self.dispatcher.dispatch(execution_target, payload)
+            except Exception as exc:
+                raise CapturedDispatchError(exc, build_run_logs(stdout_buffer.getvalue(), stderr_buffer.getvalue())) from exc
+            return result, build_run_logs(stdout_buffer.getvalue(), stderr_buffer.getvalue())
+        finally:
+            logger.removeHandler(log_handler)
+
     def execute_manual_run(self, detail: CronTaskDetail, run: CronRun) -> dict[str, Any]:
         if run.status != RUN_STATUS_PENDING:
             return {"run": run.to_dict(), "attempt": None, "ok": True, "skipped": True}
@@ -118,8 +146,9 @@ class CronTaskExecutor:
             return {"run": (current_run or run).to_dict(), "attempt": None, "ok": False, "stopped": True}
         attempt = self.repository.start_attempt(tenant_id=run.tenant_id, run_id=run.id, worker_id=self.worker_id, actor=self.worker_id)
         try:
-            result = self.dispatcher.dispatch(detail.task.execution_target, run.payload)
-        except Exception as exc:
+            result, logs = self._dispatch_with_logs(detail.task.execution_target, run.payload)
+        except CapturedDispatchError as captured:
+            exc = captured.original
             current_run = self.repository.get_run(tenant_id=run.tenant_id, run_id=run.id)
             if current_run and current_run.status == RUN_STATUS_STOPPED:
                 return {"run": current_run.to_dict(), "attempt": attempt.to_dict(), "ok": False, "stopped": True}
@@ -136,7 +165,7 @@ class CronTaskExecutor:
                 tenant_id=run.tenant_id,
                 run_id=run.id,
                 status=RUN_STATUS_FAILED,
-                result={},
+                result=attach_run_logs({}, captured.logs),
                 failure_code=exc.__class__.__name__,
                 failure_message=error_message,
                 actor=self.worker_id,
@@ -157,7 +186,7 @@ class CronTaskExecutor:
             tenant_id=run.tenant_id,
             run_id=run.id,
             status=RUN_STATUS_SUCCEEDED,
-            result=result if isinstance(result, dict) else {"value": result},
+            result=attach_run_logs(result if isinstance(result, dict) else {"value": result}, logs),
             failure_code="",
             failure_message="",
             actor=self.worker_id,
@@ -168,3 +197,18 @@ class CronTaskExecutor:
             "result": result,
             "ok": True,
         }
+
+
+def build_run_logs(stdout: str, stderr: str) -> dict[str, str]:
+    logs: dict[str, str] = {}
+    if stdout:
+        logs["stdout"] = stdout
+    if stderr:
+        logs["stderr"] = stderr
+    return logs
+
+
+def attach_run_logs(result: dict[str, Any], logs: dict[str, str]) -> dict[str, Any]:
+    if not logs:
+        return result
+    return {**result, "_logs": logs}

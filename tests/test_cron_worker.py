@@ -216,6 +216,20 @@ class CronWorkerTests(unittest.TestCase):
         self.assertEqual(repository.attempts[1].status, ATTEMPT_STATUS_SUCCEEDED)
         self.assertEqual(dispatcher.calls, [("system.health.snapshot", {"scope": "platform"})])
 
+    def test_executor_captures_command_stdout_in_run_result_logs(self) -> None:
+        class PrintingDispatcher:
+            def dispatch(self, execution_target: str, payload: dict[str, Any]) -> dict[str, Any]:
+                print("health snapshot complete")
+                return {"ok": True}
+
+        repository = FakeRepository()
+        executor = CronTaskExecutor(repository=repository, dispatcher=PrintingDispatcher(), worker_id="test-worker")
+        result = executor.execute_scheduled_task(task_detail(), scheduled_fire_time=fixed_time())
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(repository.runs[1].result["ok"], True)
+        self.assertEqual(repository.runs[1].result["_logs"]["stdout"], "health snapshot complete\n")
+
     def test_executor_marks_run_and_attempt_failed(self) -> None:
         repository = FakeRepository()
         dispatcher = RecordingDispatcher(should_fail=True)
