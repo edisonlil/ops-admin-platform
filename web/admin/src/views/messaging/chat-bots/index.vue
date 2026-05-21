@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="chatBotPage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="chatBotPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
     <n-drawer v-model:show="drawerVisible" width="620">
       <n-drawer-content :title="form.id ? '编辑群聊机器人' : '新增群聊机器人'">
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
@@ -49,7 +49,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -68,6 +68,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<MessageChatBot[]>([]);
+  const paginationTotal = ref(0);
 
   const form = reactive<Partial<MessageChatBot>>({
     id: undefined,
@@ -235,8 +236,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessageChatBots(runtimeSortParams(state));
+      const payload = await getMessageChatBots(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

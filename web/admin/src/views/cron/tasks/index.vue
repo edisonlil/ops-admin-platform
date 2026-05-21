@@ -1,6 +1,6 @@
 <template>
   <div class="cron-task-page">
-    <ListPageRuntime :schema="taskPage" :rows="taskRows" :loading="loadingTasks" @refresh="reloadTasks" />
+    <ListPageRuntime :schema="taskPage" :rows="taskRows" :loading="loadingTasks" :pagination-total="paginationTotal" @refresh="reloadTasks" />
 
     <n-drawer v-model:show="drawerVisible" width="720">
       <n-drawer-content :title="form.id ? '编辑定时任务' : '新增定时任务'">
@@ -90,6 +90,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const taskRows = ref<CronTask[]>([]);
+  const paginationTotal = ref(0);
   const listState = ref<ListRuntimeState>({});
   const payloadText = ref('{}');
   const isEditingEnabledTask = computed(() => Boolean(form.id && form.status === 'enabled'));
@@ -319,8 +320,9 @@
     listState.value = state;
     loadingTasks.value = true;
     try {
-      const payload = await getCronTasks({ ...runtimeListParams(state), page: 1, page_size: 50 });
+      const payload = await getCronTasks(runtimeListParams(state));
       taskRows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || taskRows.value.length;
     } finally {
       loadingTasks.value = false;
     }

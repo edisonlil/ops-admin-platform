@@ -75,8 +75,41 @@ def studio_overview() -> dict[str, Any]:
     }
 
 
-def list_ai_applications(*, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_ai_applications(conn), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=AI_APPLICATION_SORT_COLUMNS)
+def list_ai_applications(
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    status: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return read_list(
+        lambda conn: repositories.list_ai_applications(conn),
+        page=page,
+        page_size=page_size,
+        filterer=lambda items: filter_ai_applications(items, keyword=keyword, status=status),
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=AI_APPLICATION_SORT_COLUMNS,
+    )
+
+
+def filter_ai_applications(items: list[dict[str, Any]], *, keyword: str | None, status: str | None) -> list[dict[str, Any]]:
+    text = str(keyword or "").strip().lower()
+    status_value = str(status or "").strip()
+    if status_value == "all":
+        status_value = ""
+    return [
+        item
+        for item in items
+        if (not status_value or str(item.get("status") or "") == status_value)
+        and (
+            not text
+            or text in str(item.get("name") or "").lower()
+            or text in str(item.get("app_key") or "").lower()
+        )
+    ]
 
 
 def get_ai_application(app_key: str) -> dict[str, Any]:
@@ -839,7 +872,16 @@ def parse_sse_event(event: str) -> tuple[str, dict[str, Any]]:
     return event_type, payload if isinstance(payload, dict) else {}
 
 
-def read_list(loader: Any, *, sort_by: str | None = None, sort_dir: str | None = None, allowed_sort: dict[str, str] | None = None) -> dict[str, Any]:
+def read_list(
+    loader: Any,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    filterer: Any | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
+) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
@@ -847,9 +889,15 @@ def read_list(loader: Any, *, sort_by: str | None = None, sort_dir: str | None =
             items = loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    if filterer is not None:
+        items = filterer(items)
     if allowed_sort is not None:
         items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
-    return {"items": items, "pagination": {"page": 1, "page_size": len(items), "total": len(items)}}
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(items)
+    start = (safe_page - 1) * safe_page_size
+    return {"items": items[start:start + safe_page_size], "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
 
 
 def read_one(loader: Any) -> dict[str, Any] | None:

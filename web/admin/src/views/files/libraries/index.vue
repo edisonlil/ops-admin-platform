@@ -1,6 +1,6 @@
 <template>
   <div class="file-library-page">
-    <ListPageRuntime :schema="libraryPage" :rows="filteredRows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="libraryPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input v-model:value="keyword" clearable placeholder="搜索文件库名称" class="file-library-page__filter" @keyup.enter="reload" />
         <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="file-library-page__status" />
@@ -37,7 +37,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref } from 'vue';
+  import { h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
@@ -59,6 +59,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<FileLibrary[]>([]);
+  const paginationTotal = ref(0);
   const keyword = ref('');
   const statusFilter = ref<string | null>(null);
 
@@ -78,15 +79,6 @@
   const rules: FormRules = {
     name: [{ required: true, message: '请输入文件库名称', trigger: ['blur', 'input'] }],
   };
-
-  const filteredRows = computed(() => {
-    const text = keyword.value.trim().toLowerCase();
-    return rows.value.filter((row) => {
-      const matchedKeyword = !text || row.name.toLowerCase().includes(text) || row.description.toLowerCase().includes(text);
-      const matchedStatus = !statusFilter.value || row.status === statusFilter.value;
-      return matchedKeyword && matchedStatus;
-    });
-  });
 
   const columns: DataTableColumns<FileLibrary> = [
     { title: '文件库', key: 'name', minWidth: 180 },
@@ -191,8 +183,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getFileLibraries({ ...runtimeListParams(state), page: 1, page_size: 100 });
+      const payload = await getFileLibraries(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

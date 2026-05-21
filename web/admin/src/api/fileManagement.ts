@@ -247,7 +247,12 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
-export function getFileLibraries(params: { page?: number; page_size?: number } & SortParams = {}) {
+export interface PageParams {
+  page?: number;
+  page_size?: number;
+}
+
+export function getFileLibraries(params: PageParams & SortParams = {}) {
   return Alova.Get<FileListData<FileLibrary>>('/files/libraries', {
     params: withNoCacheParams(params),
   });
@@ -390,8 +395,8 @@ export function getIndexJobs(params: { page?: number; page_size?: number; file_i
   });
 }
 
-export function getStorageProfiles(params: SortParams = {}) {
-  return Alova.Get<{ items: StorageProfile[] }>('/files/admin/storage-profiles', {
+export function getStorageProfiles(params: PageParams & SortParams = {}) {
+  return Alova.Get<FileListData<StorageProfile>>('/files/admin/storage-profiles', {
     params: withNoCacheParams(params),
   });
 }
@@ -419,8 +424,8 @@ export function setDefaultStorageProfile(profileId: number) {
   return Alova.Post<{ item: StorageProfile }>(`/files/admin/storage-profiles/${profileId}/default`);
 }
 
-export function getPreviewProfiles(params: SortParams = {}) {
-  return Alova.Get<{ items: PreviewProfile[] }>('/files/admin/preview-profiles', {
+export function getPreviewProfiles(params: PageParams & SortParams = {}) {
+  return Alova.Get<FileListData<PreviewProfile>>('/files/admin/preview-profiles', {
     params: withNoCacheParams(params),
   });
 }

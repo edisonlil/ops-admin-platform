@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="templatePage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="templatePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
     <n-drawer v-model:show="drawerVisible" width="640">
       <n-drawer-content :title="form.id ? '编辑消息模板' : '新增消息模板'">
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
@@ -45,7 +45,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -63,6 +63,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<MessageTemplate[]>([]);
+  const paginationTotal = ref(0);
 
   const form = reactive<Partial<MessageTemplate>>({
     id: undefined,
@@ -209,8 +210,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessageTemplates(runtimeSortParams(state));
+      const payload = await getMessageTemplates(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

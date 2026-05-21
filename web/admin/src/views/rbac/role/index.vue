@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="roleListPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="roleListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #header-actions>
         <n-button v-if="hasPermission(['system:roles:create'])" @click="handleCreate('tenant')">
           新增租户角色
@@ -124,7 +124,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface MenuRow extends Recordable {
@@ -171,6 +171,7 @@
   const savingMenus = ref(false);
   const savingRole = ref(false);
   const rows = ref<RoleRow[]>([]);
+  const paginationTotal = ref(0);
   const menuRows = ref<MenuRow[]>([]);
   const roleFormRef = ref<FormInst | null>(null);
   const roleModalVisible = ref(false);
@@ -610,8 +611,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getRbacRoles(runtimeSortParams(state));
+      const payload = await getRbacRoles(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

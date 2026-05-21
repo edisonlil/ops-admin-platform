@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="channelPage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="channelPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
     <n-drawer v-model:show="drawerVisible" width="620">
       <n-drawer-content :title="form.id ? '编辑渠道账号' : '新增渠道账号'">
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
@@ -41,7 +41,7 @@
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -60,6 +60,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<MessageChannelAccount[]>([]);
+  const paginationTotal = ref(0);
   const configText = ref('{}');
 
   const form = reactive<Partial<MessageChannelAccount>>({
@@ -217,8 +218,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessageChannelAccounts(runtimeSortParams(state));
+      const payload = await getMessageChannelAccounts(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

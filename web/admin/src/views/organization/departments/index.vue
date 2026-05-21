@@ -69,7 +69,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -206,7 +206,7 @@
           : undefined,
         rightTools: ['refresh'],
       },
-      pagination: { pageSize: 20 },
+      pagination: false,
     })
   );
 
@@ -335,7 +335,7 @@
         rows.value = [];
         return;
       }
-      const payload = await getDepartments({ include_disabled: true, tenant_id: tenantId, ...runtimeSortParams(state) });
+      const payload = await getDepartments({ include_disabled: true, tenant_id: tenantId });
       rows.value = payload.items || [];
     } finally {
       loading.value = false;

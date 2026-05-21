@@ -48,10 +48,14 @@ def update_platform_branding(
 
 @router.get("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:access"))])
 def themes(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    return ok(services.list_themes(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_themes(page=page, page_size=page_size, keyword=keyword, status_filter=status, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/themes", dependencies=[Depends(auth.require_platform_permission("appearance:themes:create"))])

@@ -88,6 +88,8 @@ def save_resource_descriptor(payload: dict[str, Any], current_user: dict[str, An
 def list_data_access_policies(
     current_user: dict[str, Any] | None = None,
     *,
+    page: int = 1,
+    page_size: int = 20,
     subject_type: str | None = None,
     subject_id: int | None = None,
     resource_key: str | None = None,
@@ -105,8 +107,14 @@ def list_data_access_policies(
             resource_key=resource_key,
         )
     ]
+    sorted_items = sort_dict_items(items, sort_by, sort_dir, allowed=POLICY_SORT_COLUMNS)
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(sorted_items)
+    start = (safe_page - 1) * safe_page_size
     return {
-        "items": sort_dict_items(items, sort_by, sort_dir, allowed=POLICY_SORT_COLUMNS)
+        "items": sorted_items[start:start + safe_page_size],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
     }
 
 

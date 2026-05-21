@@ -42,6 +42,14 @@ export interface ListRuntimeState {
   sort?: TableSortState;
 }
 
+export interface RuntimePaginationProps extends PaginationProps {
+  /**
+   * List pages use backend pagination by default. Set this to false only for
+   * non-business local views such as small static panes.
+   */
+  remote?: boolean;
+}
+
 export interface PageRuntimeContext {
   pageId: string;
   density: PageDensity;
@@ -155,6 +163,7 @@ export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
   name: string;
   label: string;
   count?: number;
+  paginationTotal?: number;
   title?: string;
   description?: string;
   rows?: Row[];
@@ -162,19 +171,20 @@ export interface TabbedListPaneSchema<Row = Record<string, unknown>> {
   refresh?: (state?: ListRuntimeState) => void | Promise<void>;
   primaryAction?: PageAction;
   view: CollectionViewSchema<Row>;
-  pagination?: false | PaginationProps;
+  pagination?: false | RuntimePaginationProps;
 }
 
 export interface SplitListPaneSchema<Row = Record<string, unknown>> {
   title?: string;
   description?: string;
   rows?: Row[];
+  paginationTotal?: number;
   loading?: boolean;
   refresh?: (state?: ListRuntimeState) => void | Promise<void>;
   primaryAction?: PageAction;
   actions?: PageAction[];
   view: CollectionViewSchema<Row>;
-  pagination?: false | PaginationProps;
+  pagination?: false | RuntimePaginationProps;
 }
 
 export interface SplitListViewSchema {
@@ -200,7 +210,7 @@ export interface ListPageSchema<Row = Record<string, unknown>, Query = Record<st
   filters?: FilterField<Query>[];
   toolbar?: ListToolbarSchema;
   view: CollectionViewSchema<Row>;
-  pagination?: false | PaginationProps;
+  pagination?: false | RuntimePaginationProps;
 }
 
 export interface DetailPageSchema<T = Record<string, unknown>> {

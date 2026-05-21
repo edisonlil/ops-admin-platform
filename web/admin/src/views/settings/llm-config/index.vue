@@ -178,7 +178,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime, runtimeSortParams } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams } from '@/page-runtime';
   import type { CollectionViewSchema, ListRuntimeState } from '@/page-runtime';
 
   type JsonObject = Record<string, unknown>;
@@ -203,6 +203,11 @@
   const tasks = ref<Recordable[]>([]);
   const policies = ref<Recordable[]>([]);
   const logs = ref<Recordable[]>([]);
+  const providerTotal = ref(0);
+  const modelTotal = ref(0);
+  const taskTotal = ref(0);
+  const policyTotal = ref(0);
+  const logTotal = ref(0);
 
   const providerModalVisible = ref(false);
   const modelModalVisible = ref(false);
@@ -405,10 +410,11 @@
         {
           name: 'providers',
           label: '供应商',
-          count: providers.value.length,
+          count: providerTotal.value,
           title: '供应商管理',
           description: '管理 LLM 服务商、Base URL、密钥状态和启用状态。',
           rows: providers.value,
+          paginationTotal: providerTotal.value,
           loading: loading.value,
           refresh: (state) => loadProviders(state),
           primaryAction: canSaveProviders.value
@@ -420,10 +426,11 @@
         {
           name: 'models',
           label: '模型',
-          count: models.value.length,
+          count: modelTotal.value,
           title: '模型目录',
           description: '维护模型密钥、供应商归属、上下文窗口和能力配置。',
           rows: models.value,
+          paginationTotal: modelTotal.value,
           loading: loading.value,
           refresh: (state) => loadModels(state),
           primaryAction: canSaveModels.value
@@ -435,10 +442,11 @@
         {
           name: 'tasks',
           label: '任务',
-          count: tasks.value.length,
+          count: taskTotal.value,
           title: 'LLM 任务',
           description: '注册业务任务 Key，后续路由策略会按任务或 fallback Key 命中。',
           rows: tasks.value,
+          paginationTotal: taskTotal.value,
           loading: loading.value,
           refresh: (state) => loadTasks(state),
           primaryAction: canRegisterTasks.value
@@ -450,10 +458,11 @@
         {
           name: 'routes',
           label: '路由策略',
-          count: policies.value.length,
+          count: policyTotal.value,
           title: '优先级与 fallback 路由',
           description: '为任务配置模型优先级、超时、温度和响应格式。',
           rows: policies.value,
+          paginationTotal: policyTotal.value,
           loading: loading.value,
           refresh: (state) => loadPolicies(state),
           primaryAction: canSavePolicies.value
@@ -465,10 +474,11 @@
         {
           name: 'logs',
           label: '调用日志',
-          count: logs.value.length,
+          count: logTotal.value,
           title: '调用日志',
           description: '查看任务路由、模型命中、fallback、耗时和错误信息。',
           rows: logs.value,
+          paginationTotal: logTotal.value,
           loading: logsLoading.value,
           refresh: loadLogs,
           primaryAction: { key: 'refresh-logs', label: '刷新日志', type: 'default', onClick: loadLogs },
@@ -540,45 +550,54 @@
     loading.value = true;
     try {
       const [providerPayload, modelPayload, taskPayload, policyPayload] = await Promise.all([
-        getLlmProviders(),
-        getLlmModels(),
-        getLlmTasks(),
-        getLlmRoutingPolicies(),
+        getLlmProviders({ page: 1, page_size: 10 }),
+        getLlmModels({ page: 1, page_size: 10 }),
+        getLlmTasks({ page: 1, page_size: 12 }),
+        getLlmRoutingPolicies({ page: 1, page_size: 8 }),
       ]);
       providers.value = providerPayload.items || [];
       models.value = modelPayload.items || [];
       tasks.value = taskPayload.items || [];
       policies.value = policyPayload.items || [];
+      providerTotal.value = providerPayload.pagination?.total || providers.value.length;
+      modelTotal.value = modelPayload.pagination?.total || models.value.length;
+      taskTotal.value = taskPayload.pagination?.total || tasks.value.length;
+      policyTotal.value = policyPayload.pagination?.total || policies.value.length;
     } finally {
       loading.value = false;
     }
   }
 
   async function loadProviders(state?: ListRuntimeState) {
-    const payload = await getLlmProviders(runtimeSortParams(state));
+    const payload = await getLlmProviders(runtimeListParams(state, { pageSize: 10 }));
     providers.value = payload.items || [];
+    providerTotal.value = payload.pagination?.total || providers.value.length;
   }
 
   async function loadModels(state?: ListRuntimeState) {
-    const payload = await getLlmModels(runtimeSortParams(state));
+    const payload = await getLlmModels(runtimeListParams(state, { pageSize: 10 }));
     models.value = payload.items || [];
+    modelTotal.value = payload.pagination?.total || models.value.length;
   }
 
   async function loadTasks(state?: ListRuntimeState) {
-    const payload = await getLlmTasks(runtimeSortParams(state));
+    const payload = await getLlmTasks(runtimeListParams(state, { pageSize: 12 }));
     tasks.value = payload.items || [];
+    taskTotal.value = payload.pagination?.total || tasks.value.length;
   }
 
   async function loadPolicies(state?: ListRuntimeState) {
-    const payload = await getLlmRoutingPolicies(runtimeSortParams(state));
+    const payload = await getLlmRoutingPolicies(runtimeListParams(state, { pageSize: 8 }));
     policies.value = payload.items || [];
+    policyTotal.value = payload.pagination?.total || policies.value.length;
   }
 
   async function loadLogs(state?: ListRuntimeState) {
     logsLoading.value = true;
     try {
-      const payload = await getLlmCallLogs({ limit: 80, ...runtimeSortParams(state) });
+      const payload = await getLlmCallLogs(runtimeListParams(state, { pageSize: 12 }));
       logs.value = payload.items || [];
+      logTotal.value = payload.pagination?.total || logs.value.length;
     } finally {
       logsLoading.value = false;
     }

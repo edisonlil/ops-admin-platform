@@ -1,6 +1,6 @@
 <template>
   <div class="ai-studio-page">
-    <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template v-if="showViewSwitch" #toolbar-left>
         <n-radio-group v-model:value="activeView" size="small" class="ai-studio-page__views">
           <n-radio-button v-if="canReadApplications" value="applications">AI 应用</n-radio-button>
@@ -131,7 +131,7 @@
   import { useRoute, useRouter } from 'vue-router';
   import { NButton, NSpace, NTag, useMessage, type DataTableColumns } from 'naive-ui';
   import { ApiOutlined, AppstoreOutlined, ExperimentOutlined, MessageOutlined, RobotOutlined } from '@vicons/antd';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUser } from '@/store/modules/user';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -164,8 +164,10 @@
   const createModalVisible = ref(false);
   const capabilityModalVisible = ref(false);
   const applications = ref<AiApplication[]>([]);
+  const applicationTotal = ref(0);
   const models = ref<Recordable[]>([]);
   const capabilities = ref<AiCapability[]>([]);
+  const capabilityTotal = ref(0);
   const quota = ref<AiQuota | null>(null);
   const createForm = reactive({
     name: '',
@@ -249,30 +251,11 @@
   const searchPlaceholder = computed(() =>
     currentView.value === 'applications' ? '搜索应用名称或 Key' : '搜索能力 Key、名称或模型'
   );
-  const filteredApplications = computed(() => {
-    const q = keyword.value.trim().toLowerCase();
-    return applications.value.filter((app) => {
-      const statusMatched = statusFilter.value === 'all' || app.status === statusFilter.value;
-      const keywordMatched = !q || `${app.name} ${app.app_key}`.toLowerCase().includes(q);
-      return statusMatched && keywordMatched;
-    });
-  });
-  const filteredCapabilities = computed(() => {
-    const q = keyword.value.trim().toLowerCase();
-    return capabilities.value.filter((capability) => {
-      const statusMatched =
-        capabilityStatusFilter.value === 'all' ||
-        (capabilityStatusFilter.value === 'enabled' ? capability.enabled : !capability.enabled);
-      const keywordMatched =
-        !q ||
-        `${capability.capability_key} ${capability.name} ${capability.model_preferences?.model || ''}`
-          .toLowerCase()
-          .includes(q);
-      return statusMatched && keywordMatched;
-    });
-  });
   const activeRows = computed(() =>
-    currentView.value === 'applications' ? filteredApplications.value : filteredCapabilities.value
+    currentView.value === 'applications' ? applications.value : capabilities.value
+  );
+  const paginationTotal = computed(() =>
+    currentView.value === 'applications' ? applicationTotal.value : capabilityTotal.value
   );
   const modelOptions = computed(() =>
     models.value.map((item) => ({
@@ -535,12 +518,22 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const sortParams = runtimeSortParams(state);
+      const listParams = runtimeListParams(state, { pageSize: currentView.value === 'applications' ? 12 : 20 });
+      const appParams = {
+        ...listParams,
+        keyword: keyword.value.trim() || undefined,
+        status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      };
+      const capabilityParams = {
+        ...listParams,
+        keyword: keyword.value.trim() || undefined,
+        status: capabilityStatusFilter.value === 'all' ? undefined : capabilityStatusFilter.value,
+      };
       const tasks: Promise<unknown>[] = isPlatformCapabilityPage.value ? [] : [getTenantAiQuota()];
       applications.value = canReadApplications.value ? applications.value : [];
       capabilities.value = canReadCapabilities.value ? capabilities.value : [];
       if (canReadApplications.value) {
-        tasks.push(getAiApplications(currentView.value === 'applications' ? sortParams : undefined));
+        tasks.push(getAiApplications(currentView.value === 'applications' ? appParams : { page: 1, page_size: 20 }));
       }
       if (canManageCapabilities.value) {
         tasks.push(getAiCapabilityModelOptions());
@@ -548,8 +541,8 @@
       if (canReadCapabilities.value) {
         tasks.push(
           isPlatformCapabilityPage.value || isPlatformAdmin.value
-            ? getPlatformAiCapabilities(currentView.value === 'capabilities' ? sortParams : undefined)
-            : getAiCapabilities(currentView.value === 'capabilities' ? sortParams : undefined)
+            ? getPlatformAiCapabilities(currentView.value === 'capabilities' ? capabilityParams : { page: 1, page_size: 20 })
+            : getAiCapabilities(currentView.value === 'capabilities' ? capabilityParams : { page: 1, page_size: 20 })
         );
       }
       const payloads = await Promise.all(tasks);
@@ -560,16 +553,18 @@
         quota.value = payloads[payloadIndex++] as AiQuota;
       }
       if (canReadApplications.value) {
-        const appPayload = payloads[payloadIndex++] as { items?: AiApplication[] };
+        const appPayload = payloads[payloadIndex++] as { items?: AiApplication[]; pagination?: { total?: number } };
         applications.value = appPayload.items || [];
+        applicationTotal.value = appPayload.pagination?.total || applications.value.length;
       }
       if (canManageCapabilities.value) {
         const modelPayload = payloads[payloadIndex++] as { items?: Recordable[] };
         models.value = modelPayload.items || [];
       }
       if (canReadCapabilities.value) {
-        const capabilityPayload = payloads[payloadIndex++] as { items?: AiCapability[] };
+        const capabilityPayload = payloads[payloadIndex++] as { items?: AiCapability[]; pagination?: { total?: number } };
         capabilities.value = capabilityPayload.items || [];
+        capabilityTotal.value = capabilityPayload.pagination?.total || capabilities.value.length;
       }
     } finally {
       loading.value = false;
@@ -649,6 +644,10 @@
     },
     { immediate: true }
   );
+
+  watch([currentView, keyword, statusFilter, capabilityStatusFilter], () => {
+    reload();
+  });
 
   onMounted(reload);
 </script>

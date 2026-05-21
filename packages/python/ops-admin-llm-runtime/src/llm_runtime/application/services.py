@@ -197,42 +197,111 @@ def save_llm_config(payload: dict[str, Any], current_user: dict[str, Any] | None
     return result
 
 
-def list_providers(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_providers, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=PROVIDER_SORT_COLUMNS)
+def list_providers(
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return list_resource(
+        repositories.list_providers,
+        current_user=current_user,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=PROVIDER_SORT_COLUMNS,
+    )
 
 
 def save_provider(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_provider(conn, owner_payload(payload, current_user)))
 
 
-def list_models(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_models, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=MODEL_SORT_COLUMNS)
+def list_models(
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return list_resource(
+        repositories.list_models,
+        current_user=current_user,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=MODEL_SORT_COLUMNS,
+    )
 
 
 def save_model(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_model(conn, owner_payload(payload, current_user)))
 
 
-def list_tasks(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_tasks, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TASK_SORT_COLUMNS)
+def list_tasks(
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return list_resource(
+        repositories.list_tasks,
+        current_user=current_user,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=TASK_SORT_COLUMNS,
+    )
 
 
 def register_task(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.register_task(conn, owner_payload(payload, current_user)))
 
 
-def list_routing_policies(current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return list_resource(repositories.list_policies, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir, allowed_sort=POLICY_SORT_COLUMNS)
+def list_routing_policies(
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return list_resource(
+        repositories.list_policies,
+        current_user=current_user,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=POLICY_SORT_COLUMNS,
+    )
 
 
 def save_routing_policy(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     return write_resource(lambda conn: repositories.upsert_routing_policy(conn, owner_payload(payload, current_user)))
 
 
-def list_call_logs(limit: int = 50, current_user: dict[str, Any] | None = None, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_call_logs(
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     return list_resource(
-        lambda conn, data_scope=None: repositories.list_call_logs(conn, limit=limit, data_scope=data_scope),
+        lambda conn, data_scope=None: repositories.list_call_logs(conn, limit=max(1, page) * max(1, page_size), data_scope=data_scope),
         current_user=current_user,
+        page=page,
+        page_size=page_size,
         resource=LLM_CALL_LOG_RESOURCE,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -328,6 +397,8 @@ def list_resource(
     loader: Any,
     current_user: dict[str, Any] | None = None,
     *,
+    page: int = 1,
+    page_size: int = 20,
     resource: ResourceDescriptor = LLM_MODEL_CONFIG_RESOURCE,
     sort_by: str | None = None,
     sort_dir: str | None = None,
@@ -347,9 +418,13 @@ def list_resource(
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if allowed_sort is not None:
         items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(items)
+    start = (safe_page - 1) * safe_page_size
     return {
-        "items": items,
-        "pagination": {"page": 1, "page_size": len(items), "total": len(items)},
+        "items": items[start:start + safe_page_size],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
     }
 
 

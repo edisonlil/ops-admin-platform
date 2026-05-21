@@ -16,18 +16,26 @@ router = APIRouter()
 
 @router.get("/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
 def ai_capabilities(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_capabilities(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_ai_capabilities(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/ai-capabilities", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
 def platform_ai_capabilities(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    return ok(services.list_platform_ai_capabilities(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_platform_ai_capabilities(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-capabilities/model-options", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])

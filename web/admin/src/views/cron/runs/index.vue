@@ -1,5 +1,5 @@
 <template>
-  <ListPageRuntime :schema="runPage" :rows="runRows" :loading="loadingRuns" @refresh="reloadRuns" />
+  <ListPageRuntime :schema="runPage" :rows="runRows" :loading="loadingRuns" :pagination-total="paginationTotal" @refresh="reloadRuns" />
 </template>
 
 <script lang="ts" setup>
@@ -14,6 +14,7 @@
   const route = useRoute();
   const loadingRuns = ref(false);
   const runRows = ref<CronRun[]>([]);
+  const paginationTotal = ref(0);
   const listState = ref<ListRuntimeState>({});
 
   const taskId = computed(() => {
@@ -92,9 +93,10 @@
     loadingRuns.value = true;
     try {
       const payload = taskId.value
-        ? await getCronTaskRuns(taskId.value, { ...runtimeListParams(state), page: 1, page_size: 50 })
-        : await getCronRuns({ ...runtimeListParams(state), page: 1, page_size: 50 });
+        ? await getCronTaskRuns(taskId.value, runtimeListParams(state))
+        : await getCronRuns(runtimeListParams(state));
       runRows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || runRows.value.length;
     } finally {
       loadingRuns.value = false;
     }

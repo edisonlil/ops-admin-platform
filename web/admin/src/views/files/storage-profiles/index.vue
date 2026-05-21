@@ -1,6 +1,6 @@
 <template>
   <div class="storage-profile-page">
-    <ListPageRuntime :schema="profilePage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="profilePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
 
     <n-drawer v-model:show="drawerVisible" width="680">
       <n-drawer-content :title="form.id ? '编辑对象存储' : '新增对象存储'">
@@ -52,7 +52,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -72,6 +72,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<StorageProfile[]>([]);
+  const paginationTotal = ref(0);
   const providerOptions = ref<SelectOption[]>([{ label: 'MinIO', value: 'minio' }]);
 
   const form = reactive<StorageProfilePayload>({
@@ -226,8 +227,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const [profilePayload, providerPayload] = await Promise.all([getStorageProfiles(runtimeSortParams(state)), getStorageProviderOptions()]);
+      const [profilePayload, providerPayload] = await Promise.all([getStorageProfiles(runtimeListParams(state)), getStorageProviderOptions()]);
       rows.value = profilePayload.items || [];
+      paginationTotal.value = profilePayload.pagination?.total || rows.value.length;
       providerOptions.value = (providerPayload.items || []).map((item) => ({
         label: item.supported ? item.label : `${item.label}（预留）`,
         value: item.provider,

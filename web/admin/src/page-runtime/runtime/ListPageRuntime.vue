@@ -274,7 +274,7 @@
   import AppPageToolbar from '../components/AppPageToolbar.vue';
   import AppPagination from '../components/AppPagination.vue';
   import AppTableRuntimeControls from '../components/AppTableRuntimeControls.vue';
-  import type { CollectionViewSchema, ListPageSchema, ListRuntimeState, PageAction, PageRuntimeContext, TabbedListPaneSchema, TableColumnPreferenceSchema, TableRowDensity, TableSortState } from '../types';
+  import type { CollectionViewSchema, ListPageSchema, ListRuntimeState, PageAction, PageRuntimeContext, RuntimePaginationProps, TabbedListPaneSchema, TableColumnPreferenceSchema, TableRowDensity, TableSortState } from '../types';
 
   const ROW_HEIGHT_BY_DENSITY: Record<TableRowDensity, number> = {
     default: 56,
@@ -295,6 +295,7 @@
       schema: ListPageSchema<Row, Query>;
       rows?: Row[];
       loading?: boolean;
+      paginationTotal?: number;
     }>(),
     {
       rows: () => [],
@@ -372,10 +373,11 @@
     variant: props.schema.variant || 'enterprise',
   }));
   const resolvedPagination = computed(() => {
-    return resolvePagination(props.schema.pagination, props.rows.length, paginationState.value);
+    return resolvePagination(props.schema.pagination, props.paginationTotal ?? props.rows.length, paginationState.value);
   });
   const pagedRows = computed(() => {
-    return sliceRows(sortRows(props.rows, props.schema.view, sortState.value), props.schema.pagination, paginationState.value);
+    const rows = sortRows(props.rows, props.schema.view, sortState.value);
+    return isRemotePagination(props.schema.pagination) ? rows : sliceRows(rows, props.schema.pagination, paginationState.value);
   });
 
   watch(
@@ -438,11 +440,12 @@
   }
 
   function getPanePagination(pane: TabbedListPaneSchema<Row>) {
-    return resolvePagination(pane.pagination, pane.rows?.length || 0, getPanePaginationState(pane));
+    return resolvePagination(pane.pagination, pane.paginationTotal ?? pane.rows?.length ?? 0, getPanePaginationState(pane));
   }
 
   function getPagedPaneRows(pane: TabbedListPaneSchema<Row>) {
-    return sliceRows(sortRows(pane.rows || [], pane.view, getPaneSortState(pane.name)), pane.pagination, getPanePaginationState(pane));
+    const rows = sortRows(pane.rows || [], pane.view, getPaneSortState(pane.name));
+    return isRemotePagination(pane.pagination) ? rows : sliceRows(rows, pane.pagination, getPanePaginationState(pane));
   }
 
   function getPanePaginationState(pane: TabbedListPaneSchema<Row>) {
@@ -458,12 +461,13 @@
 
   function getSplitPagination(name: 'master' | 'detail') {
     const pane = getSplitPane(name);
-    return resolvePagination(pane?.pagination, pane?.rows?.length || 0, getSplitPaginationState(name));
+    return resolvePagination(pane?.pagination, pane?.paginationTotal ?? pane?.rows?.length ?? 0, getSplitPaginationState(name));
   }
 
   function getPagedSplitRows(name: 'master' | 'detail') {
     const pane = getSplitPane(name);
-    return sliceRows(sortRows(pane?.rows || [], pane?.view, getSplitSortState(name)), pane?.pagination, getSplitPaginationState(name));
+    const rows = sortRows(pane?.rows || [], pane?.view, getSplitSortState(name));
+    return isRemotePagination(pane?.pagination) ? rows : sliceRows(rows, pane?.pagination, getSplitPaginationState(name));
   }
 
   function getSplitPaginationState(name: 'master' | 'detail') {
@@ -480,10 +484,15 @@
       ...splitPaginationState.value,
       [name]: {
         ...current,
-        page: clampPage(page, pane?.rows?.length || 0, current.pageSize),
+        page: isRemotePagination(pane?.pagination)
+          ? Math.max(1, page)
+          : clampPage(page, pane?.rows?.length || 0, current.pageSize),
       },
     };
     emitRuntimeChange();
+    if (isRemotePagination(pane?.pagination)) {
+      pane?.refresh?.({ pagination: getSplitPaginationState(name), sort: getSplitSortState(name) });
+    }
   }
 
   function updateSplitPageSize(name: 'master' | 'detail', pageSize: number) {
@@ -495,14 +504,23 @@
       },
     };
     emitRuntimeChange();
+    const pane = getSplitPane(name);
+    if (isRemotePagination(pane?.pagination)) {
+      pane?.refresh?.({ pagination: getSplitPaginationState(name), sort: getSplitSortState(name) });
+    }
   }
 
   function updatePage(page: number) {
     paginationState.value = {
       ...paginationState.value,
-      page: clampPage(page, props.rows.length, paginationState.value.pageSize),
+      page: isRemotePagination(props.schema.pagination)
+        ? Math.max(1, page)
+        : clampPage(page, props.rows.length, paginationState.value.pageSize),
     };
     emitRuntimeChange();
+    if (isRemotePagination(props.schema.pagination)) {
+      handleRefresh();
+    }
   }
 
   function updatePageSize(pageSize: number) {
@@ -511,6 +529,9 @@
       pageSize,
     };
     emitRuntimeChange();
+    if (isRemotePagination(props.schema.pagination)) {
+      handleRefresh();
+    }
   }
 
   function updatePanePage(name: string, page: number) {
@@ -523,9 +544,14 @@
       ...panePaginationState.value,
       [name]: {
         ...current,
-        page: clampPage(page, pane?.rows?.length || 0, current.pageSize),
+        page: isRemotePagination(pane?.pagination)
+          ? Math.max(1, page)
+          : clampPage(page, pane?.rows?.length || 0, current.pageSize),
       },
     };
+    if (isRemotePagination(pane?.pagination)) {
+      pane?.refresh?.({ pagination: getPanePaginationState(pane), sort: getPaneSortState(name) });
+    }
   }
 
   function updatePanePageSize(name: string, pageSize: number) {
@@ -542,6 +568,9 @@
         pageSize,
       },
     };
+    if (isRemotePagination(pane?.pagination)) {
+      pane?.refresh?.({ pagination: getPanePaginationState(pane), sort: getPaneSortState(name) });
+    }
   }
 
   function handleSortChange(state: TableSortState) {
@@ -922,22 +951,23 @@
   }
 
   function resolvePagination(
-    pagination: false | PaginationProps | undefined,
+    pagination: false | RuntimePaginationProps | undefined,
     itemCount: number,
     state: RuntimePaginationState
   ): false | PaginationProps {
     if (pagination === false) return false;
+    const { remote: _remote, ...paginationProps } = pagination || {};
     return {
       pageSizes: DEFAULT_PAGE_SIZES,
       showSizePicker: true,
-      ...(pagination || {}),
+      ...paginationProps,
       itemCount,
       page: state.page,
       pageSize: state.pageSize,
     };
   }
 
-  function sliceRows(items: Row[], pagination: false | PaginationProps | undefined, state: RuntimePaginationState) {
+  function sliceRows(items: Row[], pagination: false | RuntimePaginationProps | undefined, state: RuntimePaginationState) {
     if (pagination === false) return items;
     const pageSize = Math.max(1, state.pageSize);
     const page = clampPage(state.page, items.length, pageSize);
@@ -969,11 +999,15 @@
     return String(left).localeCompare(String(right), 'zh-Hans-CN');
   }
 
-  function getInitialPage(pagination: false | PaginationProps | undefined) {
+  function isRemotePagination(pagination: false | RuntimePaginationProps | undefined) {
+    return pagination !== false && pagination?.remote !== false;
+  }
+
+  function getInitialPage(pagination: false | RuntimePaginationProps | undefined) {
     return pagination === false ? DEFAULT_PAGE : pagination?.page || pagination?.defaultPage || DEFAULT_PAGE;
   }
 
-  function getInitialPageSize(pagination: false | PaginationProps | undefined) {
+  function getInitialPageSize(pagination: false | RuntimePaginationProps | undefined) {
     return pagination === false ? DEFAULT_PAGE_SIZE : pagination?.pageSize || pagination?.defaultPageSize || DEFAULT_PAGE_SIZE;
   }
 
@@ -1029,11 +1063,19 @@
     }
   );
   watch(
-    () => props.rows.length,
-    (itemCount) => {
+    () => [props.rows.length, props.paginationTotal, props.schema.pagination] as const,
+    ([rowCount, totalCount]) => {
+      if (isRemotePagination(props.schema.pagination)) {
+        if (typeof totalCount !== 'number') return;
+        paginationState.value = {
+          ...paginationState.value,
+          page: clampPage(paginationState.value.page, totalCount, paginationState.value.pageSize),
+        };
+        return;
+      }
       paginationState.value = {
         ...paginationState.value,
-        page: clampPage(paginationState.value.page, itemCount, paginationState.value.pageSize),
+        page: clampPage(paginationState.value.page, rowCount, paginationState.value.pageSize),
       };
     }
   );

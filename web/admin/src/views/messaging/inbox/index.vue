@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="inboxPage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="inboxPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
 
     <n-drawer v-model:show="detailVisible" :width="720" placement="right">
       <n-drawer-content :title="activeMessage?.title || '消息详情'">
@@ -44,6 +44,7 @@
   const { hasPermission } = usePermission();
   const loading = ref(false);
   const rows = ref<MessageRecipient[]>([]);
+  const paginationTotal = ref(0);
   const detailVisible = ref(false);
   const activeMessage = ref<MessageRecipient | null>(null);
 
@@ -110,8 +111,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessagingInbox({ ...runtimeListParams(state), page: 1, page_size: 50 });
+      const payload = await getMessagingInbox(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

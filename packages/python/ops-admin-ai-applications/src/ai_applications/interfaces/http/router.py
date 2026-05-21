@@ -21,10 +21,14 @@ def ai_studio_overview() -> dict[str, Any]:
 
 @router.get("/ai-studio/items", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def ai_studio_items(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_applications(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_ai_applications(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-studio/traces", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
@@ -34,10 +38,14 @@ def ai_studio_traces(limit: int = 50, sort_by: str | None = Query(default=None),
 
 @router.get("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
 def ai_applications(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_applications(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_ai_applications(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_applications:read"))])

@@ -36,11 +36,13 @@ def update_llm_config(
 
 @router.get("/llm/providers")
 def llm_providers(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_providers(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(services.list_providers(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/llm/providers")
@@ -64,11 +66,13 @@ def update_llm_provider(
 
 @router.get("/llm/models")
 def llm_models(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_models(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(services.list_models(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/llm/models")
@@ -92,11 +96,13 @@ def update_llm_model(
 
 @router.get("/llm/tasks")
 def llm_tasks(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_tasks(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(services.list_tasks(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/llm/tasks/register")
@@ -109,11 +115,13 @@ def register_llm_task(
 
 @router.get("/llm/routing-policies")
 def llm_routing_policies(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("llm_config:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_routing_policies(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(services.list_routing_policies(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/llm/routing-policies")
@@ -137,12 +145,13 @@ def update_llm_routing_policy(
 
 @router.get("/llm/call-logs")
 def llm_call_logs(
-    limit: int = 50,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("llm_debug:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_call_logs(limit=limit, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(services.list_call_logs(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.get("/llm/openai/v1/models", dependencies=[Depends(auth.require_auth)])

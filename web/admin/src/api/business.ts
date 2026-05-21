@@ -213,7 +213,7 @@ export function saveLlmConfig(payload: LlmConfigPayload) {
   return Alova.Put('/llm-config', payload);
 }
 
-export function getLlmProviders(params: SortParams = {}) {
+export function getLlmProviders(params: PageParams & SortParams = {}) {
   return Alova.Get('/llm/providers', { params: withNoCacheParams(params) });
 }
 
@@ -221,7 +221,7 @@ export function saveLlmProvider(payload: LlmProviderPayload) {
   return Alova.Post('/llm/providers', payload);
 }
 
-export function getLlmModels(params: SortParams = {}) {
+export function getLlmModels(params: PageParams & SortParams = {}) {
   return Alova.Get('/llm/models', { params: withNoCacheParams(params) });
 }
 
@@ -229,7 +229,7 @@ export function saveLlmModel(payload: LlmModelPayload) {
   return Alova.Post('/llm/models', payload);
 }
 
-export function getLlmTasks(params: SortParams = {}) {
+export function getLlmTasks(params: PageParams & SortParams = {}) {
   return Alova.Get('/llm/tasks', { params: withNoCacheParams(params) });
 }
 
@@ -237,7 +237,7 @@ export function registerLlmTask(payload: LlmTaskPayload) {
   return Alova.Post('/llm/tasks/register', payload);
 }
 
-export function getLlmRoutingPolicies(params: SortParams = {}) {
+export function getLlmRoutingPolicies(params: PageParams & SortParams = {}) {
   return Alova.Get('/llm/routing-policies', { params: withNoCacheParams(params) });
 }
 
@@ -245,10 +245,15 @@ export function saveLlmRoutingPolicy(payload: LlmRoutingPolicyPayload) {
   return Alova.Post('/llm/routing-policies', payload);
 }
 
-export function getLlmCallLogs(params: number | ({ limit?: number } & SortParams) = {}) {
+export function getLlmCallLogs(params: number | (PageParams & SortParams) = {}) {
   const requestParams = typeof params === 'number' ? { limit: params } : params;
   return Alova.Get('/llm/call-logs', {
-    params: withNoCacheParams({ limit: requestParams.limit ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
+    params: withNoCacheParams({
+      page: requestParams.page ?? 1,
+      page_size: requestParams.page_size ?? (typeof params === 'number' ? params : 20),
+      sort_by: requestParams.sort_by,
+      sort_dir: requestParams.sort_dir,
+    }),
   });
 }
 
@@ -315,7 +320,23 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
-export function getApiKeys(params: SortParams = {}) {
+export interface PageParams {
+  page?: number;
+  page_size?: number;
+}
+
+export interface BusinessPagination {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface BusinessListData<TItem = Recordable> {
+  items: TItem[];
+  pagination: BusinessPagination;
+}
+
+export function getApiKeys(params: PageParams & SortParams = {}) {
   return Alova.Get('/api-keys', { params: withNoCacheParams(params) });
 }
 
@@ -331,7 +352,7 @@ export function revokeApiKey(keyId: number) {
   return Alova.Delete(`/api-keys/${keyId}`);
 }
 
-export function getTenants(params: { q?: string } & SortParams = {}) {
+export function getTenants(params: { q?: string } & PageParams & SortParams = {}) {
   return Alova.Get('/tenants', { params: withNoCacheParams(params) });
 }
 
@@ -355,11 +376,11 @@ export function switchTenant(tenantId: number) {
   return Alova.Post('/auth/tenant/switch', { tenant_id: tenantId });
 }
 
-export function getTenantUsers(tenantId: number, params: SortParams = {}) {
+export function getTenantUsers(tenantId: number, params: PageParams & SortParams = {}) {
   return Alova.Get(`/tenants/${tenantId}/users`, { params: withNoCacheParams(params) });
 }
 
-export function getCurrentTenantUsers(params: SortParams = {}) {
+export function getCurrentTenantUsers(params: PageParams & SortParams = {}) {
   return Alova.Get('/tenant/users', { params: withNoCacheParams(params) });
 }
 
@@ -403,11 +424,11 @@ export function disableCurrentTenantUser(userId: number) {
   return Alova.Post(`/tenant/users/${userId}/disable`);
 }
 
-export function getTenantApiKeys(tenantId: number, params: SortParams = {}) {
+export function getTenantApiKeys(tenantId: number, params: PageParams & SortParams = {}) {
   return Alova.Get(`/tenants/${tenantId}/api-keys`, { params: withNoCacheParams(params) });
 }
 
-export function getCurrentTenantApiKeys(params: SortParams = {}) {
+export function getCurrentTenantApiKeys(params: PageParams & SortParams = {}) {
   return Alova.Get('/tenant/api-keys', { params: withNoCacheParams(params) });
 }
 
@@ -451,7 +472,7 @@ export function deleteRbacMenu(menuId: number) {
   return Alova.Delete(`/rbac/menus/${menuId}`);
 }
 
-export function getRbacRoles(params: SortParams = {}) {
+export function getRbacRoles(params: PageParams & SortParams = {}) {
   return Alova.Get('/rbac/roles', { params: withNoCacheParams(params) });
 }
 
@@ -471,7 +492,7 @@ export function deleteRbacRole(roleId: number) {
   return Alova.Delete(`/rbac/roles/${roleId}`);
 }
 
-export function getRbacUsers(params: SortParams = {}) {
+export function getRbacUsers(params: PageParams & SortParams = {}) {
   return Alova.Get('/rbac/users', { params: withNoCacheParams(params) });
 }
 
@@ -515,7 +536,9 @@ export function saveAuthorizationResource(resourceKey: string, payload: DataReso
   return Alova.Put(`/authorization/resources/${resourceKey}`, payload);
 }
 
-export function getDataAccessPolicies(params: { subject_type?: string; subject_id?: number; resource_key?: string; tenant_id?: number | null } & SortParams = {}) {
+export function getDataAccessPolicies(
+  params: { subject_type?: string; subject_id?: number; resource_key?: string; tenant_id?: number | null } & PageParams & SortParams = {}
+) {
   return Alova.Get('/authorization/data-access-policies', { params: withNoCacheParams(params) });
 }
 

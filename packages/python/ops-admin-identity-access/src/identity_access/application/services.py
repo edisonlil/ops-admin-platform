@@ -66,6 +66,17 @@ def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dict[str, Any]:
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(items)
+    start = (safe_page - 1) * safe_page_size
+    return {
+        "items": items[start:start + safe_page_size],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
+    }
+
+
 def authenticate(
     username: str,
     password: str,
@@ -269,6 +280,17 @@ def list_tenants(q: str | None = None, *, sort_by: str | None = None, sort_dir: 
     return tenant_service.list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir)
 
 
+def list_tenants_page(
+    q: str | None = None,
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return page_items(list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
+
+
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
     return _after_access_context_change(tenant_service.create_tenant(payload))
 
@@ -287,6 +309,17 @@ def suspend_tenant(tenant_id: int) -> dict[str, Any]:
 
 def list_tenant_users(tenant_id: int, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
     return sort_dict_items(tenant_service.list_tenant_users(tenant_id), sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
+
+
+def list_tenant_users_page(
+    tenant_id: int,
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return page_items(list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -308,6 +341,16 @@ def list_users() -> list[dict[str, Any]]:
 def list_platform_users(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
     items = [enrich_user_with_departments(item) for item in rbac_service.list_platform_users()]
     return sort_dict_items(items, sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
+
+
+def list_platform_users_page(
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return page_items(list_platform_users(sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
 
 
 def create_user(
@@ -370,6 +413,16 @@ def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
 
 def list_roles(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
     return sort_dict_items(rbac_service.list_roles(), sort_by, sort_dir, allowed=ROLE_SORT_COLUMNS)
+
+
+def list_roles_page(
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return page_items(list_roles(sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
 
 
 def create_role(
@@ -553,6 +606,22 @@ def list_api_keys(
     sort_dir: str | None = None,
 ) -> list[dict[str, Any]]:
     return api_key_service.list_api_keys(tenant_id=tenant_id, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir)
+
+
+def list_api_keys_page(
+    tenant_id: int | None = None,
+    current_user: dict[str, Any] | None = None,
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return page_items(
+        list_api_keys(tenant_id=tenant_id, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir),
+        page=page,
+        page_size=page_size,
+    )
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:

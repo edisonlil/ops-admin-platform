@@ -1,6 +1,6 @@
 <template>
   <div class="prompt-library-page">
-    <ListPageRuntime :schema="pageSchema" :rows="filteredRows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input v-model:value="keyword" clearable placeholder="搜索标题、说明、标签" class="prompt-library-page__keyword" />
         <n-select
@@ -24,7 +24,7 @@
             {{ option.label }}
           </button>
         </div>
-        <span class="prompt-filter-summary">共 {{ rows.length }} 个，当前显示 {{ filteredRows.length }} 个</span>
+        <span class="prompt-filter-summary">共 {{ paginationTotal }} 个</span>
       </template>
 
       <template #item="{ row }">
@@ -254,6 +254,7 @@
   const polishingTarget = ref<'asset' | 'version' | ''>('');
   const assetFormLoading = ref(false);
   const rows = ref<PromptAsset[]>([]);
+  const paginationTotal = ref(0);
   const versions = ref<PromptVersion[]>([]);
   const selectedPrompt = ref<PromptAsset | null>(null);
   const keyword = ref('');
@@ -298,25 +299,6 @@
   ];
   const tagOptions = computed<SelectOption[]>(() => uniqueOptions(rows.value.flatMap((row) => row.tags || [])));
   const isVersionReadonly = computed(() => Boolean(versionForm.id && versionForm.status !== 'draft'));
-  const filteredRows = computed(() => {
-    const text = keyword.value.trim().toLowerCase();
-    return rows.value.filter((row) => {
-      const tags = row.tags || [];
-      const matchesKeyword =
-        !text ||
-        row.name.toLowerCase().includes(text) ||
-        row.description.toLowerCase().includes(text) ||
-        tags.some((tag) => tag.toLowerCase().includes(text));
-      const matchesStatus = statusFilter.value === 'all' || row.status === statusFilter.value;
-      const matchesTags = !tagFilters.value.length || tagFilters.value.some((tag) => tags.includes(tag));
-      return (
-        matchesKeyword &&
-        matchesStatus &&
-        matchesTags
-      );
-    });
-  });
-
   const pageSchema = computed(() => defineListPage<PromptAsset>({
     id: 'prompts.library',
     title: '提示词库',
@@ -572,8 +554,13 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getPromptAssets({ ...runtimeListParams(state), page: 1, page_size: 100 });
+      const payload = await getPromptAssets({
+        ...runtimeListParams(state, { pageSize: 12 }),
+        keyword: keyword.value.trim() || undefined,
+        status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      });
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

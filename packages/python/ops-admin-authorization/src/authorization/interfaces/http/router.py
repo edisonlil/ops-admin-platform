@@ -36,6 +36,8 @@ def upsert_resource(
 
 @router.get("/data-access-policies")
 def data_access_policies(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     subject_type: str | None = Query(default=None),
     subject_id: int | None = Query(default=None, ge=1),
     resource_key: str | None = Query(default=None),
@@ -47,6 +49,8 @@ def data_access_policies(
     return ok_or_error(
         lambda: services.list_data_access_policies(
             current_user,
+            page=page,
+            page_size=page_size,
             subject_type=subject_type,
             subject_id=subject_id,
             resource_key=resource_key,

@@ -207,19 +207,24 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
+export interface PageParams {
+  page?: number;
+  page_size?: number;
+}
+
 export function getAiStudioOverview() {
   return Alova.Get<AiStudioOverview>('/ai-studio/overview', { params: withNoCacheParams() });
 }
 
-export function getAiApplications(params: SortParams = {}) {
+export function getAiApplications(params: PageParams & SortParams & { keyword?: string; status?: string } = {}) {
   return Alova.Get<AiListData<AiApplication>>('/ai-applications', { params: withNoCacheParams(params) });
 }
 
-export function getAiCapabilities(params: SortParams = {}) {
+export function getAiCapabilities(params: PageParams & SortParams & { keyword?: string; status?: string } = {}) {
   return Alova.Get<AiListData<AiCapability>>('/ai-capabilities', { params: withNoCacheParams(params) });
 }
 
-export function getPlatformAiCapabilities(params: SortParams = {}) {
+export function getPlatformAiCapabilities(params: PageParams & SortParams & { keyword?: string; status?: string } = {}) {
   return Alova.Get<AiListData<AiCapability>>('/admin/ai-capabilities', { params: withNoCacheParams(params) });
 }
 

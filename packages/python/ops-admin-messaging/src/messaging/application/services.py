@@ -174,6 +174,17 @@ def list_my_inbox(
     }
 
 
+def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dict[str, Any]:
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(items)
+    start = (safe_page - 1) * safe_page_size
+    return {
+        "items": items[start:start + safe_page_size],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
+    }
+
+
 def unread_count(current_user: dict[str, Any]) -> dict[str, Any]:
     try:
         count = repositories.unread_count(
@@ -210,14 +221,21 @@ def mark_all_read(current_user: dict[str, Any]) -> dict[str, Any]:
     return {"updated": count}
 
 
-def list_templates(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_templates(
+    current_user: dict[str, Any],
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items = repositories.list_templates(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return {"items": [item.to_dict() for item in items]}
+    return page_items([item.to_dict() for item in items], page=page, page_size=page_size)
 
 
 def render_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -277,14 +295,21 @@ def set_template_status(template_id: int, next_status: str, current_user: dict[s
     return {"item": item.to_dict()}
 
 
-def list_channel_accounts(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_channel_accounts(
+    current_user: dict[str, Any],
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items = repositories.list_channel_accounts(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return {"items": [item.to_dict() for item in items]}
+    return page_items([item.to_dict() for item in items], page=page, page_size=page_size)
 
 
 def save_channel_account(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
@@ -336,14 +361,21 @@ def test_channel_account(account_id: int, current_user: dict[str, Any]) -> dict[
     return {"ok": False, "channel": item.channel, "message": "外部渠道适配器尚未接入，请使用群聊机器人配置 Webhook"}
 
 
-def list_chat_bots(current_user: dict[str, Any], *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_chat_bots(
+    current_user: dict[str, Any],
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
     try:
         items = repositories.list_chat_bots(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return {"items": [item.to_dict() for item in items]}
+    return page_items([item.to_dict() for item in items], page=page, page_size=page_size)
 
 
 def save_chat_bot(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:

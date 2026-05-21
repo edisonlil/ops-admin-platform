@@ -1,6 +1,6 @@
 <template>
   <div class="data-scope-page">
-    <ListPageRuntime :schema="scopePage" :rows="filteredRows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="scopePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-select v-model:value="subjectTypeFilter" clearable placeholder="主体类型" :options="subjectTypeOptions" class="data-scope-page__filter" />
         <n-select
@@ -79,7 +79,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -125,6 +125,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<PolicyRow[]>([]);
+  const paginationTotal = ref(0);
   const resources = ref<ResourceRow[]>([]);
   const departments = ref<DepartmentRow[]>([]);
   const users = ref<UserRow[]>([]);
@@ -175,14 +176,6 @@
   );
   const departmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions());
   const userOptions = computed<SelectOption[]>(() => users.value.map((user) => ({ label: `${user.username} (#${user.id})`, value: user.id })));
-  const filteredRows = computed(() =>
-    rows.value.filter((row) => {
-      const matchedSubject = !subjectTypeFilter.value || row.subject_type === subjectTypeFilter.value;
-      const matchedResource = !resourceFilter.value || row.resource_key === resourceFilter.value;
-      return matchedSubject && matchedResource;
-    })
-  );
-
   const columns: DataTableColumns<PolicyRow> = [
     { title: '主体类型', key: 'subject_type', width: 110, render: (row) => subjectTypeLabel(String(row.subject_type)) },
     { title: '业务主体', key: 'subject_id', minWidth: 220, render: (row) => subjectLabel(row) },
@@ -404,11 +397,16 @@
     try {
       const [resourcePayload, scopePayload, userPayload] = await Promise.all([
         getAuthorizationResources(),
-        getDataAccessPolicies(runtimeSortParams(state)),
+        getDataAccessPolicies({
+          ...runtimeListParams(state),
+          subject_type: subjectTypeFilter.value || undefined,
+          resource_key: resourceFilter.value || undefined,
+        }),
         getCurrentTenantUsers(),
       ]);
       resources.value = resourcePayload.items || [];
       rows.value = scopePayload.items || [];
+      paginationTotal.value = scopePayload.pagination?.total || rows.value.length;
       users.value = userPayload.items || [];
       try {
         const departmentPayload = await getDepartments({ include_disabled: false });

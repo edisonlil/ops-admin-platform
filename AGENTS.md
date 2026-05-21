@@ -37,6 +37,8 @@
 }
 ```
 - List endpoints place rows and pagination under `data.items` and `data.pagination`.
+- All business list endpoints must implement backend pagination. The request query fields are `page` (1-based, default `1`) and `page_size` (default `20`, bounded by the endpoint, normally max `100`). Responses must return `data.items` for the current page only and `data.pagination` with `page`, `page_size`, and `total`.
+- Frontend list pages must pass Page Runtime pagination state to backend APIs with `runtimeListParams(state)` and must pass the backend `pagination.total` back to `ListPageRuntime`. Do not fetch all rows and rely on frontend slicing for business pagination.
 - Errors must use `success=false`, a stable `code`, a human-readable `message`, and optional `errors`.
 - Frontend request utilities unwrap the envelope. Page components should consume business data only.
 
@@ -61,6 +63,7 @@
 - New list/data-view shapes such as tabbed lists, split master-detail views, kanban, tree, calendar, timeline, gallery, or map views should be added as Page Runtime view types/adapters instead of hand-building equivalent page structure inside business pages.
 - Business pages may provide schemas, rows, loading state, actions, and item/detail slots, but Page Runtime owns header, filters, toolbar, collection boundaries, table tools, pagination placement, density, spacing, and visual consistency.
 - Table pagination should be rendered by Page Runtime outside the data table; do not enable `n-data-table` internal pagination to simulate page-level pagination.
+- Page Runtime pagination is backend pagination by default. Only small static/non-business local panes may opt out with `pagination: false` or `pagination: { remote: false }`, and business list/data-view pages must not use that escape hatch.
 
 ## Testing
 - Run backend tests after server changes.

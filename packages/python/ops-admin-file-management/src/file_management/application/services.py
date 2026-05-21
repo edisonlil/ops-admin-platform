@@ -773,24 +773,35 @@ def save_quota(tenant_id: int, payload: dict[str, Any], current_user: dict[str, 
     return {"quota": quota.to_dict(), "usage": repositories.storage_usage(tenant_id=tenant_id).to_dict()}
 
 
-def list_storage_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dict[str, Any]:
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    total = len(items)
+    start = (safe_page - 1) * safe_page_size
+    return {
+        "items": items[start:start + safe_page_size],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
+    }
+
+
+def list_storage_profiles(page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
         items = repositories.list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
-    return {"items": [item.to_dict() for item in items]}
+    return page_items([item.to_dict() for item in items], page=page, page_size=page_size)
 
 
-def list_preview_profiles(sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_preview_profiles(page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
         items = repositories.list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
-    return {"items": [item.to_dict() for item in items]}
+    return page_items([item.to_dict() for item in items], page=page, page_size=page_size)
 
 
 def save_preview_profile(payload: dict[str, Any], current_user: dict[str, Any], profile_id: int | None = None) -> dict[str, Any]:

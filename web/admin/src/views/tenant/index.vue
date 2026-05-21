@@ -1,13 +1,13 @@
 <template>
   <div class="tenant-page">
-    <ListPageRuntime v-if="isPlatformTenantManagement" :schema="tenantListPage" :rows="tenants" :loading="loading" @refresh="reload">
+    <ListPageRuntime v-if="isPlatformTenantManagement" :schema="tenantListPage" :rows="tenants" :loading="loading" :pagination-total="tenantPaginationTotal" @refresh="reload">
       <template #filters>
         <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" class="tenant-page__search" @keyup.enter="reload" />
         <n-button @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
 
-    <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" @refresh="loadTenantUsers" />
+    <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
 
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
       <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
@@ -59,10 +59,10 @@
             </n-descriptions>
           </n-tab-pane>
           <n-tab-pane name="users" tab="成员">
-            <ListPageRuntime :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" @refresh="loadTenantUsers" />
+            <ListPageRuntime :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
           </n-tab-pane>
           <n-tab-pane name="keys" tab="API Key">
-            <ListPageRuntime :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" @refresh="loadTenantKeys" />
+            <ListPageRuntime :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys" />
           </n-tab-pane>
           <n-tab-pane name="init" tab="初始化">
             <n-result status="success" title="租户初始化由后端受控脚本保证">
@@ -180,7 +180,7 @@
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface TenantRow extends Recordable {
@@ -230,6 +230,7 @@
   const query = ref('');
   const loading = ref(false);
   const tenants = ref<TenantRow[]>([]);
+  const tenantPaginationTotal = ref(0);
   const tenantModalVisible = ref(false);
   const tenantFormMode = ref<'create' | 'edit'>('create');
   const savingTenant = ref(false);
@@ -240,6 +241,8 @@
   const activeTenant = ref<TenantRow | null>(null);
   const tenantUsers = ref<TenantUserRow[]>([]);
   const tenantKeys = ref<TenantApiKeyRow[]>([]);
+  const tenantUsersPaginationTotal = ref(0);
+  const tenantKeysPaginationTotal = ref(0);
   const departments = ref<DepartmentRow[]>([]);
   const usersLoading = ref(false);
   const keysLoading = ref(false);
@@ -602,7 +605,7 @@
 
   async function ensureRoles() {
     if (roleOptions.value.length) return;
-    const payload = isPlatformTenantManagement.value ? await getRbacRoles() : await getCurrentTenantRoles();
+    const payload = isPlatformTenantManagement.value ? await getRbacRoles({ page: 1, page_size: 100 }) : await getCurrentTenantRoles();
     roleOptions.value = (payload.items || []).filter((role) => role.role_scope === 'tenant').map((role) => ({ label: role.name || role.key, value: role.key }));
   }
 
@@ -623,12 +626,13 @@
     usersLoading.value = true;
     try {
       const tenantId = activeTenant.value.id;
-      const params = runtimeSortParams(state);
+      const params = runtimeListParams(state);
       const departmentsPromise = ensureDepartments();
       const usersPromise = isPlatformTenantManagement.value ? getTenantUsers(tenantId, params) : getCurrentTenantUsers(params);
       const [payload] = await Promise.all([usersPromise, departmentsPromise]);
       if (!activeTenant.value || Number(activeTenant.value.id) !== Number(tenantId)) return;
       tenantUsers.value = payload.items || [];
+      tenantUsersPaginationTotal.value = payload.pagination?.total || tenantUsers.value.length;
     } finally {
       usersLoading.value = false;
     }
@@ -638,9 +642,10 @@
     if (!activeTenant.value) return;
     keysLoading.value = true;
     try {
-      const params = runtimeSortParams(state);
+      const params = runtimeListParams(state);
       const payload = isPlatformTenantManagement.value ? await getTenantApiKeys(activeTenant.value.id, params) : await getCurrentTenantApiKeys(params);
       tenantKeys.value = payload.items || [];
+      tenantKeysPaginationTotal.value = payload.pagination?.total || tenantKeys.value.length;
     } finally {
       keysLoading.value = false;
     }
@@ -840,8 +845,9 @@
     loading.value = true;
     try {
       if (isPlatformTenantManagement.value) {
-        const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
+        const payload = await getTenants({ q: query.value || undefined, ...runtimeListParams(state) });
         tenants.value = payload.items || [];
+        tenantPaginationTotal.value = payload.pagination?.total || tenants.value.length;
       } else {
         const tenant = userStore.info?.current_tenant as TenantRow | undefined;
         activeTenant.value = tenant ? { ...tenant, user_count: 0, api_key_count: 0 } : null;

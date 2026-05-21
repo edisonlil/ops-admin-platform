@@ -1,5 +1,30 @@
 # Page Runtime
 
+## Pagination Contract
+
+业务列表必须使用后端分页。请求统一使用 `page` 和 `page_size` 查询参数，其中 `page` 从 1 开始，`page_size` 默认 20，并由后端按接口上限限制。响应统一放在 envelope 的 `data.items` 和 `data.pagination` 下：
+
+```json
+{
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total": 0
+  }
+}
+```
+
+页面刷新时必须把 Runtime 状态传给接口：
+
+```ts
+const payload = await listApi(runtimeListParams(state));
+rows.value = payload.items || [];
+paginationTotal.value = payload.pagination?.total || 0;
+```
+
+`ListPageRuntime` 默认按远程分页处理：翻页和修改每页条数会触发 `refresh(state)`，并直接渲染后端返回的当前页 `rows`，不会再对业务数据做前端切片。业务页面必须通过 `:pagination-total="paginationTotal"` 传入后端总数。只有小型静态面板或非业务本地集合可以显式使用 `pagination: false` 或 `pagination: { remote: false }`。
+
 `page-runtime` 是后台页面协议层。它不替代 Theme Runtime，也不接管业务数据，只统一页面骨架、页面节奏、列表协议、密度和集合视图的基础交互。
 
 ## List Page

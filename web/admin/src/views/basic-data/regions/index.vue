@@ -269,7 +269,7 @@
                 ],
               },
             },
-            pagination: { pageSize: 20 },
+            pagination: false,
           },
         },
       },

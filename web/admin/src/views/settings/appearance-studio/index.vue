@@ -1,6 +1,6 @@
 <template>
   <div v-if="!isEditorMode" class="appearance-theme-page">
-    <ListPageRuntime :schema="themeListPage" :rows="filteredThemes" :loading="themesLoading" @refresh="loadThemes">
+    <ListPageRuntime :schema="themeListPage" :rows="themes" :loading="themesLoading" :pagination-total="themePaginationTotal" @refresh="loadThemes">
       <template #filters>
         <n-input
           v-model:value="themeSearch"
@@ -20,7 +20,7 @@
             {{ option.label }}
           </button>
         </div>
-        <span class="theme-filter-summary">共 {{ themes.length }} 个，当前显示 {{ filteredThemes.length }} 个</span>
+        <span class="theme-filter-summary">共 {{ themePaginationTotal }} 个</span>
       </template>
 
       <template #item="{ row: theme }">
@@ -173,7 +173,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, nextTick, onMounted, ref } from 'vue';
+  import { computed, nextTick, onMounted, ref, watch } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import {
     createAppearanceTheme,
@@ -192,7 +192,7 @@
   import SemanticPanel from '@/components/AppearanceStudio/SemanticPanel.vue';
   import VisualTokenPanel from '@/components/AppearanceStudio/VisualTokenPanel.vue';
   import type { EffectiveAppearanceTheme } from '@/api/appearance';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
 
   type ThemeItem = NonNullable<EffectiveAppearanceTheme['theme']>;
@@ -240,6 +240,7 @@
   const appearanceStore = useAppearanceStore();
   const { hasPermission } = usePermission();
   const themes = ref<ThemeItem[]>([]);
+  const themePaginationTotal = ref(0);
   const themesLoading = ref(false);
   const publishingTheme = ref(false);
   const themeSearch = ref('');
@@ -280,7 +281,7 @@
         : undefined,
       rightTools: ['refresh'],
     },
-    pagination: false,
+    pagination: { pageSize: 12, pageSizes: [12, 24, 48], showSizePicker: true },
   });
 
   const studioNavigation: StudioSection[] = [
@@ -366,18 +367,6 @@
     window.scrollTo({ top: 0, left: 0 });
   }
 
-  const filteredThemes = computed(() => {
-    const keyword = themeSearch.value.trim().toLowerCase();
-    return themes.value.filter((theme) => {
-      const status = theme.status || 'draft';
-      const matchesStatus = statusFilter.value === 'all' || status === statusFilter.value;
-      const searchable = [theme.name || '未命名主题', statusLabel(theme.status), theme.presetId || theme.preset_id || 'default']
-        .join(' ')
-        .toLowerCase();
-      return matchesStatus && (!keyword || searchable.includes(keyword));
-    });
-  });
-
   function statusLabel(status?: string) {
     if (status === 'published') return '已发布';
     if (status === 'disabled') return '已停用';
@@ -436,8 +425,13 @@
   async function loadThemes(state?: ListRuntimeState) {
     themesLoading.value = true;
     try {
-      const payload = await getAppearanceThemes(runtimeSortParams(state));
+      const payload = await getAppearanceThemes({
+        ...runtimeListParams(state, { pageSize: 12 }),
+        keyword: themeSearch.value.trim() || undefined,
+        status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      });
       themes.value = payload.items || [];
+      themePaginationTotal.value = payload.pagination?.total || themes.value.length;
     } finally {
       themesLoading.value = false;
     }
@@ -516,6 +510,10 @@
     appearanceStore.clearEditingTheme();
     await loadThemes();
   }
+
+  watch([themeSearch, statusFilter], () => {
+    loadThemes();
+  });
 
   onMounted(loadThemes);
 </script>

@@ -56,6 +56,22 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
+export interface PageParams {
+  page?: number;
+  page_size?: number;
+}
+
+export interface AppearancePagination {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface AppearanceListData<TItem> {
+  items: TItem[];
+  pagination: AppearancePagination;
+}
+
 export function getEffectiveAppearanceTheme(options: RequestCacheOptions = {}) {
   return Alova.Get<EffectiveAppearanceTheme>('/appearance/effective-theme', {
     params: withRefreshParams({}, options),
@@ -84,8 +100,8 @@ export function publishCurrentTenantAppearanceTheme(payload: PublishAppearanceTh
   return Alova.Put<EffectiveAppearanceTheme>('/appearance/tenant-theme', payload);
 }
 
-export function getAppearanceThemes(params: SortParams = {}) {
-  return Alova.Get<{ items: NonNullable<EffectiveAppearanceTheme['theme']>[] }>('/appearance/themes', {
+export function getAppearanceThemes(params: PageParams & SortParams & { keyword?: string; status?: string } = {}) {
+  return Alova.Get<AppearanceListData<NonNullable<EffectiveAppearanceTheme['theme']>>>('/appearance/themes', {
     params: withNoCacheParams(params),
   });
 }

@@ -112,7 +112,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -138,6 +138,7 @@
   const itemFormRef = ref<FormInst | null>(null);
   const typeRows = ref<DictionaryType[]>([]);
   const itemRows = ref<DictionaryItem[]>([]);
+  const itemPaginationTotal = ref(0);
   const activeType = ref<DictionaryType | null>(null);
   const selectedTypeKeys = ref<Array<string | number>>([]);
   const typeKeyword = ref('');
@@ -316,6 +317,7 @@
             rows: itemRows.value,
             loading: loadingItems.value,
             refresh: reloadItems,
+            paginationTotal: itemPaginationTotal.value,
             primaryAction:
               activeType.value && hasPermission(['basic-data:dictionary:manage'])
                 ? { key: 'create-item', label: '新建字典项', type: 'primary', onClick: () => openCreateItem() }
@@ -498,13 +500,12 @@
     loadingItems.value = true;
     try {
       const payload = await getDictionaryItems(activeType.value.id, {
-        page: 1,
-        page_size: 100,
+        ...runtimeListParams(state || itemRuntimeState.value, { pageSize: 20 }),
         keyword: itemKeyword.value,
         status: itemStatus.value,
-        ...itemRuntimeState.value.sort,
       });
       itemRows.value = payload.items || [];
+      itemPaginationTotal.value = payload.pagination?.total || itemRows.value.length;
     } finally {
       loadingItems.value = false;
     }

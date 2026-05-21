@@ -307,11 +307,13 @@ def update_tenant_quota(
 
 @router.get("/admin/storage-profiles")
 def storage_profiles(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_admin),
 ) -> dict[str, Any]:
-    return ok(services.list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_storage_profiles(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/storage-provider-options")
@@ -323,11 +325,13 @@ def storage_provider_options(
 
 @router.get("/admin/preview-profiles")
 def preview_profiles(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_admin),
 ) -> dict[str, Any]:
-    return ok(services.list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_preview_profiles(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/admin/preview-provider-options")

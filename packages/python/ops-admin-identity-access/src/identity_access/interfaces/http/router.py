@@ -102,11 +102,13 @@ def update_current_profile(
 
 @router.get("/api-keys")
 def api_keys(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys(sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
+    return ok(services.list_api_keys_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/api-keys")
@@ -134,11 +136,13 @@ def revoke_api_key(key_id: int, _: dict[str, Any] = Depends(auth.require_permiss
 @router.get("/tenants")
 def tenants(
     q: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_tenants(q=q, sort_by=sort_by, sort_dir=sort_dir)})
+    return ok(services.list_tenants_page(q=q, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/tenants")
@@ -171,11 +175,13 @@ def suspend_tenant(tenant_id: int, _: dict[str, Any] = Depends(auth.require_plat
 @router.get("/tenants/{tenant_id}/users")
 def tenant_users(
     tenant_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir)})
+    return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/tenants/{tenant_id}/users")
@@ -218,11 +224,13 @@ def disable_tenant_user(
 @router.get("/tenants/{tenant_id}/api-keys")
 def tenant_api_keys(
     tenant_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
+    return ok(services.list_api_keys_page(tenant_id=tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/tenants/{tenant_id}/api-keys")
@@ -265,12 +273,14 @@ def revoke_tenant_api_key(
 
 @router.get("/tenant/users")
 def current_tenant_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"items": services.list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir)})
+    return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/tenant/users")
@@ -321,12 +331,14 @@ def current_tenant_roles(
 
 @router.get("/tenant/api-keys")
 def current_tenant_api_keys(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"items": services.list_api_keys(tenant_id=tenant_id, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user)})
+    return ok(services.list_api_keys_page(tenant_id=tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
 
 
 @router.post("/tenant/api-keys")
@@ -364,11 +376,13 @@ def revoke_current_tenant_api_key(
 
 @router.get("/rbac/users")
 def rbac_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_platform_users(sort_by=sort_by, sort_dir=sort_dir)})
+    return ok(services.list_platform_users_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/rbac/users")
@@ -427,11 +441,13 @@ def disable_rbac_user(
 
 @router.get("/rbac/roles")
 def rbac_roles(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:role:access")),
 ) -> dict[str, Any]:
-    return ok({"items": services.list_roles(sort_by=sort_by, sort_dir=sort_dir)})
+    return ok(services.list_roles_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/rbac/roles")

@@ -1,6 +1,6 @@
 <template>
   <div class="ai-quota-page">
-    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" class="ai-quota-page__search" @keyup.enter="reload" />
         <n-button type="primary" @click="reload">查询</n-button>
@@ -46,7 +46,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { getTenants } from '@/api/business';
   import { getAdminTenantAiQuota, saveAdminTenantAiQuota, type AiQuota } from '@/api/aiStudio';
@@ -73,6 +73,7 @@
   const drawerVisible = ref(false);
   const query = ref('');
   const rows = ref<QuotaRow[]>([]);
+  const paginationTotal = ref(0);
   const activeRow = ref<QuotaRow | null>(null);
   const quotaForm = reactive({
     max_applications: 5,
@@ -186,9 +187,10 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
+      const payload = await getTenants({ q: query.value || undefined, ...runtimeListParams(state) });
       const tenants = ((payload as { items?: TenantRow[] }).items || []).map(normalizeTenant);
       rows.value = await Promise.all(tenants.map(loadTenantQuotaRow));
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

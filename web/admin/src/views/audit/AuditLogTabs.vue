@@ -65,6 +65,13 @@
     sql: [],
     visitor: [],
   });
+  const totalsByCategory = reactive<Record<AuditLogCategory, number>>({
+    system: 0,
+    operation: 0,
+    api: 0,
+    sql: 0,
+    visitor: 0,
+  });
   const loadingByCategory = reactive<Record<AuditLogCategory, boolean>>({
     system: false,
     operation: false,
@@ -244,12 +251,13 @@
         tabs: visibleCategories.value.map((item) => ({
           name: item.category,
           label: item.label,
-          count: rowsByCategory[item.category].length,
+          count: totalsByCategory[item.category],
           title: item.title,
           description: item.description,
           rows: rowsByCategory[item.category],
           loading: loadingByCategory[item.category],
           refresh: (state) => loadCategory(item.category, state),
+          paginationTotal: totalsByCategory[item.category],
           view: createTableView(item.category),
           pagination: { pageSize: 20, pageSizes: [20, 50, 100], showSizePicker: true },
         })),
@@ -288,14 +296,13 @@
     try {
       const payload = await getAuditLogs(category, {
         ...runtimeListParams(state),
-        page: 1,
-        page_size: 100,
         tenant_id: selectedTenantForRequest(),
         keyword: keyword.value || undefined,
         outcome: outcome.value || undefined,
         severity: severity.value || undefined,
       });
       rowsByCategory[category] = payload.items || [];
+      totalsByCategory[category] = payload.pagination?.total || rowsByCategory[category].length;
     } finally {
       loadingByCategory[category] = false;
     }

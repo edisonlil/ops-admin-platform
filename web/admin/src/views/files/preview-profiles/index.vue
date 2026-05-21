@@ -1,6 +1,6 @@
 <template>
   <div class="preview-profile-page">
-    <ListPageRuntime :schema="profilePage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="profilePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
 
     <n-drawer v-model:show="drawerVisible" width="720">
       <n-drawer-content :title="form.id ? '编辑预览配置' : '新增预览配置'">
@@ -55,7 +55,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -76,6 +76,7 @@
   const drawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<PreviewProfile[]>([]);
+  const paginationTotal = ref(0);
   const providerOptions = ref<SelectOption[]>([{ label: 'kkFileView', value: 'kkfileview' }]);
   const extensionsText = ref(defaultOfficeExtensions.join(', '));
   const sourceUrlTtlSeconds = ref(300);
@@ -266,8 +267,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const [profilePayload, providerPayload] = await Promise.all([getPreviewProfiles(runtimeSortParams(state)), getPreviewProviderOptions()]);
+      const [profilePayload, providerPayload] = await Promise.all([getPreviewProfiles(runtimeListParams(state)), getPreviewProviderOptions()]);
       rows.value = profilePayload.items || [];
+      paginationTotal.value = profilePayload.pagination?.total || rows.value.length;
       providerOptions.value = (providerPayload.items || [])
         .filter((item) => item.provider !== 'native')
         .map((item) => ({

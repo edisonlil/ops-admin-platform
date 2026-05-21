@@ -50,11 +50,13 @@ def send_template_message(
 
 @router.get("/templates")
 def templates(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:templates:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_templates(current_user, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_templates(current_user, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/templates/render")
@@ -102,11 +104,13 @@ def disable_template(
 
 @router.get("/channel-accounts")
 def channel_accounts(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:channels:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_channel_accounts(current_user, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_channel_accounts(current_user, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/channel-accounts")
@@ -154,11 +158,13 @@ def test_channel_account(
 
 @router.get("/chat-bots")
 def chat_bots(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("messaging:chat_bots:view")),
 ) -> dict[str, Any]:
-    return ok(services.list_chat_bots(current_user, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(services.list_chat_bots(current_user, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/chat-bots")

@@ -143,7 +143,12 @@ export interface SortParams {
   sort_dir?: 'asc' | 'desc';
 }
 
-export function getMessagingInbox(params: { page?: number; page_size?: number } & SortParams = {}) {
+export interface PageParams {
+  page?: number;
+  page_size?: number;
+}
+
+export function getMessagingInbox(params: PageParams & SortParams = {}) {
   return Alova.Get<MessageListData<MessageRecipient>>('/messaging/inbox', {
     params: withNoCacheParams(params),
   });
@@ -163,7 +168,7 @@ export function markAllMessagingRead() {
   return Alova.Post<{ updated: number }>('/messaging/inbox/read-all');
 }
 
-export function getMessagingMessages(params: { page?: number; page_size?: number } & SortParams = {}) {
+export function getMessagingMessages(params: PageParams & SortParams = {}) {
   return Alova.Get<MessageListData<MessageIntent>>('/messaging/messages', {
     params: withNoCacheParams(params),
   });
@@ -180,8 +185,8 @@ export function sendTemplateMessage(payload: SendTemplateMessagePayload) {
   );
 }
 
-export function getMessageTemplates(params: SortParams = {}) {
-  return Alova.Get<{ items: MessageTemplate[] }>('/messaging/templates', {
+export function getMessageTemplates(params: PageParams & SortParams = {}) {
+  return Alova.Get<MessageListData<MessageTemplate>>('/messaging/templates', {
     params: withNoCacheParams(params),
   });
 }
@@ -205,8 +210,8 @@ export function disableMessageTemplate(templateId: number) {
   return Alova.Post<{ item: MessageTemplate }>(`/messaging/templates/${templateId}/disable`);
 }
 
-export function getMessageChannelAccounts(params: SortParams = {}) {
-  return Alova.Get<{ items: MessageChannelAccount[] }>('/messaging/channel-accounts', {
+export function getMessageChannelAccounts(params: PageParams & SortParams = {}) {
+  return Alova.Get<MessageListData<MessageChannelAccount>>('/messaging/channel-accounts', {
     params: withNoCacheParams(params),
   });
 }
@@ -230,8 +235,8 @@ export function testMessageChannelAccount(accountId: number) {
   return Alova.Post<{ ok: boolean; channel: string; message: string }>(`/messaging/channel-accounts/${accountId}/test`);
 }
 
-export function getMessageChatBots(params: SortParams = {}) {
-  return Alova.Get<{ items: MessageChatBot[] }>('/messaging/chat-bots', {
+export function getMessageChatBots(params: PageParams & SortParams = {}) {
+  return Alova.Get<MessageListData<MessageChatBot>>('/messaging/chat-bots', {
     params: withNoCacheParams(params),
   });
 }

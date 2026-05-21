@@ -3,7 +3,7 @@
     <n-alert v-if="loadError" type="error" class="audit-settings-page__error" closable @close="loadError = ''">
       {{ loadError }}
     </n-alert>
-    <ListPageRuntime :schema="settingsPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="settingsPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input
           v-model:value="query"
@@ -65,7 +65,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { getTenants } from '@/api/business';
@@ -99,6 +99,7 @@
   const query = ref('');
   const activeRow = ref<SettingsRow | null>(null);
   const rows = ref<SettingsRow[]>([]);
+  const paginationTotal = ref(0);
   const form = reactive<AuditLoggingSettingsPayload>({
     api_log_enabled: true,
     operation_log_enabled: true,
@@ -236,9 +237,10 @@
     loading.value = true;
     loadError.value = '';
     try {
-      const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
+      const payload = await getTenants({ q: query.value || undefined, ...runtimeListParams(state) });
       const tenants = ((payload as { items?: TenantRow[] }).items || []).map(normalizeTenant);
       rows.value = await Promise.all(tenants.map(loadTenantSettingsRow));
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } catch (error) {
       rows.value = [];
       loadError.value = error instanceof Error ? error.message : '日志配置加载失败，请稍后重试';

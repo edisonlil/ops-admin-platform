@@ -1,5 +1,5 @@
 <template>
-  <ListPageRuntime :schema="outboxPage" :rows="rows" :loading="loading" @refresh="reload" />
+  <ListPageRuntime :schema="outboxPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
 </template>
 
 <script lang="ts" setup>
@@ -12,6 +12,7 @@
 
   const loading = ref(false);
   const rows = ref<MessageIntent[]>([]);
+  const paginationTotal = ref(0);
 
   const columns: DataTableColumns<MessageIntent> = [
     { title: 'ID', key: 'id', width: 80 },
@@ -56,8 +57,9 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getMessagingMessages({ ...runtimeListParams(state), page: 1, page_size: 50 });
+      const payload = await getMessagingMessages(runtimeListParams(state));
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

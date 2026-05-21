@@ -1,6 +1,6 @@
 <template>
   <div class="tenant-quota-page">
-    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input
           v-model:value="query"
@@ -49,7 +49,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import { getTenants } from '@/api/business';
@@ -86,6 +86,7 @@
   const query = ref('');
   const activeRow = ref<QuotaRow | null>(null);
   const rows = ref<QuotaRow[]>([]);
+  const paginationTotal = ref(0);
   const quotaForm = reactive({
     quota_mb: 0,
     max_file_size_mb: 0,
@@ -211,9 +212,10 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getTenants({ q: query.value || undefined, ...runtimeSortParams(state) });
+      const payload = await getTenants({ q: query.value || undefined, ...runtimeListParams(state) });
       const tenants = ((payload as { items?: TenantRow[] }).items || []).map(normalizeTenant);
       rows.value = await Promise.all(tenants.map(loadTenantQuotaRow));
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }

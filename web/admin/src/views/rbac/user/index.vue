@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名或姓名" @keyup.enter="reload" />
         <n-select
@@ -84,7 +84,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   interface UserRole extends Recordable {
@@ -119,7 +119,7 @@
   const savingUser = ref(false);
   const rolesLoading = ref(false);
   const rows = ref<UserRow[]>([]);
-  const allRows = ref<UserRow[]>([]);
+  const paginationTotal = ref(0);
   const roleOptions = ref<SelectOption[]>([]);
   const userFormRef = ref<FormInst | null>(null);
   const userModalVisible = ref(false);
@@ -380,25 +380,12 @@
     })();
   }
 
-  function applyQuery() {
-    const keyword = query.keyword.trim();
-    rows.value = allRows.value.filter((row) => {
-      const keywordMatched = !keyword || String(row.username || '').includes(keyword);
-      const nameMatched = !keyword || String(row.full_name || '').includes(keyword);
-      const statusMatched =
-        !query.status ||
-        (query.status === 'active' && row.is_active) ||
-        (query.status === 'disabled' && !row.is_active);
-      return (keywordMatched || nameMatched) && statusMatched;
-    });
-  }
-
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getRbacUsers(runtimeSortParams(state));
-      allRows.value = payload.items || [];
-      applyQuery();
+      const payload = await getRbacUsers(runtimeListParams(state));
+      rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }
@@ -407,7 +394,7 @@
   function resetQuery() {
     query.keyword = '';
     query.status = null;
-    applyQuery();
+    reload();
   }
 
   reload();

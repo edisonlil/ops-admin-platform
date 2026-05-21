@@ -1,6 +1,6 @@
 <template>
   <div>
-    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" @refresh="reload" />
+    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
 
     <n-modal v-model:show="showCreate" preset="dialog" title="新增 API Key" positive-text="创建" @positive-click="create">
       <n-input v-model:value="newKeyName" placeholder="API Key 名称" />
@@ -34,7 +34,7 @@
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { useUserStore } from '@/store/modules/user';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
 
   const message = useMessage();
@@ -43,6 +43,7 @@
   const route = useRoute();
   const loading = ref(false);
   const rows = ref<Recordable[]>([]);
+  const paginationTotal = ref(0);
   const showCreate = ref(false);
   const editVisible = ref(false);
   const editName = ref('');
@@ -141,9 +142,10 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const params = runtimeSortParams(state);
+      const params = runtimeListParams(state);
       const payload = usePlatformApiKeys.value ? await getApiKeys(params) : await getCurrentTenantApiKeys(params);
       rows.value = payload.items || [];
+      paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }
