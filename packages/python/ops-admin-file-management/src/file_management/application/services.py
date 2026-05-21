@@ -533,6 +533,7 @@ def upload_file(
     tenant_id = current_tenant_id(current_user)
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
+    normalized_tag_codes = [str(value).strip() for value in tag_codes or [] if str(value).strip()]
     original_name = Path(filename or "upload.bin").name or "upload.bin"
     display_name = original_name
     extension = normalize_extension(original_name)
@@ -596,15 +597,16 @@ def upload_file(
             actor_id=actor_id,
             **data_owner_fields(current_user),
         )
-        _metadata_binding.bind_resource(
-            tenant_id=tenant_id,
-            resource_type_code=FILE_METADATA_RESOURCE_TYPE,
-            resource_id=item.id,
-            metadata=metadata,
-            tag_codes=tag_codes or [],
-            actor=actor,
-            actor_id=actor_id,
-        )
+        if metadata or normalized_tag_codes:
+            _metadata_binding.bind_resource(
+                tenant_id=tenant_id,
+                resource_type_code=FILE_METADATA_RESOURCE_TYPE,
+                resource_id=item.id,
+                metadata=metadata,
+                tag_codes=normalized_tag_codes,
+                actor=actor,
+                actor_id=actor_id,
+            )
         create_index_job_for_file(item, "upsert", current_user)
         repositories.record_access_log(
             tenant_id=tenant_id,

@@ -1240,6 +1240,61 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(delete_response.status_code, 200)
         self.assertTrue(delete_response.json()["data"]["deleted"])
 
+    def test_file_upload_without_metadata_support_schema_still_succeeds_when_no_metadata_requested(self) -> None:
+        self.initialize_file_management_db()
+
+        from file_management.application import services as file_services
+
+        memory_storage = MemoryFileStorage()
+        file_services.configure_storage(memory_storage)
+
+        profile_response = self.request(
+            "POST",
+            "/api/files/admin/storage-profiles",
+            json={
+                "provider": "minio",
+                "name": "Default MinIO",
+                "endpoint": "http://localhost:9000",
+                "bucket": "ops-files",
+                "access_key_id": "minio",
+                "secret_access_key": "miniopass",
+                "is_default": True,
+                "enabled": True,
+            },
+        )
+        self.assertEqual(profile_response.status_code, 200)
+
+        quota_response = self.request(
+            "PUT",
+            "/api/files/admin/tenants/1/quota",
+            json={
+                "quota_bytes": 1000,
+                "max_file_size_bytes": 100,
+                "allowed_mime_types": ["text/plain"],
+                "blocked_extensions": ["exe"],
+                "enabled": True,
+            },
+        )
+        self.assertEqual(quota_response.status_code, 200)
+
+        library_response = self.request("POST", "/api/files/libraries", json={"name": "Contracts"})
+        self.assertEqual(library_response.status_code, 200)
+        library_id = int(library_response.json()["data"]["item"]["id"])
+
+        upload_response = self.request(
+            "POST",
+            "/api/files/upload",
+            files={"upload": ("contract.txt", b"hello", "text/plain")},
+            data={"library_id": str(library_id), "visibility": "tenant"},
+        )
+
+        self.assertEqual(upload_response.status_code, 200)
+        uploaded = upload_response.json()["data"]["item"]
+        self.assertEqual(uploaded["original_name"], "contract.txt")
+        list_response = self.request("GET", "/api/files")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["data"]["pagination"]["total"], 1)
+
     def test_admin_can_manage_cron_task_and_trigger_run(self) -> None:
         self.initialize_cron_db()
 
