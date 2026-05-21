@@ -1447,6 +1447,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(run_detail_response.json()["data"]["item"]["result"]["command"], "system.health.snapshot")
         self.assertEqual(len(run_detail_response.json()["data"]["attempts"]), 1)
 
+    def test_cron_task_rejects_invalid_schedule_expression(self) -> None:
+        self.initialize_cron_db()
+
+        response = self.request(
+            "POST",
+            "/api/cron/tasks",
+            json={
+                "task_key": "system.invalid_interval",
+                "name": "无效间隔任务",
+                "status": "draft",
+                "execution_target": "system.health.snapshot",
+                "default_payload": {},
+                "concurrency_policy": "forbid",
+                "timeout_seconds": 120,
+                "max_attempts": 1,
+                "retry_delay_seconds": 0,
+                "retry_backoff_multiplier": 1,
+                "misfire_policy": "skip",
+                "schedule": {
+                    "trigger_type": "interval",
+                    "trigger_expression": "0",
+                    "timezone": "UTC",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("positive seconds", response.json()["message"])
+
     def test_admin_can_stop_pending_cron_run(self) -> None:
         self.initialize_cron_db()
         from cron.infrastructure.persistence import repositories as cron_repositories

@@ -34,6 +34,7 @@ ENV PATH=/root/.local/bin:$PATH
 # Copy application code
 COPY api/ ./api/
 COPY packages/ ./packages/
+COPY scripts/ ./scripts/
 
 # Copy frontend dist to expected location
 COPY dist/ ./dist/

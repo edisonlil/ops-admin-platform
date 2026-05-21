@@ -296,6 +296,39 @@ def frontend_dev_env(base_env: dict[str, str], backend_port: int, frontend_port:
     return env
 
 
+def start_cron_worker(project_path: Path, python_exe: Path, env: dict[str, str]) -> subprocess.Popen | None:
+    """Start the cron worker when the project includes the worker script."""
+    worker_script = project_path / "scripts" / "run_cron_worker.py"
+    if not worker_script.exists():
+        return None
+
+    print("\nStarting cron worker...")
+    worker_proc = subprocess.Popen(
+        [str(python_exe), str(worker_script.relative_to(project_path))],
+        cwd=project_path,
+        env=env,
+    )
+    time.sleep(2)
+    if worker_proc.poll() is None:
+        print("Cron worker started")
+        return worker_proc
+
+    print("Cron worker failed to start!")
+    return None
+
+
+def stop_process(proc: subprocess.Popen | None, label: str) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    print(f"Stopping {label}...")
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
 def run_run(args) -> None:
     """Start the current project."""
     config = get_config()
@@ -441,6 +474,9 @@ def run_run(args) -> None:
             kill_processes_on_port(frontend_port, "frontend")
         time.sleep(1)
 
+    backend_proc = None
+    cron_worker_proc = None
+
     # Start backend (skip if --only-frontend)
     if not only_frontend:
         print(f"\nStarting backend on port {backend_port}...")
@@ -453,10 +489,10 @@ def run_run(args) -> None:
         if backend_proc.poll() is None:
             print(f"Backend started on http://0.0.0.0:{backend_port}")
             print(f"API docs: http://127.0.0.1:{backend_port}/docs")
+            cron_worker_proc = start_cron_worker(project_path, python_exe, os.environ.copy())
         else:
             print("Backend failed to start!")
     else:
-        backend_proc = None
         print("\nSkipping backend (--only-frontend)")
 
     # Start frontend (skip if --only-backend)
@@ -510,6 +546,5 @@ def run_run(args) -> None:
             backend_proc.wait()
     except KeyboardInterrupt:
         print("\nStopping project...")
-        if backend_proc:
-            backend_proc.terminate()
-            backend_proc.wait()
+        stop_process(cron_worker_proc, "cron worker")
+        stop_process(backend_proc, "backend")

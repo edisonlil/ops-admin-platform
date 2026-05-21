@@ -33,6 +33,7 @@ $FrontendEnvPath = Join-Path $FrontendRoot ".env.development.local"
 $LogRoot = Join-Path $RepoRoot ".tmp"
 $BackendPidFile = Join-Path $LogRoot "backend-uvicorn.pid"
 $FrontendPidFile = Join-Path $LogRoot "frontend-vite.pid"
+$CronWorkerPidFile = Join-Path $LogRoot "cron-worker.pid"
 
 if (-not (Test-Path $LogRoot)) {
   New-Item -ItemType Directory -Path $LogRoot | Out-Null
@@ -404,7 +405,7 @@ function Initialize-DatabaseStorage {
     }
   }
 
-  foreach ($scriptName in @("init_identity_access.py", "init_personalization.py", "init_messaging.py", "init_appearance.py", "init_llm_runtime.py", "init_ai_applications.py", "init_ai_capabilities.py")) {
+  foreach ($scriptName in @("init_identity_access.py", "init_personalization.py", "init_messaging.py", "init_appearance.py", "init_llm_runtime.py", "init_cron.py", "init_ai_applications.py", "init_ai_capabilities.py")) {
     Invoke-Checked `
       -FilePath $Python `
       -ArgumentList @((Join-Path "scripts" $scriptName)) `
@@ -595,6 +596,29 @@ function Start-Frontend {
   }
 }
 
+function Start-CronWorker {
+  $outLog = Join-Path $LogRoot "cron-worker.out.log"
+  $errLog = Join-Path $LogRoot "cron-worker.err.log"
+
+  Write-Host "Starting cron worker"
+  $proc = Start-Process `
+    -FilePath $Python `
+    -ArgumentList @((Join-Path "scripts" "run_cron_worker.py")) `
+    -WorkingDirectory $RepoRoot `
+    -RedirectStandardOutput $outLog `
+    -RedirectStandardError $errLog `
+    -WindowStyle Hidden `
+    -PassThru
+
+  Start-Sleep -Seconds 2
+  if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) {
+    Set-Content -Path $CronWorkerPidFile -Value $proc.Id
+    Write-Host "Cron worker started (PID: $($proc.Id))"
+  } else {
+    throw "Cron worker exited during startup. Check $errLog"
+  }
+}
+
 Write-Host "Starting ops-admin-platform dev services..."
 Configure-PortsAndDatabase
 Configure-PythonPath
@@ -605,6 +629,7 @@ Initialize-DatabaseStorage
 
 Stop-PidFile -Path $FrontendPidFile
 Stop-PidFile -Path $BackendPidFile
+Stop-PidFile -Path $CronWorkerPidFile
 Stop-Port -Port $FrontendPort
 Stop-Port -Port $BackendPort
 $portsReleased = $true
@@ -621,9 +646,11 @@ if (-not $portsReleased) {
 }
 
 Start-Backend
+Start-CronWorker
 Start-Frontend
 Write-Host ""
 Write-Host "Done."
 Write-Host "Backend docs: http://127.0.0.1:$BackendPort/docs"
 Write-Host "Frontend:     http://127.0.0.1:$FrontendPort"
+Write-Host "Cron worker:  started"
 Write-Host "Logs:         $LogRoot"

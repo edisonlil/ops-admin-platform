@@ -577,6 +577,21 @@ services:
       - ./dist:/app/dist:ro
       - ./data:/app/data
     restart: unless-stopped
+  cron-worker:
+    image: ops-admin:latest
+    container_name: {container_name}-cron-worker
+    command: ["python", "scripts/run_cron_worker.py"]
+    environment:
+      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
+      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
+      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
+    volumes:
+      - ./config:/app/config:ro
+      - ./dist:/app/dist:ro
+      - ./data:/app/data
+    depends_on:
+      - backend
+    restart: unless-stopped
 '''
     
     # Build script content

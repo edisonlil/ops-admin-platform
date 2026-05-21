@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from cron.application.executor import CronTaskExecutor
 from cron.application.ports import CronRepository, NoopTaskDispatcher, TaskDispatcher
+from cron.application.schedule_validation import validate_schedule_details
 from cron.domain.exceptions import CronDomainError, CronNotFoundError, CronStorageNotReadyError
 from cron.domain.models import RUN_STATUS_PENDING, RUN_STATUS_RUNNING, TASK_STATUS_DISABLED, TASK_STATUS_ENABLED, CronSchedule, CronTask
 from system.application.data_access import (
@@ -109,6 +110,7 @@ def save_task(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str
     if schedule_payload:
         schedule = build_schedule_for_validation(tenant_id=tenant_id, payload=schedule_payload)
         schedule.validate()
+        validate_schedule_details(schedule)
     try:
         detail = repo().save_task(tenant_id=tenant_id, payload=payload, actor=actor, actor_id=actor_id)
     except RuntimeError as exc:
