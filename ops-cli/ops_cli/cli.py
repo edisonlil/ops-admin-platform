@@ -49,6 +49,20 @@ Examples:
         "-n",
         help="Project name (will prompt if not provided)",
     )
+    init_git_group = init_parser.add_mutually_exclusive_group()
+    init_git_group.add_argument(
+        "--reinit-git",
+        dest="reinit_git",
+        action="store_true",
+        help="Reinitialize git, then optionally configure a new remote",
+    )
+    init_git_group.add_argument(
+        "--no-reinit-git",
+        dest="reinit_git",
+        action="store_false",
+        help="Keep the cloned git metadata and skip git configuration",
+    )
+    init_parser.set_defaults(reinit_git=None)
 
     # link command
     link_parser = subparsers.add_parser(

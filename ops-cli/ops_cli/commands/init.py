@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..config import get_config
 from ..interactive.selector import select_from_list, select_multiple_from_list
-from ..interactive.prompts import ask_project_name
+from ..interactive.prompts import ask_confirmation, ask_project_name
 from ..utils import run_command, ensure_dir, is_windows
 from ..services.discovery import discover_modules
 
@@ -216,6 +216,20 @@ def setup_new_git(target_path: Path) -> None:
         print(f"Warning: Failed to initialize git: {e}")
 
 
+def should_reinitialize_git(args) -> bool:
+    """Decide whether to replace the cloned repository's git metadata."""
+    requested = getattr(args, "reinit_git", None)
+    if requested is not None:
+        return requested
+
+    print("\nGit Setup:")
+    print("-" * 40)
+    return ask_confirmation(
+        "Reinitialize git for this project and configure a new remote?",
+        default=True,
+    )
+
+
 def create_venv(target_path: Path) -> Path:
     """Create a Python virtual environment."""
     print("Creating Python virtual environment...")
@@ -399,8 +413,11 @@ def run_init(args) -> None:
     copy_scaffold_docs(project_path)
     copy_agents_guide(project_path)
 
-    # Step 6: Initialize git with new remote
-    setup_new_git(project_path)
+    # Step 6: Optionally initialize git with new remote
+    if should_reinitialize_git(args):
+        setup_new_git(project_path)
+    else:
+        print("Skipped git reinitialization; existing cloned git configuration was left unchanged.")
 
     # Step 7: Create virtual environment
     try:
