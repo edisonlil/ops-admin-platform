@@ -9,10 +9,10 @@ from pathlib import Path
 
 from ..config import get_config
 from ..project_config import application_config_path, legacy_database_config_path
-from .setup import detect_project_from_dir, get_modules_from_ops_config, get_venv_python, get_module_init_scripts
+from .setup import get_modules_from_ops_config, get_venv_python, get_module_init_scripts
 
 
-def _resolve_project(config, projects_dir: Path, name: str | None) -> tuple[str, dict]:
+def _resolve_project(config, name: str | None) -> tuple[str, dict]:
     if name:
         project_info = config.get_project(name)
         if not project_info:
@@ -20,24 +20,19 @@ def _resolve_project(config, projects_dir: Path, name: str | None) -> tuple[str,
         project_path = Path(project_info["path"])
         return name, project_info
 
-    current_project = config.get("current_project")
-    if current_project:
-        current_info = config.get_project(current_project)
-        if current_info:
-            return current_project, current_info
-
-    detected = detect_project_from_dir(projects_dir)
-    if detected:
-        return detected
+    active_project = config.get_active_project_name()
+    if active_project:
+        active_info = config.get_project(active_project)
+        if active_info:
+            return active_project, active_info
 
     raise ValueError("Project not specified and no current/linked project found.")
 
 
 def run_rerun_module(args) -> None:
     config = get_config()
-    projects_dir = Path(config.get("projects_dir", "~/OpsPyProject")).expanduser()
 
-    _, project_info = _resolve_project(config, projects_dir, args.name)
+    _, project_info = _resolve_project(config, args.name)
     project_path = Path(project_info["path"])
 
     if not project_path.exists():

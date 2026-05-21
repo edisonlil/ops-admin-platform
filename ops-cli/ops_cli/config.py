@@ -78,6 +78,33 @@ class Config:
         """Get project by name."""
         return self.get_projects().get(name)
 
+    def find_project_for_path(self, path: Optional[Path] = None) -> Optional[tuple[str, dict]]:
+        """Find the managed project that contains the given path."""
+        target_path = self._normalize_path(path or Path.cwd())
+        matches: list[tuple[int, str, dict]] = []
+
+        for name, project_info in self.get_projects().items():
+            project_path_value = project_info.get("path")
+            if not project_path_value:
+                continue
+
+            project_path = self._normalize_path(Path(project_path_value))
+            if self._is_same_or_parent(project_path, target_path):
+                matches.append((len(project_path.parts), name, project_info))
+
+        if not matches:
+            return None
+
+        _, name, project_info = max(matches, key=lambda item: item[0])
+        return name, project_info
+
+    def get_active_project_name(self) -> Optional[str]:
+        """Get the project selected by the current directory or explicit switch."""
+        detected = self.find_project_for_path()
+        if detected:
+            return detected[0]
+        return self.load().get("current_project")
+
     def add_project(self, name: str, project_info: dict) -> None:
         """Add a new project."""
         config = self.load()
@@ -101,10 +128,22 @@ class Config:
 
     def get_current_project(self) -> Optional[dict]:
         """Get current project info."""
-        current = self.load().get("current_project")
+        current = self.get_active_project_name()
         if current:
             return self.get_project(current)
         return None
+
+    @staticmethod
+    def _normalize_path(path: Path) -> Path:
+        return path.expanduser().resolve(strict=False)
+
+    @staticmethod
+    def _is_same_or_parent(parent: Path, child: Path) -> bool:
+        try:
+            child.relative_to(parent)
+            return True
+        except ValueError:
+            return False
 
 
 # Global config instance

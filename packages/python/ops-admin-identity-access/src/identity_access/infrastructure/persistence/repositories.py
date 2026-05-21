@@ -5,6 +5,7 @@ from identity_access.infrastructure.persistence.api_key_repository import (
     get_api_key,
     list_api_keys,
     revoke_api_key,
+    update_api_key,
     validate_api_key,
 )
 from identity_access.infrastructure.persistence.common import (

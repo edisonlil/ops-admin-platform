@@ -118,9 +118,9 @@ def switch_node_version(required_version: str) -> bool:
         return False
 
 
-def check_python_version() -> tuple[bool, str]:
+def check_python_version(project_path: Path | None = None) -> tuple[bool, str]:
     """Check if Python version is compatible."""
-    project_req = get_project_requirements(Path.cwd())
+    project_req = get_project_requirements(project_path or Path.cwd())
     required = project_req.get("python", ">=3.11")
     
     try:
@@ -278,6 +278,24 @@ def kill_processes_on_port(port: int, label: str) -> None:
             print(f"  Failed to stop PID {pid}: {e}")
 
 
+def frontend_dev_command(package_manager: str, frontend_port: int) -> list[str]:
+    """Build a dev-server command that forwards the port to Vite."""
+    pm_name = Path(package_manager).name.lower()
+    args_separator = ["--"] if pm_name in {"npm", "npm.cmd"} else []
+    return [package_manager, "run", "dev", *args_separator, "--port", str(frontend_port)]
+
+
+def frontend_dev_env(base_env: dict[str, str], backend_port: int, frontend_port: int) -> dict[str, str]:
+    """Build frontend environment overrides for the selected dev ports."""
+    env = base_env.copy()
+    backend_api_url = f"http://127.0.0.1:{backend_port}/api"
+    env["VITE_API_BASE_URL"] = backend_api_url
+    env["VITE_PORT"] = str(frontend_port)
+    env["PORT"] = str(frontend_port)
+    env["VITE_PROXY"] = json.dumps([["/api", backend_api_url]], separators=(",", ":"))
+    return env
+
+
 def run_run(args) -> None:
     """Start the current project."""
     config = get_config()
@@ -302,11 +320,11 @@ def run_run(args) -> None:
         print(f"Error: Project path does not exist: {project_path}")
         return
 
-    print(f"\nStarting project: {config.load().get('current_project')}")
+    print(f"\nStarting project: {config.get_active_project_name()}")
     print("=" * 50)
 
     # Check Python version
-    python_ok, python_version = check_python_version()
+    python_ok, python_version = check_python_version(project_path)
     if python_ok:
         print(f"Python: {python_version}")
     else:
@@ -466,14 +484,10 @@ def run_run(args) -> None:
             
             try:
                 pm = "pnpm.cmd" if is_windows() else "pnpm"
-                # Set environment for frontend
-                env = os.environ.copy()
-                env["VITE_API_BASE_URL"] = f"http://127.0.0.1:{backend_port}/api"
-                env["PORT"] = str(frontend_port)
                 subprocess.run(
-                    [pm, "run", "dev", "--", "--port", str(frontend_port)],
+                    frontend_dev_command(pm, frontend_port),
                     cwd=frontend_path,
-                    env=env,
+                    env=frontend_dev_env(os.environ, backend_port, frontend_port),
                 )
                 print(f"Frontend starting on http://127.0.0.1:{frontend_port}")
             except Exception as e:

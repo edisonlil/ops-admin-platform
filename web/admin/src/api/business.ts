@@ -14,6 +14,10 @@ export interface ApiKeyCreatePayload {
   name: string;
 }
 
+export interface ApiKeyUpdatePayload {
+  name: string;
+}
+
 export interface TenantPayload {
   key?: string;
   tenant_key?: string;
@@ -319,6 +323,10 @@ export function createApiKey(payload: ApiKeyCreatePayload) {
   return Alova.Post('/api-keys', payload);
 }
 
+export function updateApiKey(keyId: number, payload: ApiKeyUpdatePayload) {
+  return Alova.Put(`/api-keys/${keyId}`, payload);
+}
+
 export function revokeApiKey(keyId: number) {
   return Alova.Delete(`/api-keys/${keyId}`);
 }
@@ -409,6 +417,14 @@ export function createTenantApiKey(tenantId: number, payload: ApiKeyCreatePayloa
 
 export function createCurrentTenantApiKey(payload: ApiKeyCreatePayload) {
   return Alova.Post('/tenant/api-keys', payload);
+}
+
+export function updateTenantApiKey(tenantId: number, keyId: number, payload: ApiKeyUpdatePayload) {
+  return Alova.Put(`/tenants/${tenantId}/api-keys/${keyId}`, payload);
+}
+
+export function updateCurrentTenantApiKey(keyId: number, payload: ApiKeyUpdatePayload) {
+  return Alova.Put(`/tenant/api-keys/${keyId}`, payload);
 }
 
 export function revokeTenantApiKey(tenantId: number, keyId: number) {

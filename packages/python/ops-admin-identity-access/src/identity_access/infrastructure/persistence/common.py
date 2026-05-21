@@ -663,6 +663,8 @@ def repair_sqlite_identity_tables_before_schema(conn: Any) -> None:
             conn.execute("ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER DEFAULT NULL")
         if table_name == "api_keys" and "owner_department_id" not in columns:
             conn.execute("ALTER TABLE api_keys ADD COLUMN owner_department_id INTEGER DEFAULT NULL")
+        if table_name == "api_keys" and "key_plain" not in columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''")
         if "lock_version" not in columns:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN lock_version INTEGER NOT NULL DEFAULT 0")
         if "deleted" not in columns:
@@ -696,6 +698,8 @@ def ensure_menu_schema(conn: Any) -> None:
         add_column_if_missing(conn, "api_keys", "tenant_id", "BIGINT DEFAULT 1")
         add_column_if_missing(conn, "api_keys", "owner_user_id", "BIGINT DEFAULT NULL")
         add_column_if_missing(conn, "api_keys", "owner_department_id", "BIGINT DEFAULT NULL")
+        key_plain_definition = "VARCHAR(255) NOT NULL DEFAULT ''" if backend_name(conn) == "mysql" else "TEXT NOT NULL DEFAULT ''"
+        add_column_if_missing(conn, "api_keys", "key_plain", key_plain_definition)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tenant_menu_overrides (
@@ -770,6 +774,8 @@ def ensure_menu_schema(conn: Any) -> None:
         conn.execute("ALTER TABLE api_keys ADD COLUMN owner_user_id INTEGER DEFAULT NULL")
     if "owner_department_id" not in api_key_columns:
         conn.execute("ALTER TABLE api_keys ADD COLUMN owner_department_id INTEGER DEFAULT NULL")
+    if "key_plain" not in api_key_columns:
+        conn.execute("ALTER TABLE api_keys ADD COLUMN key_plain TEXT NOT NULL DEFAULT ''")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS tenant_menu_overrides (
@@ -2855,13 +2861,15 @@ def require_auth_ready(conn: Any) -> None:
 
 
 def row_to_api_key(row: dict[str, Any]) -> dict[str, Any]:
+    creator = str(row.get("creator", "") or "")
     return {
         "id": int(row["id"]),
         "tenant_id": int(row.get("tenant_id", 0) or 0),
         "name": str(row.get("name", "")),
+        "key": str(row.get("key_plain", "") or ""),
         "prefix": str(row.get("prefix", "")),
         "is_active": bool(row.get("is_active", True)),
-        "creator": str(row.get("creator", "") or ""),
+        "creator": creator,
         "creator_id": row.get("creator_id"),
         "create_time": str(row.get("create_time", "") or ""),
         "editor": str(row.get("editor", "") or ""),

@@ -521,7 +521,23 @@ class ApiTests(unittest.TestCase):
             auth=False,
         )
         self.assertEqual(create_key_response.status_code, 200)
-        key_id = int(create_key_response.json()["data"]["item"]["id"])
+        created_key = create_key_response.json()["data"]["key"]
+        created_item = create_key_response.json()["data"]["item"]
+        key_id = int(created_item["id"])
+        self.assertRegex(created_key, r"^sk-[a-z]{48}$")
+        self.assertEqual(created_item["key"], created_key)
+        self.assertEqual(created_item["creator"], "key-owner")
+
+        update_response = self.request(
+            "PUT",
+            f"/api/tenant/api-keys/{key_id}",
+            json={"name": "updated-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["data"]["item"]["name"], "updated-key")
+        self.assertEqual(update_response.json()["data"]["item"]["key"], created_key)
 
         revoke_response = self.request(
             "DELETE",
@@ -538,6 +554,52 @@ class ApiTests(unittest.TestCase):
         list_response = self.request("GET", "/api/tenant/api-keys", headers=tenant_headers, auth=False)
         self.assertEqual(list_response.status_code, 200)
         self.assertNotIn(key_id, {int(item["id"]) for item in list_response.json()["data"]["items"]})
+
+    def test_tenant_admin_can_copy_current_tenant_api_key_plaintext_from_list(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "copy-key", "name": "Copy Key"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "copy-owner",
+                "password": "tenant-copy-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "copy-key", "username": "copy-owner", "password": "tenant-copy-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        create_key_response = self.request(
+            "POST",
+            "/api/tenant/api-keys",
+            json={"name": "copyable-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(create_key_response.status_code, 200)
+        created_key = create_key_response.json()["data"]["key"]
+        key_id = int(create_key_response.json()["data"]["item"]["id"])
+
+        list_response = self.request("GET", "/api/tenant/api-keys", headers=tenant_headers, auth=False)
+        self.assertEqual(list_response.status_code, 200)
+        row = next(item for item in list_response.json()["data"]["items"] if int(item["id"]) == key_id)
+
+        self.assertEqual(row["key"], created_key)
+        self.assertEqual(row["creator"], "copy-owner")
+        self.assertTrue(row["prefix"].startswith("sk-"))
 
     def test_tenant_admin_flag_follows_tenant_admin_role(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "role-derived", "name": "Role Derived"})

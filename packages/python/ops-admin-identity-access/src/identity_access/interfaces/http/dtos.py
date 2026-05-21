@@ -210,6 +210,10 @@ class ApiKeyCreateRequest(BaseModel):
         return value
 
 
+class ApiKeyUpdateRequest(ApiKeyCreateRequest):
+    pass
+
+
 class TenantCreateRequest(BaseModel):
     key: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=120)

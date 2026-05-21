@@ -22,7 +22,7 @@ def run_list(args) -> None:
     """List all projects."""
     config = get_config()
     projects = config.get_projects()
-    current = config.load().get("current_project")
+    current = config.get_active_project_name()
 
     if not projects:
         print("\nNo projects found.")
@@ -47,5 +47,5 @@ def run_list(args) -> None:
     print("-" * 70)
     print(f"Total: {len(projects)} project(s)")
     if current:
-        print(f"Current: {current}")
+        print(f"Active: {current}")
     print()

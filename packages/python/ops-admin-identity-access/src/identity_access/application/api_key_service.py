@@ -48,6 +48,16 @@ def get_api_key(key_id: int) -> dict[str, Any] | None:
     return repositories.get_api_key(key_id)
 
 
+def update_api_key(key_id: int, *, name: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    user = current_user or {}
+    return repositories.update_api_key(
+        key_id,
+        name=name,
+        editor=str(user.get("username", "") or ""),
+        editor_id=current_user_id_or_none(user),
+    )
+
+
 def revoke_api_key(key_id: int) -> dict[str, Any]:
     return repositories.revoke_api_key(key_id)
 

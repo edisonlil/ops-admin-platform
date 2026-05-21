@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_login.exceptions import InvalidCredentialsException
 
 from identity_access.interfaces.http.dtos import (
     ApiKeyCreateRequest,
+    ApiKeyUpdateRequest,
     CurrentProfileUpdateRequest,
     RbacMenuCreateRequest,
     RbacMenuUpdateRequest,
@@ -114,6 +115,15 @@ def create_api_key(
     current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:create")),
 ) -> dict[str, Any]:
     return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), current_user=current_user))
+
+
+@router.put("/api-keys/{key_id}")
+def update_api_key(
+    key_id: int,
+    payload: ApiKeyUpdateRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:create")),
+) -> dict[str, Any]:
+    return ok({"item": services.update_api_key(key_id, name=payload.name, current_user=current_user)})
 
 
 @router.delete("/api-keys/{key_id}")
@@ -224,6 +234,22 @@ def create_tenant_api_key(
     return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id, current_user=current_user))
 
 
+@router.put("/tenants/{tenant_id}/api-keys/{key_id}")
+def update_tenant_api_key(
+    tenant_id: int,
+    key_id: int,
+    payload: ApiKeyUpdateRequest,
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:api_keys:create")),
+) -> dict[str, Any]:
+    existing = services.get_api_key(key_id)
+    if existing:
+        if int(existing.get("tenant_id", 0) or 0) != tenant_id:
+            raise HTTPException(status_code=404, detail="api key not found")
+        tenant_service.ensure_tenant_access(current_user, int(existing.get("tenant_id", 0) or 0))
+    item = services.update_api_key(key_id, name=payload.name, current_user=current_user)
+    return ok({"item": item})
+
+
 @router.delete("/tenants/{tenant_id}/api-keys/{key_id}")
 def revoke_tenant_api_key(
     tenant_id: int,
@@ -310,6 +336,18 @@ def create_current_tenant_api_key(
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
     return ok(services.create_api_key(name=payload.name, creator=str(current_user["username"]), tenant_id=tenant_id, current_user=current_user))
+
+
+@router.put("/tenant/api-keys/{key_id}")
+def update_current_tenant_api_key(
+    key_id: int,
+    payload: ApiKeyUpdateRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_keys:create")),
+) -> dict[str, Any]:
+    existing = services.get_api_key(key_id)
+    if existing:
+        tenant_service.ensure_tenant_access(current_user, int(existing.get("tenant_id", 0) or 0))
+    return ok({"item": services.update_api_key(key_id, name=payload.name, current_user=current_user)})
 
 
 @router.delete("/tenant/api-keys/{key_id}")

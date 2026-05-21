@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import string
 from datetime import timedelta
 
 from fastapi import Response
@@ -12,7 +13,7 @@ from identity_access.infrastructure.config import auth_secret
 
 
 ACCESS_TOKEN_EXPIRE_SECONDS = 8 * 60 * 60
-API_KEY_PREFIX = "fgak_"
+API_KEY_PREFIX = "sk-"
 COOKIE_NAME = "fg_agent_access_token"
 
 password_hash = PasswordHash.recommended()
@@ -61,4 +62,5 @@ def hash_api_key(api_key: str) -> str:
 
 
 def generate_api_key() -> str:
-    return f"{API_KEY_PREFIX}{secrets.token_urlsafe(32)}"
+    body = "".join(secrets.choice(string.ascii_lowercase) for _ in range(48))
+    return f"{API_KEY_PREFIX}{body}"

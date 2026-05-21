@@ -43,28 +43,8 @@ FALLBACK_MODULE_TABLES: dict[str, tuple[str, ...]] = {
 
 def detect_project_from_dir(projects_dir: Path) -> tuple[str, dict] | None:
     """Detect project from current directory by checking .ops-config or config."""
-    cwd = Path.cwd()
-    
-    # First check if this is a managed project in config
     config = get_config()
-    projects = config.get_projects()
-    
-    for name, project_info in projects.items():
-        project_path = Path(project_info.get("path", "")).resolve()
-        if project_path == cwd.resolve():
-            return name, project_info
-    
-    # Also check if current directory is under projects_dir
-    try:
-        relative = cwd.relative_to(projects_dir)
-        project_name = relative.parts[0]
-        project_info = config.get_project(project_name)
-        if project_info:
-            return project_name, project_info
-    except Exception:
-        pass
-    
-    return None
+    return config.find_project_for_path()
 
 
 def create_database_if_not_exists(backend: str, database_url: str) -> bool:
@@ -977,6 +957,7 @@ def run_setup(args) -> None:
     if existing_config_path and existing_config and not args.database and not args.database_url:
         print("Database config already exists:")
         try:
+            print(f"  Source: {existing_config_path}")
             existing = existing_config
             print(f"  Backend: {existing.get('backend', 'unknown')}")
             if existing.get('database_url'):

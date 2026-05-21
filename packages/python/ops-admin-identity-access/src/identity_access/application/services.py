@@ -559,5 +559,9 @@ def get_api_key(key_id: int) -> dict[str, Any] | None:
     return api_key_service.get_api_key(key_id)
 
 
+def update_api_key(key_id: int, *, name: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return api_key_service.update_api_key(key_id, name=name, current_user=current_user)
+
+
 def revoke_api_key(key_id: int) -> dict[str, Any]:
     return api_key_service.revoke_api_key(key_id)

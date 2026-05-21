@@ -6,10 +6,11 @@
       <n-input v-model:value="newKeyName" placeholder="API Key 名称" />
     </n-modal>
 
-    <n-modal v-model:show="createdVisible" preset="card" title="API Key 已创建" style="width: 620px">
-      <n-alert type="warning" class="mb-3">请立即保存密钥明文，关闭后将无法再次查看。</n-alert>
-      <n-input :value="createdKey" readonly type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
+    <n-modal v-model:show="editVisible" preset="dialog" title="编辑 API Key" positive-text="保存" @positive-click="saveEdit">
+      <n-input v-model:value="editName" placeholder="API Key 名称" />
     </n-modal>
+
+    <AppCreatedApiKeyModal v-model:show="createdVisible" :api-key="createdKey" />
   </div>
 </template>
 
@@ -25,7 +26,10 @@
     getCurrentTenantApiKeys,
     revokeApiKey,
     revokeCurrentTenantApiKey,
+    updateApiKey,
+    updateCurrentTenantApiKey,
   } from '@/api/business';
+  import AppCreatedApiKeyModal from '@/components/Application/AppCreatedApiKeyModal.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
@@ -40,6 +44,9 @@
   const loading = ref(false);
   const rows = ref<Recordable[]>([]);
   const showCreate = ref(false);
+  const editVisible = ref(false);
+  const editName = ref('');
+  const editingRow = ref<Recordable | null>(null);
   const createdVisible = ref(false);
   const createdKey = ref('');
   const newKeyName = ref('');
@@ -60,16 +67,18 @@
         return h(AppStatusTag, { statusKey: row.is_active ? 'valid' : 'revoked' });
       },
     },
-    { title: '创建人', key: 'created_by', width: 120 },
+    { title: '创建人', key: 'creator', width: 120 },
     { title: '创建时间', key: 'create_time', width: 220, render: (row) => formatToDateTime(row.create_time) },
     {
       title: '操作',
       key: 'actions',
-      width: 110,
+      width: 220,
       fixed: 'right',
       render(row) {
         return h(AppTableActions, {
           actions: [
+            { label: '编辑', show: canCreate.value, disabled: !row.is_active, onClick: () => openEdit(row) },
+            { label: '复制', onClick: () => copyApiKey(row) },
             {
               label: '吊销',
               tone: 'danger',
@@ -96,7 +105,7 @@
       type: 'table',
       columns,
       rowKey: (row) => Number(row.id),
-      scrollX: 1000,
+      scrollX: 1100,
       selectionColumn: {
         fixed: 'left',
       },
@@ -155,11 +164,67 @@
     return true;
   }
 
+  function openEdit(row: Recordable) {
+    editingRow.value = row;
+    editName.value = String(row.name || '');
+    editVisible.value = true;
+  }
+
+  async function saveEdit() {
+    const name = editName.value.trim();
+    if (!editingRow.value || !name) {
+      message.warning('请输入 API Key 名称');
+      return false;
+    }
+    const keyId = Number(editingRow.value.id);
+    if (usePlatformApiKeys.value) await updateApiKey(keyId, { name });
+    else await updateCurrentTenantApiKey(keyId, { name });
+    editVisible.value = false;
+    editingRow.value = null;
+    editName.value = '';
+    message.success('API Key 已保存');
+    await reload();
+    return true;
+  }
+
+  async function copyApiKey(row: Recordable) {
+    const fullKey = String(row.key || '');
+    if (fullKey) {
+      await copyText(fullKey);
+      message.success('API Key 已复制');
+      return;
+    }
+    const prefix = String(row.prefix || '');
+    if (!prefix) {
+      message.warning('暂无可复制的 API Key');
+      return;
+    }
+    await copyText(prefix);
+    message.warning('仅复制了历史 Key 前缀，完整 Key 需重新创建后复制');
+  }
+
   async function revoke(row: Recordable) {
     if (usePlatformApiKeys.value) await revokeApiKey(Number(row.id));
     else await revokeCurrentTenantApiKey(Number(row.id));
     message.success('API Key 已吊销');
     await reload();
+  }
+
+  async function copyText(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const input = document.createElement('textarea');
+    input.value = value;
+    input.setAttribute('readonly', 'readonly');
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
   }
 
   reload();

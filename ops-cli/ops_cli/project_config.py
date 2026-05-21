@@ -44,6 +44,9 @@ def read_database_config(project_path: Path, env: str | None = None) -> tuple[di
     legacy_path = legacy_database_config_path(project_path, env)
     legacy_config = load_json_object(legacy_path)
     if legacy_config:
+        legacy_database = legacy_config.get("database")
+        if isinstance(legacy_database, dict):
+            return legacy_database, legacy_path
         return legacy_config, legacy_path
 
     return {}, None

@@ -132,10 +132,11 @@
       <n-input v-model:value="newKeyName" placeholder="Key 名称" />
     </n-modal>
 
-    <n-modal v-model:show="createdKeyVisible" preset="card" title="API Key 创建成功" style="width: 620px">
-      <n-alert type="warning" class="tenant-key-alert">Key 只会展示一次，请立即保存到安全位置。</n-alert>
-      <n-input :value="createdKey" readonly type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
+    <n-modal v-model:show="keyEditVisible" preset="dialog" title="编辑 API Key" positive-text="保存" @positive-click="saveKeyEdit">
+      <n-input v-model:value="editKeyName" placeholder="Key 名称" />
     </n-modal>
+
+    <AppCreatedApiKeyModal v-model:show="createdKeyVisible" :api-key="createdKey" />
   </div>
 </template>
 
@@ -167,10 +168,13 @@
     revokeTenantApiKey,
     suspendTenant,
     updateCurrentTenantUser,
+    updateCurrentTenantApiKey,
     updateTenant,
+    updateTenantApiKey,
     updateTenantUser,
   } from '@/api/business';
   import { assignTenantAppearanceTheme, getAppearanceThemes, getTenantAppearanceTheme } from '@/api/appearance';
+  import AppCreatedApiKeyModal from '@/components/Application/AppCreatedApiKeyModal.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
@@ -208,6 +212,7 @@
     name?: string;
     prefix?: string;
     is_active?: boolean;
+    creator?: string;
     create_time?: string;
   }
 
@@ -257,6 +262,9 @@
     is_superuser: false,
   });
   const keyCreateVisible = ref(false);
+  const keyEditVisible = ref(false);
+  const editingKey = ref<TenantApiKeyRow | null>(null);
+  const editKeyName = ref('');
   const createdKeyVisible = ref(false);
   const createdKey = ref('');
   const newKeyName = ref('');
@@ -393,14 +401,17 @@
         return h(AppStatusTag, { tone: row.is_active ? 'success' : 'neutral', label: row.is_active ? '有效' : '已撤销' });
       },
     },
+    { title: '创建人', key: 'creator', width: 120 },
     { title: '创建时间', key: 'create_time', width: 190, render: (row) => formatToDateTime(row.create_time || '') },
     {
       title: '操作',
       key: 'actions',
-      width: 100,
+      width: 220,
       render(row) {
         return h(AppTableActions, {
           actions: [
+            { label: '编辑', show: canCreateTenantApiKey.value, disabled: !row.is_active, onClick: () => openKeyEdit(row) },
+            { label: '复制', onClick: () => copyApiKey(row) },
             {
               label: '撤销',
               tone: 'danger',
@@ -707,12 +718,67 @@
     return true;
   }
 
+  function openKeyEdit(row: TenantApiKeyRow) {
+    editingKey.value = row;
+    editKeyName.value = String(row.name || '');
+    keyEditVisible.value = true;
+  }
+
+  async function saveKeyEdit() {
+    const name = editKeyName.value.trim();
+    if (!activeTenant.value || !editingKey.value || !name) {
+      message.warning('请输入 Key 名称');
+      return false;
+    }
+    if (isPlatformTenantManagement.value) await updateTenantApiKey(activeTenant.value.id, Number(editingKey.value.id), { name });
+    else await updateCurrentTenantApiKey(Number(editingKey.value.id), { name });
+    keyEditVisible.value = false;
+    editingKey.value = null;
+    editKeyName.value = '';
+    message.success('API Key 已保存');
+    await loadTenantKeys();
+    return true;
+  }
+
+  async function copyApiKey(row: TenantApiKeyRow) {
+    const fullKey = String(row.key || '');
+    if (fullKey) {
+      await copyText(fullKey);
+      message.success('API Key 已复制');
+      return;
+    }
+    const prefix = String(row.prefix || '');
+    if (!prefix) {
+      message.warning('暂无可复制的 API Key');
+      return;
+    }
+    await copyText(prefix);
+    message.warning('仅复制了历史 Key 前缀，完整 Key 需重新创建后复制');
+  }
+
   async function revokeKey(row: TenantApiKeyRow) {
     if (!activeTenant.value) return;
     if (isPlatformTenantManagement.value) await revokeTenantApiKey(activeTenant.value.id, Number(row.id));
     else await revokeCurrentTenantApiKey(Number(row.id));
     message.success('API Key 已撤销');
     await loadTenantKeys();
+  }
+
+  async function copyText(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const input = document.createElement('textarea');
+    input.value = value;
+    input.setAttribute('readonly', 'readonly');
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
   }
 
   function departmentNames(ids: number[]) {
@@ -818,7 +884,4 @@
     font-size: 13px;
   }
 
-  .tenant-key-alert {
-    margin-bottom: 12px;
-  }
 </style>

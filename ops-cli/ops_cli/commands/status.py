@@ -24,7 +24,7 @@ def run_status(args) -> None:
     project_path = Path(project_info["path"])
 
     print("\n" + "=" * 50)
-    print(f"Current Project: {config.load().get('current_project')}")
+    print(f"Current Project: {config.get_active_project_name()}")
     print("=" * 50)
 
     # Basic info

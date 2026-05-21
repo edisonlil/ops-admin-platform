@@ -49,16 +49,17 @@ def create_api_key(
         cursor = conn.execute(
             """
             INSERT INTO api_keys (
-                tenant_id, name, key_hash, prefix, is_active, owner_user_id,
+                tenant_id, name, key_hash, key_plain, prefix, is_active, owner_user_id,
                 owner_department_id, creator, creator_id, editor, editor_id,
                 create_time, update_time
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tenant_id,
                 name.strip(),
                 hash_api_key(key),
+                key,
                 key[:12],
                 True,
                 owner_user_id,
@@ -126,6 +127,27 @@ def revoke_api_key(key_id: int) -> dict[str, Any]:
             WHERE id = ?
             """,
             (False, True, now_iso(), str(row["name"]), key_id),
+        )
+        row = conn.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
+    return row_to_api_key(dict(row))
+
+
+def update_api_key(key_id: int, *, name: str, editor: str = "", editor_id: int | None = None) -> dict[str, Any]:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="api key name must not be blank")
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        row = conn.execute("SELECT * FROM api_keys WHERE id = ? AND deleted = 0", (key_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="api key not found")
+        conn.execute(
+            """
+            UPDATE api_keys
+            SET name = ?, update_time = ?, editor = ?, editor_id = ?, lock_version = lock_version + 1
+            WHERE id = ?
+            """,
+            (normalized_name, now_iso(), editor or None, editor_id, key_id),
         )
         row = conn.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
     return row_to_api_key(dict(row))

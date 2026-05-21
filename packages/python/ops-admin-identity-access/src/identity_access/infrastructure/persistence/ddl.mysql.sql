@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     tenant_id BIGINT NOT NULL DEFAULT 1,
     name VARCHAR(255) NOT NULL,
     key_hash VARCHAR(255) NOT NULL UNIQUE,
+    key_plain VARCHAR(255) NOT NULL DEFAULT '',
     prefix VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     owner_user_id BIGINT DEFAULT NULL,
