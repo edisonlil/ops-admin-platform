@@ -1,5 +1,5 @@
 <template>
-  <section class="app-collection-view" :class="`app-collection-view--${schema.type}`">
+  <section ref="collectionViewRef" class="app-collection-view" :class="`app-collection-view--${schema.type}`">
     <template v-if="schema.type === 'table'">
       <div v-if="$slots['table-tools']" class="app-collection-view__table-tools">
         <slot name="table-tools"></slot>
@@ -74,7 +74,7 @@
 </template>
 
 <script lang="ts" setup generic="Row extends Record<string, unknown>">
-  import { computed, h, nextTick, reactive, ref } from 'vue';
+  import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
   import { NIcon, NTooltip, useDialog } from 'naive-ui';
   import { LockOutlined, UnlockOutlined } from '@vicons/antd';
   import { getCollectionViewDefinition } from '../collectionRegistry';
@@ -87,7 +87,10 @@
   const SORT_SUPPRESS_AFTER_COLUMN_RESIZE_MS = 450;
   const lockedColumnKeys = ref<Array<string | number>>([]);
   const lastColumnResizeAt = ref(0);
+  const collectionViewRef = ref<HTMLElement | null>(null);
+  const tableViewportWidth = ref(0);
   const dialog = useDialog();
+  let tableResizeObserver: ResizeObserver | undefined;
 
   const props = withDefaults(
     defineProps<{
@@ -130,7 +133,7 @@
         ? [createSelectionColumn(), ...columns]
         : columns;
 
-    return orderRuntimeColumns(applyPreferenceOrder(filterVisibleColumns(normalizeColumns(runtimeColumns))));
+    return stabilizeColumnsForViewport(orderRuntimeColumns(applyPreferenceOrder(filterVisibleColumns(normalizeColumns(runtimeColumns)))));
   });
   const resolvedTableProps = computed(() => {
     if (props.schema.type !== 'table') return props.schema.tableProps || {};
@@ -216,6 +219,24 @@
       },
     };
   });
+
+  onMounted(() => {
+    updateTableViewportWidth();
+    if (typeof ResizeObserver === 'undefined') return;
+    tableResizeObserver = new ResizeObserver(() => updateTableViewportWidth());
+    if (collectionViewRef.value) {
+      tableResizeObserver.observe(collectionViewRef.value);
+    }
+  });
+
+  onBeforeUnmount(() => {
+    tableResizeObserver?.disconnect();
+  });
+
+  watch(
+    () => props.schema.type,
+    () => nextTick(updateTableViewportWidth)
+  );
 
   function resolveItemKey(row: Row, index: number) {
     const key = props.schema.itemKey || props.schema.rowKey || 'id';
@@ -323,7 +344,7 @@
       }
 
       if (!('width' in nextColumn) && nextColumn.resizable) {
-        nextColumn.width = runtime.defaultWidth || DEFAULT_TABLE_COLUMN_WIDTH;
+        nextColumn.width = stableWidth;
       }
 
       if (nextColumn.resizable) {
@@ -422,6 +443,52 @@
     });
 
     return [...controlLeftColumns, ...staticLeftColumns, ...lockedLeftColumns, ...normalColumns, ...rightColumns];
+  }
+
+  function stabilizeColumnsForViewport(columns: DataTableColumns<Row>): DataTableColumns<Row> {
+    if (props.schema.type !== 'table') return columns;
+
+    const leaves = flattenLeafColumns(columns);
+    const currentWidth = leaves.reduce((total, column) => total + resolveStableColumnWidth(column, undefined, undefined), 0);
+    const scrollX = typeof props.schema.scrollX === 'number' ? props.schema.scrollX : 0;
+    const requiredWidth = Math.ceil(Math.max(scrollX, tableViewportWidth.value));
+    const delta = requiredWidth - currentWidth;
+    if (delta <= 0) return columns;
+
+    const targetColumn = [...leaves]
+      .reverse()
+      .find((column) => !isControlColumn(column) && !('fixed' in column && (column.fixed === 'left' || column.fixed === 'right')));
+    const targetKey = targetColumn ? getColumnKey(targetColumn) : undefined;
+    if (targetKey === undefined) return columns;
+
+    return columns.map((column) => patchColumnWidth(column as DataTableColumn<Row>, targetKey, delta));
+  }
+
+  function flattenLeafColumns(columns: DataTableColumns<Row>): DataTableColumn<Row>[] {
+    return columns.flatMap((column) => {
+      if ('children' in column && column.children) {
+        return flattenLeafColumns(column.children as DataTableColumns<Row>);
+      }
+      return [column as DataTableColumn<Row>];
+    });
+  }
+
+  function patchColumnWidth(column: DataTableColumn<Row>, targetKey: string | number, delta: number): DataTableColumn<Row> {
+    if ('children' in column && column.children) {
+      return {
+        ...column,
+        children: (column.children as DataTableColumns<Row>).map((childColumn) => patchColumnWidth(childColumn as DataTableColumn<Row>, targetKey, delta)),
+      } as DataTableColumn<Row>;
+    }
+
+    if (String(getColumnKey(column)) !== String(targetKey)) return column;
+
+    const width = resolveStableColumnWidth(column, undefined, undefined) + delta;
+    return {
+      ...column,
+      width,
+      minWidth: width,
+    } as DataTableColumn<Row>;
   }
 
   function applyPreferenceOrder(columns: DataTableColumns<Row>): DataTableColumns<Row> {
@@ -621,6 +688,14 @@
     return typeof value === 'number' ? `${value}px` : value;
   }
 
+  function updateTableViewportWidth() {
+    if (props.schema.type !== 'table') {
+      tableViewportWidth.value = 0;
+      return;
+    }
+    tableViewportWidth.value = Math.ceil(collectionViewRef.value?.getBoundingClientRect().width || 0);
+  }
+
   function normalizeTablePagination(pagination: unknown) {
     if (pagination === false) return false;
     if (!pagination) return pagination;
@@ -805,6 +880,13 @@
 
   .app-collection-view__table {
     min-width: 0;
+  }
+
+  .app-collection-view__table :deep(.n-data-table-th--fixed-left),
+  .app-collection-view__table :deep(.n-data-table-td--fixed-left),
+  .app-collection-view__table :deep(.n-data-table-th--fixed-right),
+  .app-collection-view__table :deep(.n-data-table-td--fixed-right) {
+    transition: none;
   }
 
   .app-collection-view--table :deep(.n-data-table) {
