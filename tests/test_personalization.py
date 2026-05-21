@@ -56,6 +56,7 @@ class PersonalizationTests(unittest.TestCase):
         )
         self.assertEqual(saved.visible_column_keys, ["username", "status"])
         self.assertEqual(saved.column_order_keys, ["status", "username", "actions"])
+        self.assertEqual(saved.settings, {"density": "compact"})
 
         replaced = repositories.save_table_column_preference(
             tenant_id=1,
@@ -69,6 +70,7 @@ class PersonalizationTests(unittest.TestCase):
         )
         self.assertEqual(replaced.id, saved.id)
         self.assertEqual(replaced.visible_column_keys, ["username", "actions"])
+        self.assertEqual(replaced.settings, {})
 
         repositories.delete_table_column_preference(
             tenant_id=1,
@@ -80,6 +82,31 @@ class PersonalizationTests(unittest.TestCase):
         self.assertIsNone(
             repositories.get_table_column_preference(tenant_id=1, user_id=7, view_key="rbac.user:table")
         )
+
+    def test_table_column_preference_persists_column_width_settings(self) -> None:
+        from personalization.infrastructure.persistence import repositories
+
+        saved = repositories.save_table_column_preference(
+            tenant_id=2,
+            user_id=9,
+            view_key="projects:table:id",
+            visible_column_keys=["ticket_no", "project_name"],
+            column_order_keys=["ticket_no", "project_name"],
+            settings={"column_widths": {"ticket_no": 72, "project_name": 388}},
+            actor="admin",
+            actor_id=9,
+        )
+
+        self.assertEqual(saved.settings["column_widths"], {"ticket_no": 72, "project_name": 388})
+
+        loaded = repositories.get_table_column_preference(
+            tenant_id=2,
+            user_id=9,
+            view_key="projects:table:id",
+        )
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.settings["column_widths"], {"ticket_no": 72, "project_name": 388})
 
 
 if __name__ == "__main__":

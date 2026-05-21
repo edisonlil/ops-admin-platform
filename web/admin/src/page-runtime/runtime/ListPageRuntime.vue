@@ -102,6 +102,7 @@
           :loading="splitView.master.loading || false"
           :sort-state="getSplitSortState('master')"
           @sort-change="(state) => handleSplitSortChange('master', state)"
+          @column-resize="(payload) => handleColumnResize(splitView.master.view, payload.columnKey, payload.width)"
         />
         <AppPagination
           :pagination="getSplitPagination('master')"
@@ -145,6 +146,7 @@
           :loading="splitView.detail.loading || false"
           :sort-state="getSplitSortState('detail')"
           @sort-change="(state) => handleSplitSortChange('detail', state)"
+          @column-resize="(payload) => handleColumnResize(splitView.detail.view, payload.columnKey, payload.width)"
         >
           <template v-if="splitView.detail.view.type === 'table'" #table-tools>
             <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="splitView.detail.loading" @click="handleSplitRefresh('detail')">
@@ -195,6 +197,7 @@
               :loading="pane.loading || false"
               :sort-state="getPaneSortState(pane.name)"
               @sort-change="(state) => handlePaneSortChange(pane, state)"
+              @column-resize="(payload) => handleColumnResize(pane.view, payload.columnKey, payload.width)"
             >
               <template v-if="pane.view.type === 'table'" #table-tools>
                 <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="pane.loading" @click="handlePaneRefresh(pane)">
@@ -229,6 +232,7 @@
       :loading="loading"
       :sort-state="sortState"
       @sort-change="handleSortChange"
+      @column-resize="(payload) => handleColumnResize(props.schema.view, payload.columnKey, payload.width)"
     >
       <template v-if="hasRuntimeTableTools" #table-tools>
         <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="handleRefresh">刷新</n-button>
@@ -261,7 +265,7 @@
 <script lang="ts" setup generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>">
   import { computed, ref, watch, useSlots } from 'vue';
   import { useDialog } from 'naive-ui';
-  import type { DataTableColumn, DataTableColumns, PaginationProps } from 'naive-ui';
+  import type { DataTableColumn, DataTableColumnKey, DataTableColumns, PaginationProps } from 'naive-ui';
   import {
     getTableColumnPreference,
     resetTableColumnPreference,
@@ -330,9 +334,11 @@
   });
   const visibleColumnState = ref<Record<string, string[]>>({});
   const columnOrderState = ref<Record<string, string[]>>({});
+  const columnWidthState = ref<Record<string, Record<string, number>>>({});
   const remotePreferenceLoaded = ref<Record<string, boolean>>({});
   const remotePreferenceLoading = ref<Record<string, boolean>>({});
   const columnPreferenceRevision = ref<Record<string, number>>({});
+  const savePreferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
@@ -412,6 +418,7 @@
     if (view.type !== 'table') return view;
     const visibleKeys = getVisibleColumnKeys(view);
     const runtimeColumns = getOrderedRuntimeColumns(view);
+    const columnWidths = getColumnWidths(view);
     const rowHeight = ROW_HEIGHT_BY_DENSITY[runtimeTableRowDensity.value];
     return {
       ...view,
@@ -421,6 +428,7 @@
         ...view.columnRuntime,
         columns: runtimeColumns.map((column) => ({
           ...column,
+          width: columnWidths[String(column.key)] || column.width,
           defaultVisible: column.required ? true : visibleKeys.includes(String(column.key)),
         })),
       },
@@ -685,7 +693,7 @@
     };
     bumpColumnPreferenceRevision(key);
     saveVisibleColumnKeys(key, nextKeys);
-    saveColumnPreference(key, nextKeys, getColumnOrderKeys(view));
+    saveColumnPreference(key, nextKeys, getColumnOrderKeys(view), getColumnWidths(view));
   }
 
   function getColumnOrderKeys(view: CollectionViewSchema<Row>) {
@@ -710,7 +718,35 @@
     };
     bumpColumnPreferenceRevision(key);
     saveColumnOrderKeys(key, nextKeys);
-    saveColumnPreference(key, getVisibleColumnKeys(view), nextKeys);
+    saveColumnPreference(key, getVisibleColumnKeys(view), nextKeys, getColumnWidths(view));
+  }
+
+  function getColumnWidths(view: CollectionViewSchema<Row>) {
+    if (view.type !== 'table') return {};
+    const key = getViewStorageKey(view);
+    if (!columnWidthState.value[key]) {
+      columnWidthState.value = {
+        ...columnWidthState.value,
+        [key]: loadColumnWidths(key),
+      };
+    }
+    return columnWidthState.value[key];
+  }
+
+  function handleColumnResize(view: CollectionViewSchema<Row>, columnKey: DataTableColumnKey, width: number) {
+    if (view.type !== 'table' || columnKey === undefined || !isPositiveNumber(width)) return;
+    const key = getViewStorageKey(view);
+    const nextWidths = {
+      ...getColumnWidths(view),
+      [String(columnKey)]: Math.round(width),
+    };
+    columnWidthState.value = {
+      ...columnWidthState.value,
+      [key]: nextWidths,
+    };
+    bumpColumnPreferenceRevision(key);
+    saveColumnWidths(key, nextWidths);
+    saveColumnPreference(key, getVisibleColumnKeys(view), getColumnOrderKeys(view), nextWidths, 250);
   }
 
   function resetColumnSettings(view: CollectionViewSchema<Row>) {
@@ -725,10 +761,15 @@
       ...columnOrderState.value,
       [key]: nextOrderKeys,
     };
+    columnWidthState.value = {
+      ...columnWidthState.value,
+      [key]: {},
+    };
     bumpColumnPreferenceRevision(key);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(columnStorageKey(key));
       window.localStorage.removeItem(columnOrderStorageKey(key));
+      window.localStorage.removeItem(columnWidthStorageKey(key));
     }
     resetRemoteColumnPreference(key);
   }
@@ -779,6 +820,23 @@
     window.localStorage.setItem(columnOrderStorageKey(key), JSON.stringify(keys));
   }
 
+  function loadColumnWidths(key: string): Record<string, number> {
+    if (typeof window === 'undefined') return {};
+    const stored = window.localStorage.getItem(columnWidthStorageKey(key));
+    if (!stored) return {};
+    try {
+      return normalizeColumnWidths(JSON.parse(stored));
+    } catch {
+      // Ignore corrupted local preferences and fall back to schema defaults.
+      return {};
+    }
+  }
+
+  function saveColumnWidths(key: string, widths: Record<string, number>) {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(columnWidthStorageKey(key), JSON.stringify(widths));
+  }
+
   async function loadRemoteColumnPreference(view: CollectionViewSchema<Row>) {
     const key = getViewStorageKey(view);
     if (remotePreferenceLoaded.value[key] || remotePreferenceLoading.value[key]) return;
@@ -798,6 +856,7 @@
 
       const visibleKeys = mergeVisiblePreferenceKeys(view, item.visible_column_keys);
       const orderKeys = mergePreferenceKeys(item.column_order_keys, defaultColumnOrderKeys(view));
+      const columnWidths = normalizeColumnWidths(item.settings?.column_widths);
       visibleColumnState.value = {
         ...visibleColumnState.value,
         [key]: visibleKeys,
@@ -806,8 +865,13 @@
         ...columnOrderState.value,
         [key]: orderKeys,
       };
+      columnWidthState.value = {
+        ...columnWidthState.value,
+        [key]: columnWidths,
+      };
       saveVisibleColumnKeys(key, visibleKeys);
       saveColumnOrderKeys(key, orderKeys);
+      saveColumnWidths(key, columnWidths);
     } catch {
       remotePreferenceLoaded.value = {
         ...remotePreferenceLoaded.value,
@@ -821,13 +885,37 @@
     }
   }
 
-  function saveColumnPreference(key: string, visibleKeys: string[], orderKeys: string[]) {
-    saveTableColumnPreference(key, {
+  function saveColumnPreference(
+    key: string,
+    visibleKeys: string[],
+    orderKeys: string[],
+    columnWidths: Record<string, number>,
+    debounceMs = 0
+  ) {
+    const payload = {
       visible_column_keys: visibleKeys.map(String),
       column_order_keys: orderKeys.map(String),
-    }).catch(() => {
-      // Local storage remains the fallback when the personalization API is unavailable.
-    });
+      settings: {
+        column_widths: normalizeColumnWidths(columnWidths),
+      },
+    };
+    const save = () => {
+      savePreferenceTimers.delete(key);
+      saveTableColumnPreference(key, payload).catch(() => {
+        // Local storage remains the fallback when the personalization API is unavailable.
+      });
+    };
+
+    if (debounceMs > 0 && typeof window !== 'undefined') {
+      const existingTimer = savePreferenceTimers.get(key);
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+      }
+      savePreferenceTimers.set(key, window.setTimeout(save, debounceMs));
+      return;
+    }
+
+    save();
   }
 
   function resetRemoteColumnPreference(key: string) {
@@ -857,6 +945,20 @@
       ? preferredKeys.map(String).filter((key) => runtimeKeys.has(key))
       : [];
     return Array.from(new Set([...preferred, ...requiredKeys]));
+  }
+
+  function normalizeColumnWidths(value: unknown): Record<string, number> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([key, width]) => [String(key), Number(width)] as const)
+        .filter(([key, width]) => key && isPositiveNumber(width))
+        .map(([key, width]) => [key, Math.round(width)])
+    );
+  }
+
+  function isPositiveNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
   }
 
   function defaultVisibleColumnKeys(view: CollectionViewSchema<Row>) {
@@ -948,6 +1050,10 @@
 
   function columnOrderStorageKey(key: string) {
     return `ops-admin:page-runtime:column-order:${key}`;
+  }
+
+  function columnWidthStorageKey(key: string) {
+    return `ops-admin:page-runtime:column-widths:${key}`;
   }
 
   function resolvePagination(

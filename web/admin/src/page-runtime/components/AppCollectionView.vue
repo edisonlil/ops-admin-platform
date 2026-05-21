@@ -79,12 +79,11 @@
   import { LockOutlined, UnlockOutlined } from '@vicons/antd';
   import { getCollectionViewDefinition } from '../collectionRegistry';
   import type { CollectionViewSchema, TableSortState, TreeNodeAction } from '../types';
-  import type { DataTableColumn, DataTableColumns, DataTableSortState, DropdownOption, TreeRenderProps } from 'naive-ui';
+  import type { DataTableBaseColumn, DataTableColumn, DataTableColumnKey, DataTableColumns, DataTableSortState, DropdownOption, TreeRenderProps } from 'naive-ui';
   import type { VNodeChild } from 'vue';
 
   const SELECTION_COLUMN_KEY = '__selection__';
   const DEFAULT_TABLE_COLUMN_WIDTH = 140;
-  const DEFAULT_TABLE_COLUMN_MIN_WIDTH = 80;
   const lockedColumnKeys = ref<Array<string | number>>([]);
   const dialog = useDialog();
 
@@ -102,6 +101,7 @@
   );
   const emit = defineEmits<{
     sortChange: [state: TableSortState];
+    columnResize: [payload: TableColumnResizePayload<Row>];
   }>();
 
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
@@ -133,6 +133,7 @@
   const resolvedTableProps = computed(() => {
     if (props.schema.type !== 'table') return props.schema.tableProps || {};
     const tableLayout = props.schema.tableLayout || {};
+    const tableProps = props.schema.tableProps || {};
     const rowHeight = tableLayout.rowHeight;
     const heightMode = tableLayout.heightMode || 'natural';
     const fillHeight = tableLayout.fillHeight || 'clamp(320px, calc(100vh - 440px), 560px)';
@@ -153,15 +154,16 @@
     return {
       ...compactObject(runtimeProps),
       ...(props.schema.tableProps || {}),
-      pagination: normalizeTablePagination(props.schema.tableProps?.pagination),
+      pagination: normalizeTablePagination(tableProps.pagination),
       style: [
         heightMode === 'fill'
           ? { height: formatCssSize(tableLayout.height || fillHeight) }
           : tableLayout.height
             ? { height: formatCssSize(tableLayout.height) }
             : undefined,
-        props.schema.tableProps?.style,
+        tableProps.style,
       ],
+      onUnstableColumnResize: handleColumnResize,
     };
   });
   const treeContextMenu = reactive<{
@@ -305,7 +307,7 @@
       if (preference?.fixed && !nextColumn.fixed) {
         nextColumn.fixed = preference.fixed;
       }
-      if (preference?.width && !('width' in nextColumn)) {
+      if (isPositiveNumber(preference?.width)) {
         nextColumn.width = preference.width;
       }
       if (preference?.sortable) {
@@ -321,8 +323,10 @@
         nextColumn.width = runtime.defaultWidth || DEFAULT_TABLE_COLUMN_WIDTH;
       }
 
-      if (!('minWidth' in nextColumn)) {
-        nextColumn.minWidth = runtime.minWidth || DEFAULT_TABLE_COLUMN_MIN_WIDTH;
+      if (nextColumn.resizable) {
+        delete nextColumn.minWidth;
+      } else if (!('minWidth' in nextColumn) && runtime.minWidth !== undefined) {
+        nextColumn.minWidth = runtime.minWidth;
       }
 
       if (runtime.maxWidth && !('maxWidth' in nextColumn)) {
@@ -344,6 +348,31 @@
       }
 
       return nextColumn;
+    });
+  }
+
+  function handleColumnResize(
+    resizedWidth: number,
+    limitedWidth: number,
+    column: DataTableBaseColumn<Row>,
+    getColumnWidth: (key: DataTableColumnKey) => number | undefined
+  ) {
+    const originalHandler = props.schema.type === 'table' ? props.schema.tableProps?.onUnstableColumnResize : undefined;
+    if (typeof originalHandler === 'function') {
+      originalHandler(resizedWidth, limitedWidth, column, getColumnWidth);
+    }
+
+    const columnKey = column.key;
+    const width = Number.isFinite(limitedWidth) ? limitedWidth : resizedWidth;
+    if (columnKey === undefined || !isPositiveNumber(width)) return;
+
+    emit('columnResize', {
+      columnKey,
+      width,
+      resizedWidth,
+      limitedWidth,
+      column,
+      getColumnWidth,
     });
   }
 
@@ -534,6 +563,10 @@
     return preference.sortField || String(columnKey);
   }
 
+  function isPositiveNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+  }
+
   function isControlColumn(column: DataTableColumn<Row>) {
     return 'type' in column && (column.type === 'selection' || column.type === 'expand');
   }
@@ -596,6 +629,15 @@
   type TreeNodeRuntimeProps = {
     onContextmenu?: (event: MouseEvent) => void;
     [key: string]: unknown;
+  };
+
+  type TableColumnResizePayload<Row extends Record<string, unknown>> = {
+    columnKey: DataTableColumnKey;
+    width: number;
+    resizedWidth: number;
+    limitedWidth: number;
+    column: DataTableBaseColumn<Row>;
+    getColumnWidth: (key: DataTableColumnKey) => number | undefined;
   };
 </script>
 

@@ -104,7 +104,8 @@ view: {
 ```ts
 columnRuntime: {
   defaultWidth: 160,
-  minWidth: 80,
+  // 默认不设置 minWidth，让用户拖动列宽时不受统一最小宽度限制。
+  // 只有业务列确实需要保护可读性时才显式设置 minWidth。
   maxWidth: 360,
 }
 ```
