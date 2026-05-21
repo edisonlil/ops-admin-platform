@@ -32,8 +32,13 @@ def ai_studio_items(
 
 
 @router.get("/ai-studio/traces", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
-def ai_studio_traces(limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
-    return ok(services.list_prompt_runtime_traces(limit=limit, sort_by=sort_by, sort_dir=sort_dir))
+def ai_studio_traces(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_prompt_runtime_traces(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
@@ -54,8 +59,14 @@ def ai_application(app_key: str) -> dict[str, Any]:
 
 
 @router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def ai_application_run_logs(app_key: str, limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
-    return ok(services.list_ai_application_run_logs(app_key, limit=limit, sort_by=sort_by, sort_dir=sort_dir))
+def ai_application_run_logs(
+    app_key: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_ai_application_run_logs(app_key, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.post("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
@@ -94,8 +105,13 @@ def run_published_ai_application(app_key: str, payload: AIApplicationRunRequest)
 
 
 @router.get("/ai-runtime/prompt-runtime/traces", dependencies=[Depends(auth.require_permission("ai_runtime:trace:read"))])
-def prompt_runtime_traces(limit: int = 50, sort_by: str | None = Query(default=None), sort_dir: str | None = Query(default=None)) -> dict[str, Any]:
-    return ok(services.list_prompt_runtime_traces(limit=limit, sort_by=sort_by, sort_dir=sort_dir))
+def prompt_runtime_traces(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(services.list_prompt_runtime_traces(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
 @router.get("/ai-runtime/prompt-runtime/traces/{trace_id}", dependencies=[Depends(auth.require_permission("ai_runtime:trace:read"))])

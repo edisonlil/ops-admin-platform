@@ -6,6 +6,7 @@ from typing import Any
 
 from llm_runtime.domain.models import RoutingEntry, RoutingPolicy, RouteResolution
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
+from system.application.sorting import build_order_by, parse_sort_params
 from system.application.tenancy import current_tenant_scope
 
 
@@ -635,24 +636,52 @@ def record_call_log(conn: Any, payload: dict[str, Any]) -> None:
     )
 
 
-def list_call_logs(conn: Any, limit: int = 50, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+CALL_LOG_SORT_COLUMNS = {
+    "id": "id",
+    "provider_key": "provider_key",
+    "model_key": "model_key",
+    "success": "success",
+    "duration_ms": "duration_ms",
+    "create_time": "create_time",
+}
+
+
+def list_call_logs(
+    conn: Any,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    data_scope: DataAccessPredicate | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     descriptor = ResourceDescriptor(
         resource_key="llm.call-log",
         owner_user_column="creator_id",
         owner_department_column="owner_department_id",
     )
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    offset = (safe_page - 1) * safe_page_size
     filters = ["tenant_id = ?"]
     params: list[Any] = [current_tenant_id()]
     append_data_scope_sql(filters, params, data_scope, descriptor)
-    params.append(limit)
+    where_sql = " AND ".join(filters)
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=CALL_LOG_SORT_COLUMNS,
+        default="create_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
+    total_row = conn.execute(f"SELECT COUNT(*) AS total FROM llm_call_logs WHERE {where_sql}", tuple(params)).fetchone()
     rows = conn.execute(
-        """
+        f"""
         SELECT *
         FROM llm_call_logs
-        WHERE """ + " AND ".join(filters) + """
-        ORDER BY create_time DESC, id DESC
-        LIMIT ?
+        WHERE {where_sql}
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
         """,
-        tuple(params),
+        (*params, safe_page_size, offset),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [dict(row) for row in rows], int(total_row["total"] if total_row else 0)

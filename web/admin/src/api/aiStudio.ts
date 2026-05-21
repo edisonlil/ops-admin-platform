@@ -252,24 +252,24 @@ export function getAiApplication(appKey: string) {
   return Alova.Get<AiApplication>(`/ai-applications/${appKey}`, { params: withNoCacheParams() });
 }
 
-export function getAiApplicationRunLogs(appKey: string, params: number | ({ limit?: number } & SortParams) = {}) {
-  const requestParams = typeof params === 'number' ? { limit: params } : params;
+export function getAiApplicationRunLogs(appKey: string, params: number | (PageParams & SortParams) = {}) {
+  const requestParams = typeof params === 'number' ? { page: 1, page_size: params } : params;
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/applications/${appKey}/run-logs`, {
-    params: withNoCacheParams({ limit: requestParams.limit ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
+    params: withNoCacheParams({ page: requestParams.page ?? 1, page_size: requestParams.page_size ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
   });
 }
 
-export function getAiCapabilityRunLogs(capabilityKey: string, params: number | ({ limit?: number } & SortParams) = {}) {
-  const requestParams = typeof params === 'number' ? { limit: params } : params;
+export function getAiCapabilityRunLogs(capabilityKey: string, params: number | (PageParams & SortParams) = {}) {
+  const requestParams = typeof params === 'number' ? { page: 1, page_size: params } : params;
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/capabilities/${capabilityKey}/run-logs`, {
-    params: withNoCacheParams({ limit: requestParams.limit ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
+    params: withNoCacheParams({ page: requestParams.page ?? 1, page_size: requestParams.page_size ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
   });
 }
 
-export function getPlatformAiCapabilityRunLogs(capabilityKey: string, params: number | ({ limit?: number } & SortParams) = {}) {
-  const requestParams = typeof params === 'number' ? { limit: params } : params;
+export function getPlatformAiCapabilityRunLogs(capabilityKey: string, params: number | (PageParams & SortParams) = {}) {
+  const requestParams = typeof params === 'number' ? { page: 1, page_size: params } : params;
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/admin/ai-capabilities/${capabilityKey}/run-logs`, {
-    params: withNoCacheParams({ limit: requestParams.limit ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
+    params: withNoCacheParams({ page: requestParams.page ?? 1, page_size: requestParams.page_size ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
   });
 }
 
@@ -376,9 +376,9 @@ export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPay
   });
 }
 
-export function getAiRuntimeTraces(params: { limit?: number } & SortParams = {}) {
+export function getAiRuntimeTraces(params: PageParams & SortParams = {}) {
   return Alova.Get<AiListData<RuntimeTrace>>('/ai-runtime/prompt-runtime/traces', {
-    params: withNoCacheParams({ limit: params.limit ?? 50, sort_by: params.sort_by, sort_dir: params.sort_dir }),
+    params: withNoCacheParams({ page: params.page ?? 1, page_size: params.page_size ?? 50, sort_by: params.sort_by, sort_dir: params.sort_dir }),
   });
 }
 

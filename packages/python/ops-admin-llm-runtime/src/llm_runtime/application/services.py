@@ -297,16 +297,28 @@ def list_call_logs(
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
-    return list_resource(
-        lambda conn, data_scope=None: repositories.list_call_logs(conn, limit=max(1, page) * max(1, page_size), data_scope=data_scope),
-        current_user=current_user,
-        page=page,
-        page_size=page_size,
-        resource=LLM_CALL_LOG_RESOURCE,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        allowed_sort=CALL_LOG_SORT_COLUMNS,
-    )
+    database_target = require_database()
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    try:
+        with connect(database_target, readonly=True) as conn:
+            require_llm_config_schema(conn)
+            data_scope = (
+                resolve_data_access_filter(current_user=current_user, resource=LLM_CALL_LOG_RESOURCE, action="read")
+                if current_user is not None
+                else None
+            )
+            items, total = repositories.list_call_logs(
+                conn,
+                page=safe_page,
+                page_size=safe_page_size,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                data_scope=data_scope,
+            )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    return {"items": items, "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
 
 
 def list_openai_models() -> dict[str, Any]:

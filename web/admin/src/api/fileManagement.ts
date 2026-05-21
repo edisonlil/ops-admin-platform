@@ -196,6 +196,7 @@ export interface FileWorkspaceData {
   folders: FileFolder[];
   files: ManagedFile[];
   items?: Array<(FileFolder & { kind: 'folder'; name: string }) | (ManagedFile & { kind: 'file'; name: string })>;
+  pagination: FilePagination;
   usage: StorageUsage;
   current_usage?: StorageUsage;
 }
@@ -276,7 +277,7 @@ export function deleteFileLibrary(libraryId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/files/libraries/${libraryId}`);
 }
 
-export function getFileWorkspace(params: { library_id?: number; folder_id?: number; keyword?: string } & SortParams = {}) {
+export function getFileWorkspace(params: { library_id?: number; folder_id?: number; keyword?: string } & PageParams & SortParams = {}) {
   return Alova.Get<FileWorkspaceData>('/files/workspace', {
     params: withNoCacheParams(params),
   });

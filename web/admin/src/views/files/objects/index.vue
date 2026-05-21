@@ -1,6 +1,6 @@
 <template>
   <div class="file-object-page">
-    <ListPageRuntime :schema="filePage" :rows="workspaceRows" :loading="loading" @refresh="reload">
+    <ListPageRuntime :schema="filePage" :rows="workspaceRows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
         <n-select
           v-model:value="selectedLibraryId"
@@ -351,7 +351,7 @@
     UploadOutlined,
     UnorderedListOutlined,
   } from '@vicons/antd';
-  import { defineListPage, ListPageRuntime, runtimeSortParams, type ListRuntimeState } from '@/page-runtime';
+  import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
@@ -424,6 +424,7 @@
   const breadcrumbs = ref<FileFolder[]>([]);
   const folders = ref<FileFolder[]>([]);
   const files = ref<ManagedFile[]>([]);
+  const paginationTotal = ref(0);
   const currentUsage = ref<StorageUsage | null>(null);
   const folderFormRef = ref<FormInst | null>(null);
   const workspaceRows = ref<WorkspaceItem[]>([]);
@@ -623,7 +624,7 @@
     toolbar: {
       rightTools: ['refresh'],
     },
-    pagination: false,
+    pagination: { pageSize: 20 },
   });
 
   function handleLibraryChange(value: number | null) {
@@ -946,7 +947,7 @@
         library_id: selectedLibraryId.value || undefined,
         folder_id: selectedFolderId.value || undefined,
         keyword: keyword.value.trim() || undefined,
-        ...runtimeSortParams(nextState),
+        ...runtimeListParams(nextState),
       });
       if (reloadSeq !== workspaceReloadSeq) return;
       libraries.value = payload.libraries || [];
@@ -956,6 +957,7 @@
       folders.value = payload.folders || [];
       files.value = payload.files || [];
       workspaceRows.value = (payload.items?.length ? payload.items.map(mapWorkspacePayloadItem) : currentItems.value);
+      paginationTotal.value = payload.pagination?.total || workspaceRows.value.length;
       if (selectedFile.value) {
         selectedFile.value = files.value.find((item) => item.id === selectedFile.value?.id) || null;
         selectedFileTagDraft.value = [...(selectedFile.value?.tag_codes || [])];

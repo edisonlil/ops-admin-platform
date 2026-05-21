@@ -121,14 +121,14 @@ def get_platform_ai_capability(capability_key: str) -> dict[str, Any]:
     return capability
 
 
-def list_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+def list_ai_capability_run_logs(capability_key: str, *, page: int = 1, page_size: int = 20) -> dict[str, Any]:
     capability = get_ai_capability(capability_key)
-    return ai_application_services.list_ai_capability_run_logs(capability["capability_key"], limit=limit)
+    return ai_application_services.list_ai_capability_run_logs(capability["capability_key"], page=page, page_size=page_size)
 
 
-def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
+def list_platform_ai_capability_run_logs(capability_key: str, *, page: int = 1, page_size: int = 20) -> dict[str, Any]:
     capability = get_platform_ai_capability(capability_key)
-    return ai_application_services.list_platform_ai_capability_run_logs(capability["capability_key"], limit=limit)
+    return ai_application_services.list_platform_ai_capability_run_logs(capability["capability_key"], page=page, page_size=page_size)
 
 
 def save_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:

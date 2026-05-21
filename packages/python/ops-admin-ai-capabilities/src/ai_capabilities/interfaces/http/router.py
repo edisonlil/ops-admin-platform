@@ -59,13 +59,21 @@ def platform_ai_capability(capability_key: str) -> dict[str, Any]:
 
 
 @router.get("/ai-studio/capabilities/{capability_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_capabilities:read"))])
-def ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_ai_capability_run_logs(capability_key, limit=limit))
+def ai_capability_run_logs(
+    capability_key: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    return ok(services.list_ai_capability_run_logs(capability_key, page=page, page_size=page_size))
 
 
 @router.get("/admin/ai-capabilities/{capability_key}/run-logs", dependencies=[Depends(auth.require_platform_permission("ai_capabilities:platform_manage"))])
-def platform_ai_capability_run_logs(capability_key: str, limit: int = 50) -> dict[str, Any]:
-    return ok(services.list_platform_ai_capability_run_logs(capability_key, limit=limit))
+def platform_ai_capability_run_logs(
+    capability_key: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    return ok(services.list_platform_ai_capability_run_logs(capability_key, page=page, page_size=page_size))
 
 
 @router.post("/ai-capabilities", dependencies=[Depends(auth.require_permission("ai_capabilities:manage"))])

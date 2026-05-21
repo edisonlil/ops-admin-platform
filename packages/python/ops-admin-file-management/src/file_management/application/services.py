@@ -244,6 +244,8 @@ def list_files(
 def list_workspace(
     *,
     current_user: dict[str, Any],
+    page: int = 1,
+    page_size: int = 20,
     library_id: int | None = None,
     folder_id: int | None = None,
     keyword: str = "",
@@ -299,6 +301,11 @@ def list_workspace(
         file_items = [file_to_workspace_dict(item) for item in files]
         workspace_items = folder_items + file_items
         workspace_items = sort_dict_items(workspace_items, sort_by, sort_dir, allowed=WORKSPACE_ITEM_SORT_COLUMNS)
+        total = len(workspace_items)
+        safe_page = max(1, int(page or 1))
+        safe_page_size = max(1, int(page_size or 20))
+        start = (safe_page - 1) * safe_page_size
+        workspace_page_items = workspace_items[start:start + safe_page_size]
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -310,9 +317,10 @@ def list_workspace(
         "current_library": selected_library.to_dict() if selected_library else None,
         "current_folder": folder_to_dict(selected_folder) if selected_folder else None,
         "breadcrumbs": [folder_to_dict(item) for item in folder_breadcrumbs(selected_folder, tenant_id=tenant_id)],
-        "folders": folder_items,
-        "files": [file_to_dict(item) for item in files],
-        "items": workspace_items,
+        "folders": [item for item in workspace_page_items if item.get("kind") == "folder"],
+        "files": [item for item in workspace_page_items if item.get("kind") == "file"],
+        "items": workspace_page_items,
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
         "usage": usage.to_dict(),
         "current_usage": current_usage,
     }

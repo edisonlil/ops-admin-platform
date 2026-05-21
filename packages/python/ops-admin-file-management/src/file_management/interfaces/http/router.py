@@ -61,6 +61,8 @@ def delete_library(
 
 @router.get("/workspace")
 def workspace(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     library_id: int | None = None,
     folder_id: int | None = None,
     keyword: str = "",
@@ -71,6 +73,8 @@ def workspace(
     return ok(
         services.list_workspace(
             current_user=current_user,
+            page=page,
+            page_size=page_size,
             library_id=library_id,
             folder_id=folder_id,
             keyword=keyword,

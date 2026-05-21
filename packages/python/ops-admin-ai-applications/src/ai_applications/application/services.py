@@ -169,21 +169,57 @@ def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str
     return execute_application(app, payload, caller_type="application_api", require_published=True)
 
 
-def list_prompt_runtime_traces(limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_prompt_runtime_traces(conn, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
+def list_prompt_runtime_traces(
+    *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
+) -> dict[str, Any]:
+    return read_list(
+        lambda conn: repositories.list_prompt_runtime_traces(conn, limit=max(1, page) * max(1, page_size)),
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=TRACE_SORT_COLUMNS,
+    )
 
 
-def list_ai_application_run_logs(app_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
+def list_ai_application_run_logs(
+    app_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
+) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return read_list(lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
+    return read_list(
+        lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=max(1, page) * max(1, page_size)),
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=TRACE_SORT_COLUMNS,
+    )
 
 
-def list_ai_capability_run_logs(capability_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
+def list_ai_capability_run_logs(
+    capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
+) -> dict[str, Any]:
+    return read_list(
+        lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=max(1, page) * max(1, page_size)),
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=TRACE_SORT_COLUMNS,
+    )
 
 
-def list_platform_ai_capability_run_logs(capability_key: str, limit: int = 50, *, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
-    return read_list(lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=limit), sort_by=sort_by, sort_dir=sort_dir, allowed_sort=TRACE_SORT_COLUMNS)
+def list_platform_ai_capability_run_logs(
+    capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
+) -> dict[str, Any]:
+    return read_list(
+        lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=max(1, page) * max(1, page_size)),
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=TRACE_SORT_COLUMNS,
+    )
 
 
 def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
