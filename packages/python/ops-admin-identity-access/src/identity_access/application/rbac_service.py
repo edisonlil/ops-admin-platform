@@ -19,6 +19,10 @@ def list_platform_users() -> list[dict[str, Any]]:
     return repositories.list_platform_users()
 
 
+def get_user(user_id: int) -> dict[str, Any] | None:
+    return repositories.get_user(user_id)
+
+
 def create_user(
     *,
     username: str,

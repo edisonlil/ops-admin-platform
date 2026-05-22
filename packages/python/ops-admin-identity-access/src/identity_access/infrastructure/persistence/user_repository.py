@@ -183,6 +183,24 @@ def list_platform_users() -> list[dict[str, Any]]:
     return list_users_by_tenant_key(PLATFORM_TENANT_KEY)
 
 
+def get_user(user_id: int) -> dict[str, Any] | None:
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        row = conn.execute(
+            """
+            SELECT id, tenant_id, username, full_name, email, is_active, is_superuser, create_time, update_time
+            FROM users
+            WHERE id = ? AND deleted = 0
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        roles_by_user = roles_by_user_ids(conn, [user_id])
+    return user_payload(dict(row), roles_by_user)
+
+
 def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -215,26 +233,53 @@ def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, An
             """.format(role_filter=role_filter),
             tuple(role_params),
         ).fetchall()
+    roles_by_user = roles_by_role_rows(role_rows)
+    return [user_payload(dict(row), roles_by_user) for row in rows]
+
+
+def roles_by_user_ids(conn: Any, user_ids: list[int]) -> dict[int, list[dict[str, str]]]:
+    normalized = [int(value) for value in sorted(set(user_ids)) if int(value)]
+    if not normalized:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized)
+    role_rows = conn.execute(
+        f"""
+        SELECT ur.user_id, r.role_key, r.name, r.role_scope
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id IN ({placeholders})
+          AND ur.deleted = 0
+          AND r.deleted = 0
+        ORDER BY r.role_key
+        """,
+        tuple(normalized),
+    ).fetchall()
+    return roles_by_role_rows(role_rows)
+
+
+def roles_by_role_rows(role_rows: list[Any]) -> dict[int, list[dict[str, str]]]:
     roles_by_user: dict[int, list[dict[str, str]]] = {}
     for row in role_rows:
         roles_by_user.setdefault(int(row["user_id"]), []).append(
             {"key": str(row["role_key"]), "name": str(row["name"]), "role_scope": str(row["role_scope"] or "platform")}
         )
-    return [
-        {
-            "id": int(dict(row)["id"]),
-            "tenant_id": int(dict(row).get("tenant_id", 1) or 1),
-            "username": str(dict(row)["username"]),
-            "full_name": str(dict(row).get("full_name", "") or ""),
-            "email": normalize_email(str(dict(row).get("email", "") or "")),
-            "is_active": bool(dict(row)["is_active"]),
-            "is_superuser": bool(dict(row)["is_superuser"]),
-            "roles": roles_by_user.get(int(dict(row)["id"]), []),
-            "create_time": str(dict(row).get("create_time", "") or ""),
-            "update_time": str(dict(row).get("update_time", "") or ""),
-        }
-        for row in rows
-    ]
+    return roles_by_user
+
+
+def user_payload(row: dict[str, Any], roles_by_user: dict[int, list[dict[str, str]]]) -> dict[str, Any]:
+    user_id = int(row["id"])
+    return {
+        "id": user_id,
+        "tenant_id": int(row.get("tenant_id", 1) or 1),
+        "username": str(row["username"]),
+        "full_name": str(row.get("full_name", "") or ""),
+        "email": normalize_email(str(row.get("email", "") or "")),
+        "is_active": bool(row["is_active"]),
+        "is_superuser": bool(row["is_superuser"]),
+        "roles": roles_by_user.get(user_id, []),
+        "create_time": str(row.get("create_time", "") or ""),
+        "update_time": str(row.get("update_time", "") or ""),
+    }
 
 
 def resolve_role_ids(conn: Any, role_keys: list[str], *, role_scope: str | None = None) -> list[int]:
@@ -375,7 +420,7 @@ def create_user(
             user_id = int(row["id"])
         sync_user_roles(conn, user_id, list(role_keys or []), role_scope=role_scope)
 
-    user = next((item for item in list_users() if int(item["id"]) == user_id), None)
+    user = get_user(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user
@@ -434,7 +479,7 @@ def update_user(
         )
         sync_user_roles(conn, user_id, list(role_keys or []), role_scope=role_scope)
 
-    user = next((item for item in list_users() if int(item["id"]) == user_id), None)
+    user = get_user(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user
@@ -504,7 +549,7 @@ def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
             (bool(is_active), now, user_id),
         )
 
-    user = next((item for item in list_users() if int(item["id"]) == user_id), None)
+    user = get_user(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user

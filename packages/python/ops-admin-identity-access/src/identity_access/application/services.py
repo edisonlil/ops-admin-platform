@@ -343,7 +343,7 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    existing = next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), {})
+    existing = tenant_service.get_tenant_user(tenant_id, user_id) or {}
     old_email = str(existing.get("email", "") or "")
     result = tenant_service.update_tenant_user(tenant_id, user_id, payload)
     changed_fields = ["username", "full_name", "email", "roles", "is_active"]
@@ -425,7 +425,7 @@ def update_user(
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
-    existing = next((item for item in list_users() if int(item["id"]) == user_id), {})
+    existing = rbac_service.get_user(user_id) or {}
     old_email = str(existing.get("email", "") or "")
     user = rbac_service.update_user(
         user_id,

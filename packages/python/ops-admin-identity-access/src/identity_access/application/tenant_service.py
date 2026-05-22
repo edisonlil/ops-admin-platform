@@ -303,6 +303,41 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
     return result
 
 
+def get_tenant_user(tenant_id: int, user_id: int) -> dict[str, Any] | None:
+    with connect(auth_database_target(), readonly=True) as conn:
+        require_auth_ready(conn)
+        tenant = tenant_repository.get_business_tenant_by_id(conn, tenant_id)
+        if not tenant:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
+        row = conn.execute(
+            """
+            SELECT u.id, u.username, u.full_name, u.email, u.is_active, u.is_superuser, u.create_time, u.update_time, tm.is_tenant_admin
+            FROM tenant_memberships tm
+            JOIN users u ON u.id = tm.user_id
+            WHERE tm.tenant_id = ? AND tm.user_id = ? AND tm.deleted = 0 AND u.deleted = 0
+            LIMIT 1
+            """,
+            (tenant_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        roles_by_user = tenant_user_roles(conn, [user_id])
+    item = {
+        "id": int(row["id"]),
+        "tenant_id": int(tenant_id),
+        "username": str(row["username"]),
+        "full_name": str(row["full_name"] or ""),
+        "email": str(row["email"] or ""),
+        "is_active": bool(row["is_active"]),
+        "is_superuser": bool(row["is_superuser"]),
+        "roles": roles_by_user.get(user_id, []),
+        "create_time": str(row["create_time"] or ""),
+        "update_time": str(row["update_time"] or ""),
+        "is_tenant_admin": bool(row["is_tenant_admin"]),
+    }
+    return enrich_tenant_user_with_departments(item, tenant_id)
+
+
 def tenant_user_roles(conn: Any, user_ids: list[int]) -> dict[int, list[dict[str, str]]]:
     if not user_ids:
         return {}
@@ -366,7 +401,7 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
         )
-    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == int(user["id"])), user))
+    return _after_access_context_change(get_tenant_user(tenant_id, int(user["id"])) or user)
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -409,7 +444,7 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
         )
-    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user))
+    return _after_access_context_change(get_tenant_user(tenant_id, user_id) or user)
 
 
 def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
@@ -426,7 +461,7 @@ def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dic
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant user not found")
 
     user = rbac_service.set_user_active(user_id, is_active)
-    return _after_access_context_change(next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), user))
+    return _after_access_context_change(get_tenant_user(tenant_id, user_id) or user)
 
 
 def sync_tenant_user_departments_if_available(
