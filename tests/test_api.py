@@ -980,6 +980,15 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(denied_response.status_code, 403)
 
+    def test_business_user_from_api_key_auth_context_uses_embedded_user(self) -> None:
+        from ai_applications.interfaces.http.router import business_user_from_auth_context
+
+        user = {"id": 42, "username": "api-owner"}
+        principal = {"auth_type": "api_key", "api_key": {"id": 7}, "user": user}
+
+        self.assertIs(business_user_from_auth_context(principal), user)
+        self.assertEqual(business_user_from_auth_context({"id": 11, "username": "bearer-owner"})["id"], 11)
+
     def test_tenant_admin_flag_follows_tenant_admin_role(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "role-derived", "name": "Role Derived"})
         self.assertEqual(tenant_response.status_code, 200)

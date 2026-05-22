@@ -171,12 +171,17 @@ def stream_ai_application_agent_message(app_key: str, conversation_key: str, pay
     )
 
 
-@router.post("/runtime/apps/{app_key}/run", dependencies=[Depends(auth.require_business_api_key_or_permission("ai_applications:run"))])
+def business_user_from_auth_context(auth_context: dict[str, Any]) -> dict[str, Any]:
+    return auth_context.get("user") or auth_context
+
+
+@router.post("/runtime/apps/{app_key}/run")
 def run_published_ai_application(
     app_key: str,
     payload: AIApplicationRunRequest,
-    current_user: dict[str, Any] = Depends(auth.require_business_api_key_or_permission("ai_applications:run")),
+    auth_context: dict[str, Any] = Depends(auth.require_business_api_key_or_permission("ai_applications:run")),
 ) -> dict[str, Any]:
+    current_user = business_user_from_auth_context(auth_context)
     return services.run_published_application(app_key, payload.model_dump(), current_user=current_user)
 
 
