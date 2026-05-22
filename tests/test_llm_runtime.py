@@ -3,6 +3,7 @@
 import sqlite3
 import unittest
 import uuid
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 import json
@@ -696,6 +697,34 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertEqual(result["answer"], "完成")
             trace_nodes = result["trace"]["rendered_messages"][-1]["content"]["workflow"]["nodes"]
             self.assertEqual([node["node_id"] for node in trace_nodes], ["start", "end"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_workflow_trace_serializes_datetime_values(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            app = self._sample_ai_application("workflow-datetime")
+            app["app_type"] = "workflow"
+            app["model_preferences"] = {}
+            app["runtime_config"] = {
+                "workflow": {
+                    "nodes": [
+                        {"id": "start", "type": "start", "data": {"variables": [{"key": "started_at", "type": "text"}]}},
+                        {"id": "end", "type": "end", "data": {"output": "{{started_at}}"}},
+                    ],
+                    "edges": [{"source": "start", "target": "end"}],
+                }
+            }
+            started_at = datetime(2026, 5, 22, 12, 30, 45)
+
+            with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                ai_applications.save_ai_application(app)
+                result = ai_applications.run_draft_application("workflow-datetime", {"variables": {"started_at": started_at}})
+
+            self.assertIn("2026-05-22 12:30:45", result["answer"])
+            trace_nodes = result["trace"]["rendered_messages"][-1]["content"]["workflow"]["nodes"]
+            self.assertIn("2026-05-22T12:30:45", str(trace_nodes))
         finally:
             self._unlink_db(db_path)
 

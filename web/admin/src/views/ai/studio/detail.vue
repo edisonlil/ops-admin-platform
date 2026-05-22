@@ -1953,33 +1953,32 @@
     running.value = true;
     if (isWorkflowMode.value) {
       workflowRunErrorText.value = '';
-      workflowLocalTraceNodes.value = [];
-      appendWorkflowLocalTrace("prepare", "开始运行", "running", { variables: buildRuntimeVariables() });
+      workflowRunStatusText.value = '准备运行';
     }
     runAbortController = new AbortController();
     startRunStopwatch();
     try {
-      if (isWorkflowMode.value) appendWorkflowLocalTrace("save", "保存草稿", "running");
+      if (isWorkflowMode.value) workflowRunStatusText.value = '保存草稿';
       const saved = await saveCurrent({ silent: true, refresh: false });
       if (!saved) {
         if (isWorkflowMode.value) {
-          markWorkflowLocalTrace("save", "failed", "保存草稿失败，请检查必填配置。");
+          workflowRunStatusText.value = '执行失败';
           workflowRunErrorText.value = "保存草稿失败，请检查必填配置。";
         }
         return;
       }
       if (isWorkflowMode.value) {
-        markWorkflowLocalTrace("save", "success");
+        workflowRunStatusText.value = '保存完成';
         workflowRunPanelVisible.value = true;
       }
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
-      if (isWorkflowMode.value) appendWorkflowLocalTrace("request", "请求后端执行", "running");
+      if (isWorkflowMode.value) workflowRunStatusText.value = '请求后端执行';
       await runDraftStream({
         variables: buildRuntimeVariables(),
         ...runOutputFormatPayload(),
       }, runAbortController.signal);
-      if (isWorkflowMode.value) markWorkflowLocalTrace("request", "success");
+      if (isWorkflowMode.value) workflowRunStatusText.value = '执行完成';
       if (activeWorkspace.value === 'logs') {
         await loadRunLogs();
       }
@@ -1990,7 +1989,7 @@
       }
       const text = runtimeErrorMessage(error);
       if (isWorkflowMode.value) {
-        markWorkflowLocalTrace("request", "failed", text);
+        workflowRunStatusText.value = '执行失败';
         workflowRunErrorText.value = text;
       }
       message.error(text);
@@ -2602,36 +2601,10 @@
   function resetWorkflowDebugRun() {
     runResult.value = null;
     workflowRunErrorText.value = '';
-    workflowLocalTraceNodes.value = [];
+    workflowRunStatusText.value = '等待运行';
     streamThinkText.value = '';
     lastRunElapsedMs.value = 0;
     runningElapsedMs.value = 0;
-  }
-
-  function appendWorkflowLocalTrace(nodeId: string, title: string, status: string, output: Record<string, unknown> = {}) {
-    workflowLocalTraceNodes.value = [
-      ...workflowLocalTraceNodes.value.filter((node) => node.node_id !== nodeId),
-      {
-        node_id: nodeId,
-        node_type: 'debug',
-        title,
-        status,
-        output,
-        elapsed_ms: 0,
-      },
-    ];
-  }
-
-  function markWorkflowLocalTrace(nodeId: string, status: string, error = '') {
-    workflowLocalTraceNodes.value = workflowLocalTraceNodes.value.map((node) =>
-      node.node_id === nodeId
-        ? {
-            ...node,
-            status,
-            ...(error ? { error } : {}),
-          }
-        : node
-    );
   }
 
   function runtimeErrorMessage(error: unknown) {

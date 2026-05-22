@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from datetime import datetime
+from datetime import time
 from typing import Any
 
 from system.application.tenancy import current_tenant_scope
@@ -46,15 +48,15 @@ def parse_json_object(value: Any) -> dict[str, Any]:
 
 
 def json_text(value: Any) -> str:
-    return json.dumps(value if isinstance(value, dict) else {}, ensure_ascii=False)
+    return json.dumps(sanitize_trace_value(value) if isinstance(value, dict) else {}, ensure_ascii=False)
 
 
 def json_list_text(value: Any) -> str:
-    return json.dumps(value if isinstance(value, list) else [], ensure_ascii=False)
+    return json.dumps(sanitize_trace_value(value) if isinstance(value, list) else [], ensure_ascii=False)
 
 
 def json_any_text(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(sanitize_trace_value(value), ensure_ascii=False)
 
 
 def parse_json_list(value: Any) -> list[dict[str, Any]]:
@@ -889,6 +891,8 @@ def preview_value(value: Any) -> Any:
 def sanitize_trace_value(value: Any) -> Any:
     if is_media_ref(value):
         return sanitize_media_ref(value)
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
     if isinstance(value, dict):
         if "image_url" in value and isinstance(value.get("image_url"), dict):
             item = dict(value)
@@ -905,8 +909,14 @@ def sanitize_trace_value(value: Any) -> Any:
         return {key: sanitize_trace_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [sanitize_trace_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_trace_value(item) for item in value]
     if isinstance(value, str):
         return sanitize_possible_data_url(value)
+    try:
+        json.dumps(value)
+    except TypeError:
+        return str(value)
     return value
 
 
