@@ -34,3 +34,38 @@ class PromptVersionImmutable(AIAssetsError):
 class PromptVersionStateConflict(AIAssetsError):
     code = "PROMPT_VERSION_STATE_CONFLICT"
     status_code = 409
+
+
+class SkillAssetNotFound(AIAssetsError):
+    code = "SKILL_ASSET_NOT_FOUND"
+    status_code = 404
+
+
+class SkillAssetNameConflict(AIAssetsError):
+    code = "SKILL_ASSET_NAME_CONFLICT"
+    status_code = 409
+
+
+class SkillAssetInUse(AIAssetsError):
+    code = "SKILL_ASSET_IN_USE"
+    status_code = 409
+
+
+class SkillVersionNotFound(AIAssetsError):
+    code = "SKILL_VERSION_NOT_FOUND"
+    status_code = 404
+
+
+class SkillVersionImmutable(AIAssetsError):
+    code = "SKILL_VERSION_IMMUTABLE"
+    status_code = 409
+
+
+class SkillVersionStateConflict(AIAssetsError):
+    code = "SKILL_VERSION_STATE_CONFLICT"
+    status_code = 409
+
+
+class InvalidSkillPackage(AIAssetsError):
+    code = "INVALID_SKILL_PACKAGE"
+    status_code = 422

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import re
 import uuid
+import zipfile
 from typing import Any, Callable
 
 from ai_service_api import AIServiceError, AIServiceUnavailable, get_ai_service
@@ -15,13 +18,25 @@ from ai_assets.domain.exceptions import (
     PromptVersionImmutable,
     PromptVersionNotFound,
     PromptVersionStateConflict,
+    InvalidSkillPackage,
+    SkillAssetInUse,
+    SkillAssetNameConflict,
+    SkillAssetNotFound,
+    SkillVersionImmutable,
+    SkillVersionNotFound,
+    SkillVersionStateConflict,
 )
 from ai_assets.domain.models import (
     PROMPT_ASSET_STATUS_ARCHIVED,
     PROMPT_ASSET_STATUS_PUBLISHED,
     PROMPT_VERSION_STATUS_DEPRECATED,
     PROMPT_VERSION_STATUS_PUBLISHED,
+    SKILL_ASSET_STATUS_ARCHIVED,
+    SKILL_ASSET_STATUS_PUBLISHED,
+    SKILL_VERSION_STATUS_DEPRECATED,
+    SKILL_VERSION_STATUS_PUBLISHED,
     PromptAsset,
+    SkillAsset,
 )
 from ai_assets.infrastructure.persistence import repositories
 from system.application.sorting import InvalidSortError
@@ -32,9 +47,14 @@ from system.application.data_access import (
 )
 
 PromptAssetReferenceChecker = Callable[[int, str], bool]
+SkillAssetReferenceChecker = Callable[[int, str], bool]
 
 _prompt_asset_reference_checkers: list[PromptAssetReferenceChecker] = []
+_skill_asset_reference_checkers: list[SkillAssetReferenceChecker] = []
 PROMPT_ASSET_RESOURCE = ResourceDescriptor(resource_key="prompt.asset")
+SKILL_ASSET_RESOURCE = ResourceDescriptor(resource_key="ai_asset.skill")
+MAX_SKILL_CONTENT_LENGTH = 200_000
+MAX_SKILL_PACKAGE_BYTES = 5_000_000
 
 
 def list_prompt_assets(
@@ -164,6 +184,16 @@ def register_prompt_asset_reference_checker(checker: PromptAssetReferenceChecker
 def unregister_prompt_asset_reference_checker(checker: PromptAssetReferenceChecker) -> None:
     if checker in _prompt_asset_reference_checkers:
         _prompt_asset_reference_checkers.remove(checker)
+
+
+def register_skill_asset_reference_checker(checker: SkillAssetReferenceChecker) -> None:
+    if checker not in _skill_asset_reference_checkers:
+        _skill_asset_reference_checkers.append(checker)
+
+
+def unregister_skill_asset_reference_checker(checker: SkillAssetReferenceChecker) -> None:
+    if checker in _skill_asset_reference_checkers:
+        _skill_asset_reference_checkers.remove(checker)
 
 
 def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], prompt_id: int | None = None) -> dict[str, Any]:
@@ -394,6 +424,450 @@ def load_prompt_asset(prompt_id: int, current_user: dict[str, Any], action: str 
     if not item:
         raise domain_http_error(PromptAssetNotFound("prompt asset not found"))
     return item
+
+
+def list_skill_assets(
+    *,
+    page: int,
+    page_size: int,
+    current_user: dict[str, Any],
+    keyword: str = "",
+    status_filter: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        items, total = repositories.list_skill_assets(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            keyword=keyword.strip(),
+            status=status_filter.strip(),
+            data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).read(),
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def get_skill_asset(skill_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_skill_asset(skill_id, current_user)
+    versions = repositories.list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
+    return {"item": item.to_dict(), "versions": [version.to_dict() for version in versions]}
+
+
+def list_published_skill_assets(
+    *,
+    current_user: dict[str, Any],
+    keyword: str = "",
+    page: int = 1,
+    page_size: int = 100,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return list_skill_assets(
+        page=page,
+        page_size=page_size,
+        current_user=current_user,
+        keyword=keyword,
+        status_filter=SKILL_ASSET_STATUS_PUBLISHED,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def get_published_skill_asset(skill_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    return resolve_published_skill(skill_key=skill_key, tenant_id=tenant_id)
+
+
+def resolve_published_skill(*, skill_key: str, tenant_id: int) -> dict[str, Any]:
+    normalized_key = str(skill_key or "").strip()
+    if not normalized_key:
+        raise domain_http_error(SkillAssetNotFound("published skill asset not found"))
+    try:
+        asset = repositories.get_skill_asset_by_key(tenant_id=tenant_id, skill_key=normalized_key)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not asset or asset.status != SKILL_ASSET_STATUS_PUBLISHED:
+        raise domain_http_error(SkillAssetNotFound("published skill asset not found"))
+    try:
+        version = repositories.get_published_skill_version(tenant_id=tenant_id, skill_id=asset.id)
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not version:
+        raise domain_http_error(SkillAssetNotFound("published skill version not found"))
+    version_payload = version.to_dict()
+    return {
+        "asset": asset.to_dict(),
+        "version": version_payload,
+        "skill_key": asset.skill_key,
+        "asset_key": asset.skill_key,
+        "name": asset.name,
+        "description": asset.description,
+        "resolved_version": version.version,
+        "manifest": version.manifest,
+        "content": version.content,
+        "content_sha256": version.content_sha256,
+        "entrypoint": version.entrypoint,
+        "runtime_constraints": version.runtime_constraints,
+        "validation_report": version.validation_report,
+        "published_time": version.published_time,
+    }
+
+
+def save_skill_asset(payload: dict[str, Any], current_user: dict[str, Any], skill_id: int | None = None) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        existing = (
+            repositories.get_skill_asset(
+                tenant_id=tenant_id,
+                skill_id=skill_id,
+                data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).write(),
+            )
+            if skill_id
+            else None
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if skill_id and not existing:
+        raise domain_http_error(SkillAssetNotFound("skill asset not found"))
+    skill_key = existing.skill_key if existing else str(payload.get("skill_key") or "").strip()
+    if not skill_key:
+        skill_key = generate_skill_key(tenant_id=tenant_id, name=payload.get("name"))
+    name = normalize_required(payload.get("name"), "name")
+    if repositories.skill_name_exists(tenant_id=tenant_id, name=name, exclude_skill_id=skill_id):
+        raise domain_http_error(SkillAssetNameConflict("skill title already exists"))
+    data = {
+        "skill_key": skill_key,
+        "name": name,
+        "description": str(payload.get("description") or "").strip(),
+        "tags": normalize_string_list(payload.get("tags")),
+        "status": str(payload.get("status") or "draft").strip() or "draft",
+        "source_type": str(payload.get("source_type") or "upload").strip() or "upload",
+        **data_owner_fields(current_user),
+    }
+    try:
+        item = repositories.save_skill_asset(
+            tenant_id=tenant_id,
+            skill_id=skill_id,
+            payload=data,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(SkillAssetNotFound("skill asset not found"))
+    return {"item": item.to_dict()}
+
+
+def upload_skill_asset(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    package = normalize_skill_package_from_zip(payload)
+    asset_payload = {
+        "skill_key": package.get("skill_key") or payload.get("skill_key") or "",
+        "name": package["name"],
+        "description": package["description"],
+        "tags": package["tags"],
+        "status": "draft",
+        "source_type": "upload",
+    }
+    saved = save_skill_asset(asset_payload, current_user)
+    version = save_skill_version(
+        int(saved["item"]["id"]),
+        {
+            "version": str(payload.get("version") or "1.0.0"),
+            "filename": payload.get("filename") or "",
+            "package_bytes": payload.get("package_bytes"),
+            "status": "draft",
+        },
+        current_user,
+    )
+    return {"item": saved["item"], "version": version["item"]}
+
+
+def generate_skill_key(*, tenant_id: int, name: Any) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", str(name or "skill").strip().lower()).strip("_") or "skill"
+    base = base[:48].strip("_") or "skill"
+    for _ in range(8):
+        candidate = f"{base}_{uuid.uuid4().hex[:8]}"
+        if not repositories.skill_key_exists(tenant_id=tenant_id, skill_key=candidate):
+            return candidate
+    return f"{base}_{uuid.uuid4().hex[:16]}"
+
+
+def delete_skill_asset(skill_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    item = load_skill_asset(skill_id, current_user, action="manage")
+    if item.status == SKILL_ASSET_STATUS_ARCHIVED:
+        try:
+            deleted = repositories.delete_archived_skill_asset(
+                tenant_id=tenant_id,
+                skill_id=skill_id,
+                actor=current_actor(current_user),
+                actor_id=current_user_id_or_none(current_user),
+            )
+        except RuntimeError as exc:
+            raise storage_unavailable(exc) from exc
+        if not deleted:
+            raise domain_http_error(SkillAssetNotFound("skill asset not found"))
+        return {"id": skill_id, "archived": False, "deleted": True}
+
+    ensure_skill_asset_not_in_use(tenant_id=tenant_id, skill_key=item.skill_key)
+    try:
+        archived = repositories.archive_skill_asset(
+            tenant_id=tenant_id,
+            skill_id=skill_id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not archived:
+        raise domain_http_error(SkillAssetNotFound("skill asset not found"))
+    return {"id": skill_id, "archived": True, "deleted": False}
+
+
+def ensure_skill_asset_not_in_use(*, tenant_id: int, skill_key: str) -> None:
+    for checker in list(_skill_asset_reference_checkers):
+        if checker(tenant_id, skill_key):
+            raise domain_http_error(SkillAssetInUse("技能已被 AI 应用引用，不能归档"))
+
+
+def list_skill_versions(skill_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    item = load_skill_asset(skill_id, current_user)
+    versions = repositories.list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
+    return {"items": [version.to_dict() for version in versions]}
+
+
+def save_skill_version(
+    skill_id: int,
+    payload: dict[str, Any],
+    current_user: dict[str, Any],
+    version_id: int | None = None,
+) -> dict[str, Any]:
+    asset = load_skill_asset(skill_id, current_user, action="write")
+    if version_id:
+        existing = repositories.get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
+        if not existing or existing.skill_id != skill_id:
+            raise domain_http_error(SkillVersionNotFound("skill version not found"))
+        if existing.status == SKILL_VERSION_STATUS_PUBLISHED:
+            raise domain_http_error(SkillVersionImmutable("published skill versions cannot be edited"))
+        requested_version = normalize_required(payload.get("version"), "version")
+        if requested_version != existing.version:
+            raise domain_http_error(SkillVersionImmutable("skill version number cannot be changed; create a new version instead"))
+    else:
+        requested_version = normalize_required(payload.get("version"), "version")
+    package = normalize_skill_package_from_zip(payload)
+    data = {
+        "version": requested_version,
+        "manifest": package["manifest"],
+        "content": package["content"],
+        "content_sha256": hashlib.sha256(package["content"].encode("utf-8")).hexdigest(),
+        "entrypoint": package["entrypoint"],
+        "runtime_constraints": package["runtime_constraints"],
+        "validation_report": package["validation_report"],
+        "status": str(payload.get("status") or "draft").strip() or "draft",
+    }
+    try:
+        item = repositories.save_skill_version(
+            tenant_id=asset.tenant_id,
+            skill_id=skill_id,
+            version_id=version_id,
+            payload=data,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(SkillVersionNotFound("skill version not found"))
+    return {"item": item.to_dict()}
+
+
+def publish_skill_version(skill_id: int, version_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    return set_skill_version_status(skill_id, version_id, SKILL_VERSION_STATUS_PUBLISHED, current_user)
+
+
+def deprecate_skill_version(skill_id: int, version_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    return set_skill_version_status(skill_id, version_id, SKILL_VERSION_STATUS_DEPRECATED, current_user)
+
+
+def set_skill_version_status(skill_id: int, version_id: int, new_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    asset = load_skill_asset(skill_id, current_user, action="manage")
+    version = repositories.get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
+    if not version or version.skill_id != skill_id:
+        raise domain_http_error(SkillVersionNotFound("skill version not found"))
+    if new_status == SKILL_VERSION_STATUS_DEPRECATED and version.status == SKILL_VERSION_STATUS_PUBLISHED:
+        published_count = repositories.count_skill_versions_by_status(
+            tenant_id=asset.tenant_id,
+            skill_id=skill_id,
+            status=SKILL_VERSION_STATUS_PUBLISHED,
+        )
+        if published_count <= 1:
+            raise domain_http_error(
+                SkillVersionStateConflict(
+                    "cannot deprecate the only published skill version; archive the skill asset or publish another version first"
+                )
+            )
+    item = repositories.set_skill_version_status(
+        tenant_id=asset.tenant_id,
+        skill_id=skill_id,
+        version_id=version_id,
+        status=new_status,
+        published_time=repositories.now_iso() if new_status == SKILL_VERSION_STATUS_PUBLISHED else None,
+        actor=current_actor(current_user),
+        actor_id=current_user_id_or_none(current_user),
+    )
+    if not item:
+        raise domain_http_error(SkillVersionNotFound("skill version not found"))
+    return {"item": item.to_dict()}
+
+
+def load_skill_asset(skill_id: int, current_user: dict[str, Any], action: str = "read") -> SkillAsset:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        item = repositories.get_skill_asset(
+            tenant_id=tenant_id,
+            skill_id=skill_id,
+            data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).predicate(action),
+        )
+    except RuntimeError as exc:
+        raise storage_unavailable(exc) from exc
+    if not item:
+        raise domain_http_error(SkillAssetNotFound("skill asset not found"))
+    return item
+
+
+def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
+    filename = str(payload.get("filename") or "").strip()
+    if filename and not filename.lower().endswith(".zip"):
+        raise domain_http_error(InvalidSkillPackage("仅支持 ZIP 技能包"))
+    package_bytes = payload.get("package_bytes")
+    if not isinstance(package_bytes, (bytes, bytearray)) or not package_bytes:
+        raise domain_http_error(InvalidSkillPackage("请上传 ZIP 技能包"))
+    if len(package_bytes) > MAX_SKILL_PACKAGE_BYTES:
+        raise domain_http_error(InvalidSkillPackage("ZIP 技能包过大"))
+    try:
+        with zipfile.ZipFile(io.BytesIO(bytes(package_bytes))) as archive:
+            skill_entry = find_skill_entry(archive)
+            if skill_entry.flag_bits & 0x1:
+                raise domain_http_error(InvalidSkillPackage("不支持加密 ZIP 技能包"))
+            raw_content = archive.read(skill_entry)
+    except zipfile.BadZipFile as exc:
+        raise domain_http_error(InvalidSkillPackage("ZIP 技能包格式无效")) from exc
+    except RuntimeError as exc:
+        raise domain_http_error(InvalidSkillPackage("读取 ZIP 技能包失败")) from exc
+    if len(raw_content) > MAX_SKILL_CONTENT_LENGTH:
+        raise domain_http_error(InvalidSkillPackage("SKILL.md 内容过大"))
+    try:
+        content = raw_content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise domain_http_error(InvalidSkillPackage("SKILL.md 必须使用 UTF-8 编码")) from exc
+    return normalize_skill_package_content({**payload, "content": content, "entrypoint": "SKILL.md"})
+
+
+def find_skill_entry(archive: zipfile.ZipFile) -> zipfile.ZipInfo:
+    candidates: list[tuple[str, zipfile.ZipInfo]] = []
+    for entry in archive.infolist():
+        if entry.is_dir():
+            continue
+        normalized = normalize_zip_entry_name(entry.filename)
+        if not normalized:
+            continue
+        if normalized == "SKILL.md" or normalized.endswith("/SKILL.md"):
+            candidates.append((normalized, entry))
+    if not candidates:
+        raise domain_http_error(InvalidSkillPackage("ZIP 技能包内必须包含 SKILL.md"))
+    root_candidates = [entry for path, entry in candidates if path == "SKILL.md"]
+    if root_candidates:
+        return root_candidates[0]
+    if len(candidates) == 1:
+        return candidates[0][1]
+    raise domain_http_error(InvalidSkillPackage("ZIP 技能包内存在多个 SKILL.md，请保留一个入口文件"))
+
+
+def normalize_zip_entry_name(name: str) -> str:
+    normalized = name.replace("\\", "/").strip("/")
+    if not normalized or normalized.startswith("__MACOSX/"):
+        return ""
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise domain_http_error(InvalidSkillPackage("ZIP 技能包包含不安全路径"))
+    if ":" in parts[0]:
+        raise domain_http_error(InvalidSkillPackage("ZIP 技能包包含不安全路径"))
+    return normalized
+
+
+def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
+    content = str(payload.get("content") or payload.get("skill_content") or "").strip()
+    if not content:
+        raise domain_http_error(InvalidSkillPackage("skill content is required"))
+    if len(content) > MAX_SKILL_CONTENT_LENGTH:
+        raise domain_http_error(InvalidSkillPackage("skill content is too large"))
+    entrypoint = str(payload.get("entrypoint") or "SKILL.md").strip() or "SKILL.md"
+    if entrypoint.replace("\\", "/") != "SKILL.md":
+        raise domain_http_error(InvalidSkillPackage("only SKILL.md entrypoint is supported"))
+    manifest = normalize_dict(payload.get("manifest"))
+    parsed = parse_skill_markdown_frontmatter(content)
+    manifest = {**parsed, **manifest}
+    name = str(payload.get("name") or manifest.get("name") or "").strip()
+    if not name:
+        raise domain_http_error(InvalidSkillPackage("skill name is required"))
+    description = str(payload.get("description") or manifest.get("description") or "").strip()
+    tags = normalize_string_list(payload.get("tags") or manifest.get("tags"))
+    manifest.update({"name": name, "description": description})
+    if tags:
+        manifest["tags"] = tags
+    runtime_constraints = normalize_dict(payload.get("runtime_constraints"))
+    validation_report = {
+        "valid": True,
+        "entrypoint": entrypoint,
+        "checks": [
+            {"code": "name", "message": "技能名称已填写", "passed": True},
+            {"code": "content", "message": "技能内容已填写", "passed": True},
+            {"code": "entrypoint", "message": "入口文件为 SKILL.md", "passed": True},
+        ],
+    }
+    return {
+        "skill_key": str(payload.get("skill_key") or manifest.get("skill_key") or "").strip(),
+        "name": name,
+        "description": description,
+        "tags": tags,
+        "manifest": manifest,
+        "content": content,
+        "entrypoint": entrypoint,
+        "runtime_constraints": runtime_constraints,
+        "validation_report": validation_report,
+    }
+
+
+def parse_skill_markdown_frontmatter(content: str) -> dict[str, Any]:
+    if not content.startswith("---"):
+        return {}
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    frontmatter: dict[str, Any] = {}
+    for line in lines[1:80]:
+        if line.strip() == "---":
+            return frontmatter
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip()
+        value = raw_value.strip().strip('"').strip("'")
+        if key:
+            frontmatter[key] = value
+    return {}
 
 
 def normalize_required(value: Any, field_name: str) -> str:

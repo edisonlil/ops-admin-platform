@@ -241,6 +241,8 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "ai-assets": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "prompt-library": {"menu_type": "page", "component": "/prompts/library/index", "menu_scope": "tenant"},
     "prompt-library-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "skill-library": {"menu_type": "page", "component": "/skills/library/index", "menu_scope": "tenant"},
+    "skill-library-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "tenant-settings": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
     "tenant-user-management": {"menu_type": "page", "component": "/tenant/index", "menu_scope": "tenant"},
     "tenant-users-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
@@ -414,11 +416,14 @@ TENANT_AI_ASSETS_MENU_KEYS = [
     "ai-assets",
     "prompt-library",
     "prompt-library-manage",
+    "skill-library",
+    "skill-library-manage",
 ]
 TENANT_AI_ASSETS_NAV_MENU_KEYS = [
     "ai-studio",
     "ai-assets",
     "prompt-library",
+    "skill-library",
 ]
 TENANT_ORGANIZATION_MENU_KEYS = [
     "organization",
@@ -511,6 +516,8 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "ai_capabilities:manage",
     "ai_capabilities:execute",
     "ai_runtime:trace:read",
+    "skill:assets:view",
+    "skill:assets:manage",
     "ai_studio:quota:read",
     "tenant:users:create",
     "tenant:users:update",
@@ -1243,6 +1250,12 @@ def ensure_file_management_permissions(conn: Any) -> None:
             "创建、更新、发布和归档提示词资产",
         ),
     ]
+    permission_rows.extend(
+        [
+            ("skill:assets:view", "查看技能资产", "查看技能资产和版本"),
+            ("skill:assets:manage", "管理技能资产", "创建、更新、发布和归档技能资产"),
+        ]
+    )
     permission_rows.extend(
         [
             ("ai_studio:access", "AI Studio access", "Access tenant AI Studio"),
@@ -2488,6 +2501,30 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             9311,
         ),
     ]
+    tenant_menu_rows.extend(
+        [
+            (
+                "skill-library",
+                "技能库",
+                "/skills/library",
+                "skill-library",
+                "tool",
+                "ai-assets",
+                "skill:assets:view",
+                932,
+            ),
+            (
+                "skill-library-manage",
+                "管理技能",
+                "",
+                "",
+                "",
+                "skill-library",
+                "skill:assets:manage",
+                9321,
+            ),
+        ]
+    )
     _insert_menu_rows_if_missing(
         conn,
         "tenant",

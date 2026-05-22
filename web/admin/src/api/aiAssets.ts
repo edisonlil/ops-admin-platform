@@ -89,6 +89,74 @@ export interface PromptPolishResult {
   usage: Record<string, unknown>;
 }
 
+export interface SkillAsset {
+  id: number;
+  tenant_id: number;
+  skill_key: string;
+  name: string;
+  description: string;
+  tags: string[];
+  status: string;
+  source_type: string;
+  version_count: number;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface SkillVersion {
+  id: number;
+  tenant_id: number;
+  skill_id: number;
+  version: string;
+  manifest: Record<string, unknown>;
+  content: string;
+  content_sha256: string;
+  entrypoint: string;
+  runtime_constraints: Record<string, unknown>;
+  validation_report: Record<string, unknown>;
+  status: string;
+  published_time?: string | null;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface SkillAssetPayload {
+  skill_key?: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  status?: string;
+  source_type?: string;
+}
+
+export interface SkillVersionPayload {
+  version: string;
+  file: File;
+}
+
+export interface SkillUploadPayload {
+  skill_key?: string;
+  version?: string;
+  file: File;
+}
+
+export interface PublishedSkillAsset {
+  asset: SkillAsset;
+  version: SkillVersion;
+  skill_key: string;
+  asset_key: string;
+  name: string;
+  description: string;
+  resolved_version: string;
+  manifest: Record<string, unknown>;
+  content: string;
+  content_sha256: string;
+  entrypoint: string;
+  runtime_constraints: Record<string, unknown>;
+  validation_report: Record<string, unknown>;
+  published_time?: string | null;
+}
+
 function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as T) {
   return {
     ...params,
@@ -198,4 +266,94 @@ export function publishPromptVersion(promptId: number, versionId: number) {
 
 export function deprecatePromptVersion(promptId: number, versionId: number) {
   return Alova.Post<{ item: PromptVersion }>(`/prompts/${promptId}/versions/${versionId}/deprecate`);
+}
+
+export function getSkillAssets(params: {
+  page?: number;
+  page_size?: number;
+  keyword?: string;
+  status?: string;
+} & SortParams = {}) {
+  return Alova.Get<PromptListData<SkillAsset>>('/skills', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getSkillAsset(skillId: number) {
+  return Alova.Get<{ item: SkillAsset; versions: SkillVersion[] }>(`/skills/${skillId}`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function getPublishedSkillAssets(params: {
+  page?: number;
+  page_size?: number;
+  keyword?: string;
+} & SortParams = {}) {
+  return Alova.Get<PromptListData<SkillAsset>>('/skills/published', {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function getPublishedSkillAsset(skillKey: string) {
+  return Alova.Get<PublishedSkillAsset>(`/skills/published/${encodeURIComponent(skillKey)}`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveSkillAsset(payload: Partial<SkillAssetPayload> & { id?: number }) {
+  const body: SkillAssetPayload = {
+    name: String(payload.name || '').trim(),
+    description: payload.description || '',
+    tags: payload.tags || [],
+    status: payload.status || 'draft',
+    source_type: payload.source_type || 'upload',
+  };
+  const skillKey = String(payload.skill_key || '').trim();
+  if (skillKey) {
+    body.skill_key = skillKey;
+  }
+  if (payload.id) {
+    return Alova.Put<{ item: SkillAsset }>(`/skills/${payload.id}`, body);
+  }
+  return Alova.Post<{ item: SkillAsset }>('/skills', body);
+}
+
+export function uploadSkillAsset(payload: SkillUploadPayload) {
+  const body = new FormData();
+  body.append('package', payload.file);
+  body.append('version', String(payload.version || '1.0.0').trim());
+  const skillKey = String(payload.skill_key || '').trim();
+  if (skillKey) {
+    body.append('skill_key', skillKey);
+  }
+  return Alova.Post<{ item: SkillAsset; version: SkillVersion }>('/skills/upload', body);
+}
+
+export function deleteSkillAsset(skillId: number) {
+  return Alova.Delete<{ id: number; archived: boolean; deleted: boolean }>(`/skills/${skillId}`);
+}
+
+export function getSkillVersions(skillId: number) {
+  return Alova.Get<{ items: SkillVersion[] }>(`/skills/${skillId}/versions`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function saveSkillVersion(skillId: number, payload: Partial<SkillVersionPayload> & { id?: number }) {
+  const body = new FormData();
+  body.append('package', payload.file as File);
+  body.append('version', String(payload.version || '').trim());
+  if (payload.id) {
+    return Alova.Put<{ item: SkillVersion }>(`/skills/${skillId}/versions/${payload.id}`, body);
+  }
+  return Alova.Post<{ item: SkillVersion }>(`/skills/${skillId}/versions`, body);
+}
+
+export function publishSkillVersion(skillId: number, versionId: number) {
+  return Alova.Post<{ item: SkillVersion }>(`/skills/${skillId}/versions/${versionId}/publish`);
+}
+
+export function deprecateSkillVersion(skillId: number, versionId: number) {
+  return Alova.Post<{ item: SkillVersion }>(`/skills/${skillId}/versions/${versionId}/deprecate`);
 }

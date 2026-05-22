@@ -48,5 +48,55 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     UNIQUE (tenant_id, prompt_id, version, active_marker)
 );
 
+CREATE TABLE IF NOT EXISTS skill_assets (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    skill_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'draft',
+    source_type TEXT NOT NULL DEFAULT 'upload',
+    owner_user_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
+    active_marker BIGINT DEFAULT 1,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, skill_key, active_marker)
+);
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    skill_id BIGINT NOT NULL,
+    version TEXT NOT NULL,
+    manifest_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    content_text TEXT NOT NULL DEFAULT '',
+    content_sha256 TEXT NOT NULL DEFAULT '',
+    entrypoint TEXT NOT NULL DEFAULT 'SKILL.md',
+    runtime_constraints_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    validation_report_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'draft',
+    published_time TEXT DEFAULT NULL,
+    active_marker BIGINT DEFAULT 1,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, skill_id, version, active_marker)
+);
+
 CREATE INDEX IF NOT EXISTS idx_prompt_assets_tenant_status ON prompt_assets(tenant_id, status, deleted);
 CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(tenant_id, prompt_id, status, deleted);
+CREATE INDEX IF NOT EXISTS idx_skill_assets_tenant_status ON skill_assets(tenant_id, status, deleted);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(tenant_id, skill_id, status, deleted);

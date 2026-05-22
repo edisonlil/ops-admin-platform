@@ -11,6 +11,12 @@ PROMPT_ASSET_STATUS_ARCHIVED = "archived"
 PROMPT_VERSION_STATUS_DRAFT = "draft"
 PROMPT_VERSION_STATUS_PUBLISHED = "published"
 PROMPT_VERSION_STATUS_DEPRECATED = "deprecated"
+SKILL_ASSET_STATUS_DRAFT = "draft"
+SKILL_ASSET_STATUS_PUBLISHED = "published"
+SKILL_ASSET_STATUS_ARCHIVED = "archived"
+SKILL_VERSION_STATUS_DRAFT = "draft"
+SKILL_VERSION_STATUS_PUBLISHED = "published"
+SKILL_VERSION_STATUS_DEPRECATED = "deprecated"
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,72 @@ class PromptVersion:
             "example_outputs": self.example_outputs,
             "model_preferences": self.model_preferences,
             "render_engine": self.render_engine,
+            "status": self.status,
+            "published_time": self.published_time,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
+class SkillAsset:
+    id: int
+    tenant_id: int
+    skill_key: str
+    name: str
+    description: str
+    tags: list[str]
+    status: str
+    source_type: str
+    version_count: int
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "skill_key": self.skill_key,
+            "name": self.name,
+            "description": self.description,
+            "tags": self.tags,
+            "status": self.status,
+            "source_type": self.source_type,
+            "version_count": self.version_count,
+            "create_time": self.create_time,
+            "update_time": self.update_time,
+        }
+
+
+@dataclass(frozen=True)
+class SkillVersion:
+    id: int
+    tenant_id: int
+    skill_id: int
+    version: str
+    manifest: dict[str, Any]
+    content: str
+    content_sha256: str
+    entrypoint: str
+    runtime_constraints: dict[str, Any]
+    validation_report: dict[str, Any]
+    status: str
+    published_time: str | None
+    create_time: str
+    update_time: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tenant_id": self.tenant_id,
+            "skill_id": self.skill_id,
+            "version": self.version,
+            "manifest": self.manifest,
+            "content": self.content,
+            "content_sha256": self.content_sha256,
+            "entrypoint": self.entrypoint,
+            "runtime_constraints": self.runtime_constraints,
+            "validation_report": self.validation_report,
             "status": self.status,
             "published_time": self.published_time,
             "create_time": self.create_time,

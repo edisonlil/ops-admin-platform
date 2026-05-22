@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
@@ -380,6 +382,125 @@ class AIAssetsTests(unittest.TestCase):
         self.assertTrue(deleted["deleted"])
         self.assertEqual(archived_items, [])
 
+    def test_skill_upload_creates_asset_and_version_with_hash(self) -> None:
+        uploaded = services.upload_skill_asset(
+            {
+                "version": "1.0.0",
+                "filename": "contract-review.zip",
+                "package_bytes": self.sample_skill_zip(),
+            },
+            self.current_user,
+        )
+
+        item = uploaded["item"]
+        version = uploaded["version"]
+
+        self.assertEqual(item["tenant_id"], 7)
+        self.assertEqual(item["name"], "contract-review")
+        self.assertEqual(item["description"], "审阅合同风险")
+        self.assertEqual(item["status"], "draft")
+        self.assertEqual(version["entrypoint"], "SKILL.md")
+        self.assertEqual(version["manifest"]["name"], "contract-review")
+        self.assertEqual(len(version["content_sha256"]), 64)
+        self.assertTrue(version["validation_report"]["valid"])
+
+    def test_skill_version_publish_makes_version_immutable(self) -> None:
+        skill = self.create_skill()
+        version = self.create_skill_version(int(skill["id"]), version="1.0.0")
+
+        published = services.publish_skill_version(int(skill["id"]), int(version["id"]), self.current_user)["item"]
+
+        self.assertEqual(published["status"], "published")
+        with self.assertRaises(Exception) as caught:
+            services.save_skill_version(
+                int(skill["id"]),
+                {
+                    **version,
+                    "filename": "contract-review.zip",
+                    "package_bytes": self.sample_skill_zip("changed"),
+                },
+                self.current_user,
+                version_id=int(version["id"]),
+            )
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_published_skill_asset_resolver_uses_current_published_version(self) -> None:
+        skill = self.create_skill(skill_key="contract.review")
+        first = self.create_skill_version(int(skill["id"]), version="1.0.0", body="first")
+        second = self.create_skill_version(int(skill["id"]), version="2.0.0", body="second")
+
+        services.publish_skill_version(int(skill["id"]), int(first["id"]), self.current_user)
+        services.publish_skill_version(int(skill["id"]), int(second["id"]), self.current_user)
+
+        published = services.list_published_skill_assets(current_user=self.current_user)["items"]
+        resolved = services.get_published_skill_asset("contract.review", self.current_user)
+
+        self.assertEqual([item["skill_key"] for item in published], ["contract.review"])
+        self.assertEqual(resolved["asset_key"], "contract.review")
+        self.assertEqual(resolved["resolved_version"], "2.0.0")
+        self.assertIn("second", resolved["content"])
+        self.assertEqual(resolved["entrypoint"], "SKILL.md")
+
+    def test_cannot_deprecate_only_published_skill_version(self) -> None:
+        skill = self.create_skill()
+        version = self.create_skill_version(int(skill["id"]), version="1.0.0")
+        services.publish_skill_version(int(skill["id"]), int(version["id"]), self.current_user)
+
+        with self.assertRaises(Exception) as caught:
+            services.deprecate_skill_version(int(skill["id"]), int(version["id"]), self.current_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+        versions = services.list_skill_versions(int(skill["id"]), self.current_user)["items"]
+        self.assertEqual(versions[0]["status"], "published")
+
+    def test_skill_asset_cannot_be_archived_when_referenced(self) -> None:
+        skill = self.create_skill(skill_key="contract.review")
+
+        def referenced(tenant_id: int, skill_key: str) -> bool:
+            return tenant_id == 7 and skill_key == "contract.review"
+
+        services.register_skill_asset_reference_checker(referenced)
+        try:
+            with self.assertRaises(Exception) as caught:
+                services.delete_skill_asset(int(skill["id"]), self.current_user)
+        finally:
+            services.unregister_skill_asset_reference_checker(referenced)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_skill_asset_detail_and_delete_follow_self_data_scope(self) -> None:
+        configure_data_access_filter_provider(SelfOnlyProvider())
+        skill = self.create_skill()
+        other_user = {**self.current_user, "id": 11, "username": "other"}
+
+        self.assertEqual(services.get_skill_asset(int(skill["id"]), self.current_user)["item"]["id"], skill["id"])
+        with self.assertRaises(Exception) as caught:
+            services.get_skill_asset(int(skill["id"]), other_user)
+        with self.assertRaises(Exception) as delete_caught:
+            services.delete_skill_asset(int(skill["id"]), other_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 404)
+        self.assertEqual(getattr(delete_caught.exception, "status_code", None), 404)
+
+    def test_invalid_skill_upload_requires_zip_package(self) -> None:
+        with self.assertRaises(Exception) as caught:
+            services.upload_skill_asset({"filename": "skill.md", "package_bytes": b"name: Empty"}, self.current_user)
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 422)
+
+    def test_invalid_skill_upload_requires_skill_md_in_zip(self) -> None:
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("README.md", "missing entrypoint")
+
+        with self.assertRaises(Exception) as caught:
+            services.upload_skill_asset(
+                {"filename": "missing-entrypoint.zip", "package_bytes": buffer.getvalue()},
+                self.current_user,
+            )
+
+        self.assertEqual(getattr(caught.exception, "status_code", None), 422)
+
     def create_prompt(
         self,
         *,
@@ -396,6 +517,55 @@ class AIAssetsTests(unittest.TestCase):
             },
             self.current_user,
         )["item"]
+
+    def create_skill(
+        self,
+        *,
+        skill_key: str = "contract.review",
+        tags: list[str] | None = None,
+    ) -> dict[str, object]:
+        return services.save_skill_asset(
+            {
+                "skill_key": skill_key,
+                "name": skill_key,
+                "description": "审阅合同风险",
+                "tags": tags or ["合同"],
+                "status": "draft",
+            },
+            self.current_user,
+        )["item"]
+
+    def create_skill_version(self, skill_id: int, *, version: str, body: str = "review") -> dict[str, object]:
+        return services.save_skill_version(
+            skill_id,
+            {
+                "version": version,
+                "filename": "contract-review.zip",
+                "package_bytes": self.sample_skill_zip(body),
+                "status": "draft",
+            },
+            self.current_user,
+        )["item"]
+
+    def sample_skill_zip(self, body: str = "review", path: str = "SKILL.md") -> bytes:
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(path, self.sample_skill_content(body))
+        return buffer.getvalue()
+
+    def sample_skill_content(self, body: str = "review") -> str:
+        return "\n".join(
+            [
+                "---",
+                "name: contract-review",
+                "description: 审阅合同风险",
+                "---",
+                "",
+                f"# Contract Review {body}",
+                "",
+                "请识别合同中的风险条款。",
+            ]
+        )
 
     def create_version(self, prompt_id: int, *, version: str) -> dict[str, object]:
         return services.save_prompt_version(

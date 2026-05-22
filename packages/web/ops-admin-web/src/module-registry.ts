@@ -151,6 +151,8 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'ai-assets',
     'prompt-library',
     'prompt-library-manage',
+    'skill-library',
+    'skill-library-manage',
   ],
   basic_data: [
     'basic-data',

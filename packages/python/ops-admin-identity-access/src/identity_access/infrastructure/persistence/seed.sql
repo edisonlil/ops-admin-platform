@@ -242,6 +242,14 @@ SELECT 'prompt:assets:manage', 'Manage prompt assets', 'Create, update, publish,
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'prompt:assets:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'skill:assets:view', '查看技能资产', '查看技能资产和版本'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'skill:assets:view');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'skill:assets:manage', '管理技能资产', '创建、更新、发布和归档技能资产'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'skill:assets:manage');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'ai_studio:access', 'AI Studio access', 'Access tenant AI Studio'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'ai_studio:access');
 
@@ -962,6 +970,14 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-library');
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'prompt-library-manage', 'tenant', '管理提示词', 'action', '', '', '', '', 'prompt-library', 'prompt:assets:manage', 8411, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'prompt-library-manage');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'skill-library', 'tenant', '技能库', 'page', '/skills/library', 'skill-library', '/skills/library/index', 'tool', 'ai-assets', 'skill:assets:view', 842, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'skill-library');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'skill-library-manage', 'tenant', '管理技能', 'action', '', '', '', '', 'skill-library', 'skill:assets:manage', 8421, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'skill-library-manage');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'ai-studio', 'tenant', 'AI Studio', 'page', '/ai/studio', 'ai-studio', '/ai/studio/index', 'robot', '', 'ai_studio:access', 84, TRUE

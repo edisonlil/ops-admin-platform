@@ -30,3 +30,13 @@ class PromptVersionRequest(BaseModel):
 class PromptPolishRequest(BaseModel):
     title: str = Field(default="", max_length=200)
     prompt: str = Field(min_length=1, max_length=20000)
+
+
+class SkillAssetRequest(BaseModel):
+    skill_key: str = Field(default="", max_length=200)
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    tags: list[str] = Field(default_factory=list)
+    status: str = Field(default="draft", max_length=40)
+    source_type: str = Field(default="upload", max_length=40)
+
