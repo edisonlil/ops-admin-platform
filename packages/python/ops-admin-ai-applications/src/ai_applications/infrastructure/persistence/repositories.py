@@ -42,6 +42,18 @@ def json_list_text(value: Any) -> str:
     return json.dumps(value if isinstance(value, list) else [], ensure_ascii=False)
 
 
+def parse_json_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not value:
+        return []
+    try:
+        payload = json.loads(str(value))
+    except json.JSONDecodeError:
+        return []
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
 def bool_value(value: Any) -> bool:
     return bool(value)
 
@@ -198,6 +210,212 @@ def publish_ai_application(conn: Any, app_key: str) -> dict[str, Any]:
     return get_ai_application(conn, app_key) or {}
 
 
+def create_agent_conversation(conn: Any, app_key: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    tenant_id = current_tenant_id()
+    normalized_app_key = normalize_key(app_key)
+    conversation_key = normalize_key((payload or {}).get("conversation_key")) or f"conv_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    title = str((payload or {}).get("title") or "新的 Agent 会话").strip() or "新的 Agent 会话"
+    timestamp = now_text()
+    conn.execute(
+        """
+        INSERT INTO ai_application_agent_conversations (
+            tenant_id, conversation_key, app_key, title, status, metadata_json,
+            create_time, update_time
+        )
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+        """,
+        (tenant_id, conversation_key, normalized_app_key, title, json_text((payload or {}).get("metadata")), timestamp, timestamp),
+    )
+    return get_agent_conversation(conn, normalized_app_key, conversation_key) or {}
+
+
+def get_agent_conversation(conn: Any, app_key: str, conversation_key: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM ai_application_agent_conversations
+        WHERE tenant_id = ? AND app_key = ? AND conversation_key = ? AND deleted = 0
+        """,
+        (current_tenant_id(), normalize_key(app_key), normalize_key(conversation_key)),
+    ).fetchone()
+    return agent_conversation_from_row(dict(row)) if row else None
+
+
+def list_agent_conversations(conn: Any, app_key: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM ai_application_agent_conversations
+        WHERE tenant_id = ? AND app_key = ? AND deleted = 0
+        ORDER BY update_time DESC, id DESC
+        LIMIT ?
+        """,
+        (current_tenant_id(), normalize_key(app_key), int(limit)),
+    ).fetchall()
+    return [agent_conversation_from_row(dict(row)) for row in rows]
+
+
+def insert_agent_message(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = current_tenant_id()
+    app_key = normalize_key(payload.get("app_key"))
+    conversation_key = normalize_key(payload.get("conversation_key"))
+    message_key = normalize_key(payload.get("message_key")) or f"msg_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    role = str(payload.get("role") or "").strip()
+    if role not in {"user", "assistant", "system", "tool"}:
+        raise ValueError("role must be user, assistant, system, or tool")
+    timestamp = now_text()
+    conn.execute(
+        """
+        INSERT INTO ai_application_agent_messages (
+            tenant_id, conversation_key, message_key, app_key, role, content,
+            content_json, status, trace_id, error_code, error_message, metadata_json,
+            create_time, update_time
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tenant_id,
+            conversation_key,
+            message_key,
+            app_key,
+            role,
+            str(payload.get("content") or ""),
+            json_text(payload.get("content_json")),
+            str(payload.get("status") or "completed"),
+            str(payload.get("trace_id") or ""),
+            str(payload.get("error_code") or ""),
+            str(payload.get("error_message") or "")[:1000],
+            json_text(payload.get("metadata")),
+            timestamp,
+            timestamp,
+        ),
+    )
+    update_agent_conversation_summary(
+        conn,
+        app_key=app_key,
+        conversation_key=conversation_key,
+        role=role,
+        content=str(payload.get("content") or ""),
+        timestamp=timestamp,
+    )
+    return get_agent_message(conn, message_key) or {}
+
+
+def update_agent_message(conn: Any, message_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    timestamp = now_text()
+    conn.execute(
+        """
+        UPDATE ai_application_agent_messages
+        SET content = ?,
+            content_json = ?,
+            status = ?,
+            trace_id = ?,
+            error_code = ?,
+            error_message = ?,
+            metadata_json = ?,
+            update_time = ?,
+            lock_version = lock_version + 1
+        WHERE tenant_id = ? AND message_key = ? AND deleted = 0
+        """,
+        (
+            str(payload.get("content") or ""),
+            json_text(payload.get("content_json")),
+            str(payload.get("status") or "completed"),
+            str(payload.get("trace_id") or ""),
+            str(payload.get("error_code") or ""),
+            str(payload.get("error_message") or "")[:1000],
+            json_text(payload.get("metadata")),
+            timestamp,
+            current_tenant_id(),
+            normalize_key(message_key),
+        ),
+    )
+    message = get_agent_message(conn, message_key) or {}
+    if message:
+        update_agent_conversation_summary(
+            conn,
+            app_key=str(message.get("app_key") or ""),
+            conversation_key=str(message.get("conversation_key") or ""),
+            role=str(message.get("role") or ""),
+            content=str(message.get("content") or ""),
+            timestamp=timestamp,
+        )
+    return message
+
+
+def update_agent_conversation_summary(
+    conn: Any,
+    *,
+    app_key: str,
+    conversation_key: str,
+    role: str,
+    content: str,
+    timestamp: str,
+) -> None:
+    preview = content.replace("\n", " ").strip()[:240]
+    conn.execute(
+        """
+        UPDATE ai_application_agent_conversations
+        SET last_message_role = ?,
+            last_message_preview = ?,
+            last_message_time = ?,
+            update_time = ?,
+            lock_version = lock_version + 1
+        WHERE tenant_id = ? AND app_key = ? AND conversation_key = ? AND deleted = 0
+        """,
+        (role, preview, timestamp, timestamp, current_tenant_id(), normalize_key(app_key), normalize_key(conversation_key)),
+    )
+
+
+def get_agent_message(conn: Any, message_key: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM ai_application_agent_messages
+        WHERE tenant_id = ? AND message_key = ? AND deleted = 0
+        """,
+        (current_tenant_id(), normalize_key(message_key)),
+    ).fetchone()
+    return agent_message_from_row(dict(row)) if row else None
+
+
+def list_agent_messages(conn: Any, app_key: str, conversation_key: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM ai_application_agent_messages
+        WHERE tenant_id = ? AND app_key = ? AND conversation_key = ? AND deleted = 0
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (current_tenant_id(), normalize_key(app_key), normalize_key(conversation_key), int(limit)),
+    ).fetchall()
+    return [agent_message_from_row(dict(row)) for row in rows]
+
+
+def list_recent_agent_messages(conn: Any, app_key: str, conversation_key: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM (
+            SELECT *
+            FROM ai_application_agent_messages
+            WHERE tenant_id = ?
+              AND app_key = ?
+              AND conversation_key = ?
+              AND deleted = 0
+              AND status = 'completed'
+              AND role IN ('user', 'assistant')
+            ORDER BY id DESC
+            LIMIT ?
+        ) AS recent_messages
+        ORDER BY id ASC
+        """,
+        (current_tenant_id(), normalize_key(app_key), normalize_key(conversation_key), int(limit)),
+    ).fetchall()
+    return [agent_message_from_row(dict(row)) for row in rows]
+
+
 def ai_application_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
@@ -220,6 +438,45 @@ def ai_application_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "runtime_config": parse_json_object(row.get("runtime_config_json")),
         "lock_version": int(row.get("lock_version") or 0),
         "published_time": str(row["published_time"]) if row.get("published_time") is not None else None,
+        "create_time": str(row.get("create_time") or ""),
+        "update_time": str(row.get("update_time") or ""),
+    }
+
+
+def agent_conversation_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "tenant_id": int(row["tenant_id"]),
+        "conversation_key": str(row.get("conversation_key") or ""),
+        "app_key": str(row.get("app_key") or ""),
+        "title": str(row.get("title") or ""),
+        "status": str(row.get("status") or "active"),
+        "last_message_role": str(row.get("last_message_role") or ""),
+        "last_message_preview": str(row.get("last_message_preview") or ""),
+        "last_message_time": str(row["last_message_time"]) if row.get("last_message_time") is not None else None,
+        "metadata": parse_json_object(row.get("metadata_json")),
+        "lock_version": int(row.get("lock_version") or 0),
+        "create_time": str(row.get("create_time") or ""),
+        "update_time": str(row.get("update_time") or ""),
+    }
+
+
+def agent_message_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "tenant_id": int(row["tenant_id"]),
+        "conversation_key": str(row.get("conversation_key") or ""),
+        "message_key": str(row.get("message_key") or ""),
+        "app_key": str(row.get("app_key") or ""),
+        "role": str(row.get("role") or ""),
+        "content": str(row.get("content") or ""),
+        "content_json": parse_json_object(row.get("content_json")),
+        "status": str(row.get("status") or "completed"),
+        "trace_id": str(row.get("trace_id") or ""),
+        "error_code": str(row.get("error_code") or ""),
+        "error_message": str(row.get("error_message") or ""),
+        "metadata": parse_json_object(row.get("metadata_json")),
+        "lock_version": int(row.get("lock_version") or 0),
         "create_time": str(row.get("create_time") or ""),
         "update_time": str(row.get("update_time") or ""),
     }
@@ -464,15 +721,3 @@ def prompt_runtime_trace_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "correlation_id": str(row.get("correlation_id") or ""),
         "create_time": str(row.get("create_time") or ""),
     }
-
-
-def parse_json_list(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, dict)]
-    if not value:
-        return []
-    try:
-        payload = json.loads(str(value))
-    except json.JSONDecodeError:
-        return []
-    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []

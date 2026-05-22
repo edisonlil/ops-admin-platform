@@ -1078,6 +1078,70 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_agent_application_runs_multi_turn_conversation(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("support-agent")
+                    payload["app_type"] = "agent"
+                    payload["system_prompt"] = "你是客服 Agent"
+                    payload["user_prompt_template"] = ""
+                    payload["variables_schema"] = {}
+                    ai_applications.save_ai_application(payload)
+                    conversation = ai_applications.create_agent_conversation("support-agent", {"title": "退款咨询"})
+
+                    calls: list[list[dict[str, object]]] = []
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        calls.append(messages)
+                        return {"choices": [{"message": {"content": f"answer-{len(calls)}"}}], "usage": {}}
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        first = ai_applications.send_agent_message(
+                            "support-agent",
+                            conversation["conversation_key"],
+                            {"content": "第一问", "variables": {}},
+                        )
+                        second = ai_applications.send_agent_message(
+                            "support-agent",
+                            conversation["conversation_key"],
+                            {"content": "第二问", "variables": {}},
+                        )
+                    messages = ai_applications.list_agent_messages("support-agent", conversation["conversation_key"])["items"]
+
+            self.assertEqual(first["assistant_message"]["content"], "answer-1")
+            self.assertEqual(second["assistant_message"]["content"], "answer-2")
+            self.assertEqual([item["role"] for item in calls[1][-3:]], ["user", "assistant", "user"])
+            self.assertEqual([item["content"] for item in calls[1][-3:]], ["第一问", "answer-1", "第二问"])
+            self.assertEqual([item["role"] for item in messages], ["user", "assistant", "user", "assistant"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_agent_application_does_not_use_single_turn_run_endpoint(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("support-agent")
+                    payload["app_type"] = "agent"
+                    payload["user_prompt_template"] = ""
+                    payload["variables_schema"] = {}
+                    ai_applications.save_ai_application(payload)
+                    with self.assertRaises(Exception) as raised:
+                        ai_applications.run_draft_application("support-agent", {"variables": {}})
+
+            self.assertIn("agent conversation", str(getattr(raised.exception, "detail", "")).lower())
+        finally:
+            self._unlink_db(db_path)
+
     def test_workflow_ai_application_runs_without_new_storage(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

@@ -35,6 +35,23 @@ class AIApplicationRunRequest(BaseModel):
     enable_think_output: bool | None = None
 
 
+class AIAgentConversationRequest(BaseModel):
+    title: str = Field(default="", max_length=200)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIAgentMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    content: str = Field(min_length=1, max_length=20000)
+    variables: dict[str, Any] = Field(default_factory=dict)
+    model: str | None = Field(default=None, max_length=200)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    response_format: dict[str, Any] | None = None
+    extra_body: dict[str, Any] | None = None
+    enable_think_output: bool | None = None
+
+
 class TenantAIQuotaRequest(BaseModel):
     max_applications: int = Field(default=5, ge=0)
     max_capabilities: int = Field(default=50, ge=0)
@@ -42,4 +59,3 @@ class TenantAIQuotaRequest(BaseModel):
     daily_run_limit: int = Field(default=1000, ge=0)
     monthly_token_limit: int = Field(default=1000000, ge=0)
     enabled: bool = True
-

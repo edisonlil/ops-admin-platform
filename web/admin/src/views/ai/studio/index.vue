@@ -231,8 +231,9 @@
     { label: '已发布', value: 'published' },
   ];
   const appTypeOptions = [
-    { label: '单轮生成', value: 'single_turn_generation' },
+    { label: '\u5355\u8f6e\u5bf9\u8bdd', value: 'single_turn_generation' },
     { label: 'Workflow', value: 'workflow' },
+    { label: 'Agent', value: 'agent' },
   ];
   const capabilityStatusOptions = [
     { label: '全部状态', value: 'all' },
@@ -474,6 +475,8 @@
     creating.value = true;
     try {
       const appKey = createAppKey(name);
+      const isWorkflowApp = createForm.app_type === 'workflow';
+      const isAgentApp = createForm.app_type === 'agent';
       await saveAiApplication({
         app_key: appKey,
         name,
@@ -482,18 +485,20 @@
         app_type: createForm.app_type,
         status: 'draft',
         endpoint_slug: appKey,
-        system_prompt: createForm.app_type === 'workflow' ? '' : '你是一个专业、简洁的助手。',
+        system_prompt: isWorkflowApp ? '' : '\u4f60\u662f\u4e00\u4e2a\u4e13\u4e1a\u3001\u7b80\u6d01\u7684\u52a9\u624b\u3002',
         developer_prompt: '',
-        user_prompt_template: createForm.app_type === 'workflow' ? '' : '请回答：{{question}}',
-        variables_schema: createForm.app_type === 'workflow' ? { type: 'object', required: [] } : { type: 'object', required: ['question'] },
+        user_prompt_template: isWorkflowApp || isAgentApp ? '' : '\u8bf7\u56de\u7b54\uff1a{{question}}',
+        variables_schema:
+          isWorkflowApp || isAgentApp ? { type: 'object', required: [] } : { type: 'object', required: ['question'] },
         output_schema: {},
-        model_preferences: createForm.app_type === 'workflow' ? {} : { model: 'dashscope.qwen-plus', temperature: 0.2 },
+        model_preferences: isWorkflowApp ? {} : { model: 'dashscope.qwen-plus', temperature: 0.2 },
         auth_policy: {},
         quota_policy: {},
         trace_policy: { enabled: true },
         runtime_config: {
           icon: createForm.icon,
-          ...(createForm.app_type === 'workflow' ? { workflow: defaultWorkflowDefinition() } : {}),
+          ...(isWorkflowApp ? { workflow: defaultWorkflowDefinition() } : {}),
+          ...(isAgentApp ? { agent: { history_limit: 20 } } : {}),
         },
       });
       message.success('应用已创建');
@@ -577,8 +582,9 @@
   }
 
   function appTypeLabel(type: string) {
-    if (type === 'single_turn_generation') return '单轮生成';
+    if (type === 'single_turn_generation') return '\u5355\u8f6e\u5bf9\u8bdd';
     if (type === 'workflow') return 'Workflow';
+    if (type === 'agent') return 'Agent';
     return type;
   }
 
@@ -592,7 +598,8 @@
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
-    return `${normalized || (createForm.app_type === 'workflow' ? 'workflow' : 'single-turn')}-${Date.now().toString(36)}`;
+    const fallbackKey = createForm.app_type === 'workflow' ? 'workflow' : createForm.app_type === 'agent' ? 'agent' : 'single-turn';
+    return `${normalized || fallbackKey}-${Date.now().toString(36)}`;
   }
 
   function defaultWorkflowDefinition() {

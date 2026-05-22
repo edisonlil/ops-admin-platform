@@ -92,6 +92,39 @@ export interface AiApplicationRunLog {
   create_time?: string;
 }
 
+export interface AiAgentConversation {
+  id: number;
+  tenant_id: number;
+  conversation_key: string;
+  app_key: string;
+  title: string;
+  status: string;
+  last_message_role: string;
+  last_message_preview: string;
+  last_message_time?: string | null;
+  metadata: Record<string, unknown>;
+  create_time?: string;
+  update_time?: string;
+}
+
+export interface AiAgentMessage {
+  id: number;
+  tenant_id: number;
+  conversation_key: string;
+  message_key: string;
+  app_key: string;
+  role: 'user' | 'assistant' | 'system' | 'tool' | string;
+  content: string;
+  content_json: Record<string, unknown>;
+  status: 'pending' | 'streaming' | 'completed' | 'failed' | string;
+  trace_id: string;
+  error_code: string;
+  error_message: string;
+  metadata: Record<string, unknown>;
+  create_time?: string;
+  update_time?: string;
+}
+
 export interface AiStudioOverview {
   stats: {
     applications: number;
@@ -167,6 +200,16 @@ export interface AiCapabilityPayload {
 
 export interface AiRunPayload {
   variables: Record<string, unknown>;
+  model?: string;
+  temperature?: number;
+  response_format?: Record<string, unknown>;
+  extra_body?: Record<string, unknown>;
+  enable_think_output?: boolean;
+}
+
+export interface AiAgentMessagePayload {
+  content: string;
+  variables?: Record<string, unknown>;
   model?: string;
   temperature?: number;
   response_format?: Record<string, unknown>;
@@ -257,6 +300,38 @@ export function getAiApplicationRunLogs(appKey: string, params: number | (PagePa
   return Alova.Get<AiListData<AiApplicationRunLog>>(`/ai-studio/applications/${appKey}/run-logs`, {
     params: withNoCacheParams({ page: requestParams.page ?? 1, page_size: requestParams.page_size ?? 50, sort_by: requestParams.sort_by, sort_dir: requestParams.sort_dir }),
   });
+}
+
+export function getAiApplicationAgentConversations(
+  appKey: string,
+  params: PageParams & SortParams & { keyword?: string } = {}
+) {
+  return Alova.Get<AiListData<AiAgentConversation>>(`/ai-applications/${appKey}/agent/conversations`, {
+    params: withNoCacheParams({ page: params.page ?? 1, page_size: params.page_size ?? 20, keyword: params.keyword, sort_by: params.sort_by, sort_dir: params.sort_dir }),
+  });
+}
+
+export function createAiApplicationAgentConversation(appKey: string, payload: { title?: string; metadata?: Record<string, unknown> } = {}) {
+  return Alova.Post<AiAgentConversation>(`/ai-applications/${appKey}/agent/conversations`, payload);
+}
+
+export function getAiApplicationAgentMessages(appKey: string, conversationKey: string, params: PageParams = {}) {
+  return Alova.Get<AiListData<AiAgentMessage>>(
+    `/ai-applications/${appKey}/agent/conversations/${conversationKey}/messages`,
+    { params: withNoCacheParams({ page: params.page ?? 1, page_size: params.page_size ?? 50 }) }
+  );
+}
+
+export function sendAiApplicationAgentMessage(appKey: string, conversationKey: string, payload: AiAgentMessagePayload) {
+  return Alova.Post<{
+    conversation: AiAgentConversation;
+    user_message: AiAgentMessage;
+    assistant_message: AiAgentMessage;
+    answer: string;
+    trace_id: string;
+    usage: Record<string, unknown>;
+    trace?: RuntimeTrace;
+  }>(`/ai-applications/${appKey}/agent/conversations/${conversationKey}/messages`, payload);
 }
 
 export function getAiCapabilityRunLogs(capabilityKey: string, params: number | (PageParams & SortParams) = {}) {
@@ -373,6 +448,32 @@ export function fetchAiCapabilityStream(capabilityKey: string, payload: AiRunPay
   }).catch((error) => {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new Error(`AI capability stream request failed: ${errorMessage(error)}`);
+  });
+}
+
+export function fetchAiApplicationAgentMessageStream(
+  appKey: string,
+  conversationKey: string,
+  payload: AiAgentMessagePayload,
+  signal?: AbortSignal
+) {
+  return fetch(
+    buildAiStudioApiUrl(
+      `/ai-applications/${encodeURIComponent(appKey)}/agent/conversations/${encodeURIComponent(conversationKey)}/messages/stream`
+    ),
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(),
+      },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  ).catch((error) => {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new Error(`AI agent stream request failed: ${errorMessage(error)}`);
   });
 }
 

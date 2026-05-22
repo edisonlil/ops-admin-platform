@@ -19,6 +19,7 @@ from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import execute_workflow
 from llm_runtime.application import gateway
 from ai_applications.infrastructure.persistence import repositories
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
 from system.application.database import connect
 from system.application.sorting import sort_dict_items
@@ -45,6 +46,13 @@ TRACE_SORT_COLUMNS = {
     "duration_ms": "duration_ms",
     "create_time": "create_time",
 }
+AGENT_CONVERSATION_SORT_COLUMNS = {
+    "id": "id",
+    "title": "title",
+    "last_message_time": "last_message_time",
+    "create_time": "create_time",
+    "update_time": "update_time",
+}
 
 
 def studio_overview() -> dict[str, Any]:
@@ -67,10 +75,9 @@ def studio_overview() -> dict[str, Any]:
         "applications": apps[:8],
         "recent_traces": traces,
         "app_types": [
-            {"type": "single_turn_generation", "label": "单轮生成", "enabled": True},
-            {"type": "chat", "label": "多轮对话", "enabled": False},
+            {"type": "single_turn_generation", "label": "\u5355\u8f6e\u5bf9\u8bdd", "enabled": True},
             {"type": "workflow", "label": "Workflow", "enabled": True},
-            {"type": "agent", "label": "Agent", "enabled": False},
+            {"type": "agent", "label": "Agent", "enabled": True},
         ],
     }
 
@@ -127,7 +134,7 @@ def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
             existing = repositories.get_ai_application(conn, str(payload.get("app_key") or ""))
             if not existing:
                 enforce_application_quota(conn)
-            normalize_single_turn_payload(payload)
+            normalize_application_payload(payload)
             return repositories.upsert_ai_application(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -160,6 +167,8 @@ def stream_draft_application(app_key: str, payload: dict[str, Any]) -> Any:
     app = get_ai_application(app_key)
     if app.get("app_type") == "workflow":
         return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False)
+    if app.get("app_type") == "agent":
+        raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
     prepared = prepare_single_turn_run(app, payload, require_published=False)
     return stream_single_turn_application(prepared, caller_type="studio_draft")
 
@@ -167,6 +176,274 @@ def stream_draft_application(app_key: str, payload: dict[str, Any]) -> Any:
 def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     app = get_ai_application(app_key)
     return execute_application(app, payload, caller_type="application_api", require_published=True)
+
+
+def list_agent_conversations(
+    app_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    app = require_agent_application(app_key)
+    return read_list(
+        lambda conn: (
+            require_ai_agent_schema(conn)
+            or repositories.list_agent_conversations(conn, app["app_key"], limit=max(1, page) * max(1, page_size))
+        ),
+        page=page,
+        page_size=page_size,
+        filterer=lambda items: filter_agent_conversations(items, keyword=keyword),
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        allowed_sort=AGENT_CONVERSATION_SORT_COLUMNS,
+    )
+
+
+def filter_agent_conversations(items: list[dict[str, Any]], *, keyword: str | None) -> list[dict[str, Any]]:
+    text = str(keyword or "").strip().lower()
+    if not text:
+        return items
+    return [
+        item
+        for item in items
+        if text in str(item.get("title") or "").lower()
+        or text in str(item.get("last_message_preview") or "").lower()
+    ]
+
+
+def create_agent_conversation(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    app = require_agent_application(app_key)
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            require_ai_applications_schema(conn)
+            require_ai_agent_schema(conn)
+            return repositories.create_agent_conversation(conn, app["app_key"], payload)
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def list_agent_messages(
+    app_key: str,
+    conversation_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    app = require_agent_application(app_key)
+    conversation = get_agent_conversation_or_404(app, conversation_key)
+    return read_list(
+        lambda conn: (
+            require_ai_agent_schema(conn)
+            or repositories.list_agent_messages(
+                conn,
+                app["app_key"],
+                conversation["conversation_key"],
+                limit=max(1, page) * max(1, page_size),
+            )
+        ),
+        page=page,
+        page_size=page_size,
+    )
+
+
+def send_agent_message(app_key: str, conversation_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    prepared = prepare_agent_run(app_key, conversation_key, payload)
+    trace_id = f"trace_{uuid.uuid4().hex}"
+    started_at = time.perf_counter()
+    answer = ""
+    usage: dict[str, Any] = {}
+    try:
+        response = gateway.chat_completions(
+            model=prepared["model"],
+            messages=prepared["messages"],
+            temperature=prepared["temperature"],
+            response_format=prepared["response_format"],
+            extra_body=resolve_extra_body(prepared["app"], payload),
+            enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+            correlation_id=trace_id,
+        )
+        answer = extract_answer(response)
+        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        trace = record_trace(
+            trace_id=trace_id,
+            app=prepared["app"],
+            caller_type="ai_agent",
+            caller_key=prepared["conversation"]["conversation_key"],
+            model=prepared["model"],
+            status="success",
+            variables=prepared["variables"],
+            messages=prepared["messages"],
+            rendered_prompt=prepared["rendered_prompt"],
+            answer=answer,
+            usage=usage,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            prompt_refs=prepared["prompt_refs"],
+        )
+        assistant_message = persist_agent_assistant_message(
+            prepared,
+            content=answer,
+            status="completed",
+            trace_id=trace_id,
+        )
+        return {
+            "conversation": prepared["conversation"],
+            "user_message": prepared["user_message"],
+            "assistant_message": assistant_message,
+            "answer": answer,
+            "trace_id": trace_id,
+            "usage": usage,
+            "trace": trace,
+        }
+    except (gateway.LLMRoutingError, RuntimeError) as exc:
+        trace = record_trace(
+            trace_id=trace_id,
+            app=prepared["app"],
+            caller_type="ai_agent",
+            caller_key=prepared["conversation"]["conversation_key"],
+            model=prepared["model"],
+            status="failed",
+            variables=prepared["variables"],
+            messages=prepared["messages"],
+            rendered_prompt=prepared["rendered_prompt"],
+            answer=answer,
+            usage=usage,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            error=exc,
+            prompt_refs=prepared["prompt_refs"],
+        )
+        assistant_message = persist_agent_assistant_message(
+            prepared,
+            content=answer,
+            status="failed",
+            trace_id=trace_id,
+            error=exc,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "trace_id": trace.get("trace_id"), "assistant_message": assistant_message},
+        ) from exc
+
+
+def stream_agent_message(app_key: str, conversation_key: str, payload: dict[str, Any]) -> Any:
+    prepared = prepare_agent_run(app_key, conversation_key, payload)
+    trace_id = f"trace_{uuid.uuid4().hex}"
+    started_at = time.perf_counter()
+    assistant_message = persist_agent_assistant_message(
+        prepared,
+        content="",
+        status="streaming",
+        trace_id=trace_id,
+    )
+
+    def events() -> Any:
+        answer_parts: list[str] = []
+        error: Exception | None = None
+        trace_recorded = False
+
+        def emit_named(event_name: str, payload_data: dict[str, Any]) -> str:
+            return gateway.sse_data(payload_data).replace("data: ", f"event: {event_name}\ndata: ", 1)
+
+        def finish(status: str, trace_error: Exception | None) -> dict[str, Any]:
+            nonlocal trace_recorded, assistant_message
+            trace_recorded = True
+            answer = "".join(answer_parts)
+            trace = record_trace(
+                trace_id=trace_id,
+                app=prepared["app"],
+                caller_type="ai_agent",
+                caller_key=prepared["conversation"]["conversation_key"],
+                model=prepared["model"],
+                status=status,
+                variables=prepared["variables"],
+                messages=prepared["messages"],
+                rendered_prompt=prepared["rendered_prompt"],
+                answer=answer,
+                usage={},
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                error=trace_error,
+                prompt_refs=prepared["prompt_refs"],
+            )
+            assistant_message = update_agent_assistant_message(
+                assistant_message["message_key"],
+                content=answer,
+                status="completed" if status == "success" else "failed",
+                trace_id=trace_id,
+                error=trace_error,
+            )
+            return trace
+
+        yield emit_named(
+            "meta",
+            {
+                "trace_id": trace_id,
+                "model": prepared["model"],
+                "conversation_key": prepared["conversation"]["conversation_key"],
+                "user_message_key": prepared["user_message"]["message_key"],
+                "assistant_message_key": assistant_message["message_key"],
+                "object": "ai_application.agent.run.start",
+            },
+        )
+        try:
+            for event in gateway.stream_chat_completions(
+                model=prepared["model"],
+                messages=prepared["messages"],
+                temperature=prepared["temperature"],
+                response_format=prepared["response_format"],
+                extra_body=resolve_extra_body(prepared["app"], payload),
+                enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+                correlation_id=trace_id,
+            ):
+                event_type, event_data = parse_sse_event(event)
+                if event_type == "error":
+                    error = RuntimeError(event_data.get("message") or "LLM stream failed")
+                    yield event
+                    continue
+                if event.strip() == "data: [DONE]":
+                    trace = finish("failed" if error else "success", error)
+                    yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                    yield emit_named(
+                        "final",
+                        {
+                            "trace_id": trace_id,
+                            "assistant_message": assistant_message,
+                            "object": "ai_application.agent.message.final",
+                        },
+                    )
+                    yield event
+                    break
+                answer_parts.append(gateway.stream_event_content(event))
+                yield event
+            if not trace_recorded:
+                trace = finish("failed" if error else "success", error)
+                yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                yield emit_named(
+                    "final",
+                    {
+                        "trace_id": trace_id,
+                        "assistant_message": assistant_message,
+                        "object": "ai_application.agent.message.final",
+                    },
+                )
+                yield "data: [DONE]\n\n"
+        except (gateway.LLMRoutingError, RuntimeError) as exc:
+            trace = finish("failed", exc)
+            yield gateway.sse_error(str(exc))
+            yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+            yield emit_named(
+                "final",
+                {
+                    "trace_id": trace_id,
+                    "assistant_message": assistant_message,
+                    "object": "ai_application.agent.message.final",
+                },
+            )
+            yield "data: [DONE]\n\n"
+
+    return events()
 
 
 def list_prompt_runtime_traces(
@@ -386,6 +663,8 @@ def execute_application(
             caller_key=caller_key,
             require_published=require_published,
         )
+    if app_type == "agent":
+        raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
     return execute_single_turn_application(
         app,
         payload,
@@ -619,6 +898,165 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
     return events()
 
 
+def require_agent_application(app_key: str) -> dict[str, Any]:
+    app = get_ai_application(app_key)
+    if app.get("app_type") != "agent":
+        raise HTTPException(status_code=422, detail="Only Agent applications support agent conversations")
+    return app
+
+
+def get_agent_conversation_or_404(app: dict[str, Any], conversation_key: str) -> dict[str, Any]:
+    conversation = read_one(
+        lambda conn: require_ai_agent_schema(conn)
+        or repositories.get_agent_conversation(conn, app["app_key"], conversation_key)
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Agent conversation not found")
+    return conversation
+
+
+def prepare_agent_run(app_key: str, conversation_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    app = require_agent_application(app_key)
+    conversation = get_agent_conversation_or_404(app, conversation_key)
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="content is required")
+
+    app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
+    variables = extract_run_variables(payload)
+    validate_variables(app_for_run, variables)
+
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            require_ai_applications_schema(conn)
+            require_ai_agent_schema(conn)
+            history = repositories.list_recent_agent_messages(
+                conn,
+                app_for_run["app_key"],
+                conversation["conversation_key"],
+                limit=agent_history_limit(app_for_run),
+            )
+            user_message = repositories.insert_agent_message(
+                conn,
+                {
+                    "app_key": app_for_run["app_key"],
+                    "conversation_key": conversation["conversation_key"],
+                    "role": "user",
+                    "content": content,
+                    "status": "completed",
+                    "metadata": {"variables": variables},
+                },
+            )
+            conversation = repositories.get_agent_conversation(conn, app_for_run["app_key"], conversation["conversation_key"]) or conversation
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+    messages = build_agent_messages(app_for_run, variables, history, content)
+    rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
+    return {
+        "app": app_for_run,
+        "conversation": conversation,
+        "user_message": user_message,
+        "variables": variables,
+        "messages": messages,
+        "rendered_prompt": rendered_prompt,
+        "model": resolve_model(app_for_run, payload),
+        "temperature": resolve_temperature(app_for_run, payload),
+        "response_format": resolve_response_format(app_for_run, payload),
+        "prompt_refs": prompt_refs,
+    }
+
+
+def build_agent_messages(
+    app: dict[str, Any],
+    variables: dict[str, Any],
+    history: list[dict[str, Any]],
+    user_content: str,
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for role, field in (("system", "system_prompt"), ("developer", "developer_prompt")):
+        content = render_template(str(app.get(field) or ""), variables)
+        if content.strip():
+            messages.append({"role": role, "content": content})
+    for item in history:
+        role = str(item.get("role") or "")
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content") or "")
+        if content.strip():
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": render_message_content("user", user_content, variables)})
+    return messages
+
+
+def agent_history_limit(app: dict[str, Any]) -> int:
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
+    agent_config = runtime_config.get("agent") if isinstance(runtime_config.get("agent"), dict) else {}
+    try:
+        return max(1, min(100, int(agent_config.get("history_limit") or 20)))
+    except (TypeError, ValueError):
+        return 20
+
+
+def persist_agent_assistant_message(
+    prepared: dict[str, Any],
+    *,
+    content: str,
+    status: str,
+    trace_id: str,
+    error: Exception | None = None,
+) -> dict[str, Any]:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            require_ai_applications_schema(conn)
+            require_ai_agent_schema(conn)
+            return repositories.insert_agent_message(
+                conn,
+                {
+                    "app_key": prepared["app"]["app_key"],
+                    "conversation_key": prepared["conversation"]["conversation_key"],
+                    "role": "assistant",
+                    "content": content,
+                    "status": status,
+                    "trace_id": trace_id,
+                    "error_code": error.__class__.__name__ if error else "",
+                    "error_message": str(error) if error else "",
+                },
+            )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def update_agent_assistant_message(
+    message_key: str,
+    *,
+    content: str,
+    status: str,
+    trace_id: str,
+    error: Exception | None = None,
+) -> dict[str, Any]:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            require_ai_applications_schema(conn)
+            require_ai_agent_schema(conn)
+            return repositories.update_agent_message(
+                conn,
+                message_key,
+                {
+                    "content": content,
+                    "status": status,
+                    "trace_id": trace_id,
+                    "error_code": error.__class__.__name__ if error else "",
+                    "error_message": str(error) if error else "",
+                },
+            )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
 def enforce_application_quota(conn: Any) -> None:
     quota = repositories.get_tenant_ai_quota(conn)
     if not quota.get("enabled", True):
@@ -628,10 +1066,10 @@ def enforce_application_quota(conn: Any) -> None:
         raise ValueError("tenant AI application quota exceeded")
 
 
-def normalize_single_turn_payload(payload: dict[str, Any]) -> None:
+def normalize_application_payload(payload: dict[str, Any]) -> None:
     payload["app_type"] = payload.get("app_type") or "single_turn_generation"
-    if payload["app_type"] not in {"single_turn_generation", "workflow"}:
-        raise ValueError("app_type must be single_turn_generation or workflow")
+    if payload["app_type"] not in {"single_turn_generation", "workflow", "agent"}:
+        raise ValueError("app_type must be single_turn_generation, workflow, or agent")
     payload.setdefault("variables_schema", {})
     payload.setdefault("model_preferences", {})
     payload.setdefault("trace_policy", {"enabled": True})
@@ -640,6 +1078,9 @@ def normalize_single_turn_payload(payload: dict[str, Any]) -> None:
 def validate_publishable(app: dict[str, Any]) -> None:
     if app.get("app_type") == "workflow":
         workflow_definition_from_app(app)
+        return
+    if app.get("app_type") == "agent":
+        resolve_model(app, {})
         return
     if not str(app.get("user_prompt_template") or "").strip():
         raise HTTPException(status_code=422, detail="user_prompt_template is required before publish")

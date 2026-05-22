@@ -249,8 +249,7 @@ Examples:
     deploy_parser.add_argument(
         "subcommand",
         nargs="?",
-        choices=["status", "start", "stop", "restart", "logs", "health", "shell"],
-        help="Container management command",
+        help="Container management command or target server name",
     )
     deploy_parser.add_argument(
         "target",
@@ -362,12 +361,17 @@ def main() -> int:
         elif args.command == "setup":
             run_setup(args)
         elif args.command == "deploy":
-            if args.subcommand:
+            container_commands = {"status", "start", "stop", "restart", "logs", "health", "shell"}
+            if args.subcommand in container_commands:
                 # Container management command (logs, status, etc.)
                 run_container_cmd(args)
             elif args.rollback:
+                if args.subcommand and not args.target:
+                    args.target = args.subcommand
                 run_deploy_rollback(args)
             elif args.history:
+                if args.subcommand and not args.target:
+                    args.target = args.subcommand
                 run_deploy_history(args)
             elif args.add:
                 run_deploy_add(args)
@@ -375,6 +379,10 @@ def main() -> int:
                 run_deploy_list(args)
             elif args.remove_target:
                 run_deploy_remove(args)
+            elif args.subcommand:
+                args.target = args.subcommand
+                args.subcommand = None
+                run_deploy(args)
             else:
                 run_deploy(args)
         elif args.command in ("container", "ctrl", "ct"):

@@ -15,6 +15,16 @@
         </button>
       </nav>
 
+      <AgentChatRuntime
+        v-if="activeWorkspace === 'agent' && isAgentMode && form.app_key"
+        :app-key="form.app_key"
+        v-model:model-value="selectedModelKey"
+        :model-options="modelConfigOptions"
+        :model-loading="modelConfigLoading"
+        :saving="saving"
+        @save-config="() => saveCurrent()"
+      />
+
       <div v-if="activeWorkspace === 'orchestration' && isWorkflowMode" class="workflow-fullscreen">
         <main class="workflow-canvas-shell">
           <section class="workflow-canvas-toolbar">
@@ -447,7 +457,7 @@
             <header class="studio-section__head">
               <div>
                 <h3>提示词</h3>
-                <span>定义单轮生成应用的系统角色和用户输入模板。</span>
+                <span>{{ '\u5b9a\u4e49\u5355\u8f6e\u5bf9\u8bdd\u5e94\u7528\u7684\u7cfb\u7edf\u89d2\u8272\u548c\u7528\u6237\u8f93\u5165\u6a21\u677f\u3002' }}</span>
               </div>
               <n-button size="small" tertiary type="primary" @click="generatePromptHint">生成</n-button>
             </header>
@@ -993,7 +1003,7 @@
         <n-empty description="监测能力将在运行日志稳定后接入" />
       </section>
 
-      <section v-else class="studio-workspace-panel">
+      <section v-else-if="activeWorkspace === 'settings'" class="studio-workspace-panel">
         <header class="workspace-panel__head">
           <div>
             <h3>设置</h3>
@@ -1095,6 +1105,7 @@
   import MarkdownIt from 'markdown-it';
   import { getLlmModels, getLlmRoutingPolicies, getTenants } from '@/api/business';
   import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
+  import { AgentChatRuntime } from '@/components/AgentChatRuntime';
   import CodePreview from '@/components/CodePreview/index.vue';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
   import {
@@ -1152,7 +1163,7 @@
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
   type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
   type PromptSource = 'inline' | 'asset';
-  type WorkspaceKey = 'orchestration' | 'api' | 'logs' | 'monitoring' | 'settings';
+  type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
   type WorkflowNodeType = 'start' | 'llm' | 'condition' | 'end';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
@@ -1309,14 +1320,28 @@
     model: '',
   });
   const baseWorkspaceTabs: Array<{ key: WorkspaceKey; label: string; description: string }> = [
-    { key: 'orchestration', label: '编排', description: 'Prompt 与调试' },
-    { key: 'api', label: '访问 API', description: '调用方式' },
-    { key: 'logs', label: '运行日志', description: '执行记录' },
-    { key: 'monitoring', label: '监测', description: '指标趋势' },
-    { key: 'settings', label: '设置', description: '应用信息' },
+    { key: 'orchestration', label: '\u5355\u8f6e\u5bf9\u8bdd', description: '\u5355\u6b21\u8fd0\u884c' },
+    { key: 'api', label: '\u5f00\u653e API', description: '\u63a5\u5165\u65b9\u5f0f' },
+    { key: 'logs', label: '\u8fd0\u884c\u65e5\u5fd7', description: '\u8c03\u7528\u8bb0\u5f55' },
+    { key: 'monitoring', label: '\u76d1\u63a7', description: '\u8d28\u91cf\u4e0e\u8017\u7528' },
+    { key: 'settings', label: '\u8bbe\u7f6e', description: '\u57fa\u7840\u914d\u7f6e' },
   ];
-  const workspaceTabs = computed(() => baseWorkspaceTabs.filter((item) => !isCapability.value || item.key !== 'api'));
   const isWorkflowMode = computed(() => form.app_type === 'workflow');
+  const isAgentMode = computed(() => form.app_type === 'agent');
+  const workspaceTabs = computed(() => {
+    if (isAgentMode.value && !isCapability.value) {
+      return [
+        { key: 'agent' as WorkspaceKey, label: 'Agent', description: '\u591a\u8f6e\u5bf9\u8bdd' },
+        { key: 'settings' as WorkspaceKey, label: '\u8bbe\u7f6e', description: '\u57fa\u7840\u914d\u7f6e' },
+        { key: 'logs' as WorkspaceKey, label: '\u8fd0\u884c\u65e5\u5fd7', description: '\u8c03\u7528\u8bb0\u5f55' },
+        { key: 'monitoring' as WorkspaceKey, label: '\u76d1\u63a7', description: '\u8d28\u91cf\u4e0e\u8017\u7528' },
+      ];
+    }
+    const tabs = baseWorkspaceTabs.filter((item) => !isCapability.value || item.key !== 'api');
+    return isWorkflowMode.value
+      ? tabs.map((item) => (item.key === 'orchestration' ? { ...item, label: 'Workflow', description: '\u6d41\u7a0b\u7f16\u6392' } : item))
+      : tabs;
+  });
   const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
@@ -1557,6 +1582,11 @@
   watch(activeWorkspace, (value) => {
     if (value === 'logs') void loadRunLogs();
   });
+  watch(
+    () => form.app_type,
+    () => ensureWorkspaceMatchesAppType(),
+    { immediate: true }
+  );
   onBeforeUnmount(() => {
     cancelRunDraft({ silent: true });
     stopRunStopwatch();
@@ -1660,7 +1690,23 @@
       activeWorkspace.value = 'orchestration';
       return;
     }
+    if (key === 'agent' && !isAgentMode.value) {
+      activeWorkspace.value = 'orchestration';
+      return;
+    }
     activeWorkspace.value = key;
+  }
+
+  function ensureWorkspaceMatchesAppType() {
+    if (isAgentMode.value && !isCapability.value) {
+      if (!workspaceTabs.value.some((item) => item.key === activeWorkspace.value)) {
+        activeWorkspace.value = 'agent';
+      }
+      return;
+    }
+    if (activeWorkspace.value === 'agent') {
+      activeWorkspace.value = 'orchestration';
+    }
   }
 
   function selectApp(app: AiApplication) {
@@ -1694,6 +1740,7 @@
     selectedRunLogId.value = '';
     streamThinkText.value = '';
     syncRuntimeVariableValues();
+    ensureWorkspaceMatchesAppType();
   }
 
   function selectCapability(capability: AiCapability) {
@@ -1728,6 +1775,7 @@
     selectedRunLogId.value = '';
     streamThinkText.value = '';
     syncRuntimeVariableValues();
+    ensureWorkspaceMatchesAppType();
   }
 
   async function saveCurrent(options: { silent?: boolean; refresh?: boolean } = {}) {
@@ -1776,6 +1824,10 @@
 
   async function runDraft() {
     if (running.value) return;
+    if (isAgentMode.value) {
+      activeWorkspace.value = 'agent';
+      return;
+    }
     if (isWorkflowMode.value) {
       openWorkflowRunPanel();
       return;

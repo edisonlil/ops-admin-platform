@@ -90,3 +90,58 @@ CREATE TABLE IF NOT EXISTS prompt_runtime_traces (
 CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_tenant ON prompt_runtime_traces(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_caller ON prompt_runtime_traces(tenant_id, caller_type, caller_key);
 CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_created ON prompt_runtime_traces(create_time);
+
+CREATE TABLE IF NOT EXISTS ai_application_agent_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 1,
+    conversation_key TEXT NOT NULL,
+    app_key TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    last_message_role TEXT NOT NULL DEFAULT '',
+    last_message_preview TEXT NOT NULL DEFAULT '',
+    last_message_time TEXT DEFAULT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE (tenant_id, conversation_key, deleted)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_app_agent_conversations_tenant_app
+    ON ai_application_agent_conversations(tenant_id, app_key, deleted, update_time);
+
+CREATE TABLE IF NOT EXISTS ai_application_agent_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 1,
+    conversation_key TEXT NOT NULL,
+    message_key TEXT NOT NULL,
+    app_key TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    content_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'completed',
+    trace_id TEXT NOT NULL DEFAULT '',
+    error_code TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    lock_version INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id INTEGER DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id INTEGER DEFAULT NULL,
+    UNIQUE (tenant_id, message_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_app_agent_messages_conversation
+    ON ai_application_agent_messages(tenant_id, conversation_key, deleted, id);
+CREATE INDEX IF NOT EXISTS idx_ai_app_agent_messages_trace
+    ON ai_application_agent_messages(tenant_id, trace_id);

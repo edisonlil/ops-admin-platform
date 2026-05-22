@@ -168,6 +168,46 @@ def _load_application_config_for_target(project_path: Path, target_name: str, db
     return {"database": db_config}
 
 
+def _has_database_connection_info(db_config: dict) -> bool:
+    """Return whether a database config has enough connection info for deploy."""
+    if not isinstance(db_config, dict) or not db_config:
+        return False
+
+    database_url = str(db_config.get("database_url", "")).strip()
+    if database_url:
+        return True
+
+    backend = str(db_config.get("backend", "")).strip().lower()
+    sqlite_path = str(db_config.get("sqlite_path", "")).strip()
+    if backend == "sqlite":
+        return True
+    if sqlite_path:
+        return True
+
+    return False
+
+
+def _database_config_summary(db_config: dict) -> str:
+    database_url = str(db_config.get("database_url", "")).strip()
+    if database_url:
+        return database_url
+
+    backend = str(db_config.get("backend", "")).strip().lower()
+    sqlite_path = str(db_config.get("sqlite_path", "")).strip()
+    if backend == "sqlite" or sqlite_path:
+        return f"sqlite:{sqlite_path or 'ops_admin.db'}"
+
+    return "(missing)"
+
+
+def _existing_database_config_for_new_target(project_path: Path, target_name: str) -> tuple[dict, str] | None:
+    """Return an existing target database config if it is usable for deployment."""
+    db_config, db_config_source = _load_db_config_for_target(project_path, target_name, {})
+    if _has_database_connection_info(db_config):
+        return db_config, db_config_source
+    return None
+
+
 def run_build(project_path: Path) -> bool:
     """Build frontend."""
     frontend_path = project_path / "web" / "admin"
@@ -842,32 +882,34 @@ def run_deploy(args) -> None:
                     return
             
             remote_path = input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
-            
-            print("\nDatabase configuration:")
-            db_host = input("  DB Host [127.0.0.1]: ").strip() or "127.0.0.1"
-            db_port = input("  DB Port [3306]: ").strip() or "3306"
-            db_user = input("  DB Username [root]: ").strip() or "root"
-            import getpass
-            db_pass = getpass.getpass("  DB Password: ").strip()
-            db_name = input("  DB Name: ").strip()
-            
-            if not db_name:
-                print("Database name required.")
-                return
-            
             container_port = input("Container port [8000]: ").strip() or "8000"
-            
-            # Build database URL
-            database_url = f"mysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-            
+
             target = {
                 "host": host,
                 "port": int(port),
                 "user": user,
                 "remote_path": remote_path,
-                "database_url": database_url,
                 "container_port": int(container_port),
             }
+
+            existing_db = _existing_database_config_for_new_target(project_path, target_name)
+            if existing_db:
+                _, db_config_source = existing_db
+                print(f"\nUsing existing database config from: {db_config_source}")
+            else:
+                print("\nDatabase configuration:")
+                db_host = input("  DB Host [127.0.0.1]: ").strip() or "127.0.0.1"
+                db_port = input("  DB Port [3306]: ").strip() or "3306"
+                db_user = input("  DB Username [root]: ").strip() or "root"
+                import getpass
+                db_pass = getpass.getpass("  DB Password: ").strip()
+                db_name = input("  DB Name: ").strip()
+
+                if not db_name:
+                    print("Database name required.")
+                    return
+
+                target["database_url"] = f"mysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
             
             if ssh_key:
                 target["ssh_key"] = os.path.expanduser(ssh_key)
@@ -923,11 +965,12 @@ def run_deploy(args) -> None:
     
     # Get database config based on target name (also used for dry-run output)
     db_config, db_config_source = _load_db_config_for_target(project_path, target_name, target)
-    if not db_config or not db_config.get("database_url"):
+    if not _has_database_connection_info(db_config):
         print(f"\nNo database config found for target '{target_name}'.")
-        print(f"Please create 'config/database.{target_name}.json'")
+        print(f"Please create 'config/application.{target_name}.json' with a database section.")
         print("\nExample format:")
         print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
+        print('  {"backend": "sqlite", "sqlite_path": "data/ops_admin.db"}')
         return
 
     # Dry-run mode
@@ -941,7 +984,7 @@ def run_deploy(args) -> None:
         print(f"Remote path: {target.get('remote_path')}")
         print(f"Container port: {target.get('container_port', 8000)}")
         print(f"\nDatabase config source: {db_config_source}")
-        print(f"Database URL: {db_config.get('database_url')}")
+        print(f"Database: {_database_config_summary(db_config)}")
         print(f"\nWill do:")
         print("  1. Build frontend (pnpm build)")
         print("  2. Create deployment package (tar.gz)")

@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from ai_applications.application import services
-from ai_applications.interfaces.http.dtos import AIApplicationRequest, AIApplicationRunRequest, TenantAIQuotaRequest
+from ai_applications.interfaces.http.dtos import (
+    AIAgentConversationRequest,
+    AIAgentMessageRequest,
+    AIApplicationRequest,
+    AIApplicationRunRequest,
+    TenantAIQuotaRequest,
+)
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import ok
 
@@ -95,6 +101,64 @@ def run_ai_application_draft(app_key: str, payload: AIApplicationRunRequest) -> 
 def stream_ai_application_draft(app_key: str, payload: AIApplicationRunRequest) -> StreamingResponse:
     return StreamingResponse(
         services.stream_draft_application(app_key, payload.model_dump()),
+        media_type="text/event-stream",
+    )
+
+
+@router.get("/ai-applications/{app_key}/agent/conversations", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
+def ai_application_agent_conversations(
+    app_key: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return ok(
+        services.list_agent_conversations(
+            app_key,
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
+
+
+@router.post("/ai-applications/{app_key}/agent/conversations", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
+def create_ai_application_agent_conversation(app_key: str, payload: AIAgentConversationRequest) -> dict[str, Any]:
+    return ok(services.create_agent_conversation(app_key, payload.model_dump()))
+
+
+@router.get(
+    "/ai-applications/{app_key}/agent/conversations/{conversation_key}/messages",
+    dependencies=[Depends(auth.require_permission("ai_applications:run"))],
+)
+def ai_application_agent_messages(
+    app_key: str,
+    conversation_key: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+) -> dict[str, Any]:
+    return ok(services.list_agent_messages(app_key, conversation_key, page=page, page_size=page_size))
+
+
+@router.post(
+    "/ai-applications/{app_key}/agent/conversations/{conversation_key}/messages",
+    dependencies=[Depends(auth.require_permission("ai_applications:run"))],
+)
+def send_ai_application_agent_message(app_key: str, conversation_key: str, payload: AIAgentMessageRequest) -> dict[str, Any]:
+    return ok(services.send_agent_message(app_key, conversation_key, payload.model_dump()))
+
+
+@router.post(
+    "/ai-applications/{app_key}/agent/conversations/{conversation_key}/messages/stream",
+    dependencies=[Depends(auth.require_permission("ai_applications:run"))],
+)
+def stream_ai_application_agent_message(app_key: str, conversation_key: str, payload: AIAgentMessageRequest) -> StreamingResponse:
+    return StreamingResponse(
+        services.stream_agent_message(app_key, conversation_key, payload.model_dump()),
         media_type="text/event-stream",
     )
 

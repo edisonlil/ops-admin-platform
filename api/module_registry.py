@@ -11,6 +11,7 @@ from fastapi import APIRouter
 
 ROUTER_GROUP = "ops_admin.routers"
 INIT_TASK_GROUP = "ops_admin.init_tasks"
+CRON_COMMAND_GROUP = "ops_admin.cron_commands"
 MODULE_ORDER = (
     "system",
     "cron",
@@ -87,6 +88,7 @@ LOCAL_ENTRYPOINTS = {
         "ai_capabilities": "ai_capabilities.entrypoints:init_tasks",
         "appearance": "appearance.entrypoints:init_tasks",
     },
+    CRON_COMMAND_GROUP: {},
 }
 
 def module_routers() -> list[APIRouter]:
@@ -129,7 +131,7 @@ def module_sort_key(name: str) -> tuple[int, str]:
 
 
 def ensure_local_package_sources() -> None:
-    for src_path in LOCAL_PACKAGE_SRC.values():
+    for src_path in reversed(LOCAL_PACKAGE_SRC.values()):
         if src_path.exists():
             src = str(src_path)
             if src not in sys.path:
