@@ -53,6 +53,8 @@ from identity_access.infrastructure.persistence.user_repository import (
     ensure_last_superuser_survives,
     list_platform_users,
     list_users,
+    normalize_email,
+    platform_user_by_login_identifier,
     platform_user_by_username,
     public_user,
     resolve_role_ids,
@@ -60,5 +62,6 @@ from identity_access.infrastructure.persistence.user_repository import (
     sync_user_roles,
     update_own_profile,
     update_user,
+    user_by_login_identifier,
     user_by_username,
 )

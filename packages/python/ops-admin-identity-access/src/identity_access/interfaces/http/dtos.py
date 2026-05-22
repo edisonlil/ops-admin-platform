@@ -5,6 +5,20 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+def normalize_email_value(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        return ""
+    if any(char.isspace() for char in normalized):
+        raise ValueError("Email must not contain whitespace")
+    if normalized.count("@") != 1:
+        raise ValueError("Email format is invalid")
+    local_part, domain = normalized.split("@", 1)
+    if not local_part or not domain or "." not in domain:
+        raise ValueError("Email format is invalid")
+    return normalized
+
+
 class RbacUserListResponse(BaseModel):
     items: list[dict[str, Any]]
 
@@ -13,6 +27,7 @@ class RbacUserCreateRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
     username: str = Field(min_length=1, max_length=120)
     full_name: str = Field(default="", max_length=120)
+    email: str = Field(default="", max_length=254)
     password: str = Field(min_length=1, max_length=200)
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
@@ -33,6 +48,11 @@ class RbacUserCreateRequest(BaseModel):
     def normalize_full_name(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return normalize_email_value(value)
+
     @field_validator("password")
     @classmethod
     def password_must_not_be_blank(cls, value: str) -> str:
@@ -46,6 +66,7 @@ class RbacUserUpdateRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
     username: str = Field(min_length=1, max_length=120)
     full_name: str = Field(default="", max_length=120)
+    email: str = Field(default="", max_length=254)
     password: str = Field(default="", max_length=200)
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
@@ -66,9 +87,15 @@ class RbacUserUpdateRequest(BaseModel):
     def normalize_full_name(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return normalize_email_value(value)
+
 
 class CurrentProfileUpdateRequest(BaseModel):
     full_name: str = Field(default="", max_length=120)
+    email: str | None = Field(default=None, max_length=254)
     current_password: str = Field(default="", max_length=200)
     new_password: str = Field(default="", max_length=200)
 
@@ -76,6 +103,13 @@ class CurrentProfileUpdateRequest(BaseModel):
     @classmethod
     def normalize_text(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_email_value(value)
 
 
 class RbacRoleListResponse(BaseModel):

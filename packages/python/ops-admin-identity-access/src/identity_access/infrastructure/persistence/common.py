@@ -639,6 +639,9 @@ def normalize_username(username: str) -> str:
 def ensure_auth_schema(conn: Any) -> None:
     if backend_name(conn) == "sqlite":
         repair_sqlite_identity_tables_before_schema(conn)
+    if backend_name(conn) in {"postgres", "mysql"}:
+        email_definition = "VARCHAR(254) NOT NULL DEFAULT ''" if backend_name(conn) == "mysql" else "TEXT NOT NULL DEFAULT ''"
+        add_column_if_missing(conn, "users", "email", email_definition)
     ensure_identity_schema(conn)
     ensure_menu_schema(conn)
 
@@ -701,6 +704,8 @@ def ensure_menu_schema(conn: Any) -> None:
         add_column_if_missing(conn, "menus", "menu_type", "TEXT DEFAULT 'page'")
         add_column_if_missing(conn, "menus", "menu_scope", "TEXT DEFAULT 'tenant'")
         add_column_if_missing(conn, "menus", "component", "TEXT DEFAULT ''")
+        email_definition = "VARCHAR(254) NOT NULL DEFAULT ''" if backend_name(conn) == "mysql" else "TEXT NOT NULL DEFAULT ''"
+        add_column_if_missing(conn, "users", "email", email_definition)
         add_column_if_missing(conn, "api_keys", "tenant_id", "BIGINT DEFAULT 1")
         add_column_if_missing(conn, "api_keys", "owner_user_id", "BIGINT DEFAULT NULL")
         add_column_if_missing(conn, "api_keys", "owner_department_id", "BIGINT DEFAULT NULL")
@@ -840,6 +845,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     required_columns = {
         "tenant_id",
         "full_name",
+        "email",
         "lock_version",
         "deleted",
         "create_time",
@@ -873,6 +879,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
             tenant_id INTEGER DEFAULT 1,
             username TEXT NOT NULL,
             full_name TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
             hashed_password TEXT NOT NULL,
             is_active INTEGER DEFAULT 1,
             is_superuser INTEGER DEFAULT 0,
@@ -891,6 +898,7 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
 
     select_tenant = "tenant_id" if "tenant_id" in column_names else "1 AS tenant_id"
     select_full_name = "full_name" if "full_name" in column_names else "'' AS full_name"
+    select_email = "email" if "email" in column_names else "'' AS email"
     select_lock_version = "lock_version" if "lock_version" in column_names else "0 AS lock_version"
     select_deleted = "deleted" if "deleted" in column_names else "0 AS deleted"
     select_creator = "creator" if "creator" in column_names else "NULL AS creator"
@@ -900,10 +908,10 @@ def migrate_sqlite_users_for_tenancy(conn: Any) -> None:
     conn.execute(
         f"""
         INSERT INTO users_tenant_migration (
-            id, tenant_id, username, full_name, hashed_password, is_active, is_superuser,
+            id, tenant_id, username, full_name, email, hashed_password, is_active, is_superuser,
             lock_version, deleted, create_time, creator, creator_id, update_time, editor, editor_id
         )
-        SELECT id, {select_tenant}, username, {select_full_name}, hashed_password, is_active, is_superuser,
+        SELECT id, {select_tenant}, username, {select_full_name}, {select_email}, hashed_password, is_active, is_superuser,
             {select_lock_version}, {select_deleted}, create_time, {select_creator}, {select_creator_id},
             update_time, {select_editor}, {select_editor_id}
         FROM users
@@ -929,6 +937,7 @@ def ensure_identity_indexes(conn: Any) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username_unique ON users(tenant_id, username)",
         ),
         ("idx_users_tenant_username", "CREATE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username)"),
+        ("idx_users_tenant_email", "CREATE INDEX IF NOT EXISTS idx_users_tenant_email ON users(tenant_id, email)"),
         ("idx_roles_scope", "CREATE INDEX IF NOT EXISTS idx_roles_scope ON roles(role_scope)"),
         ("idx_menus_scope", "CREATE INDEX IF NOT EXISTS idx_menus_scope ON menus(menu_scope)"),
         (
@@ -1055,13 +1064,14 @@ def ensure_default_admin(conn: Any) -> None:
 
     conn.execute(
         """
-        INSERT INTO users (tenant_id, username, full_name, hashed_password, is_active, is_superuser, create_time, update_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (tenant_id, username, full_name, email, hashed_password, is_active, is_superuser, create_time, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             tenant_id,
             username,
             "平台管理员",
+            "",
             hash_password(default_admin_password()),
             True,
             True,

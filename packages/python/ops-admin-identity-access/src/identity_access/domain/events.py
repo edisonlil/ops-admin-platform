@@ -8,6 +8,64 @@ from system.domain.events import DomainEvent
 SOURCE = "identity_access"
 
 
+def user_event_payload(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user_id": item.get("id"),
+        "tenant_id": item.get("tenant_id"),
+        "username": item.get("username"),
+        "full_name": item.get("full_name", ""),
+        "email": item.get("email", ""),
+        "is_active": bool(item.get("is_active", True)),
+        "is_superuser": bool(item.get("is_superuser", False)),
+        "roles": item.get("roles", []),
+        "department_ids": item.get("department_ids", []),
+        "primary_department_id": item.get("primary_department_id"),
+    }
+
+
+def user_created(item: dict[str, Any], *, correlation_id: str | None = None) -> DomainEvent:
+    return DomainEvent(
+        event_type="identity.user_created",
+        source=SOURCE,
+        payload=user_event_payload(item),
+        correlation_id=correlation_id,
+    )
+
+
+def user_updated(
+    item: dict[str, Any],
+    *,
+    changed_fields: list[str] | None = None,
+    correlation_id: str | None = None,
+) -> DomainEvent:
+    payload = user_event_payload(item)
+    payload["changed_fields"] = list(changed_fields or [])
+    return DomainEvent(
+        event_type="identity.user_updated",
+        source=SOURCE,
+        payload=payload,
+        correlation_id=correlation_id,
+    )
+
+
+def user_email_changed(
+    item: dict[str, Any],
+    *,
+    old_email: str,
+    new_email: str,
+    correlation_id: str | None = None,
+) -> DomainEvent:
+    payload = user_event_payload(item)
+    payload["old_email"] = old_email
+    payload["new_email"] = new_email
+    return DomainEvent(
+        event_type="identity.user_email_changed",
+        source=SOURCE,
+        payload=payload,
+        correlation_id=correlation_id,
+    )
+
+
 def user_logged_in(username: str, *, correlation_id: str | None = None) -> DomainEvent:
     return DomainEvent(
         event_type="identity.user_logged_in",

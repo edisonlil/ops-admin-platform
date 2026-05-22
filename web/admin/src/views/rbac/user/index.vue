@@ -2,7 +2,7 @@
   <div>
     <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
-        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名或姓名" @keyup.enter="reload" />
+        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名、姓名或邮箱" @keyup.enter="reload" />
         <n-select
           v-model:value="query.status"
           clearable
@@ -15,7 +15,7 @@
       </template>
     </ListPageRuntime>
 
-    <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '640px' }" :bordered="false">
+    <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '680px' }" :bordered="false">
       <template #header>
         <span>{{ userModalTitle }}</span>
       </template>
@@ -32,6 +32,9 @@
         </n-form-item>
         <n-form-item label="用户名" path="username">
           <n-input v-model:value="userForm.username" placeholder="请输入用户名" />
+        </n-form-item>
+        <n-form-item label="邮箱" path="email">
+          <n-input v-model:value="userForm.email" placeholder="请输入邮箱" />
         </n-form-item>
         <n-form-item :label="userFormMode === 'create' ? '登录密码' : '重置密码'" path="password">
           <n-input
@@ -96,6 +99,7 @@
     id: number;
     username: string;
     full_name?: string;
+    email?: string;
     roles?: UserRole[];
     is_active: boolean;
     is_superuser: boolean;
@@ -107,6 +111,7 @@
     id: number | null;
     username: string;
     full_name: string;
+    email: string;
     password: string;
     role_keys: string[];
     is_active: boolean;
@@ -132,12 +137,14 @@
     id: null,
     username: '',
     full_name: '',
+    email: '',
     password: '',
     role_keys: [],
     is_active: true,
     is_superuser: false,
   });
 
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const statusOptions: SelectOption[] = [
     { label: '启用', value: 'active' },
     { label: '停用', value: 'disabled' },
@@ -148,6 +155,13 @@
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
     full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
+    email: [
+      {
+        validator: (_rule, value: string) => !value || emailPattern.test(String(value).trim()),
+        message: '请输入正确的邮箱',
+        trigger: ['blur', 'input'],
+      },
+    ],
     password:
       userFormMode.value === 'create'
         ? [{ required: true, message: '请输入登录密码', trigger: ['blur', 'input'] }]
@@ -158,6 +172,7 @@
     { title: 'ID', key: 'id', width: 80 },
     { title: '用户名', key: 'username', minWidth: 180 },
     { title: '姓名', key: 'full_name', minWidth: 160 },
+    { title: '邮箱', key: 'email', minWidth: 220, render: (row) => row.email || '-' },
     {
       title: '角色',
       key: 'roles',
@@ -236,20 +251,21 @@
   const userListPage = defineListPage<UserRow>({
     id: 'rbac.users',
     title: '用户管理',
-    description: '统一管理用户、角色关系和用户状态。',
+    description: '统一管理用户、角色关系、绑定邮箱和用户状态。',
     variant: 'enterprise',
     density: 'compact',
     view: {
       type: 'table',
       columns,
       rowKey: (row) => row.id,
-      scrollX: 1380,
+      scrollX: 1600,
       sort: { remote: true },
       columnRuntime: {
         columns: [
           { key: 'id', sortable: true },
           { key: 'username', sortable: true },
           { key: 'full_name', sortable: true },
+          { key: 'email', sortable: true },
           { key: 'roles', sortable: false },
           { key: 'is_active', sortable: true },
           { key: 'is_superuser', sortable: true },
@@ -263,7 +279,7 @@
       },
     },
     filters: [
-      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名或姓名' },
+      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名、姓名或邮箱' },
       { key: 'status', type: 'select', placeholder: '用户状态', options: statusOptions },
     ],
     toolbar: {
@@ -279,6 +295,7 @@
     userForm.id = null;
     userForm.username = '';
     userForm.full_name = '';
+    userForm.email = '';
     userForm.password = '';
     userForm.role_keys = [];
     userForm.is_active = true;
@@ -290,6 +307,7 @@
     userForm.id = row.id;
     userForm.username = String(row.username || '');
     userForm.full_name = String(row.full_name || '');
+    userForm.email = String(row.email || '');
     userForm.password = '';
     userForm.role_keys = (row.roles || []).map((role) => String(role.key));
     userForm.is_active = !!row.is_active;
@@ -327,6 +345,7 @@
       const payload = {
         username: userForm.username.trim(),
         full_name: userForm.full_name.trim(),
+        email: userForm.email.trim(),
         password: userForm.password,
         role_keys: userForm.role_keys,
         is_active: userForm.is_active,

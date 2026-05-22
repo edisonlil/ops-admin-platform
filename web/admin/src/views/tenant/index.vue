@@ -84,6 +84,9 @@
         <n-form-item label="姓名" path="full_name">
           <n-input v-model:value="userForm.full_name" placeholder="请输入成员姓名" />
         </n-form-item>
+        <n-form-item label="邮箱" path="email">
+          <n-input v-model:value="userForm.email" placeholder="请输入邮箱" />
+        </n-form-item>
         <n-form-item :label="userFormMode === 'create' ? '初始密码' : '新密码'" path="password">
           <n-input v-model:value="userForm.password" type="password" show-password-on="mousedown" />
         </n-form-item>
@@ -198,6 +201,7 @@
     id: number;
     username: string;
     full_name?: string;
+    email?: string;
     roles?: Array<{ key?: string; name?: string }>;
     departments?: DepartmentRow[];
     department_ids?: number[];
@@ -257,6 +261,7 @@
     id: 0,
     username: '',
     full_name: '',
+    email: '',
     password: '',
     role_keys: [] as string[],
     department_ids: [] as number[],
@@ -299,6 +304,13 @@
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
     full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
+    email: [
+      {
+        validator: (_rule, value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim()),
+        message: '请输入正确的邮箱',
+        trigger: ['blur', 'input'],
+      },
+    ],
     password: userFormMode.value === 'create' ? [{ required: true, message: '请输入初始密码', trigger: ['blur', 'input'] }] : [],
   }));
 
@@ -348,6 +360,7 @@
   const userColumns: DataTableColumns<TenantUserRow> = [
     { title: '用户名', key: 'username', minWidth: 160 },
     { title: '姓名', key: 'full_name', minWidth: 150 },
+    { title: '邮箱', key: 'email', minWidth: 220, render: (row) => row.email || '-' },
     {
       title: '角色',
       key: 'roles',
@@ -500,6 +513,7 @@
   const userColumnRuntime = [
     { key: 'username', sortable: true },
     { key: 'full_name', sortable: true },
+    { key: 'email', sortable: true },
     { key: 'roles', sortable: false },
     { key: 'departments', sortable: false },
     { key: 'is_active', sortable: true },
@@ -513,7 +527,7 @@
   }
 
   function resetUserForm() {
-    Object.assign(userForm, { id: 0, username: '', full_name: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
+    Object.assign(userForm, { id: 0, username: '', full_name: '', email: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
     userFormRef.value?.restoreValidation();
   }
 
@@ -665,6 +679,7 @@
       id: row.id,
       username: row.username,
       full_name: row.full_name || '',
+      email: row.email || '',
       password: '',
       role_keys: (row.roles || []).map((role) => String(role.key)),
       department_ids: [...(row.department_ids || [])],
@@ -688,6 +703,7 @@
       const payload = {
         username: userForm.username,
         full_name: userForm.full_name,
+        email: userForm.email,
         password: userForm.password || undefined,
         role_keys: userForm.role_keys,
         department_ids: [...userForm.department_ids],

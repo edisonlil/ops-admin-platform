@@ -17,6 +17,15 @@ from identity_access.infrastructure.persistence.common import (
 from identity_access.infrastructure.security import hash_password, verify_password
 
 
+def normalize_email(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def looks_like_email(value: str) -> bool:
+    normalized = normalize_email(value)
+    return bool(normalized and "@" in normalized)
+
+
 def platform_tenant_id(conn: Any) -> int:
     row = conn.execute("SELECT id FROM tenants WHERE tenant_key = ?", (PLATFORM_TENANT_KEY,)).fetchone()
     if not row:
@@ -37,6 +46,7 @@ def public_user(
         "tenant_id": effective_tenant_id,
         "username": str(row.get("username", "")),
         "full_name": str(row.get("full_name", "") or ""),
+        "email": normalize_email(str(row.get("email", "") or "")),
         "is_active": bool(row.get("is_active", True)),
         "is_superuser": bool(row.get("is_superuser", False)),
     }
@@ -80,6 +90,26 @@ def user_by_username(username: str, tenant_id: int | None = None) -> dict[str, A
     return dict(row) if row else None
 
 
+def user_by_login_identifier(identifier: str, tenant_id: int | None = None) -> dict[str, Any] | None:
+    if looks_like_email(identifier):
+        email = normalize_email(identifier)
+        if not email or tenant_id is None:
+            return None
+        with connect(auth_database_target(), readonly=False) as conn:
+            require_auth_ready(conn)
+            row = conn.execute(
+                """
+                SELECT *
+                FROM users
+                WHERE tenant_id = ? AND lower(email) = ? AND email <> ''
+                LIMIT 1
+                """,
+                (tenant_id, email),
+            ).fetchone()
+        return dict(row) if row else None
+    return user_by_username(identifier, tenant_id=tenant_id)
+
+
 def platform_user_by_username(username: str) -> dict[str, Any] | None:
     username = normalize_username(username)
     if not username:
@@ -101,8 +131,30 @@ def platform_user_by_username(username: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def platform_user_by_login_identifier(identifier: str) -> dict[str, Any] | None:
+    if looks_like_email(identifier):
+        email = normalize_email(identifier)
+        with connect(auth_database_target(), readonly=False) as conn:
+            require_auth_ready(conn)
+            row = conn.execute(
+                """
+                SELECT u.*
+                FROM users u
+                JOIN tenants t ON t.id = u.tenant_id
+                WHERE t.tenant_key = ?
+                  AND lower(u.email) = ?
+                  AND u.email <> ''
+                  AND u.is_superuser = ?
+                LIMIT 1
+                """,
+                (PLATFORM_TENANT_KEY, email, True),
+            ).fetchone()
+        return dict(row) if row else None
+    return platform_user_by_username(identifier)
+
+
 def authenticate_user(username: str, password: str, tenant_id: int | None = None) -> dict[str, Any] | None:
-    row = user_by_username(username, tenant_id=tenant_id)
+    row = user_by_login_identifier(username, tenant_id=tenant_id)
     if not row:
         return None
     if not bool(row.get("is_active", True)):
@@ -113,7 +165,7 @@ def authenticate_user(username: str, password: str, tenant_id: int | None = None
 
 
 def authenticate_platform_admin(username: str, password: str) -> dict[str, Any] | None:
-    row = platform_user_by_username(username)
+    row = platform_user_by_login_identifier(username)
     if not row:
         return None
     if not bool(row.get("is_active", True)):
@@ -141,7 +193,7 @@ def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, An
             params.append(tenant_key)
         rows = conn.execute(
             f"""
-            SELECT u.id, u.tenant_id, u.username, u.full_name, u.is_active, u.is_superuser, u.create_time, u.update_time
+            SELECT u.id, u.tenant_id, u.username, u.full_name, u.email, u.is_active, u.is_superuser, u.create_time, u.update_time
             FROM users u
             {tenant_filter}
             ORDER BY u.tenant_id, u.username, u.id
@@ -174,6 +226,7 @@ def list_users_by_tenant_key(tenant_key: str | None = None) -> list[dict[str, An
             "tenant_id": int(dict(row).get("tenant_id", 1) or 1),
             "username": str(dict(row)["username"]),
             "full_name": str(dict(row).get("full_name", "") or ""),
+            "email": normalize_email(str(dict(row).get("email", "") or "")),
             "is_active": bool(dict(row)["is_active"]),
             "is_superuser": bool(dict(row)["is_superuser"]),
             "roles": roles_by_user.get(int(dict(row)["id"]), []),
@@ -243,17 +296,40 @@ def ensure_last_superuser_survives(conn: Any, user_id: int, *, is_active: bool, 
             )
 
 
+def ensure_email_available(conn: Any, *, tenant_id: int, email: str, exclude_user_id: int | None = None) -> None:
+    normalized_email = normalize_email(email)
+    if not normalized_email:
+        return
+    params: list[Any] = [tenant_id, normalized_email]
+    exclude_clause = ""
+    if exclude_user_id is not None:
+        exclude_clause = " AND id <> ?"
+        params.append(exclude_user_id)
+    existing = conn.execute(
+        f"""
+        SELECT id FROM users
+        WHERE tenant_id = ? AND lower(email) = ? AND email <> ''{exclude_clause}
+        LIMIT 1
+        """,
+        tuple(params),
+    ).fetchone()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email already exists in tenant")
+
+
 def create_user(
     *,
     username: str,
     password: str,
     full_name: str = "",
+    email: str | None = None,
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
     normalized_username = normalize_username(username)
+    normalized_email = normalize_email(email or "")
     now = now_iso()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -272,12 +348,23 @@ def create_user(
         ).fetchone()
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
+        ensure_email_available(conn, tenant_id=tenant_id, email=normalized_email)
         cursor = conn.execute(
             """
-            INSERT INTO users (tenant_id, username, full_name, hashed_password, is_active, is_superuser, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (tenant_id, username, full_name, email, hashed_password, is_active, is_superuser, create_time, update_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tenant_id, normalized_username, full_name.strip(), hash_password(password), bool(is_active), bool(is_superuser), now, now),
+            (
+                tenant_id,
+                normalized_username,
+                full_name.strip(),
+                normalized_email,
+                hash_password(password),
+                bool(is_active),
+                bool(is_superuser),
+                now,
+                now,
+            ),
         )
         user_id = int(getattr(cursor, "lastrowid", 0) or 0)
         if not user_id:
@@ -299,6 +386,7 @@ def update_user(
     *,
     username: str,
     full_name: str = "",
+    email: str = "",
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
@@ -306,6 +394,7 @@ def update_user(
     is_superuser: bool = False,
 ) -> dict[str, Any]:
     normalized_username = normalize_username(username)
+    normalized_email = normalize_email(email)
     now = now_iso()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -326,13 +415,14 @@ def update_user(
         ).fetchone()
         if existing:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username already exists in tenant")
+        ensure_email_available(conn, tenant_id=effective_tenant_id, email=normalized_email, exclude_user_id=user_id)
         ensure_last_superuser_survives(conn, user_id, is_active=bool(is_active), is_superuser=bool(is_superuser))
 
-        fields = ["tenant_id = ?", "username = ?", "full_name = ?", "is_active = ?", "is_superuser = ?", "update_time = ?"]
-        params: list[Any] = [effective_tenant_id, normalized_username, full_name.strip(), bool(is_active), bool(is_superuser), now]
+        fields = ["tenant_id = ?", "username = ?", "full_name = ?", "email = ?", "is_active = ?", "is_superuser = ?", "update_time = ?"]
+        params: list[Any] = [effective_tenant_id, normalized_username, full_name.strip(), normalized_email, bool(is_active), bool(is_superuser), now]
         if password.strip():
-            fields.insert(4, "hashed_password = ?")
-            params.insert(4, hash_password(password))
+            fields.insert(5, "hashed_password = ?")
+            params.insert(5, hash_password(password))
         params.append(user_id)
         conn.execute(
             f"""
@@ -350,7 +440,14 @@ def update_user(
     return user
 
 
-def update_own_profile(user_id: int, *, full_name: str, current_password: str = "", new_password: str = "") -> dict[str, Any]:
+def update_own_profile(
+    user_id: int,
+    *,
+    full_name: str,
+    email: str | None = None,
+    current_password: str = "",
+    new_password: str = "",
+) -> dict[str, Any]:
     now = now_iso()
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
@@ -360,11 +457,21 @@ def update_own_profile(user_id: int, *, full_name: str, current_password: str = 
 
         fields = ["full_name = ?", "update_time = ?"]
         params: list[Any] = [full_name.strip(), now]
+        if email is not None:
+            normalized_email = normalize_email(email)
+            ensure_email_available(
+                conn,
+                tenant_id=int(row["tenant_id"]),
+                email=normalized_email,
+                exclude_user_id=user_id,
+            )
+            fields.insert(1, "email = ?")
+            params.insert(1, normalized_email)
         if new_password.strip():
             if not current_password.strip() or not verify_password(current_password, str(row["hashed_password"])):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="current password is incorrect")
-            fields.insert(1, "hashed_password = ?")
-            params.insert(1, hash_password(new_password))
+            fields.insert(-1, "hashed_password = ?")
+            params.insert(-1, hash_password(new_password))
         params.append(user_id)
         conn.execute(
             f"""

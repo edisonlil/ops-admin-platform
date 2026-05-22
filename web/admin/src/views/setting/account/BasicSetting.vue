@@ -4,7 +4,7 @@
       <header class="profile-section-header">
         <span class="profile-section-header__eyebrow">个人基本信息</span>
         <h2>基本设置</h2>
-        <p>维护当前账号的姓名，并查看该账号在当前租户下的部门与角色。</p>
+        <p>维护当前账号的姓名和邮箱，并查看该账号在当前租户下的部门与角色。</p>
       </header>
 
       <n-form
@@ -16,6 +16,9 @@
       >
         <n-form-item label="姓名" path="full_name">
           <n-input v-model:value="profileForm.full_name" clearable placeholder="请输入姓名" maxlength="120" show-count />
+        </n-form-item>
+        <n-form-item label="邮箱" path="email">
+          <n-input v-model:value="profileForm.email" clearable placeholder="请输入邮箱" maxlength="254" show-count />
         </n-form-item>
         <n-form-item label="用户名">
           <n-input :value="userInfo.username || '-'" disabled />
@@ -108,8 +111,10 @@
 
   const profileForm = reactive({
     full_name: '',
+    email: '',
   });
 
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const userInfo = computed(() => userStore.info || {});
   const avatarSrc = computed(() => String(userInfo.value.avatar || '').trim());
   const displayName = computed(() => profileForm.full_name || userInfo.value.full_name || userInfo.value.username || '-');
@@ -144,12 +149,20 @@
 
   const profileRules: FormRules = {
     full_name: [{ required: true, message: '请输入姓名', trigger: ['blur', 'input'] }],
+    email: [
+      {
+        validator: (_rule, value: string) => !value || emailPattern.test(String(value).trim()),
+        message: '请输入正确的邮箱',
+        trigger: ['blur', 'input'],
+      },
+    ],
   };
 
   async function refreshProfile() {
     const profile = await getProfile();
     userStore.setUserInfo(profile);
     profileForm.full_name = String(profile.full_name || '');
+    profileForm.email = String(profile.email || '');
   }
 
   async function submitProfile() {
@@ -160,9 +173,13 @@
     }
     saving.value = true;
     try {
-      const profile = await updateProfile({ full_name: profileForm.full_name.trim() });
+      const profile = await updateProfile({
+        full_name: profileForm.full_name.trim(),
+        email: profileForm.email.trim(),
+      });
       userStore.setUserInfo(profile);
       profileForm.full_name = String(profile.full_name || '');
+      profileForm.email = String(profile.email || '');
       message.success('基本信息已保存');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '基本信息保存失败');

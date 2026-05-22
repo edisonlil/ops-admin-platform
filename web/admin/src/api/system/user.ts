@@ -9,6 +9,7 @@ export function getUserInfo() {
 
 export interface ProfileUpdatePayload {
   full_name?: string;
+  email?: string;
   current_password?: string;
   new_password?: string;
 }
@@ -22,15 +23,12 @@ export function updateProfile(payload: ProfileUpdatePayload) {
 }
 
 /**
- * @description: 用户登录
+ * @description: 用户登录，username 字段可传用户名或邮箱
  */
 export function login(params) {
-  return Alova.Post(
-    '/login',
-    {
-      params,
-    }
-  );
+  return Alova.Post('/login', {
+    params,
+  });
 }
 
 /**

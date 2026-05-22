@@ -81,6 +81,9 @@ class ApiTests(unittest.TestCase):
 
         with connect(auth_database_target(), readonly=False) as conn:
             initialize_auth_storage(conn)
+        from system.application.event_bus import event_bus
+
+        event_bus.clear()
 
     def tearDown(self) -> None:
         self.env_patch.stop()
@@ -421,6 +424,213 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(create_tenant_user_response.json()["data"]["item"]["full_name"], "租户成员")
         self.assertNotIn(tenant_user_id, {int(item["id"]) for item in users})
         self.assertNotIn(tenant_id, {int(item["tenant_id"]) for item in users})
+
+    def test_user_email_binding_and_email_login(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "email-login", "name": "Email Login"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "email-owner",
+                "full_name": "Email Owner",
+                "email": "Owner@Example.COM",
+                "password": "email-owner-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        created_user = create_response.json()["data"]["item"]
+        self.assertEqual(created_user["email"], "owner@example.com")
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "email-login", "username": "owner@example.com", "password": "email-owner-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(login_response.json()["data"]["username"], "email-owner")
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        info_response = self.request("GET", "/api/admin_info", headers=tenant_headers, auth=False)
+        self.assertEqual(info_response.status_code, 200)
+        self.assertEqual(info_response.json()["data"]["username"], "email-owner")
+        self.assertEqual(info_response.json()["data"]["email"], "owner@example.com")
+
+        wrong_tenant_login = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "default", "username": "owner@example.com", "password": "email-owner-pass"}},
+            auth=False,
+        )
+        self.assertEqual(wrong_tenant_login.status_code, 401)
+
+        duplicate_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "email-duplicate",
+                "full_name": "Duplicate",
+                "email": "owner@example.com",
+                "password": "email-duplicate-pass",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(duplicate_response.status_code, 409)
+
+        other_tenant_response = self.request("POST", "/api/tenants", json={"key": "email-other", "name": "Email Other"})
+        self.assertEqual(other_tenant_response.status_code, 200)
+        other_tenant_id = int(other_tenant_response.json()["data"]["item"]["id"])
+        cross_tenant_response = self.request(
+            "POST",
+            f"/api/tenants/{other_tenant_id}/users",
+            json={
+                "username": "other-email-owner",
+                "full_name": "Other Email Owner",
+                "email": "owner@example.com",
+                "password": "other-email-owner-pass",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(cross_tenant_response.status_code, 200)
+
+    def test_platform_admin_can_login_with_email_and_profile_updates_email(self) -> None:
+        create_response = self.request(
+            "POST",
+            "/api/rbac/users",
+            json={
+                "username": "platform-email-admin",
+                "full_name": "Platform Email Admin",
+                "email": "platform-admin@example.com",
+                "password": "platform-email-pass",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": True,
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        self.assertEqual(create_response.json()["data"]["item"]["email"], "platform-admin@example.com")
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "platform", "username": "platform-admin@example.com", "password": "platform-email-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(login_response.json()["data"]["username"], "platform-email-admin")
+        platform_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        profile_response = self.request(
+            "PUT",
+            "/api/auth/profile",
+            json={"full_name": "Platform Email Admin", "email": "updated-platform-admin@example.com"},
+            headers=platform_headers,
+            auth=False,
+        )
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(profile_response.json()["data"]["email"], "updated-platform-admin@example.com")
+        self.assertEqual(profile_response.json()["data"]["username"], "platform-email-admin")
+
+        password_response = self.request(
+            "PUT",
+            "/api/auth/profile",
+            json={
+                "full_name": "Platform Email Admin",
+                "current_password": "platform-email-pass",
+                "new_password": "platform-email-new-pass",
+            },
+            headers=platform_headers,
+            auth=False,
+        )
+        self.assertEqual(password_response.status_code, 200)
+        self.assertEqual(password_response.json()["data"]["email"], "updated-platform-admin@example.com")
+
+    def test_user_domain_events_include_email_without_password(self) -> None:
+        from system.application.event_bus import event_bus
+
+        event_bus.clear()
+        create_response = self.request(
+            "POST",
+            "/api/rbac/users",
+            json={
+                "username": "event-user",
+                "full_name": "Event User",
+                "email": "event-user@example.com",
+                "password": "event-user-pass",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": True,
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+        created_user = create_response.json()["data"]["item"]
+        created_events = [event for event in event_bus.published_events() if event.event_type == "identity.user_created"]
+        self.assertEqual(len(created_events), 1)
+        created_payload = created_events[0].payload
+        self.assertEqual(created_payload["user_id"], created_user["id"])
+        self.assertEqual(created_payload["tenant_id"], created_user["tenant_id"])
+        self.assertEqual(created_payload["username"], "event-user")
+        self.assertEqual(created_payload["email"], "event-user@example.com")
+        self.assertNotIn("password", created_payload)
+        self.assertNotIn("event-user-pass", json.dumps(created_payload, ensure_ascii=False))
+
+        event_bus.clear()
+        update_response = self.request(
+            "PUT",
+            f"/api/rbac/users/{created_user['id']}",
+            json={
+                "username": "event-user",
+                "full_name": "Event User Updated",
+                "email": "event-user-updated@example.com",
+                "password": "",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": True,
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+        updated_events = [event for event in event_bus.published_events() if event.event_type == "identity.user_updated"]
+        email_events = [event for event in event_bus.published_events() if event.event_type == "identity.user_email_changed"]
+        self.assertEqual(len(updated_events), 1)
+        self.assertEqual(len(email_events), 1)
+        self.assertEqual(updated_events[0].payload["email"], "event-user-updated@example.com")
+        self.assertIn("email", updated_events[0].payload["changed_fields"])
+        self.assertEqual(email_events[0].payload["old_email"], "event-user@example.com")
+        self.assertEqual(email_events[0].payload["new_email"], "event-user-updated@example.com")
+        self.assertNotIn("password", email_events[0].payload)
+
+        event_bus.clear()
+        profile_login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "platform", "username": "event-user-updated@example.com", "password": "event-user-pass"}},
+            auth=False,
+        )
+        self.assertEqual(profile_login_response.status_code, 200)
+        profile_headers = {"Authorization": f"Bearer {profile_login_response.json()['data']['token']}"}
+        event_bus.clear()
+        profile_response = self.request(
+            "PUT",
+            "/api/auth/profile",
+            json={"full_name": "Event User Updated", "email": "event-user-profile@example.com"},
+            headers=profile_headers,
+            auth=False,
+        )
+        self.assertEqual(profile_response.status_code, 200)
+        profile_email_events = [event for event in event_bus.published_events() if event.event_type == "identity.user_email_changed"]
+        self.assertEqual(len(profile_email_events), 1)
+        self.assertEqual(profile_email_events[0].payload["old_email"], "event-user-updated@example.com")
+        self.assertEqual(profile_email_events[0].payload["new_email"], "event-user-profile@example.com")
 
     def test_tenant_admin_sees_only_tenant_menus(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "tenant-c", "name": "Tenant C"})

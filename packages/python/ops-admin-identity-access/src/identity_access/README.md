@@ -27,7 +27,9 @@ All business responses use the system response envelope.
 
 Owned tables include `users`, `api_keys`, `roles`, `permissions`, `menus`, role mapping tables, `tenants`, and `tenant_memberships`.
 
-`users.username` is unique only inside a tenant. The durable identity key is `(tenant_id, username)`, so different tenants may each have an `admin` account. Login callers must provide a tenant key.
+`users.username` is unique only inside a tenant. `users.email` is also unique for non-empty values inside a tenant and may be used as a login identifier. The durable identity key remains `(tenant_id, username)`, so different tenants may each have an `admin` account or the same bound email. Login callers must provide a tenant key; after login, tokens and tenant switching use the canonical username, not the submitted email.
+
+Current password login is modeled as a username/email identifier plus password. Future methods such as phone OTP, third-party SSO, WeChat, and GitHub should integrate through application-level auth method handlers and infrastructure provider adapters, not by adding provider logic to HTTP routers or the shared security helpers.
 
 `platform` is a reserved system tenant used only for platform administrators. It is stored in `tenants` so platform users have an explicit database owner, but it is hidden from business tenant management and cannot be created or managed through tenant APIs. Business tenants start from the `default` tenant and get their own users, memberships, API keys, and tenant menu overrides.
 

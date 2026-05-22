@@ -28,6 +28,7 @@ USER_SORT_COLUMNS = {
     "tenant_id": "tenant_id",
     "username": "username",
     "full_name": "full_name",
+    "email": "email",
     "is_active": "is_active",
     "is_superuser": "is_superuser",
     "is_tenant_admin": "is_tenant_admin",
@@ -237,7 +238,7 @@ def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "username": str(current_user.get("username", "")),
         "full_name": str(current_user.get("full_name", "") or ""),
-        "email": "",
+        "email": str(current_user.get("email", "") or ""),
         "avatar": "",
         "roles": [
             {
@@ -257,13 +258,26 @@ def scaffold_user(current_user: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_current_profile(current_user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    old_email = str(current_user.get("email", "") or "")
+    requested_email = None if payload.get("email") is None else str(payload.get("email") or "")
     updated = auth_service.update_own_profile(
         int(current_user.get("id", 0) or 0),
         full_name=str(payload.get("full_name", "") or ""),
+        email=requested_email,
         current_password=str(payload.get("current_password", "") or ""),
         new_password=str(payload.get("new_password", "") or ""),
     )
-    return _after_access_context_change(scaffold_user({**current_user, **updated}))
+    result = scaffold_user({**current_user, **updated})
+    changed_fields = ["full_name"]
+    if requested_email is not None:
+        changed_fields.append("email")
+    if str(payload.get("new_password", "") or "").strip():
+        changed_fields.append("password")
+    publish_event(events.user_updated(result, changed_fields=changed_fields, correlation_id=current_request_id()))
+    new_email = str(updated.get("email", "") or "")
+    if requested_email is not None and old_email != new_email:
+        publish_event(events.user_email_changed(result, old_email=old_email, new_email=new_email, correlation_id=current_request_id()))
+    return _after_access_context_change(result)
 
 
 def switch_tenant(
@@ -323,11 +337,25 @@ def list_tenant_users_page(
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return _after_access_context_change(tenant_service.create_tenant_user(tenant_id, payload))
+    result = tenant_service.create_tenant_user(tenant_id, payload)
+    publish_event(events.user_created(result, correlation_id=current_request_id()))
+    return _after_access_context_change(result)
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return _after_access_context_change(tenant_service.update_tenant_user(tenant_id, user_id, payload))
+    existing = next((item for item in list_tenant_users(tenant_id) if int(item["id"]) == user_id), {})
+    old_email = str(existing.get("email", "") or "")
+    result = tenant_service.update_tenant_user(tenant_id, user_id, payload)
+    changed_fields = ["username", "full_name", "email", "roles", "is_active"]
+    if str(payload.get("password", "") or "").strip():
+        changed_fields.append("password")
+    if payload.get("department_ids") is not None or payload.get("primary_department_id") is not None:
+        changed_fields.extend(["department_ids", "primary_department_id"])
+    publish_event(events.user_updated(result, changed_fields=changed_fields, correlation_id=current_request_id()))
+    new_email = str(result.get("email", "") or "")
+    if old_email != new_email:
+        publish_event(events.user_email_changed(result, old_email=old_email, new_email=new_email, correlation_id=current_request_id()))
+    return _after_access_context_change(result)
 
 
 def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dict[str, Any]:
@@ -358,6 +386,7 @@ def create_user(
     username: str,
     password: str,
     full_name: str = "",
+    email: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
     department_ids: list[int] | None = None,
@@ -369,6 +398,7 @@ def create_user(
         username=username,
         password=password,
         full_name=full_name,
+        email=email,
         tenant_id=tenant_id,
         role_keys=role_keys,
         is_active=is_active,
@@ -376,7 +406,9 @@ def create_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
-    return _after_access_context_change(enrich_user_with_departments(user))
+    result = enrich_user_with_departments(user)
+    publish_event(events.user_created(result, correlation_id=current_request_id()))
+    return _after_access_context_change(result)
 
 
 def update_user(
@@ -384,6 +416,7 @@ def update_user(
     *,
     username: str,
     full_name: str = "",
+    email: str = "",
     password: str = "",
     tenant_id: int | None = None,
     role_keys: list[str] | None = None,
@@ -392,10 +425,13 @@ def update_user(
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
+    existing = next((item for item in list_users() if int(item["id"]) == user_id), {})
+    old_email = str(existing.get("email", "") or "")
     user = rbac_service.update_user(
         user_id,
         username=username,
         full_name=full_name,
+        email=email,
         password=password,
         tenant_id=tenant_id,
         role_keys=role_keys,
@@ -404,7 +440,17 @@ def update_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
-    return _after_access_context_change(enrich_user_with_departments(user))
+    result = enrich_user_with_departments(user)
+    changed_fields = ["username", "full_name", "email", "roles", "is_active", "is_superuser", "tenant_id"]
+    if password.strip():
+        changed_fields.append("password")
+    if department_ids is not None or primary_department_id is not None:
+        changed_fields.extend(["department_ids", "primary_department_id"])
+    publish_event(events.user_updated(result, changed_fields=changed_fields, correlation_id=current_request_id()))
+    new_email = str(result.get("email", "") or "")
+    if old_email != new_email:
+        publish_event(events.user_email_changed(result, old_email=old_email, new_email=new_email, correlation_id=current_request_id()))
+    return _after_access_context_change(result)
 
 
 def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:

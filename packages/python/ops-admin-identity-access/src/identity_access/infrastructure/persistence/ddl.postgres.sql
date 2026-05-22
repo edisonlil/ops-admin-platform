@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
     tenant_id BIGINT NOT NULL DEFAULT 1,
     username TEXT NOT NULL,
     full_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
     hashed_password TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
@@ -199,6 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_tenants_deleted ON tenants(deleted);
 CREATE INDEX IF NOT EXISTS idx_tenant_memberships_user ON tenant_memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_memberships_tenant ON tenant_memberships(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_tenant_email ON users(tenant_id, email);
 CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(deleted);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active);

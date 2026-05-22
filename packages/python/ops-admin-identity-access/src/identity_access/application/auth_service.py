@@ -15,6 +15,9 @@ from identity_access.infrastructure.security import (
 DisabledUserException = repositories.DisabledUserException
 
 
+PASSWORD_IDENTIFIER_METHOD = "password_identifier"
+
+
 @login_manager.user_loader()
 def load_user(username: str) -> dict[str, Any] | None:
     row = repositories.user_by_username(username)
@@ -27,10 +30,16 @@ def load_user(username: str) -> dict[str, Any] | None:
 
 
 def authenticate_user(username: str, password: str, tenant_id: int | None = None) -> dict[str, Any] | None:
+    """Authenticate the password_identifier method: tenant + username/email + password.
+
+    Future methods such as phone OTP or OAuth providers should get separate
+    application handlers instead of adding provider-specific logic here.
+    """
     return repositories.authenticate_user(username, password, tenant_id=tenant_id)
 
 
 def authenticate_platform_admin(username: str, password: str) -> dict[str, Any] | None:
+    """Authenticate platform password_identifier credentials."""
     return repositories.authenticate_platform_admin(username, password)
 
 
@@ -46,12 +55,14 @@ def update_own_profile(
     user_id: int,
     *,
     full_name: str,
+    email: str | None = None,
     current_password: str = "",
     new_password: str = "",
 ) -> dict[str, Any]:
     return repositories.update_own_profile(
         user_id,
         full_name=full_name,
+        email=email,
         current_password=current_password,
         new_password=new_password,
     )
