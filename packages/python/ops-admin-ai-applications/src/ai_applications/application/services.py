@@ -16,6 +16,8 @@ from ai_runtime_core.prompt_runtime import variable_missing
 from ai_runtime_core.workflow_runtime import WorkflowLLMRequest
 from ai_runtime_core.workflow_runtime import WorkflowLLMResult
 from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
+from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
+from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 from llm_runtime.application import gateway
 from ai_applications.infrastructure.persistence import repositories
@@ -27,6 +29,8 @@ from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
 
 from llm_runtime.application.services import require_database
+from system.application.data_access import ResourceDescriptor
+from system.application.data_access import resolve_data_access_filter
 
 
 AI_APPLICATION_SORT_COLUMNS = {
@@ -159,24 +163,24 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
-def run_draft_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+def run_draft_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return execute_application(app, payload, caller_type="studio_draft", require_published=False)
+    return execute_application(app, payload, caller_type="studio_draft", require_published=False, current_user=current_user)
 
 
-def stream_draft_application(app_key: str, payload: dict[str, Any]) -> Any:
+def stream_draft_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> Any:
     app = get_ai_application(app_key)
     if app.get("app_type") == "workflow":
-        return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False)
+        return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False, current_user=current_user)
     if app.get("app_type") == "agent":
         raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
     prepared = prepare_single_turn_run(app, payload, require_published=False)
     return stream_single_turn_application(prepared, caller_type="studio_draft")
 
 
-def run_published_application(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+def run_published_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return execute_application(app, payload, caller_type="application_api", require_published=True)
+    return execute_application(app, payload, caller_type="application_api", require_published=True, current_user=current_user)
 
 
 def list_agent_conversations(
@@ -673,6 +677,7 @@ def execute_application(
     caller_type: str,
     require_published: bool,
     caller_key: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     app_type = str(app.get("app_type") or "single_turn_generation")
     if app_type == "workflow":
@@ -682,6 +687,7 @@ def execute_application(
             caller_type=caller_type,
             caller_key=caller_key,
             require_published=require_published,
+            current_user=current_user,
         )
     if app_type == "agent":
         raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
@@ -701,6 +707,7 @@ def execute_workflow_application(
     caller_type: str,
     require_published: bool,
     caller_key: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if require_published and app.get("status") != "published":
         raise HTTPException(status_code=409, detail="AI application is not published")
@@ -739,8 +746,11 @@ def execute_workflow_application(
         response_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
         return WorkflowLLMResult(answer=extract_answer(response), usage=response_usage, model=str(response.get("model") or request.model))
 
+    def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
+        return execute_workflow_sql_query(app, request, current_user=current_user)
+
     try:
-        workflow_result = execute_workflow(definition, variables, llm_executor=llm_executor)
+        workflow_result = execute_workflow(definition, variables, llm_executor=llm_executor, sql_executor=sql_executor)
         answer = workflow_result.answer
         usage = workflow_result.usage
         elapsed = int((time.perf_counter() - started_at) * 1000)
@@ -778,7 +788,14 @@ def execute_workflow_application(
         raise HTTPException(status_code=422, detail={"message": str(exc), "trace_id": trace.get("trace_id")}) from exc
 
 
-def stream_workflow_application(app: dict[str, Any], payload: dict[str, Any], *, caller_type: str, require_published: bool) -> Any:
+def stream_workflow_application(
+    app: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    caller_type: str,
+    require_published: bool,
+    current_user: dict[str, Any] | None = None,
+) -> Any:
     def events() -> Any:
         try:
             result = execute_workflow_application(
@@ -786,6 +803,7 @@ def stream_workflow_application(app: dict[str, Any], payload: dict[str, Any], *,
                 payload,
                 caller_type=caller_type,
                 require_published=require_published,
+                current_user=current_user,
             )
             trace_id = str(result.get("trace_id") or "")
             yield gateway.sse_data({"trace_id": trace_id, "object": "ai_application.workflow.start"}).replace(
@@ -804,6 +822,79 @@ def stream_workflow_application(app: dict[str, Any], payload: dict[str, Any], *,
             yield "data: [DONE]\n\n"
 
     return events()
+
+
+def execute_workflow_sql_query(
+    app: dict[str, Any],
+    request: WorkflowSQLRequest,
+    *,
+    current_user: dict[str, Any] | None,
+) -> WorkflowSQLResult:
+    if current_user is None:
+        current_user = workflow_sql_system_user(app)
+    descriptor = workflow_sql_resource_descriptor(request)
+    predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read")
+    scope_sql, scope_params = predicate.to_sql(descriptor, alias="workflow_sql_source")
+    if not scope_sql:
+        raise WorkflowRuntimeError("SQL node data access filter is required")
+    limit = max(1, min(1000, int(request.max_rows or 100)))
+    guarded_sql = f"SELECT * FROM ({request.sql}) AS workflow_sql_source WHERE {scope_sql} LIMIT ?"
+    params = [*request.params, *scope_params, limit + 1]
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=True) as conn:
+            cursor = conn.execute(guarded_sql, tuple(params))
+            rows = cursor.fetchall()
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise WorkflowRuntimeError(f"SQL node query failed: {exc}") from exc
+    normalized_rows = [normalize_sql_row(row) for row in rows[:limit]]
+    columns = list(normalized_rows[0].keys()) if normalized_rows else sql_cursor_columns(cursor)
+    return WorkflowSQLResult(
+        rows=normalized_rows,
+        columns=columns,
+        row_count=len(normalized_rows),
+        truncated=len(rows) > limit,
+    )
+
+
+def workflow_sql_resource_descriptor(request: WorkflowSQLRequest) -> ResourceDescriptor:
+    config = request.data_access if isinstance(request.data_access, dict) else {}
+    return ResourceDescriptor(
+        resource_key=str(config.get("resource_key") or "ai_applications.workflow_sql"),
+        tenant_column=str(config.get("tenant_column") or "tenant_id"),
+        creator_column=str(config.get("creator_column") or "creator_id"),
+        owner_user_column=str(config.get("owner_user_column") or "owner_user_id"),
+        owner_department_column=str(config.get("owner_department_column") or "owner_department_id"),
+        requires_data_scope=bool(config.get("requires_data_scope", False)),
+    )
+
+
+def workflow_sql_system_user(app: dict[str, Any]) -> dict[str, Any]:
+    tenant_id = int(app.get("tenant_id") or 0)
+    if tenant_id <= 0:
+        raise WorkflowRuntimeError("SQL node requires current user or tenant_id")
+    return {
+        "id": 0,
+        "username": "system",
+        "tenant_id": tenant_id,
+        "current_tenant": {"id": tenant_id},
+    }
+
+
+def normalize_sql_row(row: Any) -> dict[str, Any]:
+    if isinstance(row, dict):
+        return dict(row)
+    keys = getattr(row, "keys", None)
+    if callable(keys):
+        return {str(key): row[key] for key in keys()}
+    if hasattr(row, "_asdict"):
+        return dict(row._asdict())
+    return {}
+
+
+def sql_cursor_columns(cursor: Any) -> list[str]:
+    description = getattr(cursor, "description", None) or []
+    return [str(item[0]) for item in description if item]
 
 
 def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, require_published: bool) -> dict[str, Any]:
@@ -1157,13 +1248,19 @@ def resolve_workflow_default_model(app: dict[str, Any], payload: dict[str, Any],
     if model:
         return model
     nodes = definition.get("nodes") if isinstance(definition.get("nodes"), list) else []
+    has_llm_node = False
     for node in nodes:
         if not isinstance(node, dict):
             continue
+        if str(node.get("type") or "").strip().lower() not in {"llm", "model"}:
+            continue
+        has_llm_node = True
         data = node.get("data") if isinstance(node.get("data"), dict) else {}
         node_model = str(data.get("model") or data.get("route_key") or "").strip()
         if node_model:
             return node_model
+    if not has_llm_node:
+        return ""
     raise HTTPException(status_code=422, detail="workflow LLM node model is required")
 
 

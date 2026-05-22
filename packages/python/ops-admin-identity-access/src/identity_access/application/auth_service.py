@@ -51,6 +51,10 @@ def platform_user_by_username(username: str) -> dict[str, Any] | None:
     return repositories.platform_user_by_username(username)
 
 
+def get_user(user_id: int) -> dict[str, Any] | None:
+    return repositories.get_user(user_id)
+
+
 def update_own_profile(
     user_id: int,
     *,

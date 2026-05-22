@@ -4,6 +4,9 @@ import unittest
 
 from ai_runtime_core.workflow_runtime import WorkflowLLMRequest
 from ai_runtime_core.workflow_runtime import WorkflowLLMResult
+from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
+from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
+from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 
 
@@ -68,6 +71,103 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(result.answer, "退回")
         condition_trace = result.trace["workflow"]["nodes"][1]
         self.assertEqual(condition_trace["branch"], "false")
+
+    def test_workflow_sql_node_writes_custom_output_variable(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "sql_1",
+                    "type": "sql_query",
+                    "data": {
+                        "sql": "SELECT name, amount FROM orders WHERE status = ?",
+                        "params": ["{{status}}"],
+                        "output_key": "records",
+                        "result_shape": "rows",
+                    },
+                },
+                {
+                    "id": "llm_1",
+                    "type": "llm",
+                    "data": {
+                        "model": "dashscope.qwen-plus",
+                        "user_prompt_template": "订单：{{records.rows}}",
+                        "output_key": "answer",
+                    },
+                },
+                {"id": "end", "type": "end", "data": {"output": "{{answer}}"}} ,
+            ],
+            "edges": [
+                {"source": "start", "target": "sql_1"},
+                {"source": "sql_1", "target": "llm_1"},
+                {"source": "llm_1", "target": "end"},
+            ],
+        }
+        sql_requests: list[WorkflowSQLRequest] = []
+        llm_requests: list[WorkflowLLMRequest] = []
+
+        def fake_sql(request: WorkflowSQLRequest) -> WorkflowSQLResult:
+            sql_requests.append(request)
+            return WorkflowSQLResult(
+                rows=[{"name": "A", "amount": 12}, {"name": "B", "amount": 34}],
+                columns=["name", "amount"],
+                row_count=2,
+            )
+
+        def fake_llm(request: WorkflowLLMRequest) -> WorkflowLLMResult:
+            llm_requests.append(request)
+            return WorkflowLLMResult(answer="ok", model=request.model)
+
+        result = execute_workflow(
+            definition,
+            {"status": "paid"},
+            llm_executor=fake_llm,
+            sql_executor=fake_sql,
+        )
+
+        self.assertEqual(result.answer, "ok")
+        self.assertEqual(sql_requests[0].params, ["paid"])
+        self.assertEqual(result.context["variables"]["records"]["row_count"], 2)
+        self.assertEqual(result.context["variables"]["records"]["rows"][0]["name"], "A")
+        self.assertIn("records.rows", definition["nodes"][2]["data"]["user_prompt_template"])
+        self.assertIn("A", str(llm_requests[0].messages[-1]["content"]))
+
+    def test_workflow_sql_node_rejects_write_statement(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "sql_1",
+                    "type": "sql_query",
+                    "data": {"sql": "DELETE FROM orders", "output_key": "records"},
+                },
+            ],
+            "edges": [{"source": "start", "target": "sql_1"}],
+        }
+
+        with self.assertRaises(WorkflowRuntimeError):
+            execute_workflow(
+                definition,
+                {},
+                llm_executor=lambda request: WorkflowLLMResult(answer=""),
+                sql_executor=lambda request: WorkflowSQLResult(),
+            )
+
+    def test_workflow_sql_node_requires_executor(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "sql_1",
+                    "type": "sql_query",
+                    "data": {"sql": "SELECT 1 AS value", "output_key": "records"},
+                },
+            ],
+            "edges": [{"source": "start", "target": "sql_1"}],
+        }
+
+        with self.assertRaises(WorkflowRuntimeError):
+            execute_workflow(definition, {}, llm_executor=lambda request: WorkflowLLMResult(answer=""))
 
 
 if __name__ == "__main__":

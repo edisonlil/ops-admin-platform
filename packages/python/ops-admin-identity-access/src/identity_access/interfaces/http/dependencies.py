@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from fastapi_login.exceptions import InvalidCredentialsException
 
-from identity_access.application.api_key_service import validate_api_key
+from identity_access.application.api_key_service import validate_user_bound_api_key
 from identity_access.application.access_context_cache import get_access_context, set_access_context
 from identity_access.application.auth_service import load_user
 from identity_access.infrastructure.persistence.common import DEFAULT_TENANT_KEY, auth_database_target
@@ -214,17 +214,20 @@ def require_business_api_key_or_permission(permission_code: str) -> Any:
         _: HTTPAuthorizationCredentials | None = Security(bearer_header),
     ) -> dict[str, Any]:
         if api_key:
-            principal = validate_api_key(api_key)
+            principal = validate_user_bound_api_key(api_key)
             if principal:
+                if permission_code not in set(principal.get("permissions", [])):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
                 tenant = principal.get("current_tenant") or {}
+                user = principal.get("user") or {}
                 _activate_tenant_scope(
                     TenantScope(
                         tenant_id=int(principal.get("tenant_id", tenant.get("id", 0)) or 0),
                         tenant_key=str(tenant.get("tenant_key") or tenant.get("key") or DEFAULT_TENANT_KEY),
                         tenant_name=str(tenant.get("name") or "Default Tenant"),
                         source="api_key",
-                        principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
-                        principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
+                        principal_id=int(user.get("id", 0) or 0),
+                        principal_name=str(user.get("username", "") or "api_key"),
                     ),
                     request,
                 )
@@ -241,17 +244,18 @@ async def require_auth(
     _: HTTPAuthorizationCredentials | None = Security(bearer_header),
 ) -> dict[str, Any]:
     if api_key:
-        principal = validate_api_key(api_key)
+        principal = validate_user_bound_api_key(api_key)
         if principal:
             tenant = principal.get("current_tenant") or {}
+            user = principal.get("user") or {}
             _activate_tenant_scope(
                 TenantScope(
                     tenant_id=int(principal.get("tenant_id", tenant.get("id", 0)) or 0),
                     tenant_key=str(tenant.get("tenant_key") or tenant.get("key") or DEFAULT_TENANT_KEY),
                     tenant_name=str(tenant.get("name") or "Default Tenant"),
                     source="api_key",
-                    principal_id=int((principal.get("api_key") or {}).get("id", 0) or 0),
-                    principal_name=str((principal.get("api_key") or {}).get("name", "") or "api_key"),
+                    principal_id=int(user.get("id", 0) or 0),
+                    principal_name=str(user.get("username", "") or "api_key"),
                 ),
                 request,
             )

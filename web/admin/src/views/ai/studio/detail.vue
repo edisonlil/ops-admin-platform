@@ -94,6 +94,31 @@
                 </div>
               </template>
 
+              <template #node-sql_query="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--sql" :class="workflowNodeCardClass(id, selected)">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">SQL</span>
+                    <strong>{{ data.label || 'SQL 查询' }}</strong>
+                  </div>
+                  <div class="workflow-node-card__meta">输出：{{ data.output_key || 'records' }}</div>
+                  <p class="workflow-node-card__sql-preview" :title="String(data.sql || '')">
+                    {{ compactSqlPreview(data.sql) }}
+                  </p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
               <template #node-condition="{ id, data, selected }">
                 <div class="workflow-node-card workflow-node-card--condition" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
@@ -168,6 +193,10 @@
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('llm')">
                 <strong>LLM</strong>
                 <span>调用模型生成文本</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('sql_query')">
+                <strong>SQL 查询</strong>
+                <span>执行只读 SQL 并输出变量</span>
               </button>
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('condition')">
                 <strong>条件判断</strong>
@@ -246,7 +275,7 @@
             <section class="workflow-run-panel__section workflow-run-panel__section--logs">
               <div class="workflow-run-panel__section-head">
                 <strong>执行日志</strong>
-                <span>{{ workflowTraceNodes.length ? `${workflowTraceNodes.length} 个节点` : '等待运行' }}</span>
+                <span>{{ workflowTraceNodes.length ? `${workflowTraceNodes.length} 个节点` : workflowRunStatusText }}</span>
               </div>
               <div v-if="workflowTraceNodes.length" class="workflow-trace-list">
                 <details
@@ -272,9 +301,12 @@
                   </div>
                 </details>
               </div>
-              <div v-else-if="running" class="workflow-trace-placeholder">
+              <div v-else-if="running || workflowRunStatusText !== '等待运行'" class="workflow-trace-placeholder">
                 <span class="rendering-spinner"></span>
-                <span>正在执行，节点日志会在后端返回 trace 后展开...</span>
+                <span>{{ workflowRunStatusText }}，节点日志会在后端返回 trace 后展开...</span>
+              </div>
+              <div v-else-if="workflowRunErrorText" class="workflow-trace-error">
+                {{ workflowRunErrorText }}
               </div>
               <n-empty v-else size="small" description="点击上方“运行 Workflow”后展示每个节点的输入输出、耗时和状态。" />
             </section>
@@ -420,6 +452,42 @@
                   </n-form-item>
                   <n-form-item label="输出变量">
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：summary" />
+                  </n-form-item>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'sql_query'">
+                  <n-form-item label="SQL 语句">
+                    <CodePreview
+                      v-model:value="selectedWorkflowNode.data.sql"
+                      class="workflow-sql-editor"
+                      language="sql"
+                      :min-height="240"
+                      :max-height="420"
+                      :read-only="false"
+                    />
+                  </n-form-item>
+                  <n-form-item label="参数 JSON">
+                    <n-input
+                      v-model:value="selectedWorkflowNode.data.params_text"
+                      type="textarea"
+                      placeholder='例如：["{{status}}"]'
+                      :autosize="{ minRows: 2, maxRows: 6 }"
+                    />
+                  </n-form-item>
+                  <n-form-item label="输出变量名">
+                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：records" />
+                    <template #feedback>{{ sqlOutputVariableHint(selectedWorkflowNode.data.output_key) }}</template>
+                  </n-form-item>
+                  <n-form-item label="结果形态">
+                    <n-select v-model:value="selectedWorkflowNode.data.result_shape" :options="sqlResultShapeOptions" />
+                  </n-form-item>
+                  <n-form-item label="最大行数">
+                    <n-input-number v-model:value="selectedWorkflowNode.data.max_rows" :min="1" :max="1000" />
+                  </n-form-item>
+                  <n-form-item label="数据权限资源 Key">
+                    <n-input v-model:value="selectedWorkflowNode.data.data_access.resource_key" placeholder="例如：workflow.orders" />
+                    <template #feedback>
+                      SQL 执行时会默认注入当前用户的数据权限过滤，查询结果需包含 tenant_id 和数据权限字段。
+                    </template>
                   </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
@@ -1158,6 +1226,7 @@
     output?: Record<string, unknown>;
     error?: string;
     elapsed_ms?: number;
+    title?: string;
   }
 
   type SchemaRecord = Record<string, unknown>;
@@ -1166,7 +1235,7 @@
   type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
-  type WorkflowNodeType = 'start' | 'llm' | 'condition' | 'end';
+  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'condition' | 'end';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
   type OutputFormat = 'markdown' | 'html' | 'json';
@@ -1214,6 +1283,8 @@
   const publishedPromptsLoading = ref(false);
   const platformPreviewModalVisible = ref(false);
   const workflowRunPanelVisible = ref(false);
+  const workflowRunErrorText = ref('');
+  const workflowRunStatusText = ref('等待运行');
   const platformTenantsLoading = ref(false);
   const platformPreviewModelsLoading = ref(false);
   const activeApp = ref<AiApplication | null>(null);
@@ -1540,6 +1611,12 @@
     { label: '大于等于', value: 'gte' },
     { label: '小于', value: 'lt' },
     { label: '小于等于', value: 'lte' },
+  ];
+
+  const sqlResultShapeOptions: SelectOption[] = [
+    { label: '列表', value: 'rows' },
+    { label: '首行', value: 'first' },
+    { label: '标量', value: 'scalar' },
   ];
 
   const detailPage = computed(() =>
@@ -1874,18 +1951,35 @@
       return;
     }
     running.value = true;
+    if (isWorkflowMode.value) {
+      workflowRunErrorText.value = '';
+      workflowLocalTraceNodes.value = [];
+      appendWorkflowLocalTrace("prepare", "开始运行", "running", { variables: buildRuntimeVariables() });
+    }
     runAbortController = new AbortController();
     startRunStopwatch();
     try {
+      if (isWorkflowMode.value) appendWorkflowLocalTrace("save", "保存草稿", "running");
       const saved = await saveCurrent({ silent: true, refresh: false });
-      if (!saved) return;
-      if (isWorkflowMode.value) workflowRunPanelVisible.value = true;
+      if (!saved) {
+        if (isWorkflowMode.value) {
+          markWorkflowLocalTrace("save", "failed", "保存草稿失败，请检查必填配置。");
+          workflowRunErrorText.value = "保存草稿失败，请检查必填配置。";
+        }
+        return;
+      }
+      if (isWorkflowMode.value) {
+        markWorkflowLocalTrace("save", "success");
+        workflowRunPanelVisible.value = true;
+      }
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
+      if (isWorkflowMode.value) appendWorkflowLocalTrace("request", "请求后端执行", "running");
       await runDraftStream({
         variables: buildRuntimeVariables(),
         ...runOutputFormatPayload(),
       }, runAbortController.signal);
+      if (isWorkflowMode.value) markWorkflowLocalTrace("request", "success");
       if (activeWorkspace.value === 'logs') {
         await loadRunLogs();
       }
@@ -1894,7 +1988,12 @@
         message.info('已取消本次运行');
         return;
       }
-      throw error;
+      const text = runtimeErrorMessage(error);
+      if (isWorkflowMode.value) {
+        markWorkflowLocalTrace("request", "failed", text);
+        workflowRunErrorText.value = text;
+      }
+      message.error(text);
     } finally {
       finishRunStopwatch();
       running.value = false;
@@ -1984,6 +2083,15 @@
     const record = asSchemaRecord(node) || {};
     const data = asSchemaRecord(record.data) || {};
     const type = String(record.type || 'llm') as WorkflowNodeType;
+    const sqlData =
+      type === 'sql_query'
+        ? {
+            params_text: stringifyJson(Array.isArray(data.params) ? data.params : []),
+            result_shape: String(data.result_shape || 'rows'),
+            max_rows: Number(data.max_rows || 100),
+            data_access: asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql' },
+          }
+        : {};
     return {
       id: String(record.id || `${type}_${index + 1}`),
       type,
@@ -1993,6 +2101,7 @@
         label: String(data.label || workflowNodeTypeLabel(type)),
         ...data,
         ...(type === 'start' ? { variables: normalizeWorkflowStartVariables(data.variables) } : {}),
+        ...sqlData,
       },
     };
   }
@@ -2042,6 +2151,13 @@
     const data = { ...(node.data || {}), label: node.data?.label || workflowNodeTypeLabel(node.type as WorkflowNodeType) };
     if (node.type === 'start') {
       data.variables = normalizeWorkflowStartVariables(data.variables, { stripInternalId: true });
+    }
+    if (node.type === 'sql_query') {
+      data.params = parseJsonArraySilently(String(data.params_text || '')) || [];
+      delete data.params_text;
+      data.result_shape = data.result_shape || 'rows';
+      data.max_rows = Math.max(1, Math.min(1000, Number(data.max_rows || 100)));
+      data.data_access = asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql' };
     }
     return data;
   }
@@ -2100,6 +2216,14 @@
       data.user_prompt_template = '请处理：{{input}}';
       data.output_key = `llm_${count}_output`;
     }
+    if (type === 'sql_query') {
+      data.sql = 'SELECT tenant_id, owner_user_id, owner_department_id, name FROM your_table';
+      data.params_text = '[]';
+      data.output_key = count === 1 ? 'records' : `records_${count}`;
+      data.result_shape = 'rows';
+      data.max_rows = 100;
+      data.data_access = { resource_key: 'ai_applications.workflow_sql' };
+    }
     if (type === 'condition') {
       data.left = '{{input}}';
       data.operator = 'exists';
@@ -2148,7 +2272,7 @@
     openWorkflowNodeMenuId.value = '';
     const panelRect = workflowCanvasPanelRef.value?.getBoundingClientRect();
     const menuWidth = 220;
-    const menuHeight = 202;
+    const menuHeight = 252;
     const rawX = panelRect ? event.clientX - panelRect.left : event.clientX;
     const rawY = panelRect ? event.clientY - panelRect.top : event.clientY;
     workflowCanvasMenu.x = Math.max(8, Math.min(rawX, (panelRect?.width || rawX + menuWidth) - menuWidth - 8));
@@ -2457,6 +2581,7 @@
   }
 
   function workflowTraceNodeTitle(traceNode: WorkflowTraceNode) {
+    if (traceNode.title) return traceNode.title;
     const node = workflowNodes.value.find((item) => item.id === traceNode.node_id);
     return node ? workflowNodeTitle(node) : traceNode.node_id;
   }
@@ -2464,29 +2589,103 @@
   function workflowTraceNodeIcon(type: string) {
     if (type === 'start') return 'S';
     if (type === 'llm') return 'AI';
+    if (type === 'sql_query' || type === 'sql') return 'SQL';
     if (type === 'condition') return 'IF';
     if (type === 'end') return 'E';
     return type.slice(0, 2).toUpperCase();
   }
 
   function workflowTraceStatus(traceNode: WorkflowTraceNode) {
-    return traceNode.status === 'failed' ? 'failed' : 'success';
+    return traceNode.status === 'failed' ? 'failed' : traceNode.status === 'running' ? 'running' : 'success';
   }
 
   function resetWorkflowDebugRun() {
     runResult.value = null;
+    workflowRunErrorText.value = '';
+    workflowLocalTraceNodes.value = [];
     streamThinkText.value = '';
     lastRunElapsedMs.value = 0;
     runningElapsedMs.value = 0;
+  }
+
+  function appendWorkflowLocalTrace(nodeId: string, title: string, status: string, output: Record<string, unknown> = {}) {
+    workflowLocalTraceNodes.value = [
+      ...workflowLocalTraceNodes.value.filter((node) => node.node_id !== nodeId),
+      {
+        node_id: nodeId,
+        node_type: 'debug',
+        title,
+        status,
+        output,
+        elapsed_ms: 0,
+      },
+    ];
+  }
+
+  function markWorkflowLocalTrace(nodeId: string, status: string, error = '') {
+    workflowLocalTraceNodes.value = workflowLocalTraceNodes.value.map((node) =>
+      node.node_id === nodeId
+        ? {
+            ...node,
+            status,
+            ...(error ? { error } : {}),
+          }
+        : node
+    );
+  }
+
+  function runtimeErrorMessage(error: unknown) {
+    if (error instanceof Error) {
+      const parsed = parseRuntimeErrorPayload(error.message);
+      return parsed || error.message || '运行失败';
+    }
+    return String(error || '运行失败');
+  }
+
+  function parseRuntimeErrorPayload(value: string) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    try {
+      const payload = JSON.parse(text);
+      return extractRuntimeErrorMessage(payload);
+    } catch {
+      return text;
+    }
+  }
+
+  function extractRuntimeErrorMessage(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return '';
+    const record = payload as Record<string, any>;
+    const detail = record.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object') {
+      const message = (detail as Record<string, any>).message;
+      if (message) return String(message);
+    }
+    if (record.message) return String(record.message);
+    if (record.error) return String(record.error);
+    return '';
   }
 
   function conditionOperatorLabel(operator: unknown) {
     return String(conditionOperatorOptions.find((item) => item.value === operator)?.label || operator || '存在');
   }
 
+  function sqlOutputVariableHint(value: unknown) {
+    const key = String(value || 'records').trim() || 'records';
+    return `后续节点可用 {{${key}.rows}}、{{${key}.first.xxx}}、{{${key}.scalar}} 引用。`;
+  }
+
+  function compactSqlPreview(value: unknown) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '执行只读 SQL，并将结果写入输出变量';
+    return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  }
+
   function workflowNodeTypeLabel(type: WorkflowNodeType | string) {
     if (type === 'start') return '开始';
     if (type === 'llm') return 'LLM';
+    if (type === 'sql_query') return 'SQL 查询';
     if (type === 'condition') return '条件判断';
     if (type === 'end') return '结束';
     return String(type);
@@ -2574,10 +2773,10 @@
         const parsed = parseStreamEvent(event);
         if (!parsed.data || parsed.data === '[DONE]') continue;
         if (parsed.type === 'error') {
-          const errorPayload = JSON.parse(parsed.data);
-          throw new Error(errorPayload?.message || 'AI 应用运行失败');
+          const errorPayload = parseStreamPayload(parsed.data);
+          throw new Error(extractRuntimeErrorMessage(errorPayload) || parsed.data || 'AI 应用运行失败');
         }
-        const payloadData = JSON.parse(parsed.data);
+        const payloadData = parseStreamPayload(parsed.data);
         if (parsed.type === 'meta') {
           runResult.value = {
             ...(runResult.value || { answer: '', usage: {} }),
@@ -2610,6 +2809,14 @@
           };
         }
       }
+    }
+  }
+
+  function parseStreamPayload(data: string) {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return { message: data };
     }
   }
 
@@ -3320,6 +3527,15 @@
     }
   }
 
+  function parseJsonArraySilently(value: string): unknown[] | null {
+    try {
+      const payload = JSON.parse(value || '[]');
+      return Array.isArray(payload) ? payload : null;
+    } catch {
+      return null;
+    }
+  }
+
   function stringifyJson(value: unknown) {
     return JSON.stringify(value || {}, null, 2);
   }
@@ -3673,6 +3889,20 @@
     -webkit-box-orient: vertical;
   }
 
+  .workflow-node-card--sql .workflow-node-card__sql-preview {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+
+  .workflow-node-card--sql .workflow-node-card__meta {
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+
   .workflow-node-card__actions {
     position: absolute;
     top: -38px;
@@ -3974,6 +4204,10 @@
     border-color: color-mix(in srgb, var(--app-error-color, #d03050) 52%, var(--app-border-color, #d9e1ec));
   }
 
+  .workflow-trace-item.is-running {
+    border-color: color-mix(in srgb, var(--app-primary-color) 34%, var(--app-border-color, #d9e1ec));
+  }
+
   .workflow-trace-item summary {
     display: grid;
     grid-template-columns: 30px minmax(0, 1fr) auto auto 10px;
@@ -4029,6 +4263,10 @@
     background: var(--app-error-color, #d03050);
   }
 
+  .workflow-trace-item.is-running .workflow-trace-item__status {
+    background: var(--app-primary-color);
+  }
+
   .workflow-trace-item__body {
     display: grid;
     gap: 8px;
@@ -4061,6 +4299,18 @@
     line-height: 1.45;
     background: color-mix(in srgb, var(--app-error-color, #d03050) 8%, var(--app-surface-bg));
     border-radius: 7px;
+  }
+
+  .workflow-trace-error {
+    padding: 10px 12px;
+    color: var(--app-error-color, #d03050);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: color-mix(in srgb, var(--app-error-color, #d03050) 8%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-error-color, #d03050) 22%, transparent);
+    border-radius: 8px;
   }
 
   .workflow-trace-placeholder {
@@ -4096,7 +4346,7 @@
     display: grid;
     align-content: start;
     gap: 12px;
-    width: min(420px, calc(100% - 28px));
+    width: min(520px, calc(100% - 28px));
     max-height: calc(100% - 76px);
     padding: 14px;
     overflow: auto;
@@ -4108,7 +4358,7 @@
 
   .workflow-floating-panel.is-run-panel-open {
     right: calc(var(--workflow-run-panel-width) + var(--workflow-panel-gap) * 2);
-    width: min(420px, calc(100% - var(--workflow-run-panel-width) - var(--workflow-panel-gap) * 3));
+    width: min(520px, calc(100% - var(--workflow-run-panel-width) - var(--workflow-panel-gap) * 3));
   }
 
   .workflow-floating-panel header {
@@ -4161,6 +4411,12 @@
     color: var(--app-text-color-3);
     font-size: 12px;
     line-height: 1.45;
+  }
+
+  .workflow-sql-editor {
+    overflow: hidden;
+    border: 1px solid var(--app-border-color, #d9e1ec);
+    border-radius: 8px;
   }
 
   .workflow-start-variables {

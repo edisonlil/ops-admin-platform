@@ -1,5 +1,5 @@
 <template>
-  <div ref="containerRef" class="code-preview"></div>
+  <div ref="containerRef" class="code-preview" @keydown.stop @keyup.stop @keypress.stop></div>
 </template>
 
 <script lang="ts" setup>
@@ -30,6 +30,9 @@
       autoHeight: true,
     }
   );
+  const emit = defineEmits<{
+    (event: 'update:value', value: string): void;
+  }>();
 
   const containerRef = ref<HTMLElement | null>(null);
   let monacoApi: typeof Monaco | null = null;
@@ -88,15 +91,25 @@
     });
   }
 
+  function stopEditableKeyboardEvent(event: KeyboardEvent) {
+    if (props.readOnly) return;
+    event.stopPropagation();
+  }
+
   onMounted(async () => {
     if (!containerRef.value) return;
     containerRef.value.style.height = props.autoHeight
       ? `${toPixelSize(props.minHeight, 120)}px`
       : toCssSize(props.height);
+    containerRef.value.addEventListener('keydown', stopEditableKeyboardEvent, true);
+    containerRef.value.addEventListener('keyup', stopEditableKeyboardEvent, true);
+    containerRef.value.addEventListener('keypress', stopEditableKeyboardEvent, true);
     const [monaco] = await Promise.all([
       import('monaco-editor/esm/vs/editor/editor.api'),
       props.language === 'json'
         ? import('monaco-editor/esm/vs/language/json/monaco.contribution')
+        : props.language === 'sql'
+          ? import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution')
         : Promise.resolve(),
     ]);
     if (disposed || !containerRef.value) return;
@@ -119,6 +132,11 @@
       overviewRulerLanes: 0,
     });
     contentSizeDisposable = editor.onDidContentSizeChange(scheduleEditorLayout);
+    editor.onDidChangeModelContent(() => {
+      if (props.readOnly) return;
+      const value = editor?.getValue() ?? '';
+      if (value !== props.value) emit('update:value', value);
+    });
     resizeObserver = new ResizeObserver(scheduleEditorLayout);
     resizeObserver.observe(containerRef.value);
     scheduleEditorLayout();
@@ -135,10 +153,19 @@
 
   watch(
     () => props.language,
-    (language) => {
+    async (language) => {
+      if (language === 'json') await import('monaco-editor/esm/vs/language/json/monaco.contribution');
+      if (language === 'sql') await import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution');
       const model = editor?.getModel();
       if (model) monacoApi?.editor.setModelLanguage(model, language);
       scheduleEditorLayout();
+    }
+  );
+
+  watch(
+    () => props.readOnly,
+    (readOnly) => {
+      editor?.updateOptions({ readOnly });
     }
   );
 
@@ -152,6 +179,9 @@
     if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame);
     resizeObserver?.disconnect();
     contentSizeDisposable?.dispose();
+    containerRef.value?.removeEventListener('keydown', stopEditableKeyboardEvent, true);
+    containerRef.value?.removeEventListener('keyup', stopEditableKeyboardEvent, true);
+    containerRef.value?.removeEventListener('keypress', stopEditableKeyboardEvent, true);
     editor?.dispose();
     layoutFrame = null;
     resizeObserver = null;

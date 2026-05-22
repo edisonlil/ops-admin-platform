@@ -2887,6 +2887,8 @@ def row_to_api_key(row: dict[str, Any]) -> dict[str, Any]:
         "is_active": bool(row.get("is_active", True)),
         "creator": creator,
         "creator_id": row.get("creator_id"),
+        "owner_user_id": row.get("owner_user_id"),
+        "owner_department_id": row.get("owner_department_id"),
         "create_time": str(row.get("create_time", "") or ""),
         "editor": str(row.get("editor", "") or ""),
         "editor_id": row.get("editor_id"),

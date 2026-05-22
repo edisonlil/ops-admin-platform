@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from identity_access.application import auth_service, tenant_service
 from identity_access.infrastructure.persistence import repositories
 from system.application.data_access import (
     ResourceDescriptor,
@@ -64,6 +65,55 @@ def revoke_api_key(key_id: int) -> dict[str, Any]:
 
 def validate_api_key(api_key: str) -> dict[str, Any] | None:
     return repositories.validate_api_key(api_key)
+
+
+def validate_user_bound_api_key(api_key: str) -> dict[str, Any] | None:
+    principal = validate_api_key(api_key)
+    if not principal:
+        return None
+
+    item = principal.get("api_key") or {}
+    owner_user_id = int(item.get("owner_user_id") or item.get("creator_id") or 0)
+    tenant_id = int(principal.get("tenant_id", 0) or 0)
+    if not owner_user_id or not tenant_id:
+        return None
+
+    owner = auth_service.get_user(owner_user_id)
+    if not owner or not bool(owner.get("is_active", True)):
+        return None
+
+    current_user = tenant_service.load_user_for_tenant(
+        str(owner.get("username", "") or ""),
+        tenant_id,
+        auth_scope="tenant",
+    )
+    if not current_user or not bool(current_user.get("is_active", True)):
+        return None
+
+    tenant_payload = tenant_service.tenant_access_payload(current_user, tenant_id)
+    current = tenant_payload.get("current_tenant")
+    if not current:
+        return None
+
+    current_user.update(tenant_payload)
+    current_user["tenant_id"] = int(current["id"])
+    current_user["departments"] = tenant_service.user_departments_for_current_tenant(current_user)
+
+    return {
+        **principal,
+        **tenant_payload,
+        "auth_type": "api_key",
+        "user": current_user,
+        "tenant_id": int(current["id"]),
+        "roles": current_user.get("roles", []),
+        "permissions": current_user.get("permissions", []),
+        "menus": current_user.get("menus", []),
+        "departments": current_user.get("departments", []),
+        "username": current_user.get("username"),
+        "full_name": current_user.get("full_name", ""),
+        "is_platform_admin": False,
+        "is_tenant_admin": bool(current_user.get("is_tenant_admin", False)),
+    }
 
 
 def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:

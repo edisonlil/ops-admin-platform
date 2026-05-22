@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -32,6 +34,25 @@ class WorkflowLLMResult:
 
 
 @dataclass(slots=True)
+class WorkflowSQLRequest:
+    node_id: str
+    sql: str
+    params: list[Any] = field(default_factory=list)
+    output_key: str = ""
+    result_shape: str = "rows"
+    max_rows: int = 100
+    data_access: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowSQLResult:
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    columns: list[str] = field(default_factory=list)
+    row_count: int = 0
+    truncated: bool = False
+
+
+@dataclass(slots=True)
 class WorkflowRunResult:
     answer: str
     context: WorkflowContext
@@ -40,6 +61,7 @@ class WorkflowRunResult:
 
 
 LLMExecutor = Callable[[WorkflowLLMRequest], WorkflowLLMResult]
+SQLExecutor = Callable[[WorkflowSQLRequest], WorkflowSQLResult]
 
 
 class WorkflowRuntimeError(RuntimeError):
@@ -51,6 +73,7 @@ def execute_workflow(
     variables: dict[str, Any],
     *,
     llm_executor: LLMExecutor,
+    sql_executor: SQLExecutor | None = None,
     max_steps: int = 50,
 ) -> WorkflowRunResult:
     normalized = normalize_workflow_definition(definition)
@@ -85,6 +108,8 @@ def execute_workflow(
                 output = {"answer": result.answer, "usage": result.usage, "model": result.model}
                 answer = result.answer
                 merge_usage(usage, result.usage)
+            elif node_type in {"sql", "sql_query"}:
+                output = execute_sql_query_node(node, context, sql_executor)
             elif node_type in {"condition", "if_else"}:
                 matched = evaluate_condition_node(node, context)
                 output = {"matched": matched}
@@ -215,6 +240,122 @@ def execute_llm_node(node: dict[str, Any], context: WorkflowContext, llm_executo
     if output_key:
         assign_path(context["variables"], output_key, result.answer)
     return result
+
+
+def execute_sql_query_node(
+    node: dict[str, Any],
+    context: WorkflowContext,
+    sql_executor: SQLExecutor | None,
+) -> dict[str, Any]:
+    if sql_executor is None:
+        raise WorkflowRuntimeError(f"SQL executor is required for node: {node['id']}")
+    data = node["data"]
+    variables = workflow_template_context(context)
+    sql = render_template(str(data.get("sql") or data.get("query") or ""), variables).strip()
+    if not sql:
+        raise WorkflowRuntimeError(f"SQL query is required: {node['id']}")
+    ensure_readonly_sql(sql)
+    params = render_sql_params(data.get("params"), variables)
+    output_key = str(data.get("output_key") or "").strip()
+    if not output_key:
+        raise WorkflowRuntimeError(f"SQL node output_key is required: {node['id']}")
+    result_shape = str(data.get("result_shape") or "rows").strip().lower()
+    if result_shape not in {"rows", "first", "scalar"}:
+        raise WorkflowRuntimeError(f"unsupported SQL result_shape: {result_shape}")
+    max_rows = bounded_max_rows(data.get("max_rows"))
+    result = sql_executor(
+        WorkflowSQLRequest(
+            node_id=node["id"],
+            sql=sql,
+            params=params,
+            output_key=output_key,
+            result_shape=result_shape,
+            max_rows=max_rows,
+            data_access=data.get("data_access") if isinstance(data.get("data_access"), dict) else {},
+        )
+    )
+    output = sql_output_payload(result, result_shape)
+    assign_path(context["variables"], output_key, output)
+    return output
+
+
+def render_sql_params(value: Any, variables: dict[str, Any]) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        rendered = render_template(value, variables).strip()
+        if not rendered:
+            return []
+        try:
+            value = json.loads(rendered)
+        except json.JSONDecodeError:
+            return [rendered]
+    if isinstance(value, list):
+        return [resolve_sql_param(item, variables) for item in value]
+    if isinstance(value, dict):
+        return [resolve_sql_param(value[key], variables) for key in sorted(value)]
+    raise WorkflowRuntimeError("SQL params must be an array, object, JSON string, or empty")
+
+
+def resolve_sql_param(value: Any, variables: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("{{") and stripped.endswith("}}"):
+            return resolve_variable_value(variables, stripped[2:-2].strip())
+        return render_template(value, variables)
+    return value
+
+
+def ensure_readonly_sql(sql: str) -> None:
+    compact = strip_sql_comments(sql).strip()
+    if not compact:
+        raise WorkflowRuntimeError("SQL query is required")
+    statements = [item.strip() for item in compact.split(";") if item.strip()]
+    if len(statements) > 1 or (compact.endswith(";") and len(statements) != 1):
+        raise WorkflowRuntimeError("SQL node only supports a single read-only statement")
+    first_token = first_sql_token(compact)
+    if first_token not in {"select", "with"}:
+        raise WorkflowRuntimeError("SQL node only supports SELECT queries")
+    dangerous = re.search(
+        r"\b(insert|update|delete|drop|alter|truncate|create|replace|merge|call|execute|grant|revoke)\b",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if dangerous:
+        raise WorkflowRuntimeError(f"SQL node rejected non-read-only keyword: {dangerous.group(1).upper()}")
+
+
+def strip_sql_comments(sql: str) -> str:
+    without_line_comments = re.sub(r"--.*?(?=\r?\n|$)", " ", sql)
+    return re.sub(r"/\*.*?\*/", " ", without_line_comments, flags=re.DOTALL)
+
+
+def first_sql_token(sql: str) -> str:
+    match = re.match(r"\s*([a-zA-Z_]+)", sql)
+    return match.group(1).lower() if match else ""
+
+
+def bounded_max_rows(value: Any) -> int:
+    try:
+        parsed = int(value or 100)
+    except (TypeError, ValueError):
+        parsed = 100
+    return max(1, min(1000, parsed))
+
+
+def sql_output_payload(result: WorkflowSQLResult, result_shape: str) -> dict[str, Any]:
+    rows = snapshot_value(result.rows)
+    first = rows[0] if rows else None
+    scalar = first.get(result.columns[0]) if isinstance(first, dict) and result.columns else None
+    return {
+        "rows": rows,
+        "first": first,
+        "scalar": scalar,
+        "columns": list(result.columns),
+        "row_count": int(result.row_count),
+        "result_shape": result_shape,
+        "truncated": bool(result.truncated),
+    }
 
 
 def render_llm_messages(data: dict[str, Any], variables: dict[str, Any]) -> list[dict[str, Any]]:

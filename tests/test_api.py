@@ -811,7 +811,174 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(row["key"], created_key)
         self.assertEqual(row["creator"], "copy-owner")
+        self.assertEqual(int(row["owner_user_id"]), int(create_user_response.json()["data"]["item"]["id"]))
         self.assertTrue(row["prefix"].startswith("sk-"))
+
+    def test_user_bound_api_key_principal_uses_owner_access_context(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "bound-key", "name": "Bound Key"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "bound-owner",
+                "password": "bound-owner-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+        owner_id = int(create_user_response.json()["data"]["item"]["id"])
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "bound-key", "username": "bound-owner", "password": "bound-owner-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        create_key_response = self.request(
+            "POST",
+            "/api/tenant/api-keys",
+            json={"name": "bound-owner-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(create_key_response.status_code, 200)
+        created_key = create_key_response.json()["data"]["key"]
+        created_item = create_key_response.json()["data"]["item"]
+        self.assertEqual(int(created_item["owner_user_id"]), owner_id)
+
+        from identity_access.application.api_key_service import validate_user_bound_api_key
+
+        principal = validate_user_bound_api_key(created_key)
+        self.assertIsNotNone(principal)
+        assert principal is not None
+        self.assertEqual(principal["auth_type"], "api_key")
+        self.assertEqual(principal["user"]["username"], "bound-owner")
+        self.assertEqual(int(principal["user"]["id"]), owner_id)
+        self.assertEqual(int(principal["tenant_id"]), tenant_id)
+        self.assertIn("tenant:api_keys:create", principal["permissions"])
+
+        models_response = self.request(
+            "GET",
+            "/api/llm/openai/v1/models",
+            headers={"X-API-Key": created_key},
+            auth=False,
+        )
+        self.assertIn(models_response.status_code, {200, 503})
+        if models_response.status_code == 503:
+            self.assertIn("database error", models_response.json()["message"])
+
+    def test_user_bound_api_key_rejects_disabled_owner(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "disabled-key", "name": "Disabled Key"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "disabled-owner",
+                "password": "disabled-owner-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+        owner_id = int(create_user_response.json()["data"]["item"]["id"])
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "disabled-key", "username": "disabled-owner", "password": "disabled-owner-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        create_key_response = self.request(
+            "POST",
+            "/api/tenant/api-keys",
+            json={"name": "disabled-owner-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(create_key_response.status_code, 200)
+        created_key = create_key_response.json()["data"]["key"]
+
+        disable_response = self.request("POST", f"/api/tenants/{tenant_id}/users/{owner_id}/disable")
+        self.assertEqual(disable_response.status_code, 200)
+
+        from identity_access.application.api_key_service import validate_user_bound_api_key
+
+        self.assertIsNone(validate_user_bound_api_key(created_key))
+
+    def test_api_key_permission_check_uses_owner_current_permissions(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "permission-key", "name": "Permission Key"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        create_user_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={
+                "username": "permission-owner",
+                "password": "permission-owner-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_user_response.status_code, 200)
+        owner_id = int(create_user_response.json()["data"]["item"]["id"])
+
+        login_response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": "permission-key", "username": "permission-owner", "password": "permission-owner-pass"}},
+            auth=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        tenant_headers = {"Authorization": f"Bearer {login_response.json()['data']['token']}"}
+
+        create_key_response = self.request(
+            "POST",
+            "/api/tenant/api-keys",
+            json={"name": "permission-owner-key"},
+            headers=tenant_headers,
+            auth=False,
+        )
+        self.assertEqual(create_key_response.status_code, 200)
+        created_key = create_key_response.json()["data"]["key"]
+
+        update_response = self.request(
+            "PUT",
+            f"/api/tenants/{tenant_id}/users/{owner_id}",
+            json={
+                "username": "permission-owner",
+                "password": "",
+                "role_keys": [],
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+
+        denied_response = self.request(
+            "POST",
+            "/api/llm/openai/v1/chat/completions",
+            json={"model": "test-model", "messages": [{"role": "user", "content": "hello"}]},
+            headers={"X-API-Key": created_key},
+            auth=False,
+        )
+        self.assertEqual(denied_response.status_code, 403)
 
     def test_tenant_admin_flag_follows_tenant_admin_role(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "role-derived", "name": "Role Derived"})

@@ -93,14 +93,22 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
 
 
 @router.post("/ai-applications/{app_key}/run-draft", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
-def run_ai_application_draft(app_key: str, payload: AIApplicationRunRequest) -> dict[str, Any]:
-    return ok(services.run_draft_application(app_key, payload.model_dump()))
+def run_ai_application_draft(
+    app_key: str,
+    payload: AIApplicationRunRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> dict[str, Any]:
+    return ok(services.run_draft_application(app_key, payload.model_dump(), current_user=current_user))
 
 
 @router.post("/ai-applications/{app_key}/run-draft/stream", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
-def stream_ai_application_draft(app_key: str, payload: AIApplicationRunRequest) -> StreamingResponse:
+def stream_ai_application_draft(
+    app_key: str,
+    payload: AIApplicationRunRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> StreamingResponse:
     return StreamingResponse(
-        services.stream_draft_application(app_key, payload.model_dump()),
+        services.stream_draft_application(app_key, payload.model_dump(), current_user=current_user),
         media_type="text/event-stream",
     )
 
@@ -164,8 +172,12 @@ def stream_ai_application_agent_message(app_key: str, conversation_key: str, pay
 
 
 @router.post("/runtime/apps/{app_key}/run", dependencies=[Depends(auth.require_business_api_key_or_permission("ai_applications:run"))])
-def run_published_ai_application(app_key: str, payload: AIApplicationRunRequest) -> dict[str, Any]:
-    return services.run_published_application(app_key, payload.model_dump())
+def run_published_ai_application(
+    app_key: str,
+    payload: AIApplicationRunRequest,
+    current_user: dict[str, Any] = Depends(auth.require_business_api_key_or_permission("ai_applications:run")),
+) -> dict[str, Any]:
+    return services.run_published_application(app_key, payload.model_dump(), current_user=current_user)
 
 
 @router.get("/ai-runtime/prompt-runtime/traces", dependencies=[Depends(auth.require_permission("ai_runtime:trace:read"))])
