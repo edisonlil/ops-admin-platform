@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from system.application.tenancy import current_tenant_scope
+from system.application.sorting import build_order_by
+from system.application.sorting import parse_sort_params
 from system.infrastructure.persistence.dialect import table_exists
 
 
@@ -16,6 +18,15 @@ DEFAULT_AI_QUOTA = {
     "monthly_token_limit": 1000000,
     "enabled": True,
 }
+
+DATA_URL_PREFIXES = ("data:image/", "data:audio/", "data:video/", "data:application/")
+TRACE_LIST_COLUMNS = """
+    id, tenant_id, trace_id, caller_type, caller_key, app_key, app_version,
+    route_key, model_key, provider_key, status, input_variables_json,
+    rendered_prompt, answer_text, usage_json, elapsed_ms, error_code,
+    error_message, request_id, correlation_id, create_time
+"""
+TRACE_DEFAULT_ORDER_BY = "create_time DESC, id DESC"
 
 
 def now_text() -> str:
@@ -40,6 +51,10 @@ def json_text(value: Any) -> str:
 
 def json_list_text(value: Any) -> str:
     return json.dumps(value if isinstance(value, list) else [], ensure_ascii=False)
+
+
+def json_any_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 def parse_json_list(value: Any) -> list[dict[str, Any]]:
@@ -570,6 +585,16 @@ def record_prompt_runtime_trace(conn: Any, payload: dict[str, Any]) -> dict[str,
     timestamp = now_text()
     tenant_id = current_tenant_id()
     trace_id = str(payload.get("trace_id") or "")
+    sanitized_variables = sanitize_trace_value(payload.get("input_variables"))
+    sanitized_messages = sanitize_trace_value(payload.get("rendered_messages"))
+    if not isinstance(sanitized_variables, dict):
+        sanitized_variables = {}
+    if not isinstance(sanitized_messages, list):
+        sanitized_messages = []
+    answer = str(payload.get("answer") or "")
+    rendered_prompt = str(payload.get("rendered_prompt") or "")
+    input_preview = trace_input_preview(sanitized_variables)
+    answer_preview = text_preview(answer)
     conn.execute(
         """
         INSERT INTO prompt_runtime_traces (
@@ -592,10 +617,10 @@ def record_prompt_runtime_trace(conn: Any, payload: dict[str, Any]) -> dict[str,
             str(payload.get("model_key") or ""),
             str(payload.get("provider_key") or ""),
             str(payload.get("status") or ""),
-            json_text(payload.get("input_variables")),
-            json_list_text(payload.get("rendered_messages")),
-            str(payload.get("rendered_prompt") or ""),
-            str(payload.get("answer") or ""),
+            json_text(input_preview),
+            json_list_text([]),
+            text_preview(rendered_prompt),
+            answer_preview,
             json_text(payload.get("usage")),
             int(payload.get("elapsed_ms") or 0),
             str(payload.get("error_code") or ""),
@@ -606,75 +631,164 @@ def record_prompt_runtime_trace(conn: Any, payload: dict[str, Any]) -> dict[str,
             timestamp,
         ),
     )
+    conn.execute(
+        """
+        INSERT INTO prompt_runtime_trace_details (
+            tenant_id, trace_id, input_variables_json, rendered_messages_json,
+            rendered_prompt, answer_text, metadata_json, create_time, update_time
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tenant_id,
+            trace_id,
+            json_text(sanitized_variables),
+            json_any_text(sanitized_messages),
+            text_preview(rendered_prompt, max_chars=20000),
+            answer,
+            json_text(trace_metadata(payload, sanitized_variables, sanitized_messages)),
+            timestamp,
+            timestamp,
+        ),
+    )
     return get_prompt_runtime_trace(conn, trace_id) or {}
 
 
 def get_prompt_runtime_trace(conn: Any, trace_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT *
-        FROM prompt_runtime_traces
-        WHERE tenant_id = ? AND trace_id = ? AND deleted = 0
+        SELECT
+            t.*,
+            d.input_variables_json AS detail_input_variables_json,
+            d.rendered_messages_json AS detail_rendered_messages_json,
+            d.rendered_prompt AS detail_rendered_prompt,
+            d.answer_text AS detail_answer_text,
+            d.metadata_json AS detail_metadata_json
+        FROM prompt_runtime_traces t
+        LEFT JOIN prompt_runtime_trace_details d
+          ON d.tenant_id = t.tenant_id AND d.trace_id = t.trace_id AND d.deleted = 0
+        WHERE t.tenant_id = ? AND t.trace_id = ? AND t.deleted = 0
         """,
         (current_tenant_id(), trace_id),
     ).fetchone()
     return prompt_runtime_trace_from_row(dict(row)) if row else None
 
 
-def list_prompt_runtime_traces(conn: Any, limit: int = 50) -> list[dict[str, Any]]:
+def list_prompt_runtime_traces(
+    conn: Any,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    safe_page, safe_page_size, offset = pagination_bounds(page, page_size)
+    order_by = trace_order_by(sort_by, sort_dir, allowed_sort)
+    tenant_id = current_tenant_id()
+    total = count_traces(conn, "tenant_id = ? AND deleted = 0", (tenant_id,))
     rows = conn.execute(
-        """
-        SELECT *
+        f"""
+        SELECT {TRACE_LIST_COLUMNS}
         FROM prompt_runtime_traces
         WHERE tenant_id = ? AND deleted = 0
-        ORDER BY create_time DESC, id DESC
-        LIMIT ?
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
         """,
-        (current_tenant_id(), limit),
+        (tenant_id, safe_page_size, offset),
     ).fetchall()
-    return [prompt_runtime_trace_from_row(dict(row)) for row in rows]
+    return [prompt_runtime_trace_from_row(dict(row)) for row in rows], total
 
 
-def list_ai_application_run_logs(conn: Any, app_key: str, limit: int = 50) -> list[dict[str, Any]]:
+def list_ai_application_run_logs(
+    conn: Any,
+    app_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    safe_page, safe_page_size, offset = pagination_bounds(page, page_size)
+    order_by = trace_order_by(sort_by, sort_dir, allowed_sort)
+    tenant_id = current_tenant_id()
+    normalized_app_key = normalize_key(app_key)
+    total = count_traces(conn, "tenant_id = ? AND app_key = ? AND deleted = 0", (tenant_id, normalized_app_key))
     rows = conn.execute(
-        """
-        SELECT *
+        f"""
+        SELECT {TRACE_LIST_COLUMNS}
         FROM prompt_runtime_traces
         WHERE tenant_id = ? AND app_key = ? AND deleted = 0
-        ORDER BY create_time DESC, id DESC
-        LIMIT ?
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
         """,
-        (current_tenant_id(), app_key, limit),
+        (tenant_id, normalized_app_key, safe_page_size, offset),
     ).fetchall()
-    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows], total
 
 
-def list_ai_capability_run_logs(conn: Any, capability_key: str, limit: int = 50) -> list[dict[str, Any]]:
+def list_ai_capability_run_logs(
+    conn: Any,
+    capability_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    safe_page, safe_page_size, offset = pagination_bounds(page, page_size)
+    order_by = trace_order_by(sort_by, sort_dir, allowed_sort)
+    tenant_id = current_tenant_id()
+    normalized_key = normalize_key(capability_key)
+    total = count_traces(
+        conn,
+        "tenant_id = ? AND caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0",
+        (tenant_id, normalized_key),
+    )
     rows = conn.execute(
-        """
-        SELECT *
+        f"""
+        SELECT {TRACE_LIST_COLUMNS}
         FROM prompt_runtime_traces
         WHERE tenant_id = ? AND caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0
-        ORDER BY create_time DESC, id DESC
-        LIMIT ?
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
         """,
-        (current_tenant_id(), normalize_key(capability_key), limit),
+        (tenant_id, normalized_key, safe_page_size, offset),
     ).fetchall()
-    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows], total
 
 
-def list_platform_ai_capability_run_logs(conn: Any, capability_key: str, limit: int = 50) -> list[dict[str, Any]]:
+def list_platform_ai_capability_run_logs(
+    conn: Any,
+    capability_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    allowed_sort: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    safe_page, safe_page_size, offset = pagination_bounds(page, page_size)
+    order_by = trace_order_by(sort_by, sort_dir, allowed_sort)
+    normalized_key = normalize_key(capability_key)
+    total = count_traces(
+        conn,
+        "caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0",
+        (normalized_key,),
+    )
     rows = conn.execute(
-        """
-        SELECT *
+        f"""
+        SELECT {TRACE_LIST_COLUMNS}
         FROM prompt_runtime_traces
         WHERE caller_type = 'ai_capability' AND caller_key = ? AND deleted = 0
-        ORDER BY create_time DESC, id DESC
-        LIMIT ?
+        ORDER BY {order_by}
+        LIMIT ? OFFSET ?
         """,
-        (normalize_key(capability_key), limit),
+        (normalized_key, safe_page_size, offset),
     ).fetchall()
-    return [ai_application_run_log_from_trace(dict(row)) for row in rows]
+    return [ai_application_run_log_from_trace(dict(row)) for row in rows], total
 
 
 def ai_application_run_log_from_trace(row: dict[str, Any]) -> dict[str, Any]:
@@ -699,6 +813,11 @@ def ai_application_run_log_from_trace(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def prompt_runtime_trace_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    detail_input = row.get("detail_input_variables_json")
+    detail_messages = row.get("detail_rendered_messages_json")
+    detail_prompt = row.get("detail_rendered_prompt")
+    detail_answer = row.get("detail_answer_text")
+    detail_metadata = row.get("detail_metadata_json")
     return {
         "trace_id": str(row.get("trace_id") or ""),
         "caller_type": str(row.get("caller_type") or ""),
@@ -709,15 +828,167 @@ def prompt_runtime_trace_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "model_key": str(row.get("model_key") or ""),
         "provider_key": str(row.get("provider_key") or ""),
         "status": str(row.get("status") or ""),
-        "input_variables": parse_json_object(row.get("input_variables_json")),
-        "rendered_messages": parse_json_list(row.get("rendered_messages_json")),
-        "rendered_prompt": str(row.get("rendered_prompt") or ""),
-        "answer": str(row.get("answer_text") or ""),
+        "input_variables": parse_json_object(detail_input if detail_input is not None else row.get("input_variables_json")),
+        "input_preview": parse_json_object(row.get("input_variables_json")),
+        "rendered_messages": parse_json_list(detail_messages if detail_messages is not None else row.get("rendered_messages_json")),
+        "rendered_prompt": str(detail_prompt if detail_prompt is not None else row.get("rendered_prompt") or ""),
+        "rendered_prompt_preview": str(row.get("rendered_prompt") or ""),
+        "answer": str(detail_answer if detail_answer is not None else row.get("answer_text") or ""),
+        "answer_preview": str(row.get("answer_text") or ""),
         "usage": parse_json_object(row.get("usage_json")),
         "elapsed_ms": int(row.get("elapsed_ms") or 0),
         "error_code": str(row.get("error_code") or ""),
         "error_message": str(row.get("error_message") or ""),
         "request_id": str(row.get("request_id") or ""),
         "correlation_id": str(row.get("correlation_id") or ""),
+        "metadata": parse_json_object(detail_metadata),
         "create_time": str(row.get("create_time") or ""),
     }
+
+
+def pagination_bounds(page: int = 1, page_size: int = 20) -> tuple[int, int, int]:
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, min(100, int(page_size or 20)))
+    return safe_page, safe_page_size, (safe_page - 1) * safe_page_size
+
+
+def count_traces(conn: Any, where_sql: str, params: tuple[Any, ...]) -> int:
+    row = conn.execute(
+        f"SELECT COUNT(*) AS total FROM prompt_runtime_traces WHERE {where_sql}",
+        params,
+    ).fetchone()
+    return int(row["total"] if row else 0)
+
+
+def trace_order_by(sort_by: str | None, sort_dir: str | None, allowed_sort: dict[str, str] | None) -> str:
+    sort = parse_sort_params(sort_by, sort_dir)
+    return build_order_by(
+        sort,
+        allowed=allowed_sort or {},
+        default=TRACE_DEFAULT_ORDER_BY,
+        tie_breaker="id DESC",
+    )
+
+
+def trace_input_preview(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: preview_value(item) for key, item in value.items()}
+
+
+def preview_value(value: Any) -> Any:
+    if is_media_ref(value):
+        return media_preview(value)
+    if isinstance(value, dict):
+        return {key: preview_value(item) for key, item in list(value.items())[:20]}
+    if isinstance(value, list):
+        return [preview_value(item) for item in value[:20]]
+    if isinstance(value, str):
+        return text_preview(value)
+    return value
+
+
+def sanitize_trace_value(value: Any) -> Any:
+    if is_media_ref(value):
+        return sanitize_media_ref(value)
+    if isinstance(value, dict):
+        if "image_url" in value and isinstance(value.get("image_url"), dict):
+            item = dict(value)
+            image_url = dict(item["image_url"])
+            image_url["url"] = sanitize_possible_data_url(image_url.get("url"), name="image")
+            item["image_url"] = image_url
+            return {key: sanitize_trace_value(item_value) for key, item_value in item.items()}
+        if "input_audio" in value and isinstance(value.get("input_audio"), dict):
+            item = dict(value)
+            input_audio = dict(item["input_audio"])
+            input_audio["data"] = sanitize_possible_data_url(input_audio.get("data"), name="audio")
+            item["input_audio"] = input_audio
+            return {key: sanitize_trace_value(item_value) for key, item_value in item.items()}
+        return {key: sanitize_trace_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_trace_value(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_possible_data_url(value)
+    return value
+
+
+def is_media_ref(value: Any) -> bool:
+    return isinstance(value, dict) and str(value.get("type") or "").strip().lower() in {"image", "file", "audio", "video"}
+
+
+def sanitize_media_ref(value: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "type": str(value.get("type") or "file"),
+        "name": str(value.get("name") or ""),
+        "mime_type": str(value.get("mime_type") or ""),
+        "size": int(value.get("size") or value.get("size_bytes") or 0),
+        "redacted": bool(value.get("redacted") or value.get("data_url")),
+    }
+    for key in ("file_ref", "file_id", "sha256", "preview_url", "storage_status", "reason", "text"):
+        if value.get(key) not in (None, ""):
+            result[key] = value.get(key)
+    if "file_ref" not in result and value.get("file_id") not in (None, ""):
+        result["file_ref"] = f"file_{value.get('file_id')}"
+    if "storage_status" not in result:
+        result["storage_status"] = "stored" if result.get("file_ref") else "unavailable"
+    return result
+
+
+def media_preview(value: dict[str, Any]) -> dict[str, Any]:
+    result = sanitize_media_ref(value)
+    result.pop("text", None)
+    return result
+
+
+def sanitize_possible_data_url(value: Any, *, name: str = "media") -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if is_data_url(text) or looks_like_large_base64(text):
+        return {
+            "redacted": True,
+            "name": name,
+            "reason": "binary_media_redacted",
+            "size": len(text),
+        }
+    return text_preview(value)
+
+
+def is_data_url(value: str) -> bool:
+    return value.startswith(DATA_URL_PREFIXES) and ";base64," in value[:100]
+
+
+def looks_like_large_base64(value: str) -> bool:
+    if len(value) < 8192:
+        return False
+    sample = value[:256]
+    return all(char.isalnum() or char in "+/=\n\r" for char in sample)
+
+
+def text_preview(value: str, *, max_chars: int = 2000) -> str:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"...[truncated {len(text) - max_chars} chars]"
+
+
+def trace_metadata(payload: dict[str, Any], variables: dict[str, Any], messages: Any) -> dict[str, Any]:
+    media = collect_media_refs({"variables": variables, "messages": messages})
+    return {
+        "media_count": len(media),
+        "total_media_bytes": sum(int(item.get("size") or 0) for item in media),
+        "has_redacted_media": any(bool(item.get("redacted")) for item in media),
+        "storage_statuses": sorted({str(item.get("storage_status") or "unknown") for item in media}),
+        "request_id": str(payload.get("request_id") or ""),
+    }
+
+
+def collect_media_refs(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    if is_media_ref(value):
+        result.append(sanitize_media_ref(value))
+    elif isinstance(value, dict):
+        for item in value.values():
+            result.extend(collect_media_refs(item))
+    elif isinstance(value, list):
+        for item in value:
+            result.extend(collect_media_refs(item))
+    return result

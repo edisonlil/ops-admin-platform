@@ -21,6 +21,7 @@ from llm_runtime.application import gateway
 from ai_applications.infrastructure.persistence import repositories
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
+from ai_applications.infrastructure.persistence.bootstrap import require_prompt_runtime_trace_detail_schema
 from system.application.database import connect
 from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
@@ -62,7 +63,7 @@ def studio_overview() -> dict[str, Any]:
             require_ai_applications_schema(conn)
             apps = repositories.list_ai_applications(conn)
             quota = repositories.get_tenant_ai_quota(conn)
-            traces = repositories.list_prompt_runtime_traces(conn, limit=10)
+            traces, _ = repositories.list_prompt_runtime_traces(conn, page=1, page_size=10)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {
@@ -449,13 +450,17 @@ def stream_agent_message(app_key: str, conversation_key: str, payload: dict[str,
 def list_prompt_runtime_traces(
     *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
-    return read_list(
-        lambda conn: repositories.list_prompt_runtime_traces(conn, limit=max(1, page) * max(1, page_size)),
+    return read_trace_page(
+        lambda conn, safe_page, safe_page_size: repositories.list_prompt_runtime_traces(
+            conn,
+            page=safe_page,
+            page_size=safe_page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            allowed_sort=TRACE_SORT_COLUMNS,
+        ),
         page=page,
         page_size=page_size,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        allowed_sort=TRACE_SORT_COLUMNS,
     )
 
 
@@ -463,39 +468,54 @@ def list_ai_application_run_logs(
     app_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
     app = get_ai_application(app_key)
-    return read_list(
-        lambda conn: repositories.list_ai_application_run_logs(conn, app["app_key"], limit=max(1, page) * max(1, page_size)),
+    return read_trace_page(
+        lambda conn, safe_page, safe_page_size: repositories.list_ai_application_run_logs(
+            conn,
+            app["app_key"],
+            page=safe_page,
+            page_size=safe_page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            allowed_sort=TRACE_SORT_COLUMNS,
+        ),
         page=page,
         page_size=page_size,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        allowed_sort=TRACE_SORT_COLUMNS,
     )
 
 
 def list_ai_capability_run_logs(
     capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
-    return read_list(
-        lambda conn: repositories.list_ai_capability_run_logs(conn, capability_key, limit=max(1, page) * max(1, page_size)),
+    return read_trace_page(
+        lambda conn, safe_page, safe_page_size: repositories.list_ai_capability_run_logs(
+            conn,
+            capability_key,
+            page=safe_page,
+            page_size=safe_page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            allowed_sort=TRACE_SORT_COLUMNS,
+        ),
         page=page,
         page_size=page_size,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        allowed_sort=TRACE_SORT_COLUMNS,
     )
 
 
 def list_platform_ai_capability_run_logs(
     capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
-    return read_list(
-        lambda conn: repositories.list_platform_ai_capability_run_logs(conn, capability_key, limit=max(1, page) * max(1, page_size)),
+    return read_trace_page(
+        lambda conn, safe_page, safe_page_size: repositories.list_platform_ai_capability_run_logs(
+            conn,
+            capability_key,
+            page=safe_page,
+            page_size=safe_page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            allowed_sort=TRACE_SORT_COLUMNS,
+        ),
         page=page,
         page_size=page_size,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        allowed_sort=TRACE_SORT_COLUMNS,
     )
 
 
@@ -523,7 +543,7 @@ prompt_asset_services.register_prompt_asset_reference_checker(
 
 
 def get_prompt_runtime_trace(trace_id: str) -> dict[str, Any]:
-    trace = read_one(lambda conn: repositories.get_prompt_runtime_trace(conn, trace_id))
+    trace = read_trace_one(lambda conn: repositories.get_prompt_runtime_trace(conn, trace_id))
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     return trace
@@ -1306,6 +1326,7 @@ def record_trace(
     try:
         with connect(database_target, readonly=False) as conn:
             require_ai_applications_schema(conn)
+            require_prompt_runtime_trace_detail_schema(conn)
             return repositories.record_prompt_runtime_trace(conn, payload)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         if error:
@@ -1377,11 +1398,36 @@ def read_list(
     return {"items": items[start:start + safe_page_size], "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
 
 
+def read_trace_page(loader: Any, *, page: int = 1, page_size: int = 20) -> dict[str, Any]:
+    database_target = require_database()
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, min(100, int(page_size or 20)))
+    try:
+        with connect(database_target, readonly=True) as conn:
+            require_ai_applications_schema(conn)
+            require_prompt_runtime_trace_detail_schema(conn)
+            items, total = loader(conn, safe_page, safe_page_size)
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    return {"items": items, "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
+
+
 def read_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             require_ai_applications_schema(conn)
+            return loader(conn)
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def read_trace_one(loader: Any) -> dict[str, Any] | None:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=True) as conn:
+            require_ai_applications_schema(conn)
+            require_prompt_runtime_trace_detail_schema(conn)
             return loader(conn)
     except (sqlite3.Error, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc

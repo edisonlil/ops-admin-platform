@@ -782,6 +782,52 @@ class LLMRuntimeTests(unittest.TestCase):
 
             self.assertEqual(result["answer"], "图片里有一个按钮")
             self.assertIn("[image]", result["trace"]["rendered_prompt"])
+            self.assertNotIn("base64,abc", json.dumps(result["trace"], ensure_ascii=False))
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_multimodal_trace_redacts_binary_payloads_in_storage(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("vision")
+                    app_payload["user_prompt_template"] = "请分析图片：{{image}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["image"],
+                        "properties": {"image": {"type": "image"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        return_value={"choices": [{"message": {"content": "图片分析完成"}}], "usage": {}},
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "vision",
+                            {
+                                "variables": {
+                                    "image": {
+                                        "type": "image",
+                                        "name": "screen.png",
+                                        "mime_type": "image/png",
+                                        "size": 12,
+                                        "data_url": "data:image/png;base64,abc",
+                                    }
+                                }
+                            },
+                        )
+
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+                    trace_detail = ai_applications.get_prompt_runtime_trace(result["trace_id"])
+
+            self.assertEqual(len(traces), 1)
+            self.assertEqual(traces[0]["input_variables"]["image"]["name"], "screen.png")
+            self.assertTrue(traces[0]["input_variables"]["image"]["redacted"])
+            self.assertNotIn("base64,abc", json.dumps(traces[0], ensure_ascii=False))
+            self.assertNotIn("base64,abc", json.dumps(trace_detail, ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 

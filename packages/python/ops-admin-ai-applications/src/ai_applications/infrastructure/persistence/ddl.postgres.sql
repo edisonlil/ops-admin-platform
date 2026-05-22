@@ -91,6 +91,29 @@ CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_tenant ON prompt_runtime_tr
 CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_caller ON prompt_runtime_traces(tenant_id, caller_type, caller_key);
 CREATE INDEX IF NOT EXISTS idx_prompt_runtime_traces_created ON prompt_runtime_traces(create_time);
 
+CREATE TABLE IF NOT EXISTS prompt_runtime_trace_details (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    trace_id TEXT NOT NULL,
+    input_variables_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    rendered_messages_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    rendered_prompt TEXT NOT NULL DEFAULT '',
+    answer_text TEXT NOT NULL DEFAULT '',
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, trace_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_runtime_trace_details_trace
+    ON prompt_runtime_trace_details(tenant_id, trace_id);
+
 CREATE TABLE IF NOT EXISTS ai_application_agent_conversations (
     id BIGSERIAL PRIMARY KEY,
     tenant_id BIGINT NOT NULL DEFAULT 1,

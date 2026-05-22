@@ -91,6 +91,29 @@ CREATE INDEX idx_prompt_runtime_traces_tenant ON prompt_runtime_traces(tenant_id
 CREATE INDEX idx_prompt_runtime_traces_caller ON prompt_runtime_traces(tenant_id, caller_type, caller_key);
 CREATE INDEX idx_prompt_runtime_traces_created ON prompt_runtime_traces(create_time);
 
+CREATE TABLE IF NOT EXISTS prompt_runtime_trace_details (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
+    trace_id VARCHAR(255) NOT NULL,
+    input_variables_json JSON NOT NULL DEFAULT (JSON_OBJECT()),
+    rendered_messages_json JSON NOT NULL DEFAULT (JSON_ARRAY()),
+    rendered_prompt TEXT NOT NULL DEFAULT (''),
+    answer_text TEXT NOT NULL DEFAULT (''),
+    metadata_json JSON NOT NULL DEFAULT (JSON_OBJECT()),
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    creator TEXT DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    editor TEXT DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, trace_id)
+);
+
+CREATE INDEX idx_prompt_runtime_trace_details_trace
+    ON prompt_runtime_trace_details(tenant_id, trace_id);
+
 CREATE TABLE IF NOT EXISTS ai_application_agent_conversations (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     tenant_id BIGINT NOT NULL DEFAULT 1,

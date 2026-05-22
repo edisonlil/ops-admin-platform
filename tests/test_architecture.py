@@ -122,6 +122,22 @@ def test_contexts_do_not_import_other_context_infrastructure_directly() -> None:
     assert not violations, "\n".join(violations)
 
 
+def test_ai_applications_does_not_couple_to_file_management_context() -> None:
+    violations: list[str] = []
+    context_path = BOUNDED_CONTEXTS["ai_applications"]
+    forbidden_import_roots = {
+        "file_management",
+    }
+    for path in python_files(context_path):
+        imports = imported_modules(path) & forbidden_import_roots
+        if imports:
+            violations.append(f"{path.relative_to(ROOT)} imports {', '.join(sorted(imports))}")
+        source = path.read_text(encoding="utf-8")
+        if "file_objects" in source:
+            violations.append(f"{path.relative_to(ROOT)} references file_objects")
+    assert not violations, "\n".join(violations)
+
+
 def test_legacy_top_level_packages_are_not_reintroduced() -> None:
     violations = [package for package in LEGACY_TOP_LEVEL_PACKAGES if (ROOT / package).exists()]
     assert not violations, f"legacy top-level packages still exist: {', '.join(sorted(violations))}"

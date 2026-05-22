@@ -22,6 +22,10 @@ def require_ai_applications_schema(conn: Any) -> None:
     require_tables(conn, required_tables)
 
 
+def require_prompt_runtime_trace_detail_schema(conn: Any) -> None:
+    require_tables(conn, ("prompt_runtime_trace_details",))
+
+
 def require_ai_agent_schema(conn: Any) -> None:
     required_tables = (
         "ai_application_agent_conversations",

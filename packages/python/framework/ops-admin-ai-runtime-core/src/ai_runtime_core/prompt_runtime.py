@@ -56,26 +56,28 @@ def media_content_parts(variables: dict[str, Any]) -> list[dict[str, Any]]:
 
 def media_content_part(key: str, value: dict[str, Any]) -> dict[str, Any] | None:
     media_type = str(value.get("type") or "file").strip().lower()
-    data_url = str(value.get("data_url") or "").strip()
+    media_url = str(value.get("data_url") or value.get("preview_url") or value.get("url") or "").strip()
     name = str(value.get("name") or key)
     mime_type = str(value.get("mime_type") or "")
     text = str(value.get("text") or "")
     if text:
         return {"type": "text", "text": f"\n\n附件 {name} 内容：\n{text}"}
-    if not data_url:
+    if not media_url:
         return {"type": "text", "text": variable_text(value)}
     if media_type == "image":
-        return {"type": "image_url", "image_url": {"url": data_url}}
+        return {"type": "image_url", "image_url": {"url": media_url}}
     if media_type == "audio":
+        if not media_url.startswith("data:"):
+            return {"type": "text", "text": variable_text(value)}
         return {
             "type": "input_audio",
             "input_audio": {
-                "data": data_url_payload(data_url),
+                "data": data_url_payload(media_url),
                 "format": media_format(name, mime_type, "mp3"),
             },
         }
     if media_type == "video":
-        return {"type": "video_url", "video_url": {"url": data_url}}
+        return {"type": "video_url", "video_url": {"url": media_url}}
     return None
 
 

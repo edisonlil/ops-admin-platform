@@ -1128,6 +1128,7 @@
     type AiApplicationRunLog,
     type AiRunResult,
   } from '@/api/aiStudio';
+  import { uploadManagedFile } from '@/api/fileManagement';
   import { useUser } from '@/store/modules/user';
 
   interface RuntimeVariableField {
@@ -1176,7 +1177,13 @@
     name: string;
     mime_type: string;
     size: number;
-    data_url: string;
+    file_ref?: string | null;
+    file_id?: number | null;
+    sha256?: string;
+    preview_url?: string;
+    storage_status?: 'stored' | 'unavailable';
+    redacted?: boolean;
+    reason?: string;
     text?: string;
   }
 
@@ -2497,15 +2504,44 @@
       return;
     }
     try {
-      const [dataUrl, text] = await Promise.all([readFileAsDataUrl(uploadFile), readTextPreviewIfSupported(uploadFile)]);
-      runtimeVariableValues[field.key] = {
+      const text = await readTextPreviewIfSupported(uploadFile);
+      const baseValue: RuntimeMediaVariableValue = {
         type: field.type as RuntimeMediaVariableValue['type'],
         name: uploadFile.name,
         mime_type: uploadFile.type || fallbackMimeType(field),
         size: uploadFile.size,
-        data_url: dataUrl,
         ...(text ? { text } : {}),
       };
+      try {
+        const uploaded = await uploadManagedFile({
+          file: uploadFile,
+          visibility: 'tenant',
+          metadata: {
+            source: 'ai_application_runtime',
+            variable_key: field.key,
+            variable_type: field.type,
+          },
+        });
+        const item = uploaded.item;
+        runtimeVariableValues[field.key] = {
+          ...baseValue,
+          file_ref: `file_${item.id}`,
+          file_id: item.id,
+          sha256: item.sha256,
+          preview_url: `/files/${item.id}/preview`,
+          storage_status: 'stored',
+          redacted: true,
+        };
+      } catch (uploadError) {
+        runtimeVariableValues[field.key] = {
+          ...baseValue,
+          file_ref: null,
+          storage_status: 'unavailable',
+          redacted: true,
+          reason: 'file_upload_unavailable',
+        };
+        message.warning('文件上传能力不可用，本次运行日志仅记录文件名和脱敏标记');
+      }
     } catch (error) {
       runtimeVariableValues[field.key] = null;
       message.error(error instanceof Error ? error.message : String(error));
@@ -3202,15 +3238,6 @@
     if (field.type === 'audio') return 'audio/mpeg';
     if (field.type === 'video') return 'video/mp4';
     return 'application/octet-stream';
-  }
-
-  function readFileAsDataUrl(file: File) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('文件读取失败'));
-      reader.readAsDataURL(file);
-    });
   }
 
   function readTextPreviewIfSupported(file: File) {
