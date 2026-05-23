@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import time
 import uuid
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from ai_assets.application import services as prompt_asset_services
+from ai_applications.application.ports import AIApplicationsRepository
 from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_runtime_core.prompt_runtime import render_template
 from ai_runtime_core.prompt_runtime import resolve_variable_value
@@ -20,10 +20,6 @@ from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 from llm_runtime.application import gateway
-from ai_applications.infrastructure.persistence import repositories
-from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema
-from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
-from ai_applications.infrastructure.persistence.bootstrap import require_prompt_runtime_trace_detail_schema
 from system.application.database import connect
 from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
@@ -59,16 +55,29 @@ AGENT_CONVERSATION_SORT_COLUMNS = {
     "update_time": "update_time",
 }
 
+repository: AIApplicationsRepository | None = None
+
+
+def configure_repository(ai_applications_repository: AIApplicationsRepository) -> None:
+    global repository
+    repository = ai_applications_repository
+
+
+def repo() -> AIApplicationsRepository:
+    if repository is None:
+        raise RuntimeError("ai applications repository is not configured")
+    return repository
+
 
 def studio_overview() -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
-            apps = repositories.list_ai_applications(conn)
-            quota = repositories.get_tenant_ai_quota(conn)
-            traces, _ = repositories.list_prompt_runtime_traces(conn, page=1, page_size=10)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            repo().require_ai_applications_schema(conn)
+            apps = repo().list_ai_applications(conn)
+            quota = repo().get_tenant_ai_quota(conn)
+            traces, _ = repo().list_prompt_runtime_traces(conn, page=1, page_size=10)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {
         "stats": {
@@ -97,7 +106,7 @@ def list_ai_applications(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return read_list(
-        lambda conn: repositories.list_ai_applications(conn),
+        lambda conn: repo().list_ai_applications(conn),
         page=page,
         page_size=page_size,
         filterer=lambda items: filter_ai_applications(items, keyword=keyword, status=status),
@@ -125,7 +134,7 @@ def filter_ai_applications(items: list[dict[str, Any]], *, keyword: str | None, 
 
 
 def get_ai_application(app_key: str) -> dict[str, Any]:
-    app = read_one(lambda conn: repositories.get_ai_application(conn, app_key))
+    app = read_one(lambda conn: repo().get_ai_application(conn, app_key))
     if not app:
         raise HTTPException(status_code=404, detail="AI application not found")
     return app
@@ -135,15 +144,15 @@ def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            existing = repositories.get_ai_application(conn, str(payload.get("app_key") or ""))
+            repo().require_ai_applications_schema(conn)
+            existing = repo().get_ai_application(conn, str(payload.get("app_key") or ""))
             if not existing:
                 enforce_application_quota(conn)
             normalize_application_payload(payload)
-            return repositories.upsert_ai_application(conn, payload)
+            return repo().upsert_ai_application(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (sqlite3.Error, RuntimeError) as exc:
+    except (RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -151,15 +160,15 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            app = repositories.get_ai_application(conn, app_key)
+            repo().require_ai_applications_schema(conn)
+            app = repo().get_ai_application(conn, app_key)
             if not app:
                 raise HTTPException(status_code=404, detail="AI application not found")
             validate_publishable(app)
-            return repositories.publish_ai_application(conn, app_key)
+            return repo().publish_ai_application(conn, app_key)
     except HTTPException:
         raise
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -195,8 +204,8 @@ def list_agent_conversations(
     app = require_agent_application(app_key)
     return read_list(
         lambda conn: (
-            require_ai_agent_schema(conn)
-            or repositories.list_agent_conversations(conn, app["app_key"], limit=max(1, page) * max(1, page_size))
+            repo().require_ai_agent_schema(conn)
+            or repo().list_agent_conversations(conn, app["app_key"], limit=max(1, page) * max(1, page_size))
         ),
         page=page,
         page_size=page_size,
@@ -224,10 +233,10 @@ def create_agent_conversation(app_key: str, payload: dict[str, Any]) -> dict[str
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            require_ai_agent_schema(conn)
-            return repositories.create_agent_conversation(conn, app["app_key"], payload)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            repo().require_ai_applications_schema(conn)
+            repo().require_ai_agent_schema(conn)
+            return repo().create_agent_conversation(conn, app["app_key"], payload)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -242,8 +251,8 @@ def list_agent_messages(
     conversation = get_agent_conversation_or_404(app, conversation_key)
     return read_list(
         lambda conn: (
-            require_ai_agent_schema(conn)
-            or repositories.list_agent_messages(
+            repo().require_ai_agent_schema(conn)
+            or repo().list_agent_messages(
                 conn,
                 app["app_key"],
                 conversation["conversation_key"],
@@ -455,7 +464,7 @@ def list_prompt_runtime_traces(
     *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
     return read_trace_page(
-        lambda conn, safe_page, safe_page_size: repositories.list_prompt_runtime_traces(
+        lambda conn, safe_page, safe_page_size: repo().list_prompt_runtime_traces(
             conn,
             page=safe_page,
             page_size=safe_page_size,
@@ -473,7 +482,7 @@ def list_ai_application_run_logs(
 ) -> dict[str, Any]:
     app = get_ai_application(app_key)
     return read_trace_page(
-        lambda conn, safe_page, safe_page_size: repositories.list_ai_application_run_logs(
+        lambda conn, safe_page, safe_page_size: repo().list_ai_application_run_logs(
             conn,
             app["app_key"],
             page=safe_page,
@@ -491,7 +500,7 @@ def list_ai_capability_run_logs(
     capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
     return read_trace_page(
-        lambda conn, safe_page, safe_page_size: repositories.list_ai_capability_run_logs(
+        lambda conn, safe_page, safe_page_size: repo().list_ai_capability_run_logs(
             conn,
             capability_key,
             page=safe_page,
@@ -509,7 +518,7 @@ def list_platform_ai_capability_run_logs(
     capability_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
 ) -> dict[str, Any]:
     return read_trace_page(
-        lambda conn, safe_page, safe_page_size: repositories.list_platform_ai_capability_run_logs(
+        lambda conn, safe_page, safe_page_size: repo().list_platform_ai_capability_run_logs(
             conn,
             capability_key,
             page=safe_page,
@@ -527,8 +536,8 @@ def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
-            return repositories.prompt_asset_is_referenced_by_ai_application(
+            repo().require_ai_applications_schema(conn)
+            return repo().prompt_asset_is_referenced_by_ai_application(
                 conn,
                 tenant_id=tenant_id,
                 prompt_key=prompt_key,
@@ -547,20 +556,20 @@ prompt_asset_services.register_prompt_asset_reference_checker(
 
 
 def get_prompt_runtime_trace(trace_id: str) -> dict[str, Any]:
-    trace = read_trace_one(lambda conn: repositories.get_prompt_runtime_trace(conn, trace_id))
+    trace = read_trace_one(lambda conn: repo().get_prompt_runtime_trace(conn, trace_id))
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     return trace
 
 
 def get_tenant_ai_quota() -> dict[str, Any]:
-    quota = read_one(repositories.get_tenant_ai_quota)
+    quota = read_one(repo().get_tenant_ai_quota)
     assert quota is not None
     return quota
 
 
 def get_admin_tenant_ai_quota(tenant_id: int) -> dict[str, Any]:
-    quota = read_one(lambda conn: repositories.get_tenant_ai_quota(conn, tenant_id=tenant_id))
+    quota = read_one(lambda conn: repo().get_tenant_ai_quota(conn, tenant_id=tenant_id))
     assert quota is not None
     return quota
 
@@ -569,9 +578,9 @@ def save_tenant_ai_quota(tenant_id: int, payload: dict[str, Any]) -> dict[str, A
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            return repositories.upsert_tenant_ai_quota(conn, tenant_id, payload)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            repo().require_ai_applications_schema(conn)
+            return repo().upsert_tenant_ai_quota(conn, tenant_id, payload)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -845,7 +854,7 @@ def execute_workflow_sql_query(
         with connect(database_target, readonly=True) as conn:
             cursor = conn.execute(guarded_sql, tuple(params))
             rows = cursor.fetchall()
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise WorkflowRuntimeError(f"SQL node query failed: {exc}") from exc
     normalized_rows = [normalize_sql_row(row) for row in rows[:limit]]
     columns = list(normalized_rows[0].keys()) if normalized_rows else sql_cursor_columns(cursor)
@@ -1018,8 +1027,8 @@ def require_agent_application(app_key: str) -> dict[str, Any]:
 
 def get_agent_conversation_or_404(app: dict[str, Any], conversation_key: str) -> dict[str, Any]:
     conversation = read_one(
-        lambda conn: require_ai_agent_schema(conn)
-        or repositories.get_agent_conversation(conn, app["app_key"], conversation_key)
+        lambda conn: repo().require_ai_agent_schema(conn)
+        or repo().get_agent_conversation(conn, app["app_key"], conversation_key)
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Agent conversation not found")
@@ -1040,15 +1049,15 @@ def prepare_agent_run(app_key: str, conversation_key: str, payload: dict[str, An
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            require_ai_agent_schema(conn)
-            history = repositories.list_recent_agent_messages(
+            repo().require_ai_applications_schema(conn)
+            repo().require_ai_agent_schema(conn)
+            history = repo().list_recent_agent_messages(
                 conn,
                 app_for_run["app_key"],
                 conversation["conversation_key"],
                 limit=agent_history_limit(app_for_run),
             )
-            user_message = repositories.insert_agent_message(
+            user_message = repo().insert_agent_message(
                 conn,
                 {
                     "app_key": app_for_run["app_key"],
@@ -1059,8 +1068,8 @@ def prepare_agent_run(app_key: str, conversation_key: str, payload: dict[str, An
                     "metadata": {"variables": variables},
                 },
             )
-            conversation = repositories.get_agent_conversation(conn, app_for_run["app_key"], conversation["conversation_key"]) or conversation
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            conversation = repo().get_agent_conversation(conn, app_for_run["app_key"], conversation["conversation_key"]) or conversation
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
     messages = build_agent_messages(app_for_run, variables, history, content)
@@ -1121,9 +1130,9 @@ def persist_agent_assistant_message(
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            require_ai_agent_schema(conn)
-            return repositories.insert_agent_message(
+            repo().require_ai_applications_schema(conn)
+            repo().require_ai_agent_schema(conn)
+            return repo().insert_agent_message(
                 conn,
                 {
                     "app_key": prepared["app"]["app_key"],
@@ -1136,7 +1145,7 @@ def persist_agent_assistant_message(
                     "error_message": str(error) if error else "",
                 },
             )
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -1151,9 +1160,9 @@ def update_agent_assistant_message(
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            require_ai_agent_schema(conn)
-            return repositories.update_agent_message(
+            repo().require_ai_applications_schema(conn)
+            repo().require_ai_agent_schema(conn)
+            return repo().update_agent_message(
                 conn,
                 message_key,
                 {
@@ -1164,12 +1173,12 @@ def update_agent_assistant_message(
                     "error_message": str(error) if error else "",
                 },
             )
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
 def enforce_application_quota(conn: Any) -> None:
-    quota = repositories.get_tenant_ai_quota(conn)
+    quota = repo().get_tenant_ai_quota(conn)
     if not quota.get("enabled", True):
         raise ValueError("AI Studio is disabled for this tenant")
     usage = quota.get("usage") if isinstance(quota.get("usage"), dict) else {}
@@ -1422,10 +1431,10 @@ def record_trace(
     }
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_applications_schema(conn)
-            require_prompt_runtime_trace_detail_schema(conn)
-            return repositories.record_prompt_runtime_trace(conn, payload)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            repo().require_ai_applications_schema(conn)
+            repo().require_prompt_runtime_trace_detail_schema(conn)
+            return repo().record_prompt_runtime_trace(conn, payload)
+    except (RuntimeError, ValueError) as exc:
         if error:
             return {"trace_id": trace_id, "trace_error": str(exc)}
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
@@ -1480,9 +1489,9 @@ def read_list(
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
+            repo().require_ai_applications_schema(conn)
             items = loader(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if filterer is not None:
         items = filterer(items)
@@ -1501,10 +1510,10 @@ def read_trace_page(loader: Any, *, page: int = 1, page_size: int = 20) -> dict[
     safe_page_size = max(1, min(100, int(page_size or 20)))
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
-            require_prompt_runtime_trace_detail_schema(conn)
+            repo().require_ai_applications_schema(conn)
+            repo().require_prompt_runtime_trace_detail_schema(conn)
             items, total = loader(conn, safe_page, safe_page_size)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {"items": items, "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
 
@@ -1513,9 +1522,9 @@ def read_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
+            repo().require_ai_applications_schema(conn)
             return loader(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -1523,8 +1532,10 @@ def read_trace_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_applications_schema(conn)
-            require_prompt_runtime_trace_detail_schema(conn)
+            repo().require_ai_applications_schema(conn)
+            repo().require_prompt_runtime_trace_detail_schema(conn)
             return loader(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+

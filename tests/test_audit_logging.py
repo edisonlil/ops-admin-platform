@@ -31,6 +31,7 @@ class AuditLoggingTests(unittest.TestCase):
             "os.environ",
             {
                 "FG_AGENT_DATABASE_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-database.json"),
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(tempfile.gettempdir()) / "ops-admin-missing-application.json"),
                 "FG_AGENT_DATABASE_URL": "",
                 "SUPABASE_DB_URL": "",
                 "DATABASE_URL": "",
@@ -40,6 +41,7 @@ class AuditLoggingTests(unittest.TestCase):
         )
         self.env_patch.start()
         dispatcher.reset_for_tests()
+        services.configure_repository(repositories)
         dispatcher.configure_repository(repositories)
         self.initialize_db()
 

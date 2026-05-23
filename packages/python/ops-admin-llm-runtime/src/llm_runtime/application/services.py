@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
 from fastapi import HTTPException
 
+from llm_runtime.application.ports import LLMRuntimeRepository
 from llm_runtime.domain.events import llm_runtime_settings_updated
-from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
 from framework.llm_core import CommandLLMClient, LLMClient, LLMResponse, MiniMaxLLMClient, OpenAICompatibleLLMClient
 from llm_runtime.application import gateway
 from system.application.database import connect, resolve_database_url, resolve_db_path, table_exists
@@ -24,7 +23,6 @@ from system.application.event_bus import publish_event
 from system.application.sorting import sort_dict_items
 from system.application.tenancy import current_tenant_scope
 from system.interfaces.http import current_request_id
-from llm_runtime.infrastructure.persistence import repositories
 
 
 LLM_MODEL_CONFIG_RESOURCE = ResourceDescriptor(resource_key="llm.model-config")
@@ -79,6 +77,19 @@ CALL_LOG_SORT_COLUMNS = {
     "create_time": "create_time",
 }
 
+repository: LLMRuntimeRepository | None = None
+
+
+def configure_repository(llm_runtime_repository: LLMRuntimeRepository) -> None:
+    global repository
+    repository = llm_runtime_repository
+
+
+def repo() -> LLMRuntimeRepository:
+    if repository is None:
+        raise RuntimeError("llm runtime repository is not configured")
+    return repository
+
 
 def require_database() -> str | Path:
     database_url = resolve_database_url()
@@ -103,7 +114,7 @@ def get_llm_config(current_user: dict[str, Any] | None = None) -> dict[str, Any]
             if not table_exists(conn, "llm_configs"):
                 return default_llm_config_response(source="database")
             row = active_llm_config_row(conn, current_user=current_user)
-    except (sqlite3.Error, RuntimeError) as exc:
+    except (RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if not row:
         return default_llm_config_response(source="database")
@@ -182,7 +193,7 @@ def save_llm_config(payload: dict[str, Any], current_user: dict[str, Any] | None
             row = active_llm_config_row(conn)
     except HTTPException:
         raise
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if not row:
         return default_llm_config_response(source="database")
@@ -206,7 +217,7 @@ def list_providers(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return list_resource(
-        repositories.list_providers,
+        repo().list_providers,
         current_user=current_user,
         page=page,
         page_size=page_size,
@@ -217,7 +228,7 @@ def list_providers(
 
 
 def save_provider(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_provider(conn, owner_payload(payload, current_user)))
+    return write_resource(lambda conn: repo().upsert_provider(conn, owner_payload(payload, current_user)))
 
 
 def list_models(
@@ -229,7 +240,7 @@ def list_models(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return list_resource(
-        repositories.list_models,
+        repo().list_models,
         current_user=current_user,
         page=page,
         page_size=page_size,
@@ -240,7 +251,7 @@ def list_models(
 
 
 def save_model(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_model(conn, owner_payload(payload, current_user)))
+    return write_resource(lambda conn: repo().upsert_model(conn, owner_payload(payload, current_user)))
 
 
 def list_tasks(
@@ -252,7 +263,7 @@ def list_tasks(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return list_resource(
-        repositories.list_tasks,
+        repo().list_tasks,
         current_user=current_user,
         page=page,
         page_size=page_size,
@@ -263,7 +274,7 @@ def list_tasks(
 
 
 def register_task(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.register_task(conn, owner_payload(payload, current_user)))
+    return write_resource(lambda conn: repo().register_task(conn, owner_payload(payload, current_user)))
 
 
 def list_routing_policies(
@@ -275,7 +286,7 @@ def list_routing_policies(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return list_resource(
-        repositories.list_policies,
+        repo().list_policies,
         current_user=current_user,
         page=page,
         page_size=page_size,
@@ -286,7 +297,7 @@ def list_routing_policies(
 
 
 def save_routing_policy(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    return write_resource(lambda conn: repositories.upsert_routing_policy(conn, owner_payload(payload, current_user)))
+    return write_resource(lambda conn: repo().upsert_routing_policy(conn, owner_payload(payload, current_user)))
 
 
 def list_call_logs(
@@ -308,7 +319,7 @@ def list_call_logs(
                 if current_user is not None
                 else None
             )
-            items, total = repositories.list_call_logs(
+            items, total = repo().list_call_logs(
                 conn,
                 page=safe_page,
                 page_size=safe_page_size,
@@ -316,7 +327,7 @@ def list_call_logs(
                 sort_dir=sort_dir,
                 data_scope=data_scope,
             )
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     return {"items": items, "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total}}
 
@@ -326,9 +337,9 @@ def list_openai_models() -> dict[str, Any]:
     try:
         with connect(database_target, readonly=True) as conn:
             require_llm_config_schema(conn)
-            models = repositories.list_models(conn)
-            policies = repositories.list_policies(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+            models = repo().list_models(conn)
+            policies = repo().list_policies(conn)
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     items = [
         {
@@ -426,7 +437,7 @@ def list_resource(
                 else None
             )
             items = loader(conn, data_scope=data_scope)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if allowed_sort is not None:
         items = sort_dict_items(items, sort_by, sort_dir, allowed=allowed_sort)
@@ -462,7 +473,7 @@ def write_resource(writer: Any) -> dict[str, Any]:
             return writer(conn)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (sqlite3.Error, RuntimeError) as exc:
+    except (RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -475,7 +486,7 @@ def runtime_llm_config(database_target: str | Path) -> dict[str, Any] | None:
                 return new_runtime_config_from_database(database_target, conn)
             new_config = new_runtime_config_from_database(database_target, conn)
             row = active_llm_config_row(conn)
-    except (sqlite3.Error, RuntimeError):
+    except (RuntimeError):
         return None
     if not row:
         return new_config or {}
@@ -497,7 +508,7 @@ def new_runtime_config_from_database(database_target: str | Path, conn: Any) -> 
 
 
 def require_llm_config_schema(conn: Any) -> None:
-    require_llm_schema(conn)
+    repo().require_llm_schema(conn)
 
 
 def active_llm_config_row(conn: Any, current_user: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -724,8 +735,8 @@ def route_available(database_target: str | Path | None, task_key: str) -> bool:
         with connect(database_target, readonly=True) as conn:
             if not table_exists(conn, "llm_routing_policies"):
                 return False
-            return repositories.resolve_route(conn, task_key) is not None
-    except (sqlite3.Error, RuntimeError):
+            return repo().resolve_route(conn, task_key) is not None
+    except (RuntimeError):
         return False
 
 
@@ -870,3 +881,5 @@ def _config_bool(*configs: dict[str, Any], key: str) -> bool:
         if isinstance(extra_body, dict) and key in extra_body:
             return bool(extra_body.get(key))
     return False
+
+

@@ -25,6 +25,11 @@ bearer_header = HTTPBearer(auto_error=False)
 _ = load_user
 
 
+@login_manager.user_loader()
+def _identity_loader(username: str) -> dict[str, Any] | None:
+    return load_user(username)
+
+
 def _access_context_namespace() -> str:
     return str(auth_database_target())
 

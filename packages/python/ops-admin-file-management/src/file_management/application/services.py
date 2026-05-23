@@ -12,7 +12,15 @@ from typing import Any, BinaryIO
 from fastapi import HTTPException, status
 
 from file_management.application.metadata_support import default_metadata_binding
-from file_management.application.ports import DownloadObject, FileIndexerPort, MetadataBindingPort, PreviewProviderPort, StoragePort
+from file_management.application.ports import (
+    DownloadObject,
+    FileIndexerPort,
+    FileManagementRepository,
+    FileSearchPort,
+    MetadataBindingPort,
+    PreviewProviderPort,
+    StoragePort,
+)
 from file_management.application.preview import NativePreviewProvider
 from file_management.domain.exceptions import (
     FilePreviewUnsupported,
@@ -52,10 +60,6 @@ from file_management.domain.models import (
     PreviewProfile,
     StorageProfile,
 )
-from file_management.infrastructure.persistence import repositories
-from file_management.infrastructure.search.database_search import DatabaseFileSearch
-from file_management.infrastructure.search.elasticsearch_placeholder import NoopFileIndexer
-from file_management.infrastructure.storage.minio_storage import MinioObjectStorage
 from system.application.config import config_string, load_application_config, section_config
 from system.application.data_access import (
     ResourceDescriptor,
@@ -65,10 +69,41 @@ from system.application.data_access import (
 from system.application.sorting import InvalidSortError, sort_dict_items
 
 
-_storage: StoragePort = MinioObjectStorage()
-_indexer: FileIndexerPort = NoopFileIndexer()
+_storage: StoragePort | None = None
 _preview_provider: PreviewProviderPort = NativePreviewProvider()
 _metadata_binding: MetadataBindingPort = default_metadata_binding()
+_repository: FileManagementRepository | None = None
+
+
+class _RepositoryFileSearch:
+    def search(
+        self,
+        *,
+        tenant_id: int,
+        keyword: str,
+        page: int,
+        page_size: int,
+        file_ids: list[int] | None = None,
+    ) -> tuple[list[ManagedFile], int]:
+        return repo().list_files(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            file_ids=file_ids,
+        )
+
+
+class _NoopFileIndexer:
+    def index_file(self, file_id: int) -> None:
+        return None
+
+    def remove_file(self, file_id: int) -> None:
+        return None
+
+
+_indexer: FileIndexerPort = _NoopFileIndexer()
+_search: FileSearchPort = _RepositoryFileSearch()
 FILE_METADATA_RESOURCE_TYPE = "file_management.file_object"
 FILE_FOLDER_METADATA_RESOURCE_TYPE = "file_management.file_folder"
 FILE_OBJECT_RESOURCE = ResourceDescriptor(resource_key="file.object")
@@ -99,6 +134,52 @@ def configure_indexer(indexer: FileIndexerPort) -> None:
 def configure_preview_provider(preview_provider: PreviewProviderPort) -> None:
     global _preview_provider
     _preview_provider = preview_provider
+
+
+def configure_repository(repository: FileManagementRepository) -> None:
+    global _repository
+    _repository = repository
+
+
+def configure_search(search: FileSearchPort) -> None:
+    global _search
+    _search = search
+
+
+def repo() -> FileManagementRepository:
+    if _repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="file management repository is not configured",
+        )
+    return _repository
+
+
+def searcher() -> FileSearchPort:
+    if _search is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="file management search is not configured",
+        )
+    return _search
+
+
+def storage() -> StoragePort:
+    if _storage is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="file management storage is not configured",
+        )
+    return _storage
+
+
+def indexer() -> FileIndexerPort:
+    if _indexer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="file management indexer is not configured",
+        )
+    return _indexer
 
 
 def load_file_management_config() -> dict[str, Any]:
@@ -136,7 +217,7 @@ def list_libraries(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_libraries(
+        items, total = repo().list_libraries(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -159,7 +240,7 @@ def save_library(payload: dict[str, Any], current_user: dict[str, Any], library_
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
     try:
-        item = repositories.save_library(
+        item = repo().save_library(
             tenant_id=tenant_id,
             library_id=library_id,
             payload={
@@ -182,11 +263,11 @@ def save_library(payload: dict[str, Any], current_user: dict[str, Any], library_
 def delete_library(library_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        if repositories.library_file_count(tenant_id=tenant_id, library_id=library_id) > 0:
+        if repo().library_file_count(tenant_id=tenant_id, library_id=library_id) > 0:
             raise FileLibraryNotEmpty("file library is not empty")
-        if repositories.library_folder_count(tenant_id=tenant_id, library_id=library_id) > 0:
+        if repo().library_folder_count(tenant_id=tenant_id, library_id=library_id) > 0:
             raise FileLibraryNotEmpty("file library is not empty")
-        deleted = repositories.delete_library(
+        deleted = repo().delete_library(
             tenant_id=tenant_id,
             library_id=library_id,
             actor=current_actor(current_user),
@@ -217,7 +298,7 @@ def list_files(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_files(
+        items, total = repo().list_files(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -254,10 +335,10 @@ def list_workspace(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        libraries, _ = repositories.list_libraries(tenant_id=tenant_id, page=1, page_size=200)
+        libraries, _ = repo().list_libraries(tenant_id=tenant_id, page=1, page_size=200)
         selected_library_id = library_id or (libraries[0].id if libraries else None)
         selected_library = (
-            repositories.get_library(tenant_id=tenant_id, library_id=selected_library_id)
+            repo().get_library(tenant_id=tenant_id, library_id=selected_library_id)
             if selected_library_id is not None
             else None
         )
@@ -265,15 +346,15 @@ def list_workspace(
             raise FileLibraryNotFound("file library not found")
         selected_folder = None
         if folder_id is not None:
-            selected_folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            selected_folder = repo().get_folder(tenant_id=tenant_id, folder_id=folder_id)
             if not selected_folder or selected_folder.library_id != selected_library_id:
                 raise FileFolderNotFound("file folder not found")
         folders = (
-            repositories.list_folders(tenant_id=tenant_id, library_id=int(selected_library_id), parent_id=folder_id)
+            repo().list_folders(tenant_id=tenant_id, library_id=int(selected_library_id), parent_id=folder_id)
             if selected_library_id is not None and not keyword.strip()
             else []
         )
-        files, _ = repositories.list_files(
+        files, _ = repo().list_files(
             tenant_id=tenant_id,
             page=1,
             page_size=500,
@@ -285,9 +366,9 @@ def list_workspace(
             sort_by=sort_by,
             sort_dir=sort_dir,
         )
-        usage = repositories.storage_usage(tenant_id=tenant_id)
+        usage = repo().storage_usage(tenant_id=tenant_id)
         folder_usages = (
-            repositories.folder_storage_usages(
+            repo().folder_storage_usages(
                 tenant_id=tenant_id,
                 library_id=int(selected_library_id),
                 folder_ids=[item.id for item in folders],
@@ -329,10 +410,10 @@ def list_workspace(
 def folder_tree(*, library_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        library = repositories.get_library(tenant_id=tenant_id, library_id=library_id)
+        library = repo().get_library(tenant_id=tenant_id, library_id=library_id)
         if not library:
             raise FileLibraryNotFound("file library not found")
-        folders = repositories.list_all_folders(tenant_id=tenant_id, library_id=library_id)
+        folders = repo().list_all_folders(tenant_id=tenant_id, library_id=library_id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     except FileManagementError as exc:
@@ -352,19 +433,19 @@ def save_folder(payload: dict[str, Any], current_user: dict[str, Any], folder_id
     if not library_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="library_id is required")
     try:
-        if not repositories.get_library(tenant_id=tenant_id, library_id=library_id):
+        if not repo().get_library(tenant_id=tenant_id, library_id=library_id):
             raise FileLibraryNotFound("file library not found")
         if parent_id is not None:
-            parent = repositories.get_folder(tenant_id=tenant_id, folder_id=parent_id)
+            parent = repo().get_folder(tenant_id=tenant_id, folder_id=parent_id)
             if not parent or parent.library_id != library_id:
                 raise FileFolderNotFound("parent folder not found")
         if folder_id:
-            current = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            current = repo().get_folder(tenant_id=tenant_id, folder_id=folder_id)
             if not current:
                 raise FileFolderNotFound("file folder not found")
             if parent_id == folder_id:
                 raise FileFolderConflict("folder cannot be its own parent")
-        item = repositories.save_folder(
+        item = repo().save_folder(
             tenant_id=tenant_id,
             folder_id=folder_id,
             payload={
@@ -401,7 +482,7 @@ def update_folder_metadata(folder_id: int, payload: dict[str, Any], current_user
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
     try:
-        item = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+        item = repo().get_folder(tenant_id=tenant_id, folder_id=folder_id)
         if not item:
             raise FileFolderNotFound("file folder not found")
         metadata = dict(payload.get("metadata") or {})
@@ -425,12 +506,12 @@ def update_folder_metadata(folder_id: int, payload: dict[str, Any], current_user
 def delete_folder(folder_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+        folder = repo().get_folder(tenant_id=tenant_id, folder_id=folder_id)
         if not folder:
             raise FileFolderNotFound("file folder not found")
-        if repositories.folder_child_count(tenant_id=tenant_id, folder_id=folder_id) > 0:
+        if repo().folder_child_count(tenant_id=tenant_id, folder_id=folder_id) > 0:
             raise FileFolderNotEmpty("file folder is not empty")
-        deleted = repositories.delete_folder(
+        deleted = repo().delete_folder(
             tenant_id=tenant_id,
             folder_id=folder_id,
             actor=current_actor(current_user),
@@ -471,7 +552,7 @@ def search_files(
         except RuntimeError as exc:
             raise storage_unavailable(exc) from exc
     try:
-        items, total = DatabaseFileSearch().search(tenant_id=tenant_id, keyword=keyword, page=page, page_size=page_size, file_ids=file_ids)
+        items, total = searcher().search(tenant_id=tenant_id, keyword=keyword, page=page, page_size=page_size, file_ids=file_ids)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {
@@ -495,7 +576,7 @@ def update_file_metadata(file_id: int, payload: dict[str, Any], current_user: di
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="metadata must be an object")
     tag_codes = [str(value).strip() for value in payload.get("tag_codes") or [] if str(value).strip()]
     try:
-        item = repositories.update_file_metadata(
+        item = repo().update_file_metadata(
             tenant_id=tenant_id,
             file_id=item.id,
             metadata=metadata,
@@ -548,18 +629,18 @@ def upload_file(
     content_type = (content_type or "application/octet-stream").strip() or "application/octet-stream"
     try:
         profile = default_storage_profile()
-        if library_id is not None and not repositories.get_library(tenant_id=tenant_id, library_id=library_id):
+        if library_id is not None and not repo().get_library(tenant_id=tenant_id, library_id=library_id):
             raise FileLibraryNotFound("file library not found")
         if folder_id is not None:
-            folder = repositories.get_folder(tenant_id=tenant_id, folder_id=folder_id)
+            folder = repo().get_folder(tenant_id=tenant_id, folder_id=folder_id)
             if not folder:
                 raise FileFolderNotFound("file folder not found")
             if library_id is None:
                 library_id = folder.library_id
             elif folder.library_id != library_id:
                 raise FileFolderNotFound("file folder not found")
-        quota = repositories.get_quota(tenant_id=tenant_id)
-        usage = repositories.storage_usage(tenant_id=tenant_id)
+        quota = repo().get_quota(tenant_id=tenant_id)
+        usage = repo().storage_usage(tenant_id=tenant_id)
         staged = stage_upload(stream)
         validate_upload(
             quota_enabled=bool(quota.enabled) if quota else True,
@@ -572,20 +653,20 @@ def upload_file(
             extension=extension,
             mime_type=content_type,
         )
-        file_id = repositories.next_file_id()
+        file_id = repo().next_file_id()
         storage_key = storage_key_for(
             tenant_id=tenant_id,
             file_id=file_id,
             sha256=str(staged["sha256"]),
             extension=extension,
         )
-        stored = _storage.save(
+        stored = storage().save(
             profile=profile,
             key=storage_key,
             content=staged["stream"],
             content_type=content_type,
         )
-        item = repositories.create_file(
+        item = repo().create_file(
             file_id=file_id,
             tenant_id=tenant_id,
             library_id=library_id,
@@ -616,7 +697,7 @@ def upload_file(
                 actor_id=actor_id,
             )
         create_index_job_for_file(item, "upsert", current_user)
-        repositories.record_access_log(
+        repo().record_access_log(
             tenant_id=tenant_id,
             file_id=item.id,
             action=ACCESS_ACTION_UPLOAD,
@@ -644,8 +725,8 @@ def download_file(
     item = load_tenant_file(file_id=file_id, current_user=current_user)
     try:
         profile = storage_profile_for_file(item)
-        download = _storage.open_for_read(profile=profile, key=item.storage_key)
-        repositories.record_access_log(
+        download = storage().open_for_read(profile=profile, key=item.storage_key)
+        repo().record_access_log(
             tenant_id=item.tenant_id,
             file_id=item.id,
             action=ACCESS_ACTION_DOWNLOAD,
@@ -678,8 +759,8 @@ def preview_file(
         raise domain_http_error(FilePreviewUnsupported(preview.reason or "file preview is not supported"))
     try:
         profile = storage_profile_for_file(item)
-        download = _storage.open_for_read(profile=profile, key=item.storage_key)
-        repositories.record_access_log(
+        download = storage().open_for_read(profile=profile, key=item.storage_key)
+        repo().record_access_log(
             tenant_id=item.tenant_id,
             file_id=item.id,
             action=ACCESS_ACTION_PREVIEW,
@@ -708,14 +789,14 @@ def preview_source_file(
     if not verify_preview_source_signature(file_id, expires, signature):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="preview source signature is invalid or expired")
     try:
-        item = repositories.get_file(tenant_id=None, file_id=file_id)
+        item = repo().get_file(tenant_id=None, file_id=file_id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not item:
         raise domain_http_error(ManagedFileNotFound("file not found"))
     try:
         profile = storage_profile_for_file(item)
-        download = _storage.open_for_read(profile=profile, key=item.storage_key)
+        download = storage().open_for_read(profile=profile, key=item.storage_key)
         return item, download
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
@@ -729,15 +810,15 @@ def delete_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_tenant_file(file_id=file_id, current_user=current_user, action="manage")
     try:
         profile = storage_profile_for_file(item)
-        _storage.delete(profile=profile, key=item.storage_key)
-        repositories.delete_file(
+        storage().delete(profile=profile, key=item.storage_key)
+        repo().delete_file(
             tenant_id=item.tenant_id,
             file_id=item.id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
         )
         create_index_job_for_file(item, "delete", current_user)
-        repositories.record_access_log(
+        repo().record_access_log(
             tenant_id=item.tenant_id,
             file_id=item.id,
             action=ACCESS_ACTION_DELETE,
@@ -757,8 +838,8 @@ def delete_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 
 def quota_for_tenant(tenant_id: int) -> dict[str, Any]:
     try:
-        quota = repositories.get_quota(tenant_id=tenant_id)
-        usage = repositories.storage_usage(tenant_id=tenant_id)
+        quota = repo().get_quota(tenant_id=tenant_id)
+        usage = repo().storage_usage(tenant_id=tenant_id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     return {"quota": quota.to_dict() if quota else None, "usage": usage.to_dict()}
@@ -766,7 +847,7 @@ def quota_for_tenant(tenant_id: int) -> dict[str, Any]:
 
 def save_quota(tenant_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        quota = repositories.save_quota(
+        quota = repo().save_quota(
             tenant_id=tenant_id,
             quota_bytes=int(payload.get("quota_bytes") or 0),
             max_file_size_bytes=int(payload.get("max_file_size_bytes") or 0),
@@ -778,7 +859,7 @@ def save_quota(tenant_id: int, payload: dict[str, Any], current_user: dict[str, 
         )
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
-    return {"quota": quota.to_dict(), "usage": repositories.storage_usage(tenant_id=tenant_id).to_dict()}
+    return {"quota": quota.to_dict(), "usage": repo().storage_usage(tenant_id=tenant_id).to_dict()}
 
 
 def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dict[str, Any]:
@@ -794,7 +875,7 @@ def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dic
 
 def list_storage_profiles(page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir)
+        items = repo().list_storage_profiles(sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -804,7 +885,7 @@ def list_storage_profiles(page: int = 1, page_size: int = 20, sort_by: str | Non
 
 def list_preview_profiles(page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None) -> dict[str, Any]:
     try:
-        items = repositories.list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir)
+        items = repo().list_preview_profiles(sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -822,7 +903,7 @@ def save_preview_profile(payload: dict[str, Any], current_user: dict[str, Any], 
     if not body["base_url"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="base_url is required")
     try:
-        item = repositories.save_preview_profile(
+        item = repo().save_preview_profile(
             profile_id=profile_id,
             payload=body,
             actor=current_actor(current_user),
@@ -835,7 +916,7 @@ def save_preview_profile(payload: dict[str, Any], current_user: dict[str, Any], 
 
 def set_default_preview_profile(profile_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        item = repositories.set_default_preview_profile(
+        item = repo().set_default_preview_profile(
             profile_id=profile_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -856,7 +937,7 @@ def save_storage_profile(payload: dict[str, Any], current_user: dict[str, Any], 
     if provider not in SUPPORTED_STORAGE_PROVIDERS:
         raise domain_http_error(StorageProviderUnsupported(f"storage provider is not supported: {provider}"))
     try:
-        item = repositories.save_storage_profile(
+        item = repo().save_storage_profile(
             profile_id=profile_id,
             payload={
                 "provider": provider,
@@ -882,7 +963,7 @@ def save_storage_profile(payload: dict[str, Any], current_user: dict[str, Any], 
 
 def set_default_storage_profile(profile_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        item = repositories.set_default_storage_profile(
+        item = repo().set_default_storage_profile(
             profile_id=profile_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -896,7 +977,7 @@ def set_default_storage_profile(profile_id: int, current_user: dict[str, Any]) -
 
 def test_storage_profile(profile_id: int) -> dict[str, Any]:
     try:
-        profile = repositories.get_storage_profile(profile_id=profile_id)
+        profile = repo().get_storage_profile(profile_id=profile_id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not profile:
@@ -904,7 +985,7 @@ def test_storage_profile(profile_id: int) -> dict[str, Any]:
     if profile.provider not in SUPPORTED_STORAGE_PROVIDERS:
         raise domain_http_error(StorageProviderUnsupported(f"storage provider is not supported: {profile.provider}"))
     try:
-        return _storage.test_connection(profile=profile)
+        return storage().test_connection(profile=profile)
     except Exception as exc:
         return {"ok": False, "provider": profile.provider, "message": str(exc)}
 
@@ -915,7 +996,7 @@ def storage_provider_options() -> dict[str, Any]:
 
 def external_preview_for_file(item: ManagedFile):
     try:
-        profile = repositories.get_default_preview_profile()
+        profile = repo().get_default_preview_profile()
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not profile or not profile.enabled:
@@ -996,7 +1077,7 @@ def list_access_logs(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_access_logs(
+        items, total = repo().list_access_logs(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -1027,7 +1108,7 @@ def list_index_jobs(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_index_jobs(
+        items, total = repo().list_index_jobs(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -1055,7 +1136,7 @@ def reindex_file(file_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 def load_tenant_file(*, file_id: int, current_user: dict[str, Any], action: str = "read") -> ManagedFile:
     tenant_id = current_tenant_id(current_user)
     try:
-        item = repositories.get_file(
+        item = repo().get_file(
             tenant_id=tenant_id,
             file_id=file_id,
             data_scope=data_access_for(current_user, FILE_OBJECT_RESOURCE).predicate(action),
@@ -1074,7 +1155,7 @@ def folder_breadcrumbs(folder: FileFolder | None, *, tenant_id: int) -> list[Fil
     visited = {folder.id}
     parent_id = folder.parent_id
     while parent_id is not None:
-        parent = repositories.get_folder(tenant_id=tenant_id, folder_id=parent_id)
+        parent = repo().get_folder(tenant_id=tenant_id, folder_id=parent_id)
         if not parent or parent.id in visited:
             break
         folders.append(parent)
@@ -1154,7 +1235,7 @@ def workspace_usage_from_items(
 
 
 def default_storage_profile() -> StorageProfile:
-    profile = repositories.get_default_storage_profile()
+    profile = repo().get_default_storage_profile()
     if not profile:
         raise StorageNotConfigured("default MinIO storage profile is not configured")
     if profile.provider != STORAGE_PROVIDER_MINIO:
@@ -1165,7 +1246,7 @@ def default_storage_profile() -> StorageProfile:
 
 
 def storage_profile_for_file(item: ManagedFile) -> StorageProfile:
-    profile = repositories.get_default_storage_profile(provider=item.storage_provider)
+    profile = repo().get_default_storage_profile(provider=item.storage_provider)
     if not profile:
         raise StorageNotConfigured(f"storage profile is not configured for provider: {item.storage_provider}")
     return profile
@@ -1176,11 +1257,11 @@ def create_index_job_for_file(item: ManagedFile, job_type: str, current_user: di
     actor_id = current_user_id_or_none(current_user)
     try:
         if job_type == "delete":
-            _indexer.remove_file(item.id)
+            indexer().remove_file(item.id)
         else:
-            _indexer.index_file(item.id)
-            repositories.mark_file_indexed(tenant_id=item.tenant_id, file_id=item.id)
-        return repositories.create_index_job(
+            indexer().index_file(item.id)
+            repo().mark_file_indexed(tenant_id=item.tenant_id, file_id=item.id)
+        return repo().create_index_job(
             tenant_id=item.tenant_id,
             file_id=item.id,
             job_type=job_type,
@@ -1190,7 +1271,7 @@ def create_index_job_for_file(item: ManagedFile, job_type: str, current_user: di
             actor_id=actor_id,
         )
     except Exception as exc:
-        return repositories.create_index_job(
+        return repo().create_index_job(
             tenant_id=item.tenant_id,
             file_id=item.id,
             job_type=job_type,

@@ -5,8 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from messaging.application.ports import ChatBotSenderPort, UnavailableChatBotSender
-from messaging.infrastructure.persistence import repositories
+from messaging.application.ports import ChatBotSenderPort, MessagingRepository, UnavailableChatBotSender
 from system.application.sorting import InvalidSortError
 from system.application.data_access import (
     ResourceDescriptor,
@@ -17,7 +16,19 @@ from system.application.data_access import (
 TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 MESSAGE_RESOURCE = ResourceDescriptor(resource_key="messaging.message")
 SUPPORTED_CHAT_BOT_PLATFORMS = ("wps", "wecom", "feishu", "dingtalk")
+repository: MessagingRepository | None = None
 chat_bot_sender: ChatBotSenderPort = UnavailableChatBotSender()
+
+
+def configure_repository(messaging_repository: MessagingRepository) -> None:
+    global repository
+    repository = messaging_repository
+
+
+def repo() -> MessagingRepository:
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="messaging repository is not configured")
+    return repository
 
 
 def configure_chat_bot_sender(sender: ChatBotSenderPort) -> None:
@@ -40,7 +51,7 @@ def send_in_app_message(payload: dict[str, Any], current_user: dict[str, Any]) -
     actor = str(current_user.get("username") or current_user.get("name") or "")
     sender_user_id = int(current_user.get("id", 0) or 0) or None
     try:
-        message = repositories.create_message(
+        message = repo().create_message(
             tenant_id=tenant_id,
             title=title,
             content=content,
@@ -93,7 +104,7 @@ def send_template_message(payload: dict[str, Any], current_user: dict[str, Any])
         "chat_bot_ids": chat_bot_ids,
     }
     try:
-        message = repositories.create_message(
+        message = repo().create_message(
             tenant_id=tenant_id,
             title=rendered["title"],
             content=rendered["content"],
@@ -129,7 +140,7 @@ def list_messages(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        items, total = repositories.list_messages(
+        items, total = repo().list_messages(
             tenant_id=current_tenant_id(current_user),
             page=page,
             page_size=page_size,
@@ -156,7 +167,7 @@ def list_my_inbox(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        items, total = repositories.list_inbox(
+        items, total = repo().list_inbox(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
             page=page,
@@ -187,7 +198,7 @@ def page_items(items: list[dict[str, Any]], *, page: int, page_size: int) -> dic
 
 def unread_count(current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        count = repositories.unread_count(
+        count = repo().unread_count(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
         )
@@ -198,7 +209,7 @@ def unread_count(current_user: dict[str, Any]) -> dict[str, Any]:
 
 def mark_read(recipient_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        item = repositories.mark_read(
+        item = repo().mark_read(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
             recipient_id=recipient_id,
@@ -212,7 +223,7 @@ def mark_read(recipient_id: int, current_user: dict[str, Any]) -> dict[str, Any]
 
 def mark_all_read(current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        count = repositories.mark_all_read(
+        count = repo().mark_all_read(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
         )
@@ -230,7 +241,7 @@ def list_templates(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        items = repositories.list_templates(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+        items = repo().list_templates(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -267,7 +278,7 @@ def save_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="content_template is required")
     actor = current_actor(current_user)
     try:
-        item = repositories.save_template(
+        item = repo().save_template(
             tenant_id=current_tenant_id(current_user),
             payload=payload,
             actor=actor,
@@ -281,7 +292,7 @@ def save_template(payload: dict[str, Any], current_user: dict[str, Any]) -> dict
 def set_template_status(template_id: int, next_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
     actor = current_actor(current_user)
     try:
-        item = repositories.set_template_status(
+        item = repo().set_template_status(
             tenant_id=current_tenant_id(current_user),
             template_id=template_id,
             status=next_status,
@@ -304,7 +315,7 @@ def list_channel_accounts(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        items = repositories.list_channel_accounts(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+        items = repo().list_channel_accounts(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -321,7 +332,7 @@ def save_channel_account(payload: dict[str, Any], current_user: dict[str, Any]) 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
     actor = current_actor(current_user)
     try:
-        item = repositories.save_channel_account(
+        item = repo().save_channel_account(
             tenant_id=current_tenant_id(current_user),
             payload=payload,
             actor=actor,
@@ -335,7 +346,7 @@ def save_channel_account(payload: dict[str, Any], current_user: dict[str, Any]) 
 def set_channel_account_enabled(account_id: int, enabled: bool, current_user: dict[str, Any]) -> dict[str, Any]:
     actor = current_actor(current_user)
     try:
-        item = repositories.set_channel_account_enabled(
+        item = repo().set_channel_account_enabled(
             tenant_id=current_tenant_id(current_user),
             account_id=account_id,
             enabled=enabled,
@@ -351,14 +362,14 @@ def set_channel_account_enabled(account_id: int, enabled: bool, current_user: di
 
 def test_channel_account(account_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        item = repositories.get_channel_account(tenant_id=current_tenant_id(current_user), account_id=account_id)
+        item = repo().get_channel_account(tenant_id=current_tenant_id(current_user), account_id=account_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message channel account not found")
     if item.channel == "in_app":
-        return {"ok": True, "channel": item.channel, "message": "站内信渠道已启用"}
-    return {"ok": False, "channel": item.channel, "message": "外部渠道适配器尚未接入，请使用群聊机器人配置 Webhook"}
+        return {"ok": True, "channel": item.channel, "message": "绔欏唴淇℃笭閬撳凡鍚敤"}
+    return {"ok": False, "channel": item.channel, "message": "澶栭儴娓犻亾閫傞厤鍣ㄥ皻鏈帴鍏ワ紝璇蜂娇鐢ㄧ兢鑱婃満鍣ㄤ汉閰嶇疆 Webhook"}
 
 
 def list_chat_bots(
@@ -370,7 +381,7 @@ def list_chat_bots(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        items = repositories.list_chat_bots(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
+        items = repo().list_chat_bots(tenant_id=current_tenant_id(current_user), sort_by=sort_by, sort_dir=sort_dir)
     except InvalidSortError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -382,7 +393,7 @@ def save_chat_bot(payload: dict[str, Any], current_user: dict[str, Any]) -> dict
     validate_chat_bot_payload(payload)
     actor = current_actor(current_user)
     try:
-        item = repositories.save_chat_bot(
+        item = repo().save_chat_bot(
             tenant_id=current_tenant_id(current_user),
             payload=payload,
             actor=actor,
@@ -396,7 +407,7 @@ def save_chat_bot(payload: dict[str, Any], current_user: dict[str, Any]) -> dict
 def set_chat_bot_enabled(chat_bot_id: int, enabled: bool, current_user: dict[str, Any]) -> dict[str, Any]:
     actor = current_actor(current_user)
     try:
-        item = repositories.set_chat_bot_enabled(
+        item = repo().set_chat_bot_enabled(
             tenant_id=current_tenant_id(current_user),
             chat_bot_id=chat_bot_id,
             enabled=enabled,
@@ -414,7 +425,7 @@ def test_chat_bot(chat_bot_id: int, current_user: dict[str, Any]) -> dict[str, A
     tenant_id = current_tenant_id(current_user)
     actor = current_actor(current_user)
     try:
-        item = repositories.get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
+        item = repo().get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not item:
@@ -429,7 +440,7 @@ def test_chat_bot(chat_bot_id: int, current_user: dict[str, Any]) -> dict[str, A
             "status_code": delivery.status_code,
             "response": delivery.response,
         }
-    updated = repositories.update_chat_bot_test_result(
+    updated = repo().update_chat_bot_test_result(
         tenant_id=tenant_id,
         chat_bot_id=chat_bot_id,
         status="success" if result["ok"] else "failed",
@@ -442,7 +453,7 @@ def test_chat_bot(chat_bot_id: int, current_user: dict[str, Any]) -> dict[str, A
 
 def get_enabled_template(*, tenant_id: int, template_key: str):
     try:
-        template = repositories.get_template_by_key(tenant_id=tenant_id, template_key=template_key)
+        template = repo().get_template_by_key(tenant_id=tenant_id, template_key=template_key)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not template:
@@ -470,9 +481,9 @@ def validate_chat_bot_payload(payload: dict[str, Any]) -> None:
 def dispatch_chat_bots(*, tenant_id: int, chat_bot_ids: list[int], title: str, content: str) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for chat_bot_id in chat_bot_ids:
-        chat_bot = repositories.get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
+        chat_bot = repo().get_chat_bot(tenant_id=tenant_id, chat_bot_id=chat_bot_id, mask_secrets=False)
         if not chat_bot or not chat_bot.enabled:
-            results.append({"chat_bot_id": chat_bot_id, "ok": False, "message": "群聊机器人不存在或未启用", "status_code": 0})
+            results.append({"chat_bot_id": chat_bot_id, "ok": False, "message": "缇よ亰鏈哄櫒浜轰笉瀛樺湪鎴栨湭鍚敤", "status_code": 0})
             continue
         delivery = chat_bot_sender.send(chat_bot=chat_bot, title=title, content=content)
         results.append(
@@ -531,7 +542,7 @@ def normalize_channels(value: Any) -> list[str]:
 
 def list_preferences(current_user: dict[str, Any]) -> dict[str, Any]:
     try:
-        items = repositories.list_preferences(
+        items = repo().list_preferences(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
         )
@@ -546,7 +557,7 @@ def save_preferences(payload: dict[str, Any], current_user: dict[str, Any]) -> d
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="items is required")
     actor = current_actor(current_user)
     try:
-        items = repositories.save_preferences(
+        items = repo().save_preferences(
             tenant_id=current_tenant_id(current_user),
             user_id=current_user_id(current_user),
             preferences=preferences,
@@ -606,3 +617,4 @@ def normalize_id_list(value: Any) -> list[int]:
         if item_id > 0 and item_id not in normalized:
             normalized.append(item_id)
     return normalized
+

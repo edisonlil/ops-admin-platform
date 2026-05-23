@@ -82,6 +82,8 @@ class FileManagementTests(unittest.TestCase):
         )
         self.env_patch.start()
         self.storage = MemoryStorage()
+        from file_management.infrastructure.persistence import repositories
+        services.configure_repository(repositories)
         services.configure_storage(self.storage)
         self.current_user = {
             "id": 10,

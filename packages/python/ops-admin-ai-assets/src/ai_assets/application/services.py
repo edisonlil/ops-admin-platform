@@ -10,6 +10,7 @@ from typing import Any, Callable
 from ai_service_api import AIServiceError, AIServiceUnavailable, get_ai_service
 from fastapi import HTTPException, status
 
+from ai_assets.application.ports import AIAssetsRepository
 from ai_assets.domain.exceptions import (
     AIAssetsError,
     PromptAssetInUse,
@@ -38,7 +39,6 @@ from ai_assets.domain.models import (
     PromptAsset,
     SkillAsset,
 )
-from ai_assets.infrastructure.persistence import repositories
 from system.application.sorting import InvalidSortError
 from system.application.data_access import (
     ResourceDescriptor,
@@ -49,12 +49,24 @@ from system.application.data_access import (
 PromptAssetReferenceChecker = Callable[[int, str], bool]
 SkillAssetReferenceChecker = Callable[[int, str], bool]
 
+repository: AIAssetsRepository | None = None
 _prompt_asset_reference_checkers: list[PromptAssetReferenceChecker] = []
 _skill_asset_reference_checkers: list[SkillAssetReferenceChecker] = []
 PROMPT_ASSET_RESOURCE = ResourceDescriptor(resource_key="prompt.asset")
 SKILL_ASSET_RESOURCE = ResourceDescriptor(resource_key="ai_asset.skill")
 MAX_SKILL_CONTENT_LENGTH = 200_000
 MAX_SKILL_PACKAGE_BYTES = 5_000_000
+
+
+def configure_repository(ai_assets_repository: AIAssetsRepository) -> None:
+    global repository
+    repository = ai_assets_repository
+
+
+def repo() -> AIAssetsRepository:
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="ai assets repository is not configured")
+    return repository
 
 
 def list_prompt_assets(
@@ -69,7 +81,7 @@ def list_prompt_assets(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_prompt_assets(
+        items, total = repo().list_prompt_assets(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -91,7 +103,7 @@ def list_prompt_assets(
 
 def get_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_prompt_asset(prompt_id, current_user)
-    versions = repositories.list_prompt_versions(tenant_id=item.tenant_id, prompt_id=prompt_id)
+    versions = repo().list_prompt_versions(tenant_id=item.tenant_id, prompt_id=prompt_id)
     return {"item": item.to_dict(), "versions": [version.to_dict() for version in versions]}
 
 
@@ -146,13 +158,13 @@ def resolve_published_prompt(*, prompt_key: str, tenant_id: int) -> dict[str, An
     if not normalized_key:
         raise domain_http_error(PromptAssetNotFound("published prompt asset not found"))
     try:
-        asset = repositories.get_prompt_asset_by_key(tenant_id=tenant_id, prompt_key=normalized_key)
+        asset = repo().get_prompt_asset_by_key(tenant_id=tenant_id, prompt_key=normalized_key)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not asset or asset.status != PROMPT_ASSET_STATUS_PUBLISHED:
         raise domain_http_error(PromptAssetNotFound("published prompt asset not found"))
     try:
-        version = repositories.get_published_prompt_version(tenant_id=tenant_id, prompt_id=asset.id)
+        version = repo().get_published_prompt_version(tenant_id=tenant_id, prompt_id=asset.id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not version:
@@ -200,7 +212,7 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
     tenant_id = current_tenant_id(current_user)
     try:
         existing = (
-            repositories.get_prompt_asset(
+            repo().get_prompt_asset(
                 tenant_id=tenant_id,
                 prompt_id=prompt_id,
                 data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).write(),
@@ -216,7 +228,7 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
     if not prompt_key:
         prompt_key = generate_prompt_key(tenant_id=tenant_id, name=payload.get("name"))
     name = normalize_required(payload.get("name"), "name")
-    if repositories.prompt_name_exists(tenant_id=tenant_id, name=name, exclude_prompt_id=prompt_id):
+    if repo().prompt_name_exists(tenant_id=tenant_id, name=name, exclude_prompt_id=prompt_id):
         raise domain_http_error(PromptAssetNameConflict("prompt title already exists"))
     data = {
         "prompt_key": prompt_key,
@@ -227,7 +239,7 @@ def save_prompt_asset(payload: dict[str, Any], current_user: dict[str, Any], pro
         **data_owner_fields(current_user),
     }
     try:
-        item = repositories.save_prompt_asset(
+        item = repo().save_prompt_asset(
             tenant_id=tenant_id,
             prompt_id=prompt_id,
             payload=data,
@@ -245,7 +257,7 @@ def copy_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str,
     source = load_prompt_asset(prompt_id, current_user)
     copy_name = next_copy_prompt_name(tenant_id=source.tenant_id, source_name=source.name)
     try:
-        item = repositories.copy_prompt_asset(
+        item = repo().copy_prompt_asset(
             tenant_id=source.tenant_id,
             source_prompt_id=prompt_id,
             prompt_key=generate_prompt_key(tenant_id=source.tenant_id, name=copy_name),
@@ -261,12 +273,12 @@ def copy_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str,
 
 
 def next_copy_prompt_name(*, tenant_id: int, source_name: str) -> str:
-    base = f"{source_name} 副本"
-    if not repositories.prompt_name_exists(tenant_id=tenant_id, name=base):
+    base = f"{source_name} 鍓湰"
+    if not repo().prompt_name_exists(tenant_id=tenant_id, name=base):
         return base
     for index in range(2, 1000):
         candidate = f"{base} {index}"
-        if not repositories.prompt_name_exists(tenant_id=tenant_id, name=candidate):
+        if not repo().prompt_name_exists(tenant_id=tenant_id, name=candidate):
             return candidate
     return f"{base} {uuid.uuid4().hex[:8]}"
 
@@ -276,7 +288,7 @@ def generate_prompt_key(*, tenant_id: int, name: Any) -> str:
     base = base[:48].strip("_") or "prompt"
     for _ in range(8):
         candidate = f"{base}_{uuid.uuid4().hex[:8]}"
-        if not repositories.prompt_key_exists(tenant_id=tenant_id, prompt_key=candidate):
+        if not repo().prompt_key_exists(tenant_id=tenant_id, prompt_key=candidate):
             return candidate
     return f"{base}_{uuid.uuid4().hex[:16]}"
 
@@ -286,7 +298,7 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
     item = load_prompt_asset(prompt_id, current_user, action="manage")
     if item.status == PROMPT_ASSET_STATUS_ARCHIVED:
         try:
-            deleted = repositories.delete_archived_prompt_asset(
+            deleted = repo().delete_archived_prompt_asset(
                 tenant_id=tenant_id,
                 prompt_id=prompt_id,
                 actor=current_actor(current_user),
@@ -300,7 +312,7 @@ def delete_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[st
 
     ensure_prompt_asset_not_in_use(tenant_id=tenant_id, prompt_key=item.prompt_key)
     try:
-        archived = repositories.archive_prompt_asset(
+        archived = repo().archive_prompt_asset(
             tenant_id=tenant_id,
             prompt_id=prompt_id,
             actor=current_actor(current_user),
@@ -321,7 +333,7 @@ def ensure_prompt_asset_not_in_use(*, tenant_id: int, prompt_key: str) -> None:
 
 def list_prompt_versions(prompt_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_prompt_asset(prompt_id, current_user)
-    versions = repositories.list_prompt_versions(tenant_id=item.tenant_id, prompt_id=prompt_id)
+    versions = repo().list_prompt_versions(tenant_id=item.tenant_id, prompt_id=prompt_id)
     return {"items": [version.to_dict() for version in versions]}
 
 
@@ -333,7 +345,7 @@ def save_prompt_version(
 ) -> dict[str, Any]:
     asset = load_prompt_asset(prompt_id, current_user, action="write")
     if version_id:
-        existing = repositories.get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
+        existing = repo().get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
         if not existing or existing.prompt_id != prompt_id:
             raise domain_http_error(PromptVersionNotFound("prompt version not found"))
         if existing.status == PROMPT_VERSION_STATUS_PUBLISHED:
@@ -357,7 +369,7 @@ def save_prompt_version(
         "status": str(payload.get("status") or "draft").strip() or "draft",
     }
     try:
-        item = repositories.save_prompt_version(
+        item = repo().save_prompt_version(
             tenant_id=asset.tenant_id,
             prompt_id=prompt_id,
             version_id=version_id,
@@ -382,11 +394,11 @@ def deprecate_prompt_version(prompt_id: int, version_id: int, current_user: dict
 
 def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
     asset = load_prompt_asset(prompt_id, current_user, action="manage")
-    version = repositories.get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
+    version = repo().get_prompt_version(tenant_id=asset.tenant_id, version_id=version_id)
     if not version or version.prompt_id != prompt_id:
         raise domain_http_error(PromptVersionNotFound("prompt version not found"))
     if new_status == PROMPT_VERSION_STATUS_DEPRECATED and version.status == PROMPT_VERSION_STATUS_PUBLISHED:
-        published_count = repositories.count_prompt_versions_by_status(
+        published_count = repo().count_prompt_versions_by_status(
             tenant_id=asset.tenant_id,
             prompt_id=prompt_id,
             status=PROMPT_VERSION_STATUS_PUBLISHED,
@@ -397,12 +409,12 @@ def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, 
                     "cannot deprecate the only published prompt version; archive the prompt asset or publish another version first"
                 )
             )
-    item = repositories.set_prompt_version_status(
+    item = repo().set_prompt_version_status(
         tenant_id=asset.tenant_id,
         prompt_id=prompt_id,
         version_id=version_id,
         status=new_status,
-        published_time=repositories.now_iso() if new_status == PROMPT_VERSION_STATUS_PUBLISHED else None,
+        published_time=repo().now_iso() if new_status == PROMPT_VERSION_STATUS_PUBLISHED else None,
         actor=current_actor(current_user),
         actor_id=current_user_id_or_none(current_user),
     )
@@ -414,7 +426,7 @@ def set_prompt_version_status(prompt_id: int, version_id: int, new_status: str, 
 def load_prompt_asset(prompt_id: int, current_user: dict[str, Any], action: str = "read") -> PromptAsset:
     tenant_id = current_tenant_id(current_user)
     try:
-        item = repositories.get_prompt_asset(
+        item = repo().get_prompt_asset(
             tenant_id=tenant_id,
             prompt_id=prompt_id,
             data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).predicate(action),
@@ -438,7 +450,7 @@ def list_skill_assets(
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     try:
-        items, total = repositories.list_skill_assets(
+        items, total = repo().list_skill_assets(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
@@ -460,7 +472,7 @@ def list_skill_assets(
 
 def get_skill_asset(skill_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_skill_asset(skill_id, current_user)
-    versions = repositories.list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
+    versions = repo().list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
     return {"item": item.to_dict(), "versions": [version.to_dict() for version in versions]}
 
 
@@ -494,13 +506,13 @@ def resolve_published_skill(*, skill_key: str, tenant_id: int) -> dict[str, Any]
     if not normalized_key:
         raise domain_http_error(SkillAssetNotFound("published skill asset not found"))
     try:
-        asset = repositories.get_skill_asset_by_key(tenant_id=tenant_id, skill_key=normalized_key)
+        asset = repo().get_skill_asset_by_key(tenant_id=tenant_id, skill_key=normalized_key)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not asset or asset.status != SKILL_ASSET_STATUS_PUBLISHED:
         raise domain_http_error(SkillAssetNotFound("published skill asset not found"))
     try:
-        version = repositories.get_published_skill_version(tenant_id=tenant_id, skill_id=asset.id)
+        version = repo().get_published_skill_version(tenant_id=tenant_id, skill_id=asset.id)
     except RuntimeError as exc:
         raise storage_unavailable(exc) from exc
     if not version:
@@ -528,7 +540,7 @@ def save_skill_asset(payload: dict[str, Any], current_user: dict[str, Any], skil
     tenant_id = current_tenant_id(current_user)
     try:
         existing = (
-            repositories.get_skill_asset(
+            repo().get_skill_asset(
                 tenant_id=tenant_id,
                 skill_id=skill_id,
                 data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).write(),
@@ -544,7 +556,7 @@ def save_skill_asset(payload: dict[str, Any], current_user: dict[str, Any], skil
     if not skill_key:
         skill_key = generate_skill_key(tenant_id=tenant_id, name=payload.get("name"))
     name = normalize_required(payload.get("name"), "name")
-    if repositories.skill_name_exists(tenant_id=tenant_id, name=name, exclude_skill_id=skill_id):
+    if repo().skill_name_exists(tenant_id=tenant_id, name=name, exclude_skill_id=skill_id):
         raise domain_http_error(SkillAssetNameConflict("skill title already exists"))
     data = {
         "skill_key": skill_key,
@@ -556,7 +568,7 @@ def save_skill_asset(payload: dict[str, Any], current_user: dict[str, Any], skil
         **data_owner_fields(current_user),
     }
     try:
-        item = repositories.save_skill_asset(
+        item = repo().save_skill_asset(
             tenant_id=tenant_id,
             skill_id=skill_id,
             payload=data,
@@ -599,7 +611,7 @@ def generate_skill_key(*, tenant_id: int, name: Any) -> str:
     base = base[:48].strip("_") or "skill"
     for _ in range(8):
         candidate = f"{base}_{uuid.uuid4().hex[:8]}"
-        if not repositories.skill_key_exists(tenant_id=tenant_id, skill_key=candidate):
+        if not repo().skill_key_exists(tenant_id=tenant_id, skill_key=candidate):
             return candidate
     return f"{base}_{uuid.uuid4().hex[:16]}"
 
@@ -609,7 +621,7 @@ def delete_skill_asset(skill_id: int, current_user: dict[str, Any]) -> dict[str,
     item = load_skill_asset(skill_id, current_user, action="manage")
     if item.status == SKILL_ASSET_STATUS_ARCHIVED:
         try:
-            deleted = repositories.delete_archived_skill_asset(
+            deleted = repo().delete_archived_skill_asset(
                 tenant_id=tenant_id,
                 skill_id=skill_id,
                 actor=current_actor(current_user),
@@ -623,7 +635,7 @@ def delete_skill_asset(skill_id: int, current_user: dict[str, Any]) -> dict[str,
 
     ensure_skill_asset_not_in_use(tenant_id=tenant_id, skill_key=item.skill_key)
     try:
-        archived = repositories.archive_skill_asset(
+        archived = repo().archive_skill_asset(
             tenant_id=tenant_id,
             skill_id=skill_id,
             actor=current_actor(current_user),
@@ -644,7 +656,7 @@ def ensure_skill_asset_not_in_use(*, tenant_id: int, skill_key: str) -> None:
 
 def list_skill_versions(skill_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     item = load_skill_asset(skill_id, current_user)
-    versions = repositories.list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
+    versions = repo().list_skill_versions(tenant_id=item.tenant_id, skill_id=skill_id)
     return {"items": [version.to_dict() for version in versions]}
 
 
@@ -656,7 +668,7 @@ def save_skill_version(
 ) -> dict[str, Any]:
     asset = load_skill_asset(skill_id, current_user, action="write")
     if version_id:
-        existing = repositories.get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
+        existing = repo().get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
         if not existing or existing.skill_id != skill_id:
             raise domain_http_error(SkillVersionNotFound("skill version not found"))
         if existing.status == SKILL_VERSION_STATUS_PUBLISHED:
@@ -678,7 +690,7 @@ def save_skill_version(
         "status": str(payload.get("status") or "draft").strip() or "draft",
     }
     try:
-        item = repositories.save_skill_version(
+        item = repo().save_skill_version(
             tenant_id=asset.tenant_id,
             skill_id=skill_id,
             version_id=version_id,
@@ -703,11 +715,11 @@ def deprecate_skill_version(skill_id: int, version_id: int, current_user: dict[s
 
 def set_skill_version_status(skill_id: int, version_id: int, new_status: str, current_user: dict[str, Any]) -> dict[str, Any]:
     asset = load_skill_asset(skill_id, current_user, action="manage")
-    version = repositories.get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
+    version = repo().get_skill_version(tenant_id=asset.tenant_id, version_id=version_id)
     if not version or version.skill_id != skill_id:
         raise domain_http_error(SkillVersionNotFound("skill version not found"))
     if new_status == SKILL_VERSION_STATUS_DEPRECATED and version.status == SKILL_VERSION_STATUS_PUBLISHED:
-        published_count = repositories.count_skill_versions_by_status(
+        published_count = repo().count_skill_versions_by_status(
             tenant_id=asset.tenant_id,
             skill_id=skill_id,
             status=SKILL_VERSION_STATUS_PUBLISHED,
@@ -718,12 +730,12 @@ def set_skill_version_status(skill_id: int, version_id: int, new_status: str, cu
                     "cannot deprecate the only published skill version; archive the skill asset or publish another version first"
                 )
             )
-    item = repositories.set_skill_version_status(
+    item = repo().set_skill_version_status(
         tenant_id=asset.tenant_id,
         skill_id=skill_id,
         version_id=version_id,
         status=new_status,
-        published_time=repositories.now_iso() if new_status == SKILL_VERSION_STATUS_PUBLISHED else None,
+        published_time=repo().now_iso() if new_status == SKILL_VERSION_STATUS_PUBLISHED else None,
         actor=current_actor(current_user),
         actor_id=current_user_id_or_none(current_user),
     )
@@ -735,7 +747,7 @@ def set_skill_version_status(skill_id: int, version_id: int, new_status: str, cu
 def load_skill_asset(skill_id: int, current_user: dict[str, Any], action: str = "read") -> SkillAsset:
     tenant_id = current_tenant_id(current_user)
     try:
-        item = repositories.get_skill_asset(
+        item = repo().get_skill_asset(
             tenant_id=tenant_id,
             skill_id=skill_id,
             data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).predicate(action),
@@ -792,7 +804,7 @@ def find_skill_entry(archive: zipfile.ZipFile) -> zipfile.ZipInfo:
         return root_candidates[0]
     if len(candidates) == 1:
         return candidates[0][1]
-    raise domain_http_error(InvalidSkillPackage("ZIP 技能包内存在多个 SKILL.md，请保留一个入口文件"))
+    raise domain_http_error(InvalidSkillPackage("ZIP 技能包内存在多个 SKILL.md，请仅保留一个入口文件"))
 
 
 def normalize_zip_entry_name(name: str) -> str:
@@ -919,3 +931,5 @@ def storage_unavailable(exc: RuntimeError) -> HTTPException:
 
 def domain_http_error(exc: AIAssetsError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
+
+

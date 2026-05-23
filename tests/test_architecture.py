@@ -26,6 +26,12 @@ BOUNDED_CONTEXTS = {
     "messaging": PYTHON_PACKAGES_ROOT / "ops-admin-messaging" / "src" / "messaging",
     "system": PYTHON_PACKAGES_ROOT / "ops-admin-system" / "src" / "system",
 }
+APPLICATION_INFRASTRUCTURE_IMPORT_MIGRATION_ALLOWLIST = {
+    # Temporary migration allowlist: these business contexts still predate the
+    # application.ports repository boundary and are intentionally deferred.
+    "identity_access",
+    "system",
+}
 PACKAGE_DIRS = {
     "ops-admin-appearance": PYTHON_PACKAGES_ROOT / "ops-admin-appearance",
     "ops-admin-basic-data": PYTHON_PACKAGES_ROOT / "ops-admin-basic-data",
@@ -119,6 +125,43 @@ def test_contexts_do_not_import_other_context_infrastructure_directly() -> None:
                 forbidden = f"{other}.infrastructure"
                 if forbidden in source:
                     violations.append(f"{path.relative_to(ROOT)} imports {forbidden}")
+    assert not violations, "\n".join(violations)
+
+
+def test_business_application_layers_do_not_import_sqlite3_except_migration_allowlist() -> None:
+    violations: list[str] = []
+    for context, context_path in BOUNDED_CONTEXTS.items():
+        if context == "system" or context in APPLICATION_INFRASTRUCTURE_IMPORT_MIGRATION_ALLOWLIST:
+            continue
+        application_path = context_path / "application"
+        if not application_path.exists():
+            continue
+        for path in python_files(application_path):
+            if "sqlite3" in imported_modules(path):
+                violations.append(f"{path.relative_to(ROOT)} imports sqlite3")
+    assert not violations, "\n".join(violations)
+
+
+def test_business_application_layers_do_not_import_own_infrastructure_except_migration_allowlist() -> None:
+    violations: list[str] = []
+    for context, context_path in BOUNDED_CONTEXTS.items():
+        if context == "system" or context in APPLICATION_INFRASTRUCTURE_IMPORT_MIGRATION_ALLOWLIST:
+            continue
+        application_path = context_path / "application"
+        if not application_path.exists():
+            continue
+        forbidden_prefixes = (f"{context}.infrastructure",)
+        for path in python_files(application_path):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                modules: list[str] = []
+                if isinstance(node, ast.Import):
+                    modules.extend(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    modules.append(node.module)
+                for module in modules:
+                    if module.startswith(forbidden_prefixes):
+                        violations.append(f"{path.relative_to(ROOT)} imports {module}")
     assert not violations, "\n".join(violations)
 
 

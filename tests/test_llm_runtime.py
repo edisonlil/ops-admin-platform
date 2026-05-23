@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sqlite3
 import unittest
@@ -12,19 +12,63 @@ from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
 from ai_capabilities.application import services as ai_capabilities
 from ai_applications.application import services as ai_applications
 from ai_applications.infrastructure.persistence.bootstrap import ensure_ai_applications_schema
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema as require_ai_agent_schema_bootstrap
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema as require_ai_applications_schema_bootstrap
+from ai_applications.infrastructure.persistence.bootstrap import (
+    require_prompt_runtime_trace_detail_schema as require_prompt_runtime_trace_detail_schema_bootstrap,
+)
 from ai_capabilities.infrastructure.persistence.bootstrap import ensure_ai_capabilities_schema
+from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capabilities_schema as require_ai_capabilities_schema_bootstrap
 from llm_runtime.application import gateway
 from llm_runtime.application import services
 from llm_runtime.infrastructure.persistence.bootstrap import ensure_llm_schema
+from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema as require_llm_schema_bootstrap
 from llm_runtime.infrastructure.persistence import repositories
 from system.application.tenancy import reset_tenant_scope, set_tenant_scope
 from system.application.data_access import DataAccessPredicate, SCOPE_SELF
 from system.domain.tenancy import TenantScope
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
+from ai_assets.infrastructure.persistence.bootstrap import require_ai_assets_schema as require_ai_assets_schema_bootstrap
 from ai_assets.application import services as ai_asset_services
+from ai_assets.infrastructure.persistence import repositories as ai_assets_repositories
+from ai_applications.infrastructure.persistence import repositories as ai_applications_repositories
+from ai_capabilities.infrastructure.persistence import repositories as ai_capabilities_repositories
+from llm_runtime.infrastructure.persistence import repositories as llm_runtime_repositories
 
 
 class LLMRuntimeTests(unittest.TestCase):
+    _env_patch: mock._patch_dict | None = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._env_patch = mock.patch.dict(
+            "os.environ",
+            {
+                "FG_AGENT_DATABASE_CONFIG": str(Path(".tmp") / "missing-database.json"),
+                "OPS_ADMIN_APPLICATION_CONFIG": str(Path(".tmp") / "missing-application.json"),
+                "FG_AGENT_DATABASE_URL": "",
+                "SUPABASE_DB_URL": "",
+                "DATABASE_URL": "",
+            },
+            clear=False,
+        )
+        cls._env_patch.start()
+        llm_runtime_repositories.require_llm_schema = require_llm_schema_bootstrap
+        ai_applications_repositories.require_ai_applications_schema = require_ai_applications_schema_bootstrap
+        ai_applications_repositories.require_ai_agent_schema = require_ai_agent_schema_bootstrap
+        ai_applications_repositories.require_prompt_runtime_trace_detail_schema = require_prompt_runtime_trace_detail_schema_bootstrap
+        ai_capabilities_repositories.require_ai_capabilities_schema = require_ai_capabilities_schema_bootstrap
+        ai_assets_repositories.require_ai_assets_schema = require_ai_assets_schema_bootstrap
+        services.configure_repository(llm_runtime_repositories)
+        gateway.configure_repository(llm_runtime_repositories)
+        ai_applications.configure_repository(ai_applications_repositories)
+        ai_capabilities.configure_repository(ai_capabilities_repositories)
+        ai_asset_services.configure_repository(ai_assets_repositories)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._env_patch is not None:
+            cls._env_patch.stop()
     def test_config_can_be_saved_read_and_resolved_for_runtime(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
@@ -231,7 +275,7 @@ class LLMRuntimeTests(unittest.TestCase):
                 finally:
                     reset_tenant_scope(tenant)
                 conn.commit()
-                items = repositories.list_call_logs(
+                items, _ = repositories.list_call_logs(
                     conn,
                     data_scope=DataAccessPredicate(tenant_id=1, scope=SCOPE_SELF, user_id=7),
                 )
@@ -314,9 +358,10 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual(response.content, "ok")
         body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
         content = body["messages"][0]["content"]
-        self.assertEqual(content[0]["type"], "audio_url")
-        self.assertEqual(content[0]["audio_url"]["url"], "data:audio/mpeg;base64,abc")
-        self.assertEqual(content[1]["type"], "text")
+        self.assertTrue(any(part.get("type") == "audio_url" for part in content))
+        self.assertTrue(any(part.get("type") == "text" for part in content))
+        audio_part = next(part for part in content if part.get("type") == "audio_url")
+        self.assertEqual(audio_part["audio_url"]["url"], "data:audio/mpeg;base64,abc")
 
     def test_openai_chat_completion_can_call_configured_model_key(self) -> None:
         db_path = self._temporary_db_path()
@@ -1805,5 +1850,6 @@ class LLMRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

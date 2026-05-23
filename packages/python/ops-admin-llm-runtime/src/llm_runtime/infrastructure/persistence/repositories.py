@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from llm_runtime.domain.models import RoutingEntry, RoutingPolicy, RouteResolution
+from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
 from system.application.data_access import DataAccessPredicate, ResourceDescriptor, append_data_scope_sql
 from system.application.sorting import build_order_by, parse_sort_params
 from system.application.tenancy import current_tenant_scope

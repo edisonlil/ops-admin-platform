@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from identity_access.application import auth_service, tenant_service
-from identity_access.infrastructure.persistence import repositories
+from fastapi import HTTPException, status
+
+from identity_access.application.ports import IdentityAccessRepository
 from system.application.data_access import (
     ResourceDescriptor,
     current_user_primary_department_id,
@@ -12,6 +14,21 @@ from system.application.data_access import (
 
 
 API_KEY_RESOURCE = ResourceDescriptor(resource_key="identity.api-key")
+repository: IdentityAccessRepository | None = None
+
+
+def configure_repository(identity_repository: IdentityAccessRepository) -> None:
+    global repository
+    repository = identity_repository
+
+
+def repo() -> IdentityAccessRepository:
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="identity_access repository is not configured",
+        )
+    return repository
 
 
 def create_api_key(
@@ -21,7 +38,7 @@ def create_api_key(
     tenant_id: int | None = None,
     current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return repositories.create_api_key(
+    return repo().create_api_key(
         name=name,
         creator=creator,
         tenant_id=tenant_id,
@@ -42,16 +59,16 @@ def list_api_keys(
         if current_user is not None
         else None
     )
-    return repositories.list_api_keys(tenant_id=tenant_id, data_scope=data_scope, sort_by=sort_by, sort_dir=sort_dir)
+    return repo().list_api_keys(tenant_id=tenant_id, data_scope=data_scope, sort_by=sort_by, sort_dir=sort_dir)
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:
-    return repositories.get_api_key(key_id)
+    return repo().get_api_key(key_id)
 
 
 def update_api_key(key_id: int, *, name: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     user = current_user or {}
-    return repositories.update_api_key(
+    return repo().update_api_key(
         key_id,
         name=name,
         editor=str(user.get("username", "") or ""),
@@ -60,11 +77,11 @@ def update_api_key(key_id: int, *, name: str, current_user: dict[str, Any] | Non
 
 
 def revoke_api_key(key_id: int) -> dict[str, Any]:
-    return repositories.revoke_api_key(key_id)
+    return repo().revoke_api_key(key_id)
 
 
 def validate_api_key(api_key: str) -> dict[str, Any] | None:
-    return repositories.validate_api_key(api_key)
+    return repo().validate_api_key(api_key)
 
 
 def validate_user_bound_api_key(api_key: str) -> dict[str, Any] | None:

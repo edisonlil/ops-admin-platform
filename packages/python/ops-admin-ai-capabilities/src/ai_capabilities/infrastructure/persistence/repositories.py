@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from typing import Any
 
+from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capabilities_schema
 from system.application.tenancy import current_tenant_scope
 
 

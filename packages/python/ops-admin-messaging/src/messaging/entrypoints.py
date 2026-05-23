@@ -6,8 +6,10 @@ from typing import Any
 from messaging.application import services
 from messaging.infrastructure.chat_bot_delivery import WebhookChatBotSender
 from messaging.infrastructure.persistence.bootstrap import ensure_messaging_schema
+from messaging.infrastructure.persistence import repositories
 from messaging.interfaces.http.router import router
 
+services.configure_repository(repositories)
 services.configure_chat_bot_sender(WebhookChatBotSender())
 
 

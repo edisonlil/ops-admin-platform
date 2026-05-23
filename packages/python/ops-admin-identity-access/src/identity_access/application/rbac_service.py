@@ -3,7 +3,26 @@ from __future__ import annotations
 from typing import Any
 
 from identity_access.application.access_context_cache import clear_access_context_cache
-from identity_access.infrastructure.persistence import repositories
+from fastapi import HTTPException, status
+
+from identity_access.application.ports import IdentityAccessRepository
+
+
+repository: IdentityAccessRepository | None = None
+
+
+def configure_repository(identity_repository: IdentityAccessRepository) -> None:
+    global repository
+    repository = identity_repository
+
+
+def repo() -> IdentityAccessRepository:
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="identity_access repository is not configured",
+        )
+    return repository
 
 
 def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
@@ -12,15 +31,15 @@ def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_users() -> list[dict[str, Any]]:
-    return repositories.list_users()
+    return repo().list_users()
 
 
 def list_platform_users() -> list[dict[str, Any]]:
-    return repositories.list_platform_users()
+    return repo().list_platform_users()
 
 
 def get_user(user_id: int) -> dict[str, Any] | None:
-    return repositories.get_user(user_id)
+    return repo().get_user(user_id)
 
 
 def create_user(
@@ -34,7 +53,7 @@ def create_user(
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.create_user(
+    return _after_access_context_change(repo().create_user(
         username=username,
         password=password,
         full_name=full_name,
@@ -58,7 +77,7 @@ def update_user(
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.update_user(
+    return _after_access_context_change(repo().update_user(
         user_id,
         username=username,
         full_name=full_name,
@@ -72,11 +91,11 @@ def update_user(
 
 
 def set_user_active(user_id: int, is_active: bool) -> dict[str, Any]:
-    return _after_access_context_change(repositories.set_user_active(user_id, is_active))
+    return _after_access_context_change(repo().set_user_active(user_id, is_active))
 
 
 def list_roles() -> list[dict[str, Any]]:
-    return repositories.list_roles()
+    return repo().list_roles()
 
 
 def create_role(
@@ -87,7 +106,7 @@ def create_role(
     role_scope: str = "platform",
     menu_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.create_role(
+    return _after_access_context_change(repo().create_role(
         role_key=role_key,
         name=name,
         description=description,
@@ -104,7 +123,7 @@ def update_role(
     description: str = "",
     menu_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.update_role(
+    return _after_access_context_change(repo().update_role(
         role_id,
         role_key=role_key,
         name=name,
@@ -114,19 +133,19 @@ def update_role(
 
 
 def update_role_menus(role_id: int, menu_keys: list[str]) -> dict[str, Any]:
-    return _after_access_context_change(repositories.update_role_menus(role_id, menu_keys))
+    return _after_access_context_change(repo().update_role_menus(role_id, menu_keys))
 
 
 def delete_role(role_id: int) -> dict[str, Any]:
-    return _after_access_context_change(repositories.delete_role(role_id))
+    return _after_access_context_change(repo().delete_role(role_id))
 
 
 def list_permissions() -> list[dict[str, str]]:
-    return repositories.list_permissions()
+    return repo().list_permissions()
 
 
 def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
-    return repositories.list_menus(menu_scope=menu_scope)
+    return repo().list_menus(menu_scope=menu_scope)
 
 
 def create_menu(
@@ -144,7 +163,7 @@ def create_menu(
     sort_order: int = 0,
     is_visible: bool = True,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.create_menu(
+    return _after_access_context_change(repo().create_menu(
         menu_key=menu_key,
         label=label,
         menu_scope=menu_scope,
@@ -176,7 +195,7 @@ def update_menu(
     sort_order: int = 0,
     is_visible: bool = True,
 ) -> dict[str, Any]:
-    return _after_access_context_change(repositories.update_menu(
+    return _after_access_context_change(repo().update_menu(
         menu_id,
         menu_key=menu_key,
         label=label,
@@ -194,4 +213,4 @@ def update_menu(
 
 
 def delete_menu(menu_id: int) -> dict[str, Any]:
-    return _after_access_context_change(repositories.delete_menu(menu_id))
+    return _after_access_context_change(repo().delete_menu(menu_id))

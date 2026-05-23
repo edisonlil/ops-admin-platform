@@ -3,7 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, BinaryIO, Literal, Protocol
 
-from file_management.domain.models import ManagedFile, StorageProfile
+from file_management.domain.models import (
+    FileFolder,
+    FileSearchIndexJob,
+    FileLibrary,
+    TenantStorageQuota,
+    StorageUsage,
+    FileAccessLog,
+    ManagedFile,
+    PreviewProfile,
+    StorageProfile,
+)
 
 
 @dataclass(frozen=True)
@@ -108,4 +118,271 @@ class MetadataBindingPort(Protocol):
         ...
 
     def resource_tag_codes(self, *, tenant_id: int, resource_type_code: str, resource_id: str | int) -> list[str]:
+        ...
+
+
+class FileSearchPort(Protocol):
+    def search(
+        self,
+        *,
+        tenant_id: int,
+        keyword: str,
+        page: int,
+        page_size: int,
+        file_ids: list[int] | None = None,
+    ) -> tuple[list[ManagedFile], int]:
+        ...
+
+
+class FileManagementRepository(Protocol):
+    def list_libraries(
+        self,
+        *,
+        tenant_id: int,
+        page: int,
+        page_size: int,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[FileLibrary], int]:
+        ...
+
+    def save_library(
+        self,
+        *,
+        tenant_id: int,
+        library_id: int | None,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> FileLibrary | None:
+        ...
+
+    def library_file_count(self, *, tenant_id: int, library_id: int) -> int:
+        ...
+
+    def library_folder_count(self, *, tenant_id: int, library_id: int) -> int:
+        ...
+
+    def delete_library(self, *, tenant_id: int, library_id: int, actor: str, actor_id: int | None) -> bool:
+        ...
+
+    def list_files(
+        self,
+        *,
+        tenant_id: int | None,
+        page: int,
+        page_size: int,
+        library_id: int | None = None,
+        folder_id: int | None = None,
+        current_folder_only: bool = False,
+        keyword: str = "",
+        mime_type: str = "",
+        status: str = "",
+        data_scope: Any = None,
+        file_ids: list[int] | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[ManagedFile], int]:
+        ...
+
+    def get_library(self, *, tenant_id: int, library_id: int) -> FileLibrary | None:
+        ...
+
+    def get_folder(self, *, tenant_id: int, folder_id: int) -> FileFolder | None:
+        ...
+
+    def list_folders(self, *, tenant_id: int, library_id: int, parent_id: int | None = None) -> list[FileFolder]:
+        ...
+
+    def storage_usage(self, *, tenant_id: int) -> StorageUsage:
+        ...
+
+    def folder_storage_usages(
+        self,
+        *,
+        tenant_id: int,
+        library_id: int,
+        folder_ids: list[int],
+    ) -> dict[int, StorageUsage]:
+        ...
+
+    def list_all_folders(self, *, tenant_id: int, library_id: int) -> list[FileFolder]:
+        ...
+
+    def save_folder(
+        self,
+        *,
+        tenant_id: int,
+        folder_id: int | None,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> FileFolder | None:
+        ...
+
+    def folder_child_count(self, *, tenant_id: int, folder_id: int) -> int:
+        ...
+
+    def delete_folder(self, *, tenant_id: int, folder_id: int, actor: str, actor_id: int | None) -> bool:
+        ...
+
+    def update_file_metadata(
+        self,
+        *,
+        tenant_id: int,
+        file_id: int,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> ManagedFile | None:
+        ...
+
+    def get_quota(self, *, tenant_id: int) -> TenantStorageQuota:
+        ...
+
+    def save_quota(
+        self,
+        *,
+        tenant_id: int,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> TenantStorageQuota:
+        ...
+
+    def next_file_id(self) -> int:
+        ...
+
+    def create_file(
+        self,
+        *,
+        tenant_id: int,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> ManagedFile:
+        ...
+
+    def record_access_log(
+        self,
+        *,
+        tenant_id: int,
+        file_id: int,
+        action: str,
+        result: str,
+        actor: str,
+        actor_id: int | None,
+        owner_user_id: int | None,
+        owner_department_id: int | None,
+        detail: dict[str, Any] | None = None,
+    ) -> FileAccessLog:
+        ...
+
+    def get_file(self, *, tenant_id: int | None, file_id: int, data_scope: Any = None) -> ManagedFile | None:
+        ...
+
+    def delete_file(
+        self,
+        *,
+        tenant_id: int,
+        file_id: int,
+        actor: str,
+        actor_id: int | None,
+    ) -> bool:
+        ...
+
+    def list_storage_profiles(self, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[StorageProfile]:
+        ...
+
+    def list_preview_profiles(self, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[PreviewProfile]:
+        ...
+
+    def save_preview_profile(
+        self,
+        *,
+        profile_id: int | None,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> PreviewProfile:
+        ...
+
+    def set_default_preview_profile(
+        self,
+        *,
+        profile_id: int,
+        actor: str,
+        actor_id: int | None,
+    ) -> PreviewProfile | None:
+        ...
+
+    def save_storage_profile(
+        self,
+        *,
+        profile_id: int | None,
+        payload: dict[str, Any],
+        actor: str,
+        actor_id: int | None,
+    ) -> StorageProfile:
+        ...
+
+    def set_default_storage_profile(
+        self,
+        *,
+        profile_id: int,
+        actor: str,
+        actor_id: int | None,
+    ) -> StorageProfile | None:
+        ...
+
+    def get_storage_profile(self, *, profile_id: int) -> StorageProfile | None:
+        ...
+
+    def get_default_preview_profile(self) -> PreviewProfile | None:
+        ...
+
+    def get_default_storage_profile(self, *, provider: str | None = None) -> StorageProfile | None:
+        ...
+
+    def list_access_logs(
+        self,
+        *,
+        tenant_id: int,
+        page: int,
+        page_size: int,
+        file_id: int | None = None,
+        action: str = "",
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[FileAccessLog], int]:
+        ...
+
+    def list_index_jobs(
+        self,
+        *,
+        tenant_id: int,
+        page: int,
+        page_size: int,
+        file_id: int | None = None,
+        status: str = "",
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[FileSearchIndexJob], int]:
+        ...
+
+    def mark_file_indexed(self, *, tenant_id: int, file_id: int) -> None:
+        ...
+
+    def create_index_job(
+        self,
+        *,
+        tenant_id: int,
+        file_id: int,
+        job_type: str,
+        status: str,
+        payload: dict[str, Any] | None,
+        actor: str,
+        actor_id: int | None,
+        last_error: str = "",
+    ) -> FileSearchIndexJob:
         ...

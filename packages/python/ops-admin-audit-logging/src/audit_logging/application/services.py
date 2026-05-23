@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from audit_logging.application import dispatcher
-from audit_logging.infrastructure.persistence import repositories
+from audit_logging.application.ports import AuditLogRepository
 from system.application.data_access import ResourceDescriptor, data_access_for
 from system.application.sorting import InvalidSortError
 
 
+repository: AuditLogRepository | None = None
 RESOURCE_BY_CATEGORY = {
     "system": ResourceDescriptor(resource_key="audit.system-log"),
     "operation": ResourceDescriptor(resource_key="audit.operation-log"),
@@ -15,6 +16,17 @@ RESOURCE_BY_CATEGORY = {
     "sql": ResourceDescriptor(resource_key="audit.sql-log"),
     "visitor": ResourceDescriptor(resource_key="audit.visitor-log"),
 }
+
+
+def configure_repository(audit_log_repository: AuditLogRepository) -> None:
+    global repository
+    repository = audit_log_repository
+
+
+def repo() -> AuditLogRepository:
+    if repository is None:
+        raise RuntimeError("audit logging repository is not configured")
+    return repository
 
 
 def list_logs(
@@ -34,7 +46,7 @@ def list_logs(
     resource = RESOURCE_BY_CATEGORY[category]
     data_scope = data_access_for(current_user, resource).read()
     try:
-        items, total = repositories.list_logs(
+        items, total = repo().list_logs(
             category=category,
             tenant_id=effective_tenant_id,
             page=page,
@@ -52,15 +64,15 @@ def list_logs(
 
 
 def list_settings() -> dict[str, Any]:
-    return {"items": [item.to_dict() for item in repositories.list_settings()]}
+    return {"items": [item.to_dict() for item in repo().list_settings()]}
 
 
 def get_effective_settings(tenant_id: int = 0) -> dict[str, Any]:
-    return {"item": repositories.get_effective_settings(tenant_id).to_dict()}
+    return {"item": repo().get_effective_settings(tenant_id).to_dict()}
 
 
 def save_settings(tenant_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
-    item = repositories.save_settings(
+    item = repo().save_settings(
         tenant_id=tenant_id,
         payload=payload,
         actor=current_actor(current_user),

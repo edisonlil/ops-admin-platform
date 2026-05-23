@@ -21,6 +21,8 @@ class AuditLogRepository(Protocol):
         outcome: str,
         severity: str,
         data_scope: DataAccessPredicate | None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         ...
 

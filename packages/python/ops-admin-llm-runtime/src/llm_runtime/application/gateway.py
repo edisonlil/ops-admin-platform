@@ -6,16 +6,29 @@ import uuid
 from typing import Any, Iterable, Iterator
 import json
 
+from llm_runtime.application.ports import LLMRuntimeRepository
 from framework.llm_core import CommandLLMClient, LLMClient, LLMResponse, MiniMaxLLMClient, OpenAICompatibleLLMClient
 from llm_runtime.domain.models import RoutingEntry, RoutingPolicy, RouteResolution
-from llm_runtime.infrastructure.persistence.bootstrap import require_llm_schema
-from llm_runtime.infrastructure.persistence import repositories
 from system.application.database import connect, resolve_database_url, resolve_db_path
 from system.interfaces.http import current_request_id
 
 
 class LLMRoutingError(RuntimeError):
     pass
+
+
+repository: LLMRuntimeRepository | None = None
+
+
+def configure_repository(llm_runtime_repository: LLMRuntimeRepository) -> None:
+    global repository
+    repository = llm_runtime_repository
+
+
+def repo() -> LLMRuntimeRepository:
+    if repository is None:
+        raise RuntimeError("llm runtime repository is not configured")
+    return repository
 
 
 def database_target() -> str | Path:
@@ -37,10 +50,10 @@ def generate(
     text_prompt = prompt_from_messages(prompt=prompt, messages=messages)
     target = database_target_override or database_target()
     with connect(target, readonly=False) as conn:
-        require_llm_schema(conn)
-        resolution = repositories.resolve_route(conn, task_key)
+        repo().require_llm_schema(conn)
+        resolution = repo().resolve_route(conn, task_key)
         if not resolution:
-            raise LLMRoutingError(f"当前租户未配置模型路由 {task_key}")
+            raise LLMRoutingError(f"褰撳墠绉熸埛鏈厤缃ā鍨嬭矾鐢?{task_key}")
         return generate_with_resolution(
             conn=conn,
             resolution=resolution,
@@ -66,8 +79,8 @@ def chat_completions(
     if not model_key_or_route:
         raise LLMRoutingError("model is required")
     with connect(target, readonly=False) as conn:
-        require_llm_schema(conn)
-        entry = repositories.entry_for_model(conn, model_key_or_route)
+        repo().require_llm_schema(conn)
+        entry = repo().entry_for_model(conn, model_key_or_route)
         if entry:
             response = chat_with_entry(
                 conn=conn,
@@ -80,9 +93,9 @@ def chat_completions(
                 correlation_id=correlation_id,
             )
             return openai_chat_response(model=entry.model_key, response=response)
-        resolution = repositories.resolve_route(conn, model_key_or_route)
+        resolution = repo().resolve_route(conn, model_key_or_route)
         if not resolution:
-            raise LLMRoutingError(f"当前租户未配置模型路由 {model_key_or_route}")
+            raise LLMRoutingError(f"褰撳墠绉熸埛鏈厤缃ā鍨嬭矾鐢?{model_key_or_route}")
         response = chat_with_resolution(
             conn=conn,
             resolution=resolution,
@@ -112,14 +125,14 @@ def stream_chat_completions(
     if not model_key_or_route:
         raise LLMRoutingError("model is required")
     with connect(target, readonly=False) as conn:
-        require_llm_schema(conn)
-        entry = repositories.entry_for_model(conn, model_key_or_route)
+        repo().require_llm_schema(conn)
+        entry = repo().entry_for_model(conn, model_key_or_route)
         resolution: RouteResolution | None = None
         is_fallback = False
         if not entry:
-            resolution = repositories.resolve_route(conn, model_key_or_route)
+            resolution = repo().resolve_route(conn, model_key_or_route)
             if not resolution or not resolution.policy.entries:
-                raise LLMRoutingError(f"当前租户未配置模型路由 {model_key_or_route}")
+                raise LLMRoutingError(f"褰撳墠绉熸埛鏈厤缃ā鍨嬭矾鐢?{model_key_or_route}")
             response = chat_with_resolution(
                 conn=conn,
                 resolution=resolution,
@@ -165,7 +178,7 @@ def stream_chat_completions(
                 content_parts.append(stream_event_content(event))
                 yield event
             response = LLMResponse(content="".join(content_parts), elapsed_seconds=time.perf_counter() - started_at)
-            repositories.record_call_log(
+            repo().record_call_log(
                 conn,
                 call_log_payload(
                     resolution=RouteResolution(
@@ -183,7 +196,7 @@ def stream_chat_completions(
                 ),
             )
         except Exception as exc:
-            repositories.record_call_log(
+            repo().record_call_log(
                 conn,
                 call_log_payload(
                     resolution=RouteResolution(
@@ -234,7 +247,7 @@ def chat_with_entry(
                 extra_body=request_extra_body,
                 enable_think_output=entry.enable_think_output if enable_think_output is None else enable_think_output,
             )
-        repositories.record_call_log(
+        repo().record_call_log(
             conn,
             call_log_payload(
                 resolution=resolution_override or RouteResolution(
@@ -251,7 +264,7 @@ def chat_with_entry(
         )
         return response
     except Exception as exc:
-        repositories.record_call_log(
+        repo().record_call_log(
             conn,
             call_log_payload(
                 resolution=resolution_override or RouteResolution(
@@ -393,7 +406,7 @@ def generate_with_resolution(
                 prompt,
                 enable_think_output=entry.enable_think_output if enable_think_output is None else enable_think_output,
             )  # type: ignore[attr-defined]
-            repositories.record_call_log(
+            repo().record_call_log(
                 conn,
                 call_log_payload(
                     resolution=resolution,
@@ -407,7 +420,7 @@ def generate_with_resolution(
             return response
         except Exception as exc:
             failures.append(f"{entry.model_key}: {exc}")
-            repositories.record_call_log(
+            repo().record_call_log(
                 conn,
                 call_log_payload(
                     resolution=resolution,
@@ -654,3 +667,4 @@ class LLMGateway:
 
 
 llm_gateway = LLMGateway()
+

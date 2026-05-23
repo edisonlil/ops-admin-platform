@@ -4,11 +4,12 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from appearance.application.ports import AppearanceRepository
 from appearance.domain.theme import AppearancePayload
-from appearance.infrastructure.persistence import repository
 from system.application.sorting import sort_dict_items
 
 
+repository: AppearanceRepository | None = None
 THEME_SORT_COLUMNS = {
     "id": "id",
     "tenant_id": "tenant_id",
@@ -18,6 +19,20 @@ THEME_SORT_COLUMNS = {
     "create_time": "create_time",
     "update_time": "update_time",
 }
+
+
+def configure_repository(appearance_repository: AppearanceRepository) -> None:
+    global repository
+    repository = appearance_repository
+
+
+def repo() -> AppearanceRepository:
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="appearance repository is not configured",
+        )
+    return repository
 
 
 def list_themes(
@@ -30,7 +45,7 @@ def list_themes(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     try:
-        themes = repository.list_themes()
+        themes = repo().list_themes()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     items = filter_themes([theme.to_dict() for theme in themes], keyword=keyword, status_filter=status_filter)
@@ -61,7 +76,7 @@ def filter_themes(items: list[dict[str, Any]], *, keyword: str | None, status_fi
 
 def get_theme(theme_id: int) -> dict[str, Any]:
     try:
-        theme = repository.get_theme(theme_id)
+        theme = repo().get_theme(theme_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -71,7 +86,7 @@ def get_theme(theme_id: int) -> dict[str, Any]:
 
 def get_platform_branding() -> dict[str, Any]:
     try:
-        branding = repository.get_platform_branding()
+        branding = repo().get_platform_branding()
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"branding": branding.to_dict()}
@@ -88,7 +103,7 @@ def update_platform_branding(*, payload: dict[str, Any], actor: str) -> dict[str
         payload.get("platform_name_font_size") or payload.get("platformNameFontSize") or 20
     )
     try:
-        branding = repository.save_platform_branding(
+        branding = repo().save_platform_branding(
             platform_name=platform_name,
             logo_url=logo_url,
             platform_name_font_size=platform_name_font_size,
@@ -103,7 +118,7 @@ def create_theme(*, payload: dict[str, Any], actor: str) -> dict[str, Any]:
     name = str(payload.get("name") or "未命名主题").strip() or "未命名主题"
     appearance_payload = AppearancePayload.from_mapping(payload)
     try:
-        theme = repository.create_theme(name=name, payload=appearance_payload, actor=actor)
+        theme = repo().create_theme(name=name, payload=appearance_payload, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"item": theme.to_dict()}
@@ -113,7 +128,7 @@ def update_theme(*, theme_id: int, payload: dict[str, Any], actor: str) -> dict[
     name = str(payload.get("name") or "未命名主题").strip() or "未命名主题"
     appearance_payload = AppearancePayload.from_mapping(payload)
     try:
-        theme = repository.update_theme(theme_id=theme_id, name=name, payload=appearance_payload, actor=actor)
+        theme = repo().update_theme(theme_id=theme_id, name=name, payload=appearance_payload, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -123,7 +138,7 @@ def update_theme(*, theme_id: int, payload: dict[str, Any], actor: str) -> dict[
 
 def publish_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
     try:
-        theme = repository.publish_theme(theme_id=theme_id, actor=actor)
+        theme = repo().publish_theme(theme_id=theme_id, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -133,7 +148,7 @@ def publish_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
 
 def disable_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
     try:
-        theme = repository.disable_theme(theme_id=theme_id, actor=actor)
+        theme = repo().disable_theme(theme_id=theme_id, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -143,7 +158,7 @@ def disable_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
 
 def set_platform_default_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
     try:
-        theme = repository.assign_platform_default_theme(theme_id=theme_id, actor=actor)
+        theme = repo().assign_platform_default_theme(theme_id=theme_id, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -155,7 +170,7 @@ def set_platform_default_theme(*, theme_id: int, actor: str) -> dict[str, Any]:
 
 def tenant_theme_assignment(tenant_id: int) -> dict[str, Any]:
     try:
-        theme = repository.get_tenant_assigned_theme(tenant_id)
+        theme = repo().get_tenant_assigned_theme(tenant_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     return {"theme": theme.to_dict() if theme else None}
@@ -163,7 +178,7 @@ def tenant_theme_assignment(tenant_id: int) -> dict[str, Any]:
 
 def assign_tenant_theme(*, tenant_id: int, theme_id: int | None, actor: str) -> dict[str, Any]:
     try:
-        theme = repository.assign_theme_to_tenant(tenant_id=tenant_id, theme_id=theme_id, actor=actor)
+        theme = repo().assign_theme_to_tenant(tenant_id=tenant_id, theme_id=theme_id, actor=actor)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if theme_id is not None and not theme:
@@ -173,7 +188,7 @@ def assign_tenant_theme(*, tenant_id: int, theme_id: int | None, actor: str) -> 
 
 def effective_theme_for_tenant(tenant_id: int) -> dict[str, Any]:
     try:
-        theme = repository.get_effective_tenant_theme(tenant_id)
+        theme = repo().get_effective_tenant_theme(tenant_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not theme:
@@ -191,7 +206,7 @@ def publish_tenant_theme(*, tenant_id: int, payload: dict[str, Any], actor: str)
     appearance_payload = AppearancePayload.from_mapping(payload)
     name = str(payload.get("name") or "当前租户主题").strip() or "当前租户主题"
     try:
-        theme = repository.save_published_tenant_theme(
+        theme = repo().save_published_tenant_theme(
             tenant_id=tenant_id,
             name=name,
             payload=appearance_payload,

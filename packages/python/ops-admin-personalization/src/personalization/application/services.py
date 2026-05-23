@@ -4,14 +4,31 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from personalization.infrastructure.persistence import repositories
+from personalization.application.ports import PersonalizationRepository
+
+
+repository: PersonalizationRepository | None = None
+
+
+def configure_repository(personalization_repository: PersonalizationRepository) -> None:
+    global repository
+    repository = personalization_repository
+
+
+def repo() -> PersonalizationRepository:
+    if repository is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="personalization repository is not configured",
+        )
+    return repository
 
 
 def get_table_columns(view_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     user_id = current_user_id(current_user)
     try:
-        item = repositories.get_table_column_preference(
+        item = repo().get_table_column_preference(
             tenant_id=tenant_id,
             user_id=user_id,
             view_key=normalize_view_key(view_key),
@@ -27,7 +44,7 @@ def save_table_columns(view_key: str, payload: dict[str, Any], current_user: dic
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
     try:
-        item = repositories.save_table_column_preference(
+        item = repo().save_table_column_preference(
             tenant_id=tenant_id,
             user_id=user_id,
             view_key=normalize_view_key(view_key),
@@ -48,7 +65,7 @@ def reset_table_columns(view_key: str, current_user: dict[str, Any]) -> dict[str
     actor = current_actor(current_user)
     actor_id = current_user_id_or_none(current_user)
     try:
-        repositories.delete_table_column_preference(
+        repo().delete_table_column_preference(
             tenant_id=tenant_id,
             user_id=user_id,
             view_key=normalize_view_key(view_key),

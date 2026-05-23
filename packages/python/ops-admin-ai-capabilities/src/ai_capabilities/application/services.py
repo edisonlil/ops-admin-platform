@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
 from fastapi import HTTPException
 
 from ai_applications.application import services as ai_application_services
-from ai_capabilities.infrastructure.persistence import repositories
-from ai_capabilities.infrastructure.persistence.bootstrap import require_ai_capabilities_schema
+from ai_capabilities.application.ports import AICapabilitiesRepository
 from identity_access.application import tenant_service
 from llm_runtime.application import services as llm_services
 from system.application.database import connect
@@ -28,6 +26,19 @@ AI_CAPABILITY_SORT_COLUMNS = {
     "update_time": "update_time",
 }
 
+repository: AICapabilitiesRepository | None = None
+
+
+def configure_repository(ai_capabilities_repository: AICapabilitiesRepository) -> None:
+    global repository
+    repository = ai_capabilities_repository
+
+
+def repo() -> AICapabilitiesRepository:
+    if repository is None:
+        raise RuntimeError("ai capabilities repository is not configured")
+    return repository
+
 
 def list_ai_capabilities(
     *,
@@ -39,7 +50,7 @@ def list_ai_capabilities(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return read_list(
-        lambda conn: repositories.list_ai_capabilities(conn),
+        lambda conn: repo().list_ai_capabilities(conn),
         page=page,
         page_size=page_size,
         filterer=lambda items: filter_capabilities(items, keyword=keyword, status=status),
@@ -59,7 +70,7 @@ def list_platform_ai_capabilities(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return read_list(
-        lambda conn: repositories.list_platform_ai_capabilities(conn),
+        lambda conn: repo().list_platform_ai_capabilities(conn),
         page=page,
         page_size=page_size,
         filterer=lambda items: filter_capabilities(items, keyword=keyword, status=status),
@@ -108,14 +119,14 @@ def list_capability_model_options_for_tenant(tenant_id: int) -> dict[str, Any]:
 
 
 def get_ai_capability(capability_key: str) -> dict[str, Any]:
-    capability = read_one(lambda conn: repositories.get_ai_capability(conn, capability_key))
+    capability = read_one(lambda conn: repo().get_ai_capability(conn, capability_key))
     if not capability:
         raise HTTPException(status_code=404, detail="AI capability not found")
     return capability
 
 
 def get_platform_ai_capability(capability_key: str) -> dict[str, Any]:
-    capability = read_one(lambda conn: repositories.get_platform_ai_capability(conn, capability_key))
+    capability = read_one(lambda conn: repo().get_platform_ai_capability(conn, capability_key))
     if not capability:
         raise HTTPException(status_code=404, detail="Platform AI capability not found")
     return capability
@@ -135,15 +146,15 @@ def save_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_capabilities_schema(conn)
-            existing = repositories.get_tenant_ai_capability(conn, str(payload.get("capability_key") or ""))
+            repo().require_ai_capabilities_schema(conn)
+            existing = repo().get_tenant_ai_capability(conn, str(payload.get("capability_key") or ""))
             if not existing:
                 enforce_capability_quota(conn)
             normalize_capability_payload(payload, allow_platform_scope=False)
-            return repositories.upsert_ai_capability(conn, payload)
+            return repo().upsert_ai_capability(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (sqlite3.Error, RuntimeError) as exc:
+    except (RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -151,13 +162,13 @@ def save_platform_ai_capability(payload: dict[str, Any]) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
-            require_ai_capabilities_schema(conn)
+            repo().require_ai_capabilities_schema(conn)
             payload["scope"] = "platform"
             normalize_capability_payload(payload, allow_platform_scope=True)
-            return repositories.upsert_ai_capability(conn, payload)
+            return repo().upsert_ai_capability(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (sqlite3.Error, RuntimeError) as exc:
+    except (RuntimeError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
@@ -272,7 +283,7 @@ def normalize_capability_payload(payload: dict[str, Any], *, allow_platform_scop
     if binding_type not in {"prompt_runtime", "workflow_runtime"}:
         raise ValueError("binding_type must be prompt_runtime or workflow_runtime")
     payload["binding_type"] = binding_type
-    payload["binding_key"] = repositories.normalize_key(payload.get("binding_key") or payload.get("capability_key"))
+    payload["binding_key"] = repo().normalize_key(payload.get("binding_key") or payload.get("capability_key"))
     model_preferences = payload.get("model_preferences") if isinstance(payload.get("model_preferences"), dict) else {}
     payload["model_preferences"] = model_preferences
     payload["input_schema"] = payload.get("input_schema") or {"type": "object", "required": ["question"]}
@@ -330,9 +341,9 @@ def read_list(
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_capabilities_schema(conn)
+            repo().require_ai_capabilities_schema(conn)
             items = loader(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
     if filterer is not None:
         items = filterer(items)
@@ -349,7 +360,9 @@ def read_one(loader: Any) -> dict[str, Any] | None:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
-            require_ai_capabilities_schema(conn)
+            repo().require_ai_capabilities_schema(conn)
             return loader(conn)
-    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+

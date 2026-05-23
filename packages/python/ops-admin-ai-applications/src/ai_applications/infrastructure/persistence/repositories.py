@@ -6,6 +6,9 @@ from datetime import datetime
 from datetime import time
 from typing import Any
 
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema
+from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
+from ai_applications.infrastructure.persistence.bootstrap import require_prompt_runtime_trace_detail_schema
 from system.application.tenancy import current_tenant_scope
 from system.application.sorting import build_order_by
 from system.application.sorting import parse_sort_params
