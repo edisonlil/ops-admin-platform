@@ -1,7 +1,10 @@
 <template>
   <AppPage :density="schema.density" :variant="schema.variant" :embedded="schema.embedded">
     <AppPageHeader v-if="!schema.embedded" :title="schema.title" :description="schema.description">
-      <template v-if="$slots['header-actions'] || schema.toolbar?.primaryAction || hasHeaderRefresh" #actions>
+      <template
+        v-if="$slots['header-actions'] || schema.toolbar?.primaryAction || hasHeaderRefresh"
+        #actions
+      >
         <slot name="header-actions"></slot>
         <n-button
           v-if="schema.toolbar?.primaryAction"
@@ -12,18 +15,25 @@
         >
           {{ schema.toolbar.primaryAction.label }}
         </n-button>
-        <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="handleRefresh">刷新</n-button>
+        <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="handleRefresh"
+          >刷新</n-button
+        >
       </template>
     </AppPageHeader>
     <div
-      v-else-if="schema.title || schema.description || schema.toolbar?.primaryAction || hasHeaderRefresh"
+      v-else-if="
+        schema.title || schema.description || schema.toolbar?.primaryAction || hasHeaderRefresh
+      "
       class="app-list-page__embedded-header"
     >
       <div class="app-list-page__embedded-copy">
         <h3 v-if="schema.title">{{ schema.title }}</h3>
         <p v-if="schema.description">{{ schema.description }}</p>
       </div>
-      <div v-if="schema.toolbar?.primaryAction || hasHeaderRefresh" class="app-list-page__embedded-actions">
+      <div
+        v-if="schema.toolbar?.primaryAction || hasHeaderRefresh"
+        class="app-list-page__embedded-actions"
+      >
         <n-button
           v-if="schema.toolbar?.primaryAction"
           size="small"
@@ -34,7 +44,9 @@
         >
           {{ schema.toolbar.primaryAction.label }}
         </n-button>
-        <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="handleRefresh">刷新</n-button>
+        <n-button v-if="hasHeaderRefresh" size="small" quaternary @click="handleRefresh"
+          >刷新</n-button
+        >
       </div>
     </div>
 
@@ -59,16 +71,34 @@
       </template>
       <template #right>
         <slot name="toolbar-right"></slot>
-        <n-button v-if="hasToolbarRefresh && !hasRuntimeTableTools" size="small" quaternary @click="handleRefresh">刷新</n-button>
+        <n-button
+          v-if="hasToolbarRefresh && !hasRuntimeTableTools"
+          size="small"
+          quaternary
+          @click="handleRefresh"
+          >刷新</n-button
+        >
       </template>
     </AppPageToolbar>
 
     <section v-if="$slots.collection" class="app-list-page__collection">
       <slot name="collection"></slot>
     </section>
-    <section v-else-if="isSplitListView && splitView" class="app-list-page__split" :style="splitStyle">
+    <section
+      v-else-if="isSplitListView && splitView"
+      class="app-list-page__split"
+      :style="splitStyle"
+    >
       <section class="app-list-page__split-pane app-list-page__split-pane--master">
-        <div v-if="splitView.master.title || splitView.master.description || splitView.master.primaryAction || splitView.master.actions?.length" class="app-list-page__pane-header">
+        <div
+          v-if="
+            splitView.master.title ||
+            splitView.master.description ||
+            splitView.master.primaryAction ||
+            splitView.master.actions?.length
+          "
+          class="app-list-page__pane-header"
+        >
           <div class="app-list-page__pane-title">
             <h3 v-if="splitView.master.title">{{ splitView.master.title }}</h3>
             <p v-if="splitView.master.description">{{ splitView.master.description }}</p>
@@ -97,12 +127,14 @@
           </div>
         </div>
         <AppCollectionView
-          :schema="resolveTableViewSchema(splitView.master.view)"
+          :schema="resolveTableViewSchema(splitView.master.view, getSplitRowOffset('master'))"
           :rows="getPagedSplitRows('master')"
           :loading="splitView.master.loading || false"
           :sort-state="getSplitSortState('master')"
           @sort-change="(state) => handleSplitSortChange('master', state)"
-          @column-resize="(payload) => handleColumnResize(splitView.master.view, payload.columnKey, payload.width)"
+          @column-resize="
+            (payload) => handleColumnResize(splitView.master.view, payload.columnKey, payload.width)
+          "
         />
         <AppPagination
           :pagination="getSplitPagination('master')"
@@ -112,7 +144,15 @@
         />
       </section>
       <section class="app-list-page__split-pane app-list-page__split-pane--detail">
-        <div v-if="splitView.detail.title || splitView.detail.description || splitView.detail.primaryAction || splitView.detail.actions?.length" class="app-list-page__pane-header">
+        <div
+          v-if="
+            splitView.detail.title ||
+            splitView.detail.description ||
+            splitView.detail.primaryAction ||
+            splitView.detail.actions?.length
+          "
+          class="app-list-page__pane-header"
+        >
           <div class="app-list-page__pane-title">
             <h3 v-if="splitView.detail.title">{{ splitView.detail.title }}</h3>
             <p v-if="splitView.detail.description">{{ splitView.detail.description }}</p>
@@ -141,15 +181,23 @@
           </div>
         </div>
         <AppCollectionView
-          :schema="resolveTableViewSchema(splitView.detail.view)"
+          :schema="resolveTableViewSchema(splitView.detail.view, getSplitRowOffset('detail'))"
           :rows="getPagedSplitRows('detail')"
           :loading="splitView.detail.loading || false"
           :sort-state="getSplitSortState('detail')"
           @sort-change="(state) => handleSplitSortChange('detail', state)"
-          @column-resize="(payload) => handleColumnResize(splitView.detail.view, payload.columnKey, payload.width)"
+          @column-resize="
+            (payload) => handleColumnResize(splitView.detail.view, payload.columnKey, payload.width)
+          "
         >
           <template v-if="splitView.detail.view.type === 'table'" #table-tools>
-            <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="splitView.detail.loading" @click="handleSplitRefresh('detail')">
+            <n-button
+              v-if="hasToolbarRefresh"
+              size="tiny"
+              quaternary
+              :loading="splitView.detail.loading"
+              @click="handleSplitRefresh('detail')"
+            >
               刷新
             </n-button>
             <AppTableRuntimeControls
@@ -158,8 +206,12 @@
               :columns="getRuntimeColumns(splitView.detail.view)"
               :visible-column-keys="getVisibleColumnKeys(splitView.detail.view)"
               :column-order-keys="getColumnOrderKeys(splitView.detail.view)"
-              @update:visible-column-keys="(keys) => updateVisibleColumnKeys(splitView.detail.view, keys)"
-              @update:column-order-keys="(keys) => updateColumnOrderKeys(splitView.detail.view, keys)"
+              @update:visible-column-keys="
+                (keys) => updateVisibleColumnKeys(splitView.detail.view, keys)
+              "
+              @update:column-order-keys="
+                (keys) => updateColumnOrderKeys(splitView.detail.view, keys)
+              "
               @reset-columns="resetColumnSettings(splitView.detail.view)"
             />
           </template>
@@ -174,9 +226,17 @@
     </section>
     <section v-else-if="isTabbedListView" class="app-list-page__tabbed">
       <n-tabs v-model:value="activeTab" type="line" animated class="app-list-page__tabs">
-        <n-tab-pane v-for="pane in tabbedPanes" :key="pane.name" :name="pane.name" :tab="formatPaneTab(pane)">
+        <n-tab-pane
+          v-for="pane in tabbedPanes"
+          :key="pane.name"
+          :name="pane.name"
+          :tab="formatPaneTab(pane)"
+        >
           <section class="app-list-page__pane">
-            <div v-if="pane.title || pane.description || pane.primaryAction" class="app-list-page__pane-header">
+            <div
+              v-if="pane.title || pane.description || pane.primaryAction"
+              class="app-list-page__pane-header"
+            >
               <div class="app-list-page__pane-title">
                 <h3 v-if="pane.title">{{ pane.title }}</h3>
                 <p v-if="pane.description">{{ pane.description }}</p>
@@ -192,15 +252,23 @@
               </n-button>
             </div>
             <AppCollectionView
-              :schema="resolveTableViewSchema(pane.view)"
+              :schema="resolveTableViewSchema(pane.view, getPaneRowOffset(pane.name))"
               :rows="getPagedPaneRows(pane)"
               :loading="pane.loading || false"
               :sort-state="getPaneSortState(pane.name)"
               @sort-change="(state) => handlePaneSortChange(pane, state)"
-              @column-resize="(payload) => handleColumnResize(pane.view, payload.columnKey, payload.width)"
+              @column-resize="
+                (payload) => handleColumnResize(pane.view, payload.columnKey, payload.width)
+              "
             >
               <template v-if="pane.view.type === 'table'" #table-tools>
-                <n-button v-if="hasToolbarRefresh" size="tiny" quaternary :loading="pane.loading" @click="handlePaneRefresh(pane)">
+                <n-button
+                  v-if="hasToolbarRefresh"
+                  size="tiny"
+                  quaternary
+                  :loading="pane.loading"
+                  @click="handlePaneRefresh(pane)"
+                >
                   刷新
                 </n-button>
                 <AppTableRuntimeControls
@@ -227,15 +295,19 @@
     </section>
     <AppCollectionView
       v-else
-      :schema="resolvedViewSchema"
+      :schema="resolveTableViewSchema(props.schema.view, getMainRowOffset())"
       :rows="pagedRows"
       :loading="loading"
       :sort-state="sortState"
       @sort-change="handleSortChange"
-      @column-resize="(payload) => handleColumnResize(props.schema.view, payload.columnKey, payload.width)"
+      @column-resize="
+        (payload) => handleColumnResize(props.schema.view, payload.columnKey, payload.width)
+      "
     >
       <template v-if="hasRuntimeTableTools" #table-tools>
-        <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="handleRefresh">刷新</n-button>
+        <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="handleRefresh"
+          >刷新</n-button
+        >
         <AppTableRuntimeControls
           v-model:fill-height="runtimeTableFillHeight"
           v-model:row-density="runtimeTableRowDensity"
@@ -262,10 +334,19 @@
   </AppPage>
 </template>
 
-<script lang="ts" setup generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>">
+<script
+  lang="ts"
+  setup
+  generic="Row extends Record<string, unknown>, Query extends Record<string, unknown>"
+>
   import { computed, ref, watch, useSlots } from 'vue';
   import { useDialog } from 'naive-ui';
-  import type { DataTableColumn, DataTableColumnKey, DataTableColumns, PaginationProps } from 'naive-ui';
+  import type {
+    DataTableColumn,
+    DataTableColumnKey,
+    DataTableColumns,
+    PaginationProps,
+  } from 'naive-ui';
   import {
     getTableColumnPreference,
     resetTableColumnPreference,
@@ -278,7 +359,18 @@
   import AppPageToolbar from '../components/AppPageToolbar.vue';
   import AppPagination from '../components/AppPagination.vue';
   import AppTableRuntimeControls from '../components/AppTableRuntimeControls.vue';
-  import type { CollectionViewSchema, ListPageSchema, ListRuntimeState, PageAction, PageRuntimeContext, RuntimePaginationProps, TabbedListPaneSchema, TableColumnPreferenceSchema, TableRowDensity, TableSortState } from '../types';
+  import type {
+    CollectionViewSchema,
+    ListPageSchema,
+    ListRuntimeState,
+    PageAction,
+    PageRuntimeContext,
+    RuntimePaginationProps,
+    TabbedListPaneSchema,
+    TableColumnPreferenceSchema,
+    TableRowDensity,
+    TableSortState,
+  } from '../types';
 
   const ROW_HEIGHT_BY_DENSITY: Record<TableRowDensity, number> = {
     default: 56,
@@ -290,6 +382,9 @@
   const DEFAULT_PAGE_SIZES = [20, 50, 100];
   const DEFAULT_TABLE_COLUMN_WIDTH = 140;
   const DEFAULT_SELECTION_COLUMN_WIDTH = 48;
+  const INDEX_COLUMN_KEY = '__runtime_row_index__';
+  const INDEX_COLUMN_LABEL = '序号';
+  const INDEX_COLUMN_DEFAULT_WIDTH = 72;
 
   interface RuntimePaginationState {
     page: number;
@@ -317,7 +412,9 @@
   const dialog = useDialog();
   const slots = useSlots();
   const runtimeTableFillHeight = ref(props.schema.view.tableLayout?.heightMode === 'fill');
-  const runtimeTableRowDensity = ref<TableRowDensity>(props.schema.view.tableLayout?.rowDensity || 'default');
+  const runtimeTableRowDensity = ref<TableRowDensity>(
+    props.schema.view.tableLayout?.rowDensity || 'default'
+  );
   const activeTab = ref(props.schema.view.tabs?.[0]?.name || '');
   const paginationState = ref<RuntimePaginationState>({
     page: getInitialPage(props.schema.pagination),
@@ -342,7 +439,13 @@
   const columnPreferenceRevision = ref<Record<string, number>>({});
   const savePreferenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  const reservedSlots = ['filters', 'toolbar-left', 'toolbar-right', 'header-actions', 'collection'];
+  const reservedSlots = [
+    'filters',
+    'toolbar-left',
+    'toolbar-right',
+    'header-actions',
+    'collection',
+  ];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
   const rightTools = computed(() => props.schema.toolbar?.rightTools || []);
   const hasRefreshTool = computed(() => rightTools.value.includes('refresh'));
@@ -354,13 +457,21 @@
     '--app-list-page-split-min-height': formatCssSize(splitView.value?.minHeight || 420),
   }));
   const tabbedPanes = computed(() => props.schema.view.tabs || []);
-  const hasRuntimeTableTools = computed(() => props.schema.view.type === 'table' || isTabbedListView.value || isSplitListView.value);
+  const hasRuntimeTableTools = computed(
+    () => props.schema.view.type === 'table' || isTabbedListView.value || isSplitListView.value
+  );
   const hasOnlyRefreshTool = computed(() => hasRefreshTool.value && rightTools.value.length === 1);
   const hasBatchActions = computed(() => !!props.schema.toolbar?.batchActions?.length);
-  const hasNonRefreshRightTools = computed(() => rightTools.value.some((tool) => tool !== 'refresh'));
+  const hasNonRefreshRightTools = computed(() =>
+    rightTools.value.some((tool) => tool !== 'refresh')
+  );
   const hasToolbarRefresh = computed(() => hasRefreshTool.value);
   const hasHeaderRefresh = computed(
-    () => hasOnlyRefreshTool.value && !hasRuntimeTableTools.value && !slots['toolbar-right'] && !hasBatchActions.value
+    () =>
+      hasOnlyRefreshTool.value &&
+      !hasRuntimeTableTools.value &&
+      !slots['toolbar-right'] &&
+      !hasBatchActions.value
   );
   const hasPageToolbar = computed(
     () =>
@@ -373,7 +484,7 @@
     if (props.schema.view.type !== 'table') {
       return props.schema.view;
     }
-    return resolveTableViewSchema(props.schema.view);
+    return resolveTableViewSchema(props.schema.view, getMainRowOffset());
   });
   const context = computed<PageRuntimeContext>(() => ({
     pageId: props.schema.id,
@@ -381,11 +492,17 @@
     variant: props.schema.variant || 'enterprise',
   }));
   const resolvedPagination = computed(() => {
-    return resolvePagination(props.schema.pagination, props.paginationTotal ?? props.rows.length, paginationState.value);
+    return resolvePagination(
+      props.schema.pagination,
+      props.paginationTotal ?? props.rows.length,
+      paginationState.value
+    );
   });
   const pagedRows = computed(() => {
     const rows = sortRows(props.rows, props.schema.view, sortState.value);
-    return isRemotePagination(props.schema.pagination) ? rows : sliceRows(rows, props.schema.pagination, paginationState.value);
+    return isRemotePagination(props.schema.pagination)
+      ? rows
+      : sliceRows(rows, props.schema.pagination, paginationState.value);
   });
 
   watch(
@@ -416,7 +533,7 @@
     return action.onClick?.(context.value);
   }
 
-  function resolveTableViewSchema(view: CollectionViewSchema<Row>) {
+  function resolveTableViewSchema(view: CollectionViewSchema<Row>, rowIndexOffset = 0) {
     if (view.type !== 'table') return view;
     const visibleKeys = getVisibleColumnKeys(view);
     const runtimeColumns = getOrderedRuntimeColumns(view);
@@ -429,6 +546,7 @@
     }));
     return {
       ...view,
+      columns: prependIndexColumn(view.columns || [], rowIndexOffset),
       selectable: view.selectable ?? true,
       scrollX: resolveTableScrollX(view, resolvedRuntimeColumns),
       columnRuntime: {
@@ -447,7 +565,51 @@
     };
   }
 
-  function resolveTableScrollX(view: CollectionViewSchema<Row>, columns: TableColumnPreferenceSchema<Row>[]) {
+  function prependIndexColumn(columns: DataTableColumns<Row>, rowIndexOffset: number) {
+    if (columns.some((column) => getSchemaColumnKey(column) === INDEX_COLUMN_KEY)) {
+      return columns;
+    }
+    return [
+      {
+        key: INDEX_COLUMN_KEY,
+        title: INDEX_COLUMN_LABEL,
+        fixed: 'left',
+        align: 'center',
+        width: INDEX_COLUMN_DEFAULT_WIDTH,
+        sorter: false,
+        render: (_row, rowIndex) => String(rowIndexOffset + Number(rowIndex) + 1),
+      },
+      ...columns,
+    ];
+  }
+
+  function getMainRowOffset() {
+    return pageOffset(paginationState.value);
+  }
+
+  function getPaneRowOffset(name: string) {
+    return pageOffset(getPanePaginationState(name));
+  }
+
+  function getSplitRowOffset(name: 'master' | 'detail') {
+    return pageOffset(getSplitPaginationState(name));
+  }
+
+  function pageOffset(paginationState: RuntimePaginationState) {
+    const page = Math.max(1, paginationState.page || DEFAULT_PAGE);
+    const pageSize = Math.max(1, paginationState.pageSize || DEFAULT_PAGE_SIZE);
+    return (page - 1) * pageSize;
+  }
+
+  function getSchemaColumnKey(column: DataTableColumn<Row>) {
+    if (!('key' in column) || column.key === undefined) return undefined;
+    return String(column.key);
+  }
+
+  function resolveTableScrollX(
+    view: CollectionViewSchema<Row>,
+    columns: TableColumnPreferenceSchema<Row>[]
+  ) {
     const visibleWidth = estimateVisibleTableWidth(view, columns);
     const configuredScrollX = view.scrollX;
     if (typeof configuredScrollX === 'number') {
@@ -459,21 +621,33 @@
     return visibleWidth || configuredScrollX;
   }
 
-  function estimateVisibleTableWidth(view: CollectionViewSchema<Row>, columns: TableColumnPreferenceSchema<Row>[]) {
+  function estimateVisibleTableWidth(
+    view: CollectionViewSchema<Row>,
+    columns: TableColumnPreferenceSchema<Row>[]
+  ) {
     if (view.type !== 'table') return 0;
-    const visibleColumns = columns.filter((column) => column.defaultVisible !== false || column.required);
-    const columnWidth = visibleColumns.reduce((total, column) => total + estimateRuntimeColumnWidth(column, view), 0);
+    const visibleColumns = columns.filter(
+      (column) => column.defaultVisible !== false || column.required
+    );
+    const columnWidth = visibleColumns.reduce(
+      (total, column) => total + estimateRuntimeColumnWidth(column, view),
+      0
+    );
     return columnWidth + estimateControlColumnWidth(view);
   }
 
-  function estimateRuntimeColumnWidth(column: TableColumnPreferenceSchema<Row>, view: CollectionViewSchema<Row>) {
+  function estimateRuntimeColumnWidth(
+    column: TableColumnPreferenceSchema<Row>,
+    view: CollectionViewSchema<Row>
+  ) {
     if (isPositiveNumber(column.width)) return column.width;
     return view.columnRuntime?.defaultWidth || DEFAULT_TABLE_COLUMN_WIDTH;
   }
 
   function estimateControlColumnWidth(view: CollectionViewSchema<Row>) {
     const explicitControlWidth = (view.columns || []).reduce((total, column) => {
-      if (!('type' in column) || (column.type !== 'selection' && column.type !== 'expand')) return total;
+      if (!('type' in column) || (column.type !== 'selection' && column.type !== 'expand'))
+        return total;
       if ('width' in column && isPositiveNumber(column.width)) return total + column.width;
       if ('minWidth' in column && isPositiveNumber(column.minWidth)) return total + column.minWidth;
       return total + DEFAULT_SELECTION_COLUMN_WIDTH;
@@ -487,19 +661,27 @@
   }
 
   function getPanePagination(pane: TabbedListPaneSchema<Row>) {
-    return resolvePagination(pane.pagination, pane.paginationTotal ?? pane.rows?.length ?? 0, getPanePaginationState(pane));
+    return resolvePagination(
+      pane.pagination,
+      pane.paginationTotal ?? pane.rows?.length ?? 0,
+      getPanePaginationState(pane)
+    );
   }
 
   function getPagedPaneRows(pane: TabbedListPaneSchema<Row>) {
     const rows = sortRows(pane.rows || [], pane.view, getPaneSortState(pane.name));
-    return isRemotePagination(pane.pagination) ? rows : sliceRows(rows, pane.pagination, getPanePaginationState(pane));
+    return isRemotePagination(pane.pagination)
+      ? rows
+      : sliceRows(rows, pane.pagination, getPanePaginationState(pane));
   }
 
   function getPanePaginationState(pane: TabbedListPaneSchema<Row>) {
-    return panePaginationState.value[pane.name] || {
-      page: getInitialPage(pane.pagination),
-      pageSize: getInitialPageSize(pane.pagination),
-    };
+    return (
+      panePaginationState.value[pane.name] || {
+        page: getInitialPage(pane.pagination),
+        pageSize: getInitialPageSize(pane.pagination),
+      }
+    );
   }
 
   function getSplitPane(name: 'master' | 'detail') {
@@ -508,20 +690,28 @@
 
   function getSplitPagination(name: 'master' | 'detail') {
     const pane = getSplitPane(name);
-    return resolvePagination(pane?.pagination, pane?.paginationTotal ?? pane?.rows?.length ?? 0, getSplitPaginationState(name));
+    return resolvePagination(
+      pane?.pagination,
+      pane?.paginationTotal ?? pane?.rows?.length ?? 0,
+      getSplitPaginationState(name)
+    );
   }
 
   function getPagedSplitRows(name: 'master' | 'detail') {
     const pane = getSplitPane(name);
     const rows = sortRows(pane?.rows || [], pane?.view, getSplitSortState(name));
-    return isRemotePagination(pane?.pagination) ? rows : sliceRows(rows, pane?.pagination, getSplitPaginationState(name));
+    return isRemotePagination(pane?.pagination)
+      ? rows
+      : sliceRows(rows, pane?.pagination, getSplitPaginationState(name));
   }
 
   function getSplitPaginationState(name: 'master' | 'detail') {
-    return splitPaginationState.value[name] || {
-      page: DEFAULT_PAGE,
-      pageSize: DEFAULT_PAGE_SIZE,
-    };
+    return (
+      splitPaginationState.value[name] || {
+        page: DEFAULT_PAGE,
+        pageSize: DEFAULT_PAGE_SIZE,
+      }
+    );
   }
 
   function updateSplitPage(name: 'master' | 'detail', page: number) {
@@ -583,10 +773,12 @@
 
   function updatePanePage(name: string, page: number) {
     const pane = tabbedPanes.value.find((entry) => entry.name === name);
-    const current = pane ? getPanePaginationState(pane) : {
-      page: DEFAULT_PAGE,
-      pageSize: DEFAULT_PAGE_SIZE,
-    };
+    const current = pane
+      ? getPanePaginationState(pane)
+      : {
+          page: DEFAULT_PAGE,
+          pageSize: DEFAULT_PAGE_SIZE,
+        };
     panePaginationState.value = {
       ...panePaginationState.value,
       [name]: {
@@ -603,10 +795,12 @@
 
   function updatePanePageSize(name: string, pageSize: number) {
     const pane = tabbedPanes.value.find((entry) => entry.name === name);
-    const current = pane ? getPanePaginationState(pane) : {
-      page: DEFAULT_PAGE,
-      pageSize: DEFAULT_PAGE_SIZE,
-    };
+    const current = pane
+      ? getPanePaginationState(pane)
+      : {
+          page: DEFAULT_PAGE,
+          pageSize: DEFAULT_PAGE_SIZE,
+        };
     panePaginationState.value = {
       ...panePaginationState.value,
       [name]: {
@@ -701,11 +895,33 @@
   function getRuntimeColumns(view: CollectionViewSchema<Row>): TableColumnPreferenceSchema<Row>[] {
     if (view.type !== 'table') return [];
     const explicitColumns = view.columnRuntime?.columns || [];
-    const explicitColumnMap = new Map(explicitColumns.map((column) => [String(column.key), column]));
-    const discoveredColumns = collectColumnPreferences(view.columns || [], explicitColumnMap, explicitColumns.length > 0);
+    const explicitColumnMap = new Map(
+      explicitColumns.map((column) => [String(column.key), column])
+    );
+    const discoveredColumns = collectColumnPreferences(
+      view.columns || [],
+      explicitColumnMap,
+      explicitColumns.length > 0
+    );
     const discoveredKeySet = new Set(discoveredColumns.map((column) => String(column.key)));
-    const extraColumns = explicitColumns.filter((column) => !discoveredKeySet.has(String(column.key)));
-    return [...discoveredColumns, ...extraColumns];
+    const extraColumns = explicitColumns.filter(
+      (column) => !discoveredKeySet.has(String(column.key))
+    );
+    const runtimeColumns = [...discoveredColumns, ...extraColumns];
+    if (runtimeColumns.some((column) => String(column.key) === INDEX_COLUMN_KEY)) {
+      return runtimeColumns;
+    }
+    return [
+      {
+        key: INDEX_COLUMN_KEY,
+        label: INDEX_COLUMN_LABEL,
+        required: true,
+        defaultVisible: true,
+        sortable: false,
+        width: INDEX_COLUMN_DEFAULT_WIDTH,
+      },
+      ...runtimeColumns,
+    ];
   }
 
   function getVisibleColumnKeys(view: CollectionViewSchema<Row>) {
@@ -723,7 +939,9 @@
 
   function updateVisibleColumnKeys(view: CollectionViewSchema<Row>, keys: string[]) {
     const runtimeColumns = getRuntimeColumns(view);
-    const requiredKeys = runtimeColumns.filter((column) => column.required).map((column) => String(column.key));
+    const requiredKeys = runtimeColumns
+      .filter((column) => column.required)
+      .map((column) => String(column.key));
     const nextKeys = Array.from(new Set([...keys, ...requiredKeys]));
     const key = getViewStorageKey(view);
     visibleColumnState.value = {
@@ -772,7 +990,11 @@
     return columnWidthState.value[key];
   }
 
-  function handleColumnResize(view: CollectionViewSchema<Row>, columnKey: DataTableColumnKey, width: number) {
+  function handleColumnResize(
+    view: CollectionViewSchema<Row>,
+    columnKey: DataTableColumnKey,
+    width: number
+  ) {
     if (view.type !== 'table' || columnKey === undefined || !isPositiveNumber(width)) return;
     const key = getViewStorageKey(view);
     const nextWidths = {
@@ -785,7 +1007,13 @@
     };
     bumpColumnPreferenceRevision(key);
     saveColumnWidths(key, nextWidths);
-    saveColumnPreference(key, getVisibleColumnKeys(view), getColumnOrderKeys(view), nextWidths, 250);
+    saveColumnPreference(
+      key,
+      getVisibleColumnKeys(view),
+      getColumnOrderKeys(view),
+      nextWidths,
+      250
+    );
   }
 
   function resetColumnSettings(view: CollectionViewSchema<Row>) {
@@ -976,10 +1204,15 @@
     return Array.from(new Set([...preferred, ...fallback]));
   }
 
-  function mergeVisiblePreferenceKeys(view: CollectionViewSchema<Row>, preferredKeys: string[] | undefined) {
+  function mergeVisiblePreferenceKeys(
+    view: CollectionViewSchema<Row>,
+    preferredKeys: string[] | undefined
+  ) {
     const runtimeColumns = getRuntimeColumns(view);
     const runtimeKeys = new Set(runtimeColumns.map((column) => String(column.key)));
-    const requiredKeys = runtimeColumns.filter((column) => column.required).map((column) => String(column.key));
+    const requiredKeys = runtimeColumns
+      .filter((column) => column.required)
+      .map((column) => String(column.key));
     const preferred = Array.isArray(preferredKeys)
       ? preferredKeys.map(String).filter((key) => runtimeKeys.has(key))
       : [];
@@ -1030,7 +1263,11 @@
   ): TableColumnPreferenceSchema<Row>[] {
     return columns.flatMap((column) => {
       if ('children' in column && column.children) {
-        return collectColumnPreferences(column.children as DataTableColumns<Row>, explicitColumnMap, hasExplicitColumns);
+        return collectColumnPreferences(
+          column.children as DataTableColumns<Row>,
+          explicitColumnMap,
+          hasExplicitColumns
+        );
       }
 
       if ('type' in column && (column.type === 'selection' || column.type === 'expand')) {
@@ -1041,17 +1278,21 @@
       if (columnKey === undefined) return [];
 
       const explicitColumn = explicitColumnMap.get(String(columnKey));
-      return [{
-        key: columnKey,
-        label: explicitColumn?.label || getTableColumnLabel(column) || String(columnKey),
-        defaultVisible: explicitColumn?.defaultVisible ?? true,
-        required: explicitColumn?.required ?? String(columnKey) === 'actions',
-        sortable: explicitColumn ? explicitColumn.sortable === true : !hasExplicitColumns && isAutoSortableColumnKey(columnKey),
-        sortField: explicitColumn?.sortField,
-        width: explicitColumn?.width || getTableColumnWidth(column),
-        fixed: explicitColumn?.fixed || getTableColumnFixed(column),
-        getLabel: explicitColumn?.getLabel,
-      }];
+      return [
+        {
+          key: columnKey,
+          label: explicitColumn?.label || getTableColumnLabel(column) || String(columnKey),
+          defaultVisible: explicitColumn?.defaultVisible ?? true,
+          required: explicitColumn?.required ?? String(columnKey) === 'actions',
+          sortable: explicitColumn
+            ? explicitColumn.sortable === true
+            : !hasExplicitColumns && isAutoSortableColumnKey(columnKey),
+          sortField: explicitColumn?.sortField,
+          width: explicitColumn?.width || getTableColumnWidth(column),
+          fixed: explicitColumn?.fixed || getTableColumnFixed(column),
+          getLabel: explicitColumn?.getLabel,
+        },
+      ];
     });
   }
 
@@ -1069,7 +1310,9 @@
   }
 
   function getTableColumnFixed(column: DataTableColumn<Row>) {
-    return 'fixed' in column && (column.fixed === 'left' || column.fixed === 'right') ? column.fixed : undefined;
+    return 'fixed' in column && (column.fixed === 'left' || column.fixed === 'right')
+      ? column.fixed
+      : undefined;
   }
 
   function isAutoSortableColumnKey(key: string | number) {
@@ -1112,7 +1355,11 @@
     };
   }
 
-  function sliceRows(items: Row[], pagination: false | RuntimePaginationProps | undefined, state: RuntimePaginationState) {
+  function sliceRows(
+    items: Row[],
+    pagination: false | RuntimePaginationProps | undefined,
+    state: RuntimePaginationState
+  ) {
     if (pagination === false) return items;
     const pageSize = Math.max(1, state.pageSize);
     const page = clampPage(state.page, items.length, pageSize);
@@ -1120,8 +1367,13 @@
     return items.slice(start, start + pageSize);
   }
 
-  function sortRows(items: Row[], view: CollectionViewSchema<Row> | undefined, state: TableSortState) {
-    if (!view || view.type !== 'table' || view.sort?.remote || !state.sort_by || !state.sort_dir) return items;
+  function sortRows(
+    items: Row[],
+    view: CollectionViewSchema<Row> | undefined,
+    state: TableSortState
+  ) {
+    if (!view || view.type !== 'table' || view.sort?.remote || !state.sort_by || !state.sort_dir)
+      return items;
     const sortableColumn = getRuntimeColumns(view).find((column) => {
       const field = column.sortField || String(column.key);
       return column.sortable && field === state.sort_by;
@@ -1129,7 +1381,9 @@
     if (!sortableColumn) return items;
     const columnKey = String(sortableColumn.key);
     const direction = state.sort_dir === 'asc' ? 1 : -1;
-    return [...items].sort((left, right) => compareValues(left[columnKey], right[columnKey]) * direction);
+    return [...items].sort(
+      (left, right) => compareValues(left[columnKey], right[columnKey]) * direction
+    );
   }
 
   function compareValues(left: unknown, right: unknown) {
@@ -1149,11 +1403,15 @@
   }
 
   function getInitialPage(pagination: false | RuntimePaginationProps | undefined) {
-    return pagination === false ? DEFAULT_PAGE : pagination?.page || pagination?.defaultPage || DEFAULT_PAGE;
+    return pagination === false
+      ? DEFAULT_PAGE
+      : pagination?.page || pagination?.defaultPage || DEFAULT_PAGE;
   }
 
   function getInitialPageSize(pagination: false | RuntimePaginationProps | undefined) {
-    return pagination === false ? DEFAULT_PAGE_SIZE : pagination?.pageSize || pagination?.defaultPageSize || DEFAULT_PAGE_SIZE;
+    return pagination === false
+      ? DEFAULT_PAGE_SIZE
+      : pagination?.pageSize || pagination?.defaultPageSize || DEFAULT_PAGE_SIZE;
   }
 
   function clampPage(page: number, itemCount: number, pageSize: number) {

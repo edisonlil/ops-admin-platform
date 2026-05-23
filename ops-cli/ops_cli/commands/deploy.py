@@ -337,6 +337,21 @@ set -e
 DEPLOY_DIR="{remote_path}"
 CONTAINER_NAME="{container_name}"
 REQUIRED_DIRS=("api" "packages" "dist")
+docker_cmd() {{
+  if [ "$(id -u)" -eq 0 ]; then
+    docker "$@"
+  else
+    sudo docker "$@"
+  fi
+}}
+
+compose_cmd() {{
+  if [ "$(id -u)" -eq 0 ]; then
+    docker-compose "$@"
+  else
+    sudo docker-compose "$@"
+  fi
+}}
 
 echo "Starting deployment..."
 
@@ -416,20 +431,20 @@ ls -la dist/ | head -5
 
 # Stop existing container
 echo "Stopping existing container..."
-docker-compose down 2>/dev/null || true
+compose_cmd down 2>/dev/null || true
 
 # Remove existing container with the same name to avoid name conflict
 if [ -n "$CONTAINER_NAME" ]; then
-    EXISTING_IDS=$(docker ps -aq --filter "name=^/$CONTAINER_NAME$")
+    EXISTING_IDS=$(docker_cmd ps -aq --filter "name=^/$CONTAINER_NAME$")
     if [ -n "$EXISTING_IDS" ]; then
         echo "Removing existing container: $CONTAINER_NAME"
-        echo "$EXISTING_IDS" | xargs -r docker rm -f
+        echo "$EXISTING_IDS" | xargs -r docker_cmd rm -f
     fi
 fi
 
 # Build image
 echo "Building Docker image..."
-docker build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
+docker_cmd build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
 if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
     echo "ERROR: docker build failed. Showing /tmp/ops-admin-build.log"
     tail -n 200 /tmp/ops-admin-build.log
@@ -437,18 +452,18 @@ if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
 fi
 
 # Verify image was built successfully
-if ! docker image inspect ops-admin:latest > /dev/null 2>&1; then
+if ! docker_cmd image inspect ops-admin:latest > /dev/null 2>&1; then
     echo "ERROR: Docker image build failed"
     exit 1
 fi
 
 # Start container
 echo "Starting container..."
-docker-compose up -d
+compose_cmd up -d
 
 # Verify container is running
 sleep 3
-if ! docker ps | grep -q "$CONTAINER_NAME"; then
+if ! docker_cmd ps | grep -q "$CONTAINER_NAME"; then
     echo "ERROR: Container failed to start"
     exit 1
 fi
@@ -487,7 +502,7 @@ fi
 echo ""
 echo "Deployment completed!"
 if [ -n "$CONTAINER_NAME" ]; then
-    docker ps | grep "$CONTAINER_NAME"
+    docker_cmd ps | grep "$CONTAINER_NAME"
 fi
 """
             script_data = build_script.encode("utf-8")
@@ -644,16 +659,33 @@ CONTAINER_NAME="{container_name}"
 
 echo "Starting deployment..."
 
+# Health check helper for root/non-root users
+docker_cmd() {{
+  if [ "$(id -u)" -eq 0 ]; then
+    docker "$@"
+  else
+    sudo docker "$@"
+  fi
+}}
+
+compose_cmd() {{
+  if [ "$(id -u)" -eq 0 ]; then
+    docker-compose "$@"
+  else
+    sudo docker-compose "$@"
+  fi
+}}
+
 # Stop existing container
 echo "Stopping existing container..."
-docker-compose down 2>/dev/null || true
+compose_cmd down 2>/dev/null || true
 
 # Remove existing container with the same name to avoid name conflict
 if [ -n "$CONTAINER_NAME" ]; then
-    EXISTING_IDS=$(docker ps -aq --filter "name=^/$CONTAINER_NAME$")
+    EXISTING_IDS=$(docker_cmd ps -aq --filter "name=^/$CONTAINER_NAME$")
     if [ -n "$EXISTING_IDS" ]; then
         echo "Removing existing container: $CONTAINER_NAME"
-        echo "$EXISTING_IDS" | xargs -r docker rm -f
+        echo "$EXISTING_IDS" | xargs -r docker_cmd rm -f
     fi
 fi
 
@@ -663,7 +695,7 @@ cat > "$DEPLOY_DIR/docker-compose.yml" << 'COMPOSE_EOF'
 
 # Build image
 echo "Building Docker image..."
-docker build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
+docker_cmd build -t ops-admin:latest . 2>&1 | tee /tmp/ops-admin-build.log
 if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
     echo "ERROR: docker build failed. Showing /tmp/ops-admin-build.log"
     tail -n 200 /tmp/ops-admin-build.log
@@ -671,20 +703,20 @@ if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
 fi
 
 # Verify image was built successfully
-if ! docker image inspect ops-admin:latest > /dev/null 2>&1; then
+if ! docker_cmd image inspect ops-admin:latest > /dev/null 2>&1; then
     echo "ERROR: Docker image build failed"
     exit 1
 fi
 
 # Start container
 echo "Starting container..."
-docker-compose up -d
+compose_cmd up -d
 
 # Verify container is running
 sleep 3
-if ! docker ps | grep -q "$CONTAINER_NAME"; then
+if ! docker_cmd ps | grep -q "$CONTAINER_NAME"; then
     echo "ERROR: Container failed to start"
-    docker logs "$CONTAINER_NAME" 2>&1 | tail -20
+    docker_cmd logs "$CONTAINER_NAME" 2>&1 | tail -20
     exit 1
 fi
 
@@ -704,7 +736,7 @@ fi
 echo ""
 echo "Deployment completed!"
 if [ -n "$CONTAINER_NAME" ]; then
-    docker ps | grep "$CONTAINER_NAME"
+    docker_cmd ps | grep "$CONTAINER_NAME"
 fi
 '''
     
@@ -764,7 +796,7 @@ fi
         print("\n  Checking container logs...")
         try:
             stdin, stdout, stderr = client.exec_command(
-                f"docker logs {container_name} 2>&1 | tail -30"
+                f"if [ \"$(id -u)\" -eq 0 ]; then docker logs {container_name}; else sudo docker logs {container_name}; fi 2>&1 | tail -30"
             )
             logs = stdout.read().decode("utf-8", errors="replace")
             if logs:
