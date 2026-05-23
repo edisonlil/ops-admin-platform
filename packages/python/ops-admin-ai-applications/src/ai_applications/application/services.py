@@ -844,17 +844,24 @@ def execute_workflow_sql_query(
     descriptor = workflow_sql_resource_descriptor(request)
     predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read")
     scope_sql, scope_params = predicate.to_sql(descriptor, alias="workflow_sql_source")
-    if not scope_sql:
-        raise WorkflowRuntimeError("SQL node data access filter is required")
     limit = max(1, min(1000, int(request.max_rows or 100)))
-    guarded_sql = f"SELECT * FROM ({request.sql}) AS workflow_sql_source WHERE {scope_sql} LIMIT ?"
-    params = [*request.params, *scope_params, limit + 1]
+    guarded_sql = f"SELECT * FROM ({request.sql}) AS workflow_sql_source"
+    if scope_sql:
+        guarded_sql = f"{guarded_sql} WHERE {scope_sql}"
+    guarded_sql = f"{guarded_sql} LIMIT ?"
+    params = [*request.params, *(scope_params if scope_sql else ()), limit + 1]
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             cursor = conn.execute(guarded_sql, tuple(params))
             rows = cursor.fetchall()
-    except (RuntimeError, ValueError) as exc:
+    except Exception as exc:
+        msg = str(exc)
+        if "Unknown column" in msg and "workflow_sql_source." in msg:
+            raise WorkflowRuntimeError(
+                "SQL node 查询被自动注入租户/范围过滤时失败（检查 data_access 配置）。请确保 SQL 结果包含对应列（如 tenant_id、owner_user_id 或 owner_department_id），"
+                "或在 data_access 中设置 tenant_column/owner_user_column/owner_department_column 为空以放宽过滤。"
+            ) from exc
         raise WorkflowRuntimeError(f"SQL node query failed: {exc}") from exc
     normalized_rows = [normalize_sql_row(row) for row in rows[:limit]]
     columns = list(normalized_rows[0].keys()) if normalized_rows else sql_cursor_columns(cursor)
@@ -868,9 +875,12 @@ def execute_workflow_sql_query(
 
 def workflow_sql_resource_descriptor(request: WorkflowSQLRequest) -> ResourceDescriptor:
     config = request.data_access if isinstance(request.data_access, dict) else {}
+    has_tenant_column = "tenant_column" in config
+    tenant_column = str(config.get("tenant_column")) if has_tenant_column and config.get("tenant_column") is not None else "tenant_id"
+    tenant_column = tenant_column.strip()
     return ResourceDescriptor(
         resource_key=str(config.get("resource_key") or "ai_applications.workflow_sql"),
-        tenant_column=str(config.get("tenant_column") or "tenant_id"),
+        tenant_column=tenant_column,
         creator_column=str(config.get("creator_column") or "creator_id"),
         owner_user_column=str(config.get("owner_user_column") or "owner_user_id"),
         owner_department_column=str(config.get("owner_department_column") or "owner_department_id"),
@@ -887,6 +897,7 @@ def workflow_sql_system_user(app: dict[str, Any]) -> dict[str, Any]:
         "username": "system",
         "tenant_id": tenant_id,
         "current_tenant": {"id": tenant_id},
+        "is_tenant_admin": True,
     }
 
 

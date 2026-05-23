@@ -453,6 +453,9 @@
                   <n-form-item label="输出变量">
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：summary" />
                   </n-form-item>
+                  <n-form-item label="输出格式">
+                    <n-select v-model:value="selectedWorkflowNode.data.response_format_type" :options="workflowLlmOutputFormatOptions" />
+                  </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'sql_query'">
                   <n-form-item label="SQL 语句">
@@ -488,6 +491,9 @@
                     <template #feedback>
                       SQL 执行时会默认注入当前用户的数据权限过滤，查询结果需包含 tenant_id 和数据权限字段。
                     </template>
+                  </n-form-item>
+                  <n-form-item label="租户过滤列（可留空）">
+                    <n-input v-model:value="selectedWorkflowNode.data.data_access.tenant_column" placeholder="默认 tenant_id；不需要租户过滤可留空" />
                   </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
@@ -1618,6 +1624,10 @@
     { label: '首行', value: 'first' },
     { label: '标量', value: 'scalar' },
   ];
+  const workflowLlmOutputFormatOptions: SelectOption[] = [
+    { label: '文本', value: 'text' },
+    { label: 'JSON 对象', value: 'json_object' },
+  ];
 
   const detailPage = computed(() =>
     defineDetailPage<AiApplication | AiCapability>({
@@ -2088,7 +2098,13 @@
             params_text: stringifyJson(Array.isArray(data.params) ? data.params : []),
             result_shape: String(data.result_shape || 'rows'),
             max_rows: Number(data.max_rows || 100),
-            data_access: asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql' },
+            data_access: asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql', tenant_column: 'tenant_id' },
+          }
+        : {};
+    const llmData =
+      type === 'llm'
+        ? {
+            response_format_type: workflowLlmResponseFormatType(data.response_format),
           }
         : {};
     return {
@@ -2100,6 +2116,7 @@
         label: String(data.label || workflowNodeTypeLabel(type)),
         ...data,
         ...(type === 'start' ? { variables: normalizeWorkflowStartVariables(data.variables) } : {}),
+        ...llmData,
         ...sqlData,
       },
     };
@@ -2156,7 +2173,12 @@
       delete data.params_text;
       data.result_shape = data.result_shape || 'rows';
       data.max_rows = Math.max(1, Math.min(1000, Number(data.max_rows || 100)));
-      data.data_access = asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql' };
+      data.data_access = asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql', tenant_column: 'tenant_id' };
+    }
+    if (node.type === 'llm') {
+      data.response_format =
+        data.response_format_type === 'json_object' ? { type: 'json_object' } : undefined;
+      delete data.response_format_type;
     }
     return data;
   }
@@ -2192,6 +2214,7 @@
             system_prompt: '你是一个专业、简洁的助手。',
             user_prompt_template: '请回答：{{question}}',
             output_key: 'answer',
+            response_format_type: 'text',
           },
         },
         { id: 'end', type: 'end', position: { x: 660, y: 160 }, data: { label: '结束', output: '{{answer}}' } },
@@ -2214,14 +2237,15 @@
       data.system_prompt = '你是一个专业、简洁的助手。';
       data.user_prompt_template = '请处理：{{input}}';
       data.output_key = `llm_${count}_output`;
+      data.response_format_type = 'text';
     }
     if (type === 'sql_query') {
-      data.sql = 'SELECT tenant_id, owner_user_id, owner_department_id, name FROM your_table';
+      data.sql = 'SELECT tenant_id, description, product_line, primary_component FROM workbench_function_points';
       data.params_text = '[]';
       data.output_key = count === 1 ? 'records' : `records_${count}`;
       data.result_shape = 'rows';
       data.max_rows = 100;
-      data.data_access = { resource_key: 'ai_applications.workflow_sql' };
+      data.data_access = { resource_key: 'ai_applications.workflow_sql', tenant_column: 'tenant_id' };
     }
     if (type === 'condition') {
       data.left = '{{input}}';
@@ -2653,6 +2677,11 @@
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     if (!text) return '执行只读 SQL，并将结果写入输出变量';
     return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  }
+
+  function workflowLlmResponseFormatType(value: unknown) {
+    const responseFormat = asSchemaRecord(value);
+    return responseFormat?.type === 'json_object' ? 'json_object' : 'text';
   }
 
   function workflowNodeTypeLabel(type: WorkflowNodeType | string) {

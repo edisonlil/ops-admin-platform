@@ -28,7 +28,7 @@ class WorkflowLLMRequest:
 
 @dataclass(slots=True)
 class WorkflowLLMResult:
-    answer: str
+    answer: Any
     usage: dict[str, Any] = field(default_factory=dict)
     model: str = ""
 
@@ -106,7 +106,7 @@ def execute_workflow(
             elif node_type == "llm":
                 result = execute_llm_node(node, context, llm_executor)
                 output = {"answer": result.answer, "usage": result.usage, "model": result.model}
-                answer = result.answer
+                answer = workflow_answer_text(result.answer)
                 merge_usage(usage, result.usage)
             elif node_type in {"sql", "sql_query"}:
                 output = execute_sql_query_node(node, context, sql_executor)
@@ -236,6 +236,7 @@ def execute_llm_node(node: dict[str, Any], context: WorkflowContext, llm_executo
             extra_body=data.get("extra_body") if isinstance(data.get("extra_body"), dict) else {},
         )
     )
+    result = maybe_decode_json_response(result, data)
     output_key = str(data.get("output_key") or "").strip()
     if output_key:
         assign_path(context["variables"], output_key, result.answer)
@@ -463,3 +464,36 @@ def merge_usage(target: dict[str, Any], usage: dict[str, Any]) -> None:
 
 def elapsed_ms(started_at: float) -> int:
     return int((time.perf_counter() - started_at) * 1000)
+
+
+def maybe_decode_json_response(result: WorkflowLLMResult, node_data: dict[str, Any]) -> WorkflowLLMResult:
+    response_format = node_data.get("response_format")
+    if not isinstance(response_format, dict) or response_format.get("type") != "json_object":
+        return result
+    raw_content = result.answer
+    if raw_content is None:
+        return result
+    if isinstance(raw_content, (dict, list)):
+        return result
+    if not isinstance(raw_content, str):
+        return result
+    raw = raw_content.strip()
+    if not raw:
+        return result
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        return result
+    result.answer = decoded
+    return result
+
+
+def workflow_answer_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)

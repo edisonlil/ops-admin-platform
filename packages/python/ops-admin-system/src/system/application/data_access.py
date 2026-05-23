@@ -38,38 +38,56 @@ class DataAccessPredicate:
 
     def to_sql(self, descriptor: ResourceDescriptor, *, alias: str = "") -> tuple[str, tuple[Any, ...]]:
         prefix = f"{alias}." if alias else ""
-        clauses = [f"{prefix}{descriptor.tenant_column} = ?"]
-        params: list[Any] = [self.tenant_id]
+        tenant_column = str(descriptor.tenant_column or "").strip()
+        clauses: list[str] = []
+        params: list[Any] = []
+        if tenant_column:
+            clauses.append(f"{prefix}{tenant_column} = ?")
+            params.append(self.tenant_id)
         if self.scope == SCOPE_TENANT:
             return " AND ".join(clauses), tuple(params)
         if self.scope == SCOPE_SELF:
             owner_column = descriptor.owner_user_column or descriptor.creator_column
+            owner_column = str(owner_column or "").strip()
+            if not owner_column:
+                return " AND ".join(clauses), tuple(params)
             clauses.append(f"{prefix}{owner_column} = ?")
             params.append(int(self.user_id or 0))
             return " AND ".join(clauses), tuple(params)
         if self.scope in {SCOPE_DEPARTMENT, SCOPE_DEPARTMENT_AND_CHILDREN, SCOPE_CUSTOM_DEPARTMENTS}:
+            department_column = str(descriptor.owner_department_column or "").strip()
+            if not department_column:
+                clauses.append("1 = 0")
+                return " AND ".join(clauses), tuple(params)
             if not self.department_ids:
                 clauses.append("1 = 0")
                 return " AND ".join(clauses), tuple(params)
             placeholders = ", ".join("?" for _ in self.department_ids)
-            clauses.append(f"{prefix}{descriptor.owner_department_column} IN ({placeholders})")
+            clauses.append(f"{prefix}{department_column} IN ({placeholders})")
             params.extend(self.department_ids)
             return " AND ".join(clauses), tuple(params)
         clauses.append("1 = 0")
         return " AND ".join(clauses), tuple(params)
 
     def allows_record(self, record: Any, descriptor: ResourceDescriptor) -> bool:
-        if int(read_record_value(record, descriptor.tenant_column) or 0) != int(self.tenant_id):
+        tenant_column = str(descriptor.tenant_column or "").strip()
+        if tenant_column and int(read_record_value(record, tenant_column) or 0) != int(self.tenant_id):
             return False
         if self.scope == SCOPE_TENANT:
             return True
         if self.scope == SCOPE_SELF:
             owner_column = descriptor.owner_user_column or descriptor.creator_column
+            owner_column = str(owner_column or "").strip()
+            if not owner_column:
+                return False
             return int(read_record_value(record, owner_column) or 0) == int(self.user_id or 0)
         if self.scope in {SCOPE_DEPARTMENT, SCOPE_DEPARTMENT_AND_CHILDREN, SCOPE_CUSTOM_DEPARTMENTS}:
+            department_column = str(descriptor.owner_department_column or "").strip()
+            if not department_column:
+                return False
             if not self.department_ids:
                 return False
-            return int(read_record_value(record, descriptor.owner_department_column) or 0) in set(self.department_ids)
+            return int(read_record_value(record, department_column) or 0) in set(self.department_ids)
         return False
 
 
@@ -183,7 +201,8 @@ def append_data_scope_sql(
     if not sql:
         return
     prefix = f"{alias}." if alias else ""
-    tenant_clause = f"{prefix}{descriptor.tenant_column} = ?"
+    tenant_column = str(descriptor.tenant_column or "").strip()
+    tenant_clause = f"{prefix}{tenant_column} = ?" if tenant_column else ""
     clauses = [clause.strip() for clause in sql.split(" AND ") if clause.strip()]
     params_to_add = list(scope_params)
     for clause in clauses:
