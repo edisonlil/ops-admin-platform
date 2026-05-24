@@ -34,8 +34,17 @@
             </div>
             <n-space size="small">
               <n-button v-if="selectedWorkflowEdgeId" size="small" secondary type="error" @click="deleteWorkflowEdge()">删除连线</n-button>
+              <n-button v-if="!isCapability" size="small" secondary :loading="exportingWorkflow" @click="exportWorkflowOrchestration">导出编排</n-button>
+              <n-button v-if="!isCapability" size="small" secondary :loading="importingWorkflow" @click="triggerWorkflowImport">导入编排</n-button>
               <n-button size="small" tertiary @click="runDraft">{{ workflowRunPanelVisible ? '收起预览' : '预览运行' }}</n-button>
             </n-space>
+            <input
+              ref="workflowImportInputRef"
+              class="workflow-import-input"
+              type="file"
+              accept=".json,application/json"
+              @change="handleWorkflowImportFileChange"
+            />
           </section>
           <section ref="workflowCanvasPanelRef" class="workflow-canvas-panel">
             <VueFlow
@@ -1183,6 +1192,7 @@
   import CodePreview from '@/components/CodePreview/index.vue';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
   import {
+    exportAiApplicationWorkflow,
     fetchAiCapabilityStream,
     fetchAiApplicationDraftStream,
     getAiCapability,
@@ -1192,6 +1202,7 @@
     getTenantAiCapabilityModelOptions,
     getAiApplication,
     getAiApplicationRunLogs,
+    importAiApplicationWorkflow,
     previewPlatformAiCapability,
     publishAiApplication,
     updateAiCapability,
@@ -1277,9 +1288,12 @@
   const saving = ref(false);
   const publishing = ref(false);
   const running = ref(false);
+  const exportingWorkflow = ref(false);
+  const importingWorkflow = ref(false);
   const activeWorkspace = ref<WorkspaceKey>('orchestration');
   const workbenchRef = ref<HTMLElement | null>(null);
   const workflowCanvasPanelRef = ref<HTMLElement | null>(null);
+  const workflowImportInputRef = ref<HTMLInputElement | null>(null);
   const { project } = useVueFlow('workflow-editor');
   const previewWidthPercent = ref(42);
   const previewFocusMode = ref(false);
@@ -1913,6 +1927,48 @@
       selectApp(published as AiApplication);
     } finally {
       publishing.value = false;
+    }
+  }
+
+  async function exportWorkflowOrchestration() {
+    if (!form.app_key || isCapability.value) return;
+    exportingWorkflow.value = true;
+    try {
+      const saved = await saveCurrent({ silent: true, refresh: false });
+      if (!saved) return;
+      const payload = await exportAiApplicationWorkflow(form.app_key);
+      downloadJson(payload, `${form.app_key}-workflow.json`);
+      message.success('Workflow 编排已导出');
+    } catch (error) {
+      message.error(runtimeErrorMessage(error));
+    } finally {
+      exportingWorkflow.value = false;
+    }
+  }
+
+  function triggerWorkflowImport() {
+    if (!form.app_key || isCapability.value) return;
+    workflowImportInputRef.value?.click();
+  }
+
+  async function handleWorkflowImportFileChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || importingWorkflow.value) return;
+    if (!window.confirm('导入后会替换当前应用的 Workflow 编排，应用名称、Key 和发布状态会保留。是否继续？')) return;
+    importingWorkflow.value = true;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as Record<string, unknown>;
+      const result = await importAiApplicationWorkflow(form.app_key, payload);
+      selectApp(result.application);
+      activeWorkspace.value = 'orchestration';
+      message.success('Workflow 编排已导入');
+    } catch (error) {
+      message.error(runtimeErrorMessage(error));
+    } finally {
+      importingWorkflow.value = false;
     }
   }
 
@@ -3031,6 +3087,16 @@
     }
   }
 
+  function downloadJson(payload: unknown, filename: string) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   function revokeHtmlPreviewObjectUrl() {
     if (!htmlPreviewObjectUrl) return;
     URL.revokeObjectURL(htmlPreviewObjectUrl);
@@ -3695,6 +3761,10 @@
     color: var(--app-text-color-3);
     font-size: 12px;
     line-height: 1.35;
+  }
+
+  .workflow-import-input {
+    display: none;
   }
 
   .workflow-canvas-panel {

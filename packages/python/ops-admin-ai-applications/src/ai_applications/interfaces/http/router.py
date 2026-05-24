@@ -11,6 +11,7 @@ from ai_applications.interfaces.http.dtos import (
     AIAgentMessageRequest,
     AIApplicationRequest,
     AIApplicationRunRequest,
+    AIApplicationWorkflowImportRequest,
     TenantAIQuotaRequest,
 )
 from identity_access.interfaces.http import dependencies as auth
@@ -90,6 +91,16 @@ def update_ai_application(app_key: str, payload: AIApplicationRequest) -> dict[s
 @router.post("/ai-applications/{app_key}/publish", dependencies=[Depends(auth.require_permission("ai_applications:publish"))])
 def publish_ai_application(app_key: str) -> dict[str, Any]:
     return ok(services.publish_ai_application(app_key))
+
+
+@router.get("/ai-applications/{app_key}/workflow/export", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
+def export_ai_application_workflow(app_key: str) -> dict[str, Any]:
+    return ok(services.export_ai_application_workflow(app_key))
+
+
+@router.post("/ai-applications/{app_key}/workflow/import", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
+def import_ai_application_workflow(app_key: str, payload: AIApplicationWorkflowImportRequest) -> dict[str, Any]:
+    return ok(services.import_ai_application_workflow(app_key, payload.model_dump()))
 
 
 @router.post("/ai-applications/{app_key}/run-draft", dependencies=[Depends(auth.require_permission("ai_applications:run"))])

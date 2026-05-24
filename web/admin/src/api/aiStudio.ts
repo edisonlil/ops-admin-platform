@@ -157,6 +157,21 @@ export interface AiApplicationPayload {
   runtime_config?: Record<string, unknown>;
 }
 
+export interface AiWorkflowExportPackage {
+  kind: 'ops_admin.ai_application.workflow';
+  schema_version: number;
+  source_app: {
+    app_key?: string;
+    name?: string;
+  };
+  workflow: Record<string, unknown>;
+}
+
+export interface AiWorkflowImportResult {
+  application: AiApplication;
+  workflow: Record<string, unknown>;
+}
+
 export interface AiCapability {
   id: number;
   tenant_id: number;
@@ -409,6 +424,16 @@ export function updatePlatformAiCapability(capabilityKey: string, payload: AiCap
 
 export function publishAiApplication(appKey: string) {
   return Alova.Post<AiApplication>(`/ai-applications/${appKey}/publish`);
+}
+
+export function exportAiApplicationWorkflow(appKey: string) {
+  return Alova.Get<AiWorkflowExportPackage>(`/ai-applications/${appKey}/workflow/export`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function importAiApplicationWorkflow(appKey: string, payload: Record<string, unknown>) {
+  return Alova.Post<AiWorkflowImportResult>(`/ai-applications/${appKey}/workflow/import`, payload);
 }
 
 export function runAiApplicationDraft(appKey: string, payload: AiRunPayload) {

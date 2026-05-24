@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
+from ai_runtime_core.workflow_runtime import normalize_workflow_definition
 from llm_runtime.application import gateway
 from system.application.database import connect
 from system.application.sorting import sort_dict_items
@@ -54,6 +56,8 @@ AGENT_CONVERSATION_SORT_COLUMNS = {
     "create_time": "create_time",
     "update_time": "update_time",
 }
+WORKFLOW_EXPORT_KIND = "ops_admin.ai_application.workflow"
+WORKFLOW_EXPORT_SCHEMA_VERSION = 1
 
 repository: AIApplicationsRepository | None = None
 
@@ -170,6 +174,48 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
         raise
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def export_ai_application_workflow(app_key: str) -> dict[str, Any]:
+    app = require_workflow_application(app_key)
+    workflow = copy.deepcopy(workflow_definition_from_app(app))
+    validate_workflow_definition_payload(workflow)
+    return {
+        "kind": WORKFLOW_EXPORT_KIND,
+        "schema_version": WORKFLOW_EXPORT_SCHEMA_VERSION,
+        "source_app": {
+            "app_key": app.get("app_key"),
+            "name": app.get("name"),
+        },
+        "workflow": workflow,
+    }
+
+
+def import_ai_application_workflow(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    workflow = workflow_definition_from_import_payload(payload)
+    validate_workflow_definition_payload(workflow)
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            repo().require_ai_applications_schema(conn)
+            app = repo().get_ai_application(conn, app_key)
+            if not app:
+                raise HTTPException(status_code=404, detail="AI application not found")
+            if app.get("app_type") != "workflow":
+                raise HTTPException(status_code=422, detail="Only workflow applications support workflow import")
+            updated = dict(app)
+            runtime_config = dict(app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {})
+            runtime_config["workflow"] = workflow
+            updated["runtime_config"] = runtime_config
+            normalize_application_payload(updated)
+            imported = repo().upsert_ai_application(conn, updated)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    return {"application": imported, "workflow": workflow}
 
 
 def run_draft_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1034,6 +1080,29 @@ def require_agent_application(app_key: str) -> dict[str, Any]:
     if app.get("app_type") != "agent":
         raise HTTPException(status_code=422, detail="Only Agent applications support agent conversations")
     return app
+
+
+def require_workflow_application(app_key: str) -> dict[str, Any]:
+    app = get_ai_application(app_key)
+    if app.get("app_type") != "workflow":
+        raise HTTPException(status_code=422, detail="Only workflow applications support workflow export/import")
+    return app
+
+
+def workflow_definition_from_import_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    candidate = payload.get("workflow") if isinstance(payload.get("workflow"), dict) else payload
+    if not isinstance(candidate, dict):
+        raise HTTPException(status_code=422, detail="workflow import payload must be an object")
+    if not isinstance(candidate.get("nodes"), list) or not isinstance(candidate.get("edges"), list):
+        raise HTTPException(status_code=422, detail="workflow import payload requires nodes and edges")
+    return copy.deepcopy(candidate)
+
+
+def validate_workflow_definition_payload(workflow: dict[str, Any]) -> None:
+    try:
+        normalize_workflow_definition(workflow)
+    except WorkflowRuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def get_agent_conversation_or_404(app: dict[str, Any], conversation_key: str) -> dict[str, Any]:

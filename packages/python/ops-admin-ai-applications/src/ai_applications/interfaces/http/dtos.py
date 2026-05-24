@@ -35,6 +35,12 @@ class AIApplicationRunRequest(BaseModel):
     enable_think_output: bool | None = None
 
 
+class AIApplicationWorkflowImportRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    workflow: dict[str, Any] | None = None
+
+
 class AIAgentConversationRequest(BaseModel):
     title: str = Field(default="", max_length=200)
     metadata: dict[str, Any] = Field(default_factory=dict)
