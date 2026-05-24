@@ -153,6 +153,44 @@ class AIRuntimeCoreTests(unittest.TestCase):
                 sql_executor=lambda request: WorkflowSQLResult(),
             )
 
+    def test_workflow_sql_node_expands_named_array_params(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "sql_1",
+                    "type": "sql_query",
+                    "data": {
+                        "sql": "SELECT id FROM docs WHERE product_line = :product_line AND primary_component IN (:selected_components)",
+                        "params": {
+                            "product_line": "文档中台",
+                            "selected_components": "{{output.answer.selected_components}}",
+                        },
+                        "output_key": "records",
+                    },
+                },
+            ],
+            "edges": [{"source": "start", "target": "sql_1"}],
+        }
+        requests: list[WorkflowSQLRequest] = []
+
+        def fake_sql(request: WorkflowSQLRequest) -> WorkflowSQLResult:
+            requests.append(request)
+            return WorkflowSQLResult(rows=[], columns=["id"], row_count=0)
+
+        execute_workflow(
+            definition,
+            {"output": {"answer": {"selected_components": ["知识库", "权限"]}}},
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+            sql_executor=fake_sql,
+        )
+
+        self.assertEqual(
+            requests[0].sql,
+            "SELECT id FROM docs WHERE product_line = ? AND primary_component IN (?, ?)",
+        )
+        self.assertEqual(requests[0].params, ["文档中台", "知识库", "权限"])
+
     def test_workflow_sql_node_requires_executor(self) -> None:
         definition = {
             "nodes": [

@@ -255,8 +255,11 @@ def execute_sql_query_node(
     sql = render_template(str(data.get("sql") or data.get("query") or ""), variables).strip()
     if not sql:
         raise WorkflowRuntimeError(f"SQL query is required: {node['id']}")
+    if uses_named_sql_params(sql):
+        sql, params = expand_named_sql_params(sql, render_named_sql_params(data.get("params"), variables))
+    else:
+        params = render_sql_params(data.get("params"), variables)
     ensure_readonly_sql(sql)
-    params = render_sql_params(data.get("params"), variables)
     output_key = str(data.get("output_key") or "").strip()
     if not output_key:
         raise WorkflowRuntimeError(f"SQL node output_key is required: {node['id']}")
@@ -296,6 +299,45 @@ def render_sql_params(value: Any, variables: dict[str, Any]) -> list[Any]:
     if isinstance(value, dict):
         return [resolve_sql_param(value[key], variables) for key in sorted(value)]
     raise WorkflowRuntimeError("SQL params must be an array, object, JSON string, or empty")
+
+
+def uses_named_sql_params(sql: str) -> bool:
+    return re.search(r"(?<!:):[a-zA-Z_][a-zA-Z0-9_]*", sql) is not None
+
+
+def render_named_sql_params(value: Any, variables: dict[str, Any]) -> dict[str, Any]:
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        rendered = render_template(value, variables).strip()
+        if not rendered:
+            return {}
+        try:
+            value = json.loads(rendered)
+        except json.JSONDecodeError as exc:
+            raise WorkflowRuntimeError(f"SQL named params JSON is invalid: {exc}") from exc
+    if not isinstance(value, dict):
+        raise WorkflowRuntimeError("SQL named params must be a JSON object when SQL uses :name placeholders")
+    return {str(key): resolve_sql_param(param_value, variables) for key, param_value in value.items()}
+
+
+def expand_named_sql_params(sql: str, params: dict[str, Any]) -> tuple[str, list[Any]]:
+    values: list[Any] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(0)[1:]
+        if name not in params:
+            raise WorkflowRuntimeError(f"SQL named param is missing: {name}")
+        value = params[name]
+        if isinstance(value, (list, tuple)):
+            if not value:
+                return "NULL"
+            values.extend(value)
+            return ", ".join("?" for _ in value)
+        values.append(value)
+        return "?"
+
+    return re.sub(r"(?<!:):[a-zA-Z_][a-zA-Z0-9_]*", replace, sql), values
 
 
 def resolve_sql_param(value: Any, variables: dict[str, Any]) -> Any:

@@ -486,13 +486,29 @@
                       :read-only="false"
                     />
                   </n-form-item>
-                  <n-form-item label="参数 JSON">
-                    <n-input
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        参数 JSON
+                        <n-popover trigger="click" placement="right" :width="460">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-sql-help markdown-answer" v-html="sqlParamsHelpHtml"></div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <CodePreview
                       v-model:value="selectedWorkflowNode.data.params_text"
-                      type="textarea"
-                      placeholder='例如：["{{status}}"]'
-                      :autosize="{ minRows: 2, maxRows: 6 }"
+                      class="workflow-json-editor"
+                      language="json"
+                      :min-height="150"
+                      :max-height="280"
+                      :read-only="false"
                     />
+                    <template #feedback>
+                      推荐使用 :name 命名参数；数组值会在 SQL 中自动展开，适合 IN 条件。
+                    </template>
                   </n-form-item>
                   <n-form-item label="输出变量名">
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：records" />
@@ -1454,6 +1470,32 @@
     { label: '直线', value: 'straight' },
     { label: '折线', value: 'step' },
   ];
+  const sqlParamsHelpMarkdown = `
+### SQL 参数 JSON 使用方式
+
+推荐在 SQL 中使用 \`:name\` 命名参数，在参数 JSON 中提供同名字段。
+
+\`\`\`sql
+SELECT id, description, tenant_id
+FROM workbench_function_points
+WHERE product_line = :product_line
+  AND primary_component IN (:selected_components)
+\`\`\`
+
+\`\`\`json
+{
+  "product_line": "文档中台",
+  "selected_components": "{{output.answer.selected_components}}"
+}
+\`\`\`
+
+- 标量参数会绑定为单个 \`?\`，例如 \`:product_line\`。
+- 数组参数会自动展开为多个 \`?\`，适合 \`IN (:selected_components)\`。
+- 上游 JSON 可用 \`{{节点输出变量.字段}}\` 引用，例如 \`{{output.answer.selected_components}}\`。
+- 不推荐把 \`{{}}\` 直接写进 SQL 条件里拼接文本，容易产生 SQL 语法错误，也不利于安全参数绑定。
+
+兼容旧写法：SQL 中使用 \`?\` 时，参数 JSON 可以继续写数组，例如 \`["{{status}}"]\`。
+`.trim();
   const platformPreviewForm = reactive({
     tenant_id: null as number | null,
     model: '',
@@ -1483,6 +1525,7 @@
   });
   const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
   const workflowDefaultEdgeOptions = computed(() => ({ type: workflowEdgeStyle.value }));
+  const sqlParamsHelpHtml = computed(() => renderMarkdown(sqlParamsHelpMarkdown));
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const workflowStartNode = computed(() => workflowNodes.value.find((node) => node.type === 'start') || null);
@@ -2216,7 +2259,7 @@
     const sqlData =
       type === 'sql_query'
         ? {
-            params_text: stringifyJson(Array.isArray(data.params) ? data.params : []),
+            params_text: stringifyJson(asSqlParamsJson(data.params)),
             result_shape: String(data.result_shape || 'rows'),
             max_rows: Number(data.max_rows || 100),
             data_access: asSchemaRecord(data.data_access) || { resource_key: 'ai_applications.workflow_sql', tenant_column: 'tenant_id' },
@@ -2296,7 +2339,7 @@
       data.variables = normalizeWorkflowStartVariables(data.variables, { stripInternalId: true });
     }
     if (node.type === 'sql_query') {
-      data.params = parseJsonArraySilently(String(data.params_text || '')) || [];
+      data.params = parseSqlParamsJsonSilently(String(data.params_text || '')) || [];
       delete data.params_text;
       data.result_shape = data.result_shape || 'rows';
       data.max_rows = Math.max(1, Math.min(1000, Number(data.max_rows || 100)));
@@ -3772,6 +3815,22 @@
     }
   }
 
+  function parseSqlParamsJsonSilently(value: string): unknown[] | Record<string, unknown> | null {
+    try {
+      const payload = JSON.parse(value || '[]');
+      if (Array.isArray(payload)) return payload;
+      return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function asSqlParamsJson(value: unknown): unknown[] | Record<string, unknown> {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') return value as Record<string, unknown>;
+    return [];
+  }
+
   function stringifyJson(value: unknown) {
     return JSON.stringify(value || {}, null, 2);
   }
@@ -4676,10 +4735,36 @@
     line-height: 1.45;
   }
 
-  .workflow-sql-editor {
+  .workflow-sql-editor,
+  .workflow-json-editor {
     overflow: hidden;
     border: 1px solid var(--app-border-color, #d9e1ec);
     border-radius: 8px;
+  }
+
+  .workflow-form-label-with-help {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .workflow-help-button {
+    width: 18px;
+    height: 18px;
+    color: var(--app-primary-color, #2563eb);
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--app-primary-color, #2563eb) 45%, transparent);
+    border-radius: 999px;
+  }
+
+  .workflow-sql-help {
+    max-height: 520px;
+    overflow: auto;
+  }
+
+  .workflow-sql-help :deep(h3) {
+    margin-top: 0;
   }
 
   .workflow-start-variables {
