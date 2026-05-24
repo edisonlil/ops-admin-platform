@@ -34,6 +34,15 @@
             </div>
             <n-space size="small">
               <n-button v-if="selectedWorkflowEdgeId" size="small" secondary type="error" @click="deleteWorkflowEdge()">删除连线</n-button>
+              <n-select
+                v-model:value="workflowEdgeStyle"
+                size="small"
+                class="workflow-edge-style-select"
+                :options="workflowEdgeStyleOptions"
+                :consistent-menu-width="false"
+                @update:value="applyWorkflowEdgeStyle"
+              />
+              <n-button size="small" secondary @click="organizeWorkflowNodes">整理节点</n-button>
               <n-button v-if="!isCapability" size="small" secondary :loading="exportingWorkflow" @click="exportWorkflowOrchestration">导出编排</n-button>
               <n-button v-if="!isCapability" size="small" secondary :loading="importingWorkflow" @click="triggerWorkflowImport">导入编排</n-button>
               <n-button size="small" tertiary @click="runDraft">{{ workflowRunPanelVisible ? '收起预览' : '预览运行' }}</n-button>
@@ -53,7 +62,7 @@
               v-model:edges="workflowEdges"
               class="workflow-canvas"
               fit-view-on-init
-              :default-edge-options="{ type: 'smoothstep' }"
+              :default-edge-options="workflowDefaultEdgeOptions"
               @connect="handleWorkflowConnect"
               @edge-click="handleWorkflowEdgeClick"
               @node-click="handleWorkflowNodeClick"
@@ -1197,7 +1206,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+  import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
   import { Background } from '@vue-flow/background';
   import { Controls } from '@vue-flow/controls';
   import { Handle, Position, VueFlow, useVueFlow, type Connection, type Edge, type Node, type XYPosition } from '@vue-flow/core';
@@ -1274,6 +1283,7 @@
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
   type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'condition' | 'end';
+  type WorkflowEdgeStyle = 'default' | 'smoothstep' | 'straight' | 'step';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
   type OutputFormat = 'markdown' | 'html' | 'json';
@@ -1318,7 +1328,7 @@
   const workbenchRef = ref<HTMLElement | null>(null);
   const workflowCanvasPanelRef = ref<HTMLElement | null>(null);
   const workflowImportInputRef = ref<HTMLInputElement | null>(null);
-  const { project } = useVueFlow('workflow-editor');
+  const { project, fitView } = useVueFlow('workflow-editor');
   const previewWidthPercent = ref(42);
   const previewFocusMode = ref(false);
   const previewResizeDragged = ref(false);
@@ -1352,6 +1362,7 @@
   const variableOptionalOverrides = reactive<Record<string, boolean>>({});
   const workflowNodes = ref<WorkflowNode[]>([]);
   const workflowEdges = ref<WorkflowEdge[]>([]);
+  const workflowEdgeStyle = ref<WorkflowEdgeStyle>('default');
   const selectedWorkflowNodeId = ref('');
   const selectedWorkflowEdgeId = ref('');
   const openWorkflowNodeMenuId = ref('');
@@ -1437,6 +1448,12 @@
     { label: 'HTML', value: 'html' },
     { label: 'JSON', value: 'json' },
   ];
+  const workflowEdgeStyleOptions: SelectOption[] = [
+    { label: '贝塞尔曲线', value: 'default' },
+    { label: '平滑折线', value: 'smoothstep' },
+    { label: '直线', value: 'straight' },
+    { label: '折线', value: 'step' },
+  ];
   const platformPreviewForm = reactive({
     tenant_id: null as number | null,
     model: '',
@@ -1465,6 +1482,7 @@
       : tabs;
   });
   const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
+  const workflowDefaultEdgeOptions = computed(() => ({ type: workflowEdgeStyle.value }));
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const workflowStartNode = computed(() => workflowNodes.value.find((node) => node.type === 'start') || null);
@@ -2185,6 +2203,7 @@
     workflowNodes.value = nodes.map((node, index) => normalizeWorkflowNode(node, index));
     ensureWorkflowStartVariablesFromSchema();
     workflowEdges.value = edges.map((edge, index) => normalizeWorkflowEdge(edge, index));
+    workflowEdgeStyle.value = normalizeWorkflowEdgeStyle(workflowEdges.value[0]?.type);
     selectedWorkflowNodeId.value = workflowNodes.value[0]?.id || '';
     selectedWorkflowEdgeId.value = '';
     openWorkflowNodeMenuId.value = '';
@@ -2234,9 +2253,14 @@
       target,
       sourceHandle: String(record.sourceHandle || record.source_handle || '') || undefined,
       targetHandle: String(record.targetHandle || record.target_handle || '') || undefined,
-      type: String(record.type || 'smoothstep'),
+      type: normalizeWorkflowEdgeStyle(record.type),
       label: workflowEdgeLabel(String(record.sourceHandle || record.source_handle || '')),
     };
+  }
+
+  function normalizeWorkflowEdgeStyle(value: unknown): WorkflowEdgeStyle {
+    const style = String(value || 'default').trim();
+    return ['default', 'smoothstep', 'straight', 'step'].includes(style) ? (style as WorkflowEdgeStyle) : 'default';
   }
 
   function asWorkflowPosition(value: unknown, index: number) {
@@ -2259,6 +2283,7 @@
         id: edge.id,
         source: edge.source,
         target: edge.target,
+        type: normalizeWorkflowEdgeStyle(edge.type),
         ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
         ...(edge.targetHandle ? { targetHandle: edge.targetHandle } : {}),
       })),
@@ -2413,6 +2438,103 @@
     });
   }
 
+  function organizeWorkflowNodes() {
+    if (!workflowNodes.value.length) return;
+    closeWorkflowCanvasMenu();
+    selectedWorkflowNodeId.value = '';
+    selectedWorkflowEdgeId.value = '';
+    const positions = workflowLayoutPositions();
+    workflowNodes.value = workflowNodes.value.map((node) => ({
+      ...node,
+      position: positions.get(node.id) || node.position,
+    }));
+    void nextTick(() => {
+      fitView({ padding: 0.18, duration: 300 });
+    });
+    message.success('节点已整理');
+  }
+
+  function applyWorkflowEdgeStyle(value: string) {
+    const style = normalizeWorkflowEdgeStyle(value);
+    workflowEdgeStyle.value = style;
+    workflowEdges.value = workflowEdges.value.map((edge) => ({
+      ...edge,
+      type: style,
+    }));
+  }
+
+  function workflowLayoutPositions() {
+    const levelMap = workflowNodeLevelMap();
+    const maxLevel = Math.max(0, ...Array.from(levelMap.values()));
+    workflowNodes.value.forEach((node) => {
+      if (!levelMap.has(node.id)) {
+        levelMap.set(node.id, maxLevel + 1);
+      }
+    });
+    const levels = new Map<number, WorkflowNode[]>();
+    workflowNodes.value.forEach((node) => {
+      const level = levelMap.get(node.id) ?? 0;
+      const nodes = levels.get(level) || [];
+      nodes.push(node);
+      levels.set(level, nodes);
+    });
+    const positions = new Map<string, XYPosition>();
+    const levelGap = 300;
+    const rowGap = 170;
+    const startX = 80;
+    const startY = 160;
+    Array.from(levels.entries()).forEach(([level, nodes]) => {
+      const sortedNodes = nodes.slice().sort(compareWorkflowLayoutNodes);
+      sortedNodes.forEach((node, index) => {
+        positions.set(node.id, {
+          x: startX + level * levelGap,
+          y: startY + (index - (sortedNodes.length - 1) / 2) * rowGap,
+        });
+      });
+    });
+    return positions;
+  }
+
+  function workflowNodeLevelMap() {
+    const levels = new Map<string, number>();
+    const startNode = workflowNodes.value.find((node) => node.type === 'start') || workflowNodes.value[0];
+    if (!startNode) return levels;
+    const outgoing = new Map<string, string[]>();
+    workflowEdges.value.forEach((edge) => {
+      if (!edge.source || !edge.target) return;
+      const targets = outgoing.get(edge.source) || [];
+      targets.push(edge.target);
+      outgoing.set(edge.source, targets);
+    });
+    const knownIds = new Set(workflowNodes.value.map((node) => node.id));
+    const queue: string[] = [startNode.id];
+    levels.set(startNode.id, 0);
+    while (queue.length) {
+      const source = queue.shift() || '';
+      const sourceLevel = levels.get(source) ?? 0;
+      (outgoing.get(source) || []).forEach((target) => {
+        if (!knownIds.has(target) || levels.has(target)) return;
+        levels.set(target, sourceLevel + 1);
+        queue.push(target);
+      });
+    }
+    return levels;
+  }
+
+  function compareWorkflowLayoutNodes(left: WorkflowNode, right: WorkflowNode) {
+    const order: Record<WorkflowNodeType, number> = {
+      start: 0,
+      sql_query: 1,
+      condition: 2,
+      llm: 3,
+      end: 4,
+    };
+    const leftOrder = order[left.type as WorkflowNodeType] ?? 99;
+    const rightOrder = order[right.type as WorkflowNodeType] ?? 99;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return workflowNodes.value.findIndex((node) => node.id === left.id) - workflowNodes.value.findIndex((node) => node.id === right.id);
+  }
+
   function closeWorkflowCanvasMenu() {
     workflowCanvasMenu.visible = false;
   }
@@ -2434,7 +2556,7 @@
       target: connection.target,
       sourceHandle: connection.sourceHandle || undefined,
       targetHandle: connection.targetHandle || undefined,
-      type: 'smoothstep',
+      type: workflowEdgeStyle.value,
       label: workflowEdgeLabel(connection.sourceHandle || ''),
     });
     selectedWorkflowEdgeId.value = workflowEdges.value[workflowEdges.value.length - 1]?.id || '';
@@ -3811,6 +3933,10 @@
 
   .workflow-import-input {
     display: none;
+  }
+
+  .workflow-edge-style-select {
+    width: 118px;
   }
 
   .workflow-import-modal__text,
