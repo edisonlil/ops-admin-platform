@@ -1,5 +1,5 @@
 <template>
-  <div ref="containerRef" class="code-preview" @keydown.stop @keyup.stop @keypress.stop></div>
+  <div ref="containerRef" class="code-preview nodrag nopan nowheel" @keydown.stop @keyup.stop @keypress.stop></div>
 </template>
 
 <script lang="ts" setup>
@@ -39,6 +39,7 @@
   let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let contentSizeDisposable: { dispose: () => void } | null = null;
+  let keydownDisposable: { dispose: () => void } | null = null;
   let layoutFrame: number | null = null;
   let disposed = false;
 
@@ -132,6 +133,10 @@
       overviewRulerLanes: 0,
     });
     contentSizeDisposable = editor.onDidContentSizeChange(scheduleEditorLayout);
+    keydownDisposable = editor.onKeyDown((event) => {
+      if (props.readOnly) return;
+      event.browserEvent.stopPropagation();
+    });
     editor.onDidChangeModelContent(() => {
       if (props.readOnly) return;
       const value = editor?.getValue() ?? '';
@@ -179,6 +184,7 @@
     if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame);
     resizeObserver?.disconnect();
     contentSizeDisposable?.dispose();
+    keydownDisposable?.dispose();
     containerRef.value?.removeEventListener('keydown', stopEditableKeyboardEvent, true);
     containerRef.value?.removeEventListener('keyup', stopEditableKeyboardEvent, true);
     containerRef.value?.removeEventListener('keypress', stopEditableKeyboardEvent, true);
@@ -186,6 +192,7 @@
     layoutFrame = null;
     resizeObserver = null;
     contentSizeDisposable = null;
+    keydownDisposable = null;
     editor = null;
   });
 </script>

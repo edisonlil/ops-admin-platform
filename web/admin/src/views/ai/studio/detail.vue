@@ -506,28 +506,28 @@
                       :max-height="280"
                       :read-only="false"
                     />
-                    <template #feedback>
-                      推荐使用 :name 命名参数；数组值会在 SQL 中自动展开，适合 IN 条件。
-                    </template>
                   </n-form-item>
-                  <n-form-item label="输出变量名">
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        输出变量名
+                        <n-popover trigger="click" placement="right" :width="360">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-field-help">
+                            {{ sqlOutputVariableHint(selectedWorkflowNode.data.output_key) }}
+                          </div>
+                        </n-popover>
+                      </span>
+                    </template>
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：records" />
-                    <template #feedback>{{ sqlOutputVariableHint(selectedWorkflowNode.data.output_key) }}</template>
                   </n-form-item>
                   <n-form-item label="结果形态">
                     <n-select v-model:value="selectedWorkflowNode.data.result_shape" :options="sqlResultShapeOptions" />
                   </n-form-item>
                   <n-form-item label="最大行数">
                     <n-input-number v-model:value="selectedWorkflowNode.data.max_rows" :min="1" :max="1000" />
-                  </n-form-item>
-                  <n-form-item label="数据权限资源 Key">
-                    <n-input v-model:value="selectedWorkflowNode.data.data_access.resource_key" placeholder="例如：workflow.orders" />
-                    <template #feedback>
-                      SQL 执行时会默认注入当前用户的数据权限过滤，查询结果需包含 tenant_id 和数据权限字段。
-                    </template>
-                  </n-form-item>
-                  <n-form-item label="租户过滤列（可留空）">
-                    <n-input v-model:value="selectedWorkflowNode.data.data_access.tenant_column" placeholder="默认 tenant_id；不需要租户过滤可留空" />
                   </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
@@ -4744,23 +4744,36 @@ WHERE product_line = :product_line
 
   .workflow-form-label-with-help {
     display: inline-flex;
-    gap: 6px;
+    gap: 5px;
     align-items: center;
   }
 
   .workflow-help-button {
-    width: 18px;
-    height: 18px;
-    color: var(--app-primary-color, #2563eb);
-    font-size: 12px;
-    font-weight: 700;
-    border: 1px solid color-mix(in srgb, var(--app-primary-color, #2563eb) 45%, transparent);
+    width: 15px;
+    height: 15px;
+    color: var(--app-text-color-3);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 15px;
+    border: 1px solid color-mix(in srgb, var(--app-text-color-3) 45%, transparent);
     border-radius: 999px;
+    opacity: 0.76;
+  }
+
+  .workflow-help-button:hover {
+    color: var(--app-text-color-2);
+    opacity: 1;
   }
 
   .workflow-sql-help {
     max-height: 520px;
     overflow: auto;
+  }
+
+  .workflow-field-help {
+    color: var(--app-text-color-2);
+    font-size: 13px;
+    line-height: 1.7;
   }
 
   .workflow-sql-help :deep(h3) {
