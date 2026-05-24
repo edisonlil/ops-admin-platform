@@ -102,6 +102,9 @@ class IdentityAccessRepository(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def import_users_batch(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ...
+
     def update_user(
         self,
         user_id: int,

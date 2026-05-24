@@ -7,7 +7,7 @@ from fastapi import HTTPException, Response, status
 from identity_access.application.access_context_cache import clear_access_context_cache
 from identity_access.application import auth_service, rbac_service
 from identity_access.infrastructure.persistence import tenant_repository
-from identity_access.infrastructure.persistence.common import auth_database_target, connect, require_auth_ready
+from identity_access.infrastructure.persistence.common import _executemany, auth_database_target, connect, now_iso, require_auth_ready
 from identity_access.infrastructure.persistence.tenant_repository import ensure_membership
 from system.domain.tenancy import DEFAULT_TENANT_KEY
 
@@ -402,6 +402,44 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             primary_department_id=payload.get("primary_department_id"),
         )
     return _after_access_context_change(get_tenant_user(tenant_id, int(user["id"])) or user)
+
+
+def ensure_memberships_batch(tenant_id: int, rows: list[dict[str, Any]]) -> None:
+    normalized_rows = [
+        (tenant_id, int(row.get("user_id") or 0), bool(row.get("is_tenant_admin", False)), now_iso())
+        for row in rows
+        if int(row.get("user_id") or 0)
+    ]
+    if not normalized_rows:
+        return
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        tenant = tenant_repository.get_business_tenant_by_id(conn, tenant_id)
+        if not tenant:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
+        _executemany(
+            conn,
+            """
+            UPDATE tenant_memberships
+            SET is_tenant_admin = ?
+            WHERE tenant_id = ? AND user_id = ?
+            """,
+            [(is_tenant_admin, row_tenant_id, user_id) for row_tenant_id, user_id, is_tenant_admin, _timestamp in normalized_rows],
+        )
+        _executemany(
+            conn,
+            """
+            INSERT INTO tenant_memberships (tenant_id, user_id, is_tenant_admin, create_time)
+            SELECT ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?
+            )
+            """,
+            [
+                (row_tenant_id, user_id, is_tenant_admin, timestamp, row_tenant_id, user_id)
+                for row_tenant_id, user_id, is_tenant_admin, timestamp in normalized_rows
+            ],
+        )
 
 
 def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) -> dict[str, Any]:

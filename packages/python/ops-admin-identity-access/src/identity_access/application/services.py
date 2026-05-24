@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import Response
 
-from identity_access.application import api_key_service, auth_service, rbac_service, tenant_service
+from identity_access.application import api_key_service, auth_service, import_jobs, rbac_service, tenant_service, user_import_export
 from identity_access.application.access_context_cache import clear_access_context_cache
 from identity_access.domain import events
 from system.application.event_bus import publish_event
@@ -336,6 +336,55 @@ def list_tenant_users_page(
     return page_items(list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
 
 
+def export_tenant_users(tenant_id: int) -> Any:
+    return user_import_export.build_tenant_user_export_workbook(list_tenant_users(tenant_id))
+
+
+def export_tenant_user_import_template(tenant_id: int) -> Any:
+    return user_import_export.build_tenant_user_import_template(tenant_id)
+
+
+def import_tenant_users(tenant_id: int, content: bytes, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return import_jobs.start_import_job(
+        "tenant_users",
+        lambda progress: perform_tenant_user_import(tenant_id, content, current_user=current_user, progress=progress),
+    )
+
+
+def perform_tenant_user_import(
+    tenant_id: int,
+    content: bytes,
+    current_user: dict[str, Any] | None = None,
+    progress: Any | None = None,
+) -> dict[str, Any]:
+    if progress:
+        progress(15, "正在解析导入文件")
+    rows, assignments = user_import_export.parse_tenant_user_import_workbook(content, tenant_id=tenant_id)
+    if progress:
+        progress(35, "正在批量创建成员")
+    imported = rbac_service.import_users_batch(rows)
+    membership_rows: list[dict[str, Any]] = []
+    for user, assignment in zip(imported, assignments, strict=False):
+        user_id = int(user["id"])
+        assignment["user_id"] = user_id
+        membership_rows.append({"user_id": user_id, "is_tenant_admin": bool(assignment.get("is_tenant_admin", False))})
+    if progress:
+        progress(70, "正在绑定租户成员关系")
+    tenant_service.ensure_memberships_batch(tenant_id, membership_rows)
+    if progress:
+        progress(85, "正在同步部门关系")
+    sync_users_departments_batch_if_available(assignments, current_user=current_user)
+    result = list_tenant_users(tenant_id)
+    imported_ids = {int(user["id"]) for user in imported}
+    items = [item for item in result if int(item["id"]) in imported_ids]
+    publish_event(events.users_imported(items, correlation_id=current_request_id()))
+    return _after_access_context_change({"items": items, "count": len(items)})
+
+
+def current_import_job() -> dict[str, Any] | None:
+    return import_jobs.current_import_job()
+
+
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     result = tenant_service.create_tenant_user(tenant_id, payload)
     publish_event(events.user_created(result, correlation_id=current_request_id()))
@@ -379,6 +428,42 @@ def list_platform_users_page(
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
     return page_items(list_platform_users(sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
+
+
+def export_platform_users() -> Any:
+    return user_import_export.build_user_export_workbook(list_platform_users())
+
+
+def export_user_import_template() -> Any:
+    return user_import_export.build_user_import_template()
+
+
+def import_platform_users(content: bytes, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    return import_jobs.start_import_job(
+        "platform_users",
+        lambda progress: perform_platform_user_import(content, current_user=current_user, progress=progress),
+    )
+
+
+def perform_platform_user_import(
+    content: bytes,
+    current_user: dict[str, Any] | None = None,
+    progress: Any | None = None,
+) -> dict[str, Any]:
+    if progress:
+        progress(15, "正在解析导入文件")
+    rows, assignments = user_import_export.parse_user_import_workbook(content)
+    if progress:
+        progress(40, "正在批量创建用户")
+    imported = rbac_service.import_users_batch(rows)
+    for user, assignment in zip(imported, assignments, strict=False):
+        assignment["user_id"] = int(user["id"])
+    if progress:
+        progress(80, "正在同步部门关系")
+    sync_users_departments_batch_if_available(assignments, current_user=current_user)
+    result = [enrich_user_with_departments(item) for item in imported]
+    publish_event(events.users_imported(result, correlation_id=current_request_id()))
+    return _after_access_context_change({"items": result, "count": len(result)})
 
 
 def create_user(
@@ -545,6 +630,17 @@ def sync_user_departments_if_available(user: dict[str, Any], department_ids: lis
         primary_department_id=primary_department_id,
         current_user={"username": "system", "id": None},
     )
+
+
+def sync_users_departments_batch_if_available(rows: list[dict[str, Any]], current_user: dict[str, Any] | None = None) -> None:
+    assignments = [row for row in rows if row.get("department_ids") or row.get("primary_department_id")]
+    if not assignments:
+        return
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    organization_services.set_users_departments_batch(assignments, current_user=current_user or {"username": "system", "id": None})
 
 
 def enrich_user_with_departments(user: dict[str, Any]) -> dict[str, Any]:

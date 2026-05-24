@@ -8,6 +8,7 @@ from identity_access.infrastructure.persistence.common import (
     DisabledUserException,
     DEFAULT_TENANT_KEY,
     PLATFORM_TENANT_KEY,
+    _executemany,
     auth_database_target,
     connect,
     normalize_username,
@@ -282,6 +283,28 @@ def user_payload(row: dict[str, Any], roles_by_user: dict[int, list[dict[str, st
     }
 
 
+def users_by_ids(user_ids: list[int]) -> list[dict[str, Any]]:
+    normalized = [int(value) for value in sorted(set(user_ids)) if int(value)]
+    if not normalized:
+        return []
+    placeholders = ", ".join("?" for _ in normalized)
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        rows = conn.execute(
+            f"""
+            SELECT id, tenant_id, username, full_name, email, is_active, is_superuser, create_time, update_time
+            FROM users
+            WHERE id IN ({placeholders}) AND deleted = 0
+            ORDER BY id
+            """,
+            tuple(normalized),
+        ).fetchall()
+        roles_by_user = roles_by_user_ids(conn, normalized)
+    order = {user_id: index for index, user_id in enumerate(normalized)}
+    items = [user_payload(dict(row), roles_by_user) for row in rows]
+    return sorted(items, key=lambda item: order.get(int(item["id"]), len(order)))
+
+
 def resolve_role_ids(conn: Any, role_keys: list[str], *, role_scope: str | None = None) -> list[int]:
     normalized_keys = []
     seen: set[str] = set()
@@ -424,6 +447,204 @@ def create_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     return user
+
+
+def import_users_batch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_rows = normalize_import_rows(rows)
+    if not normalized_rows:
+        return []
+    now = now_iso()
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        platform_id = platform_tenant_id(conn)
+        tenant_ids = sorted({int(row.get("tenant_id") or platform_id) for row in normalized_rows})
+        tenant_rows = conn.execute(
+            f"SELECT id, tenant_key FROM tenants WHERE id IN ({', '.join('?' for _ in tenant_ids)})",
+            tuple(tenant_ids),
+        ).fetchall()
+        tenant_keys = {int(row["id"]): str(row["tenant_key"]) for row in tenant_rows}
+        missing_tenants = [str(tenant_id) for tenant_id in tenant_ids if tenant_id not in tenant_keys]
+        if missing_tenants:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"tenant not found: {', '.join(missing_tenants)}")
+
+        validate_import_user_rows(conn, normalized_rows, platform_id=platform_id, tenant_keys=tenant_keys)
+        role_ids_by_scope_key = resolve_import_role_ids(conn, normalized_rows, platform_id=platform_id, tenant_keys=tenant_keys)
+        _executemany(
+            conn,
+            """
+            INSERT INTO users (tenant_id, username, full_name, email, hashed_password, is_active, is_superuser, create_time, update_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    int(row.get("tenant_id") or platform_id),
+                    row["username"],
+                    row["full_name"],
+                    row["email"],
+                    hash_password(row["password"]),
+                    bool(row["is_active"]),
+                    bool(row["is_superuser"]),
+                    now,
+                    now,
+                )
+                for row in normalized_rows
+            ],
+        )
+        user_rows = conn.execute(
+            f"""
+            SELECT id, tenant_id, username
+            FROM users
+            WHERE tenant_id IN ({', '.join('?' for _ in tenant_ids)})
+              AND create_time = ?
+            """,
+            (*tenant_ids, now),
+        ).fetchall()
+        user_ids_by_key = {
+            (int(row["tenant_id"]), str(row["username"])): int(row["id"])
+            for row in user_rows
+        }
+        role_rows: list[tuple[int, int]] = []
+        for row in normalized_rows:
+            tenant_id = int(row.get("tenant_id") or platform_id)
+            user_id = user_ids_by_key[(tenant_id, row["username"])]
+            role_scope = "platform" if tenant_keys[tenant_id] == PLATFORM_TENANT_KEY else "tenant"
+            seen_role_keys: set[str] = set()
+            for role_key in list(row.get("role_keys") or []):
+                normalized_role_key = str(role_key).strip()
+                if not normalized_role_key or normalized_role_key in seen_role_keys:
+                    continue
+                seen_role_keys.add(normalized_role_key)
+                role_id = role_ids_by_scope_key[(role_scope, normalized_role_key)]
+                role_rows.append((user_id, role_id))
+        _executemany(
+            conn,
+            """
+            INSERT INTO user_roles (user_id, role_id)
+            VALUES (?, ?)
+            """,
+            role_rows,
+        )
+
+    ordered_ids = [
+        user_ids_by_key[(int(row.get("tenant_id") or platform_id), row["username"])]
+        for row in normalized_rows
+    ]
+    return users_by_ids(ordered_ids)
+
+
+def normalize_import_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        username = normalize_username(str(row.get("username", "") or ""))
+        password = str(row.get("password", "") or "").strip()
+        if not username:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"第 {index} 行用户名不能为空")
+        if not password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"第 {index} 行初始密码不能为空")
+        normalized_rows.append(
+            {
+                "tenant_id": row.get("tenant_id"),
+                "username": username,
+                "full_name": str(row.get("full_name", "") or "").strip(),
+                "email": normalize_email(str(row.get("email", "") or "")),
+                "password": password,
+                "role_keys": list(row.get("role_keys") or []),
+                "is_active": bool(row.get("is_active", True)),
+                "is_superuser": bool(row.get("is_superuser", False)),
+            }
+        )
+    return normalized_rows
+
+
+def validate_import_user_rows(
+    conn: Any,
+    rows: list[dict[str, Any]],
+    *,
+    platform_id: int,
+    tenant_keys: dict[int, str],
+) -> None:
+    seen_usernames: set[tuple[int, str]] = set()
+    seen_emails: set[tuple[int, str]] = set()
+    for index, row in enumerate(rows, start=1):
+        tenant_id = int(row.get("tenant_id") or platform_id)
+        username_key = (tenant_id, str(row["username"]))
+        if username_key in seen_usernames:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"第 {index} 行用户名在导入文件中重复")
+        seen_usernames.add(username_key)
+        email = str(row.get("email") or "")
+        if email:
+            email_key = (tenant_id, email)
+            if email_key in seen_emails:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"第 {index} 行邮箱在导入文件中重复")
+            seen_emails.add(email_key)
+        if bool(row.get("is_superuser")) and tenant_keys[tenant_id] != PLATFORM_TENANT_KEY:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"第 {index} 行超级用户必须属于平台租户")
+
+    tenant_ids = sorted({tenant_id for tenant_id, _username in seen_usernames})
+    placeholders = ", ".join("?" for _ in tenant_ids)
+    existing_rows = conn.execute(
+        f"""
+        SELECT tenant_id, username, lower(email) AS email
+        FROM users
+        WHERE tenant_id IN ({placeholders}) AND deleted = 0
+        """,
+        tuple(tenant_ids),
+    ).fetchall()
+    existing_usernames = {(int(row["tenant_id"]), str(row["username"])) for row in existing_rows}
+    existing_emails = {
+        (int(row["tenant_id"]), str(row["email"]))
+        for row in existing_rows
+        if str(row["email"] or "")
+    }
+    for index, row in enumerate(rows, start=1):
+        tenant_id = int(row.get("tenant_id") or platform_id)
+        if (tenant_id, str(row["username"])) in existing_usernames:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"第 {index} 行用户名已存在")
+        email = str(row.get("email") or "")
+        if email and (tenant_id, email) in existing_emails:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"第 {index} 行邮箱已存在")
+
+
+def resolve_import_role_ids(
+    conn: Any,
+    rows: list[dict[str, Any]],
+    *,
+    platform_id: int,
+    tenant_keys: dict[int, str],
+) -> dict[tuple[str, str], int]:
+    requested: set[tuple[str, str]] = set()
+    for row in rows:
+        tenant_id = int(row.get("tenant_id") or platform_id)
+        role_scope = "platform" if tenant_keys[tenant_id] == PLATFORM_TENANT_KEY else "tenant"
+        for role_key in list(row.get("role_keys") or []):
+            normalized_key = str(role_key).strip()
+            if normalized_key:
+                requested.add((role_scope, normalized_key))
+    if not requested:
+        return {}
+    role_keys = sorted({role_key for _scope, role_key in requested})
+    scopes = sorted({scope for scope, _role_key in requested})
+    role_placeholders = ", ".join("?" for _ in role_keys)
+    scope_placeholders = ", ".join("?" for _ in scopes)
+    role_rows = conn.execute(
+        f"""
+        SELECT id, role_scope, role_key
+        FROM roles
+        WHERE role_key IN ({role_placeholders})
+          AND role_scope IN ({scope_placeholders})
+          AND deleted = 0
+        """,
+        (*role_keys, *scopes),
+    ).fetchall()
+    resolved = {
+        (str(row["role_scope"] or "platform"), str(row["role_key"])): int(row["id"])
+        for row in role_rows
+    }
+    missing = sorted(requested - set(resolved))
+    if missing:
+        scope, role_key = missing[0]
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"unknown role keys: {role_key} ({scope})")
+    return resolved
 
 
 def update_user(

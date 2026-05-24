@@ -19,6 +19,16 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
+def execute_many(conn: Any, sql: str, rows: list[tuple[Any, ...]]) -> None:
+    if not rows:
+        return
+    if hasattr(conn, "executemany"):
+        conn.executemany(sql, rows)
+        return
+    for row in rows:
+        conn.execute(sql, row)
+
+
 def list_departments(*, tenant_id: int, include_disabled: bool = False) -> list[Department]:
     where = ["tenant_id = ?", "deleted = 0"]
     params: list[Any] = [tenant_id]
@@ -249,6 +259,101 @@ def set_user_departments(
                     (tenant_id, user_id, department_id, is_primary, actor, actor_id, actor, actor_id, timestamp, timestamp),
                 )
     return user_departments(tenant_id=tenant_id, user_id=user_id)
+
+
+def set_users_departments_batch(
+    rows: list[dict[str, Any]],
+    *,
+    actor: str,
+    actor_id: int | None,
+) -> None:
+    normalized_rows: list[dict[str, Any]] = []
+    department_keys: set[tuple[int, int]] = set()
+    for row in rows:
+        tenant_id = int(row.get("tenant_id") or 0)
+        user_id = int(row.get("user_id") or 0)
+        if not tenant_id or not user_id:
+            continue
+        department_ids: list[int] = []
+        seen: set[int] = set()
+        for value in list(row.get("department_ids") or []):
+            department_id = int(value or 0)
+            if department_id and department_id not in seen:
+                department_ids.append(department_id)
+                seen.add(department_id)
+                department_keys.add((tenant_id, department_id))
+        primary_department_id = int(row.get("primary_department_id") or 0) or None
+        if primary_department_id and primary_department_id not in seen:
+            department_ids.insert(0, primary_department_id)
+            department_keys.add((tenant_id, primary_department_id))
+        elif department_ids and not primary_department_id:
+            primary_department_id = department_ids[0]
+        normalized_rows.append(
+            {
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "department_ids": department_ids,
+                "primary_department_id": primary_department_id,
+            }
+        )
+    if not normalized_rows:
+        return
+
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_organization_schema(conn)
+        if department_keys:
+            tenant_ids = sorted({tenant_id for tenant_id, _department_id in department_keys})
+            department_ids = sorted({department_id for _tenant_id, department_id in department_keys})
+            tenant_placeholders = ", ".join("?" for _ in tenant_ids)
+            department_placeholders = ", ".join("?" for _ in department_ids)
+            department_rows = conn.execute(
+                f"""
+                SELECT tenant_id, id
+                FROM departments
+                WHERE tenant_id IN ({tenant_placeholders})
+                  AND id IN ({department_placeholders})
+                  AND deleted = 0
+                  AND status = ?
+                """,
+                (*tenant_ids, *department_ids, STATUS_ACTIVE),
+            ).fetchall()
+            existing_departments = {(int(row["tenant_id"]), int(row["id"])) for row in department_rows}
+            missing = sorted(department_keys - existing_departments)
+            if missing:
+                tenant_id, department_id = missing[0]
+                raise OrganizationDomainError(f"department not found: {tenant_id}/{department_id}")
+
+        insert_rows: list[tuple[Any, ...]] = []
+        for row in normalized_rows:
+            tenant_id = int(row["tenant_id"])
+            user_id = int(row["user_id"])
+            for department_id in list(row.get("department_ids") or []):
+                insert_rows.append(
+                    (
+                        tenant_id,
+                        user_id,
+                        int(department_id),
+                        int(department_id) == int(row.get("primary_department_id") or 0),
+                        actor,
+                        actor_id,
+                        actor,
+                        actor_id,
+                        timestamp,
+                        timestamp,
+                    )
+                )
+        execute_many(
+            conn,
+            """
+            INSERT INTO user_department_memberships (
+                tenant_id, user_id, department_id, is_primary, active_marker,
+                creator, creator_id, editor, editor_id, create_time, update_time
+            )
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+            """,
+            insert_rows,
+        )
 
 
 def user_departments(*, tenant_id: int, user_id: int) -> list[dict[str, Any]]:

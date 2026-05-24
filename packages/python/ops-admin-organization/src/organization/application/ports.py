@@ -32,6 +32,14 @@ class OrganizationRepository(Protocol):
         actor_id: int | None,
     ) -> list[dict[str, Any]]: ...
 
+    def set_users_departments_batch(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        actor: str,
+        actor_id: int | None,
+    ) -> None: ...
+
     def user_departments(self, *, tenant_id: int, user_id: int) -> list[dict[str, Any]]: ...
 
     def users_departments(self, *, tenant_id: int, user_ids: list[int]) -> dict[int, list[dict[str, Any]]]: ...

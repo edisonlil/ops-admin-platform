@@ -8,7 +8,7 @@
     </ListPageRuntime>
 
     <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
-
+    <input ref="memberImportInputRef" type="file" accept=".xlsx" style="display: none" @change="handleMemberImportFileChange" />
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
       <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
       <n-form ref="tenantFormRef" :model="tenantForm" :rules="tenantRules" label-placement="left" :label-width="96">
@@ -144,7 +144,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref, watch } from 'vue';
+  import { computed, h, onBeforeUnmount, reactive, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeSelectOption } from 'naive-ui';
@@ -157,16 +157,24 @@
     createTenantUser,
     disableCurrentTenantUser,
     disableTenantUser,
+    downloadCurrentTenantUserImportTemplate,
+    downloadTenantUserImportTemplate,
     enableCurrentTenantUser,
     enableTenantUser,
+    exportCurrentTenantUsers,
+    exportTenantUsers,
     getCurrentTenantApiKeys,
+    getCurrentTenantUserImportJob,
     getCurrentTenantRoles,
     getCurrentTenantUsers,
     getDepartments,
     getRbacRoles,
     getTenantApiKeys,
+    getTenantUserImportJob,
     getTenantUsers,
     getTenants,
+    importCurrentTenantUsers,
+    importTenantUsers,
     revokeCurrentTenantApiKey,
     revokeTenantApiKey,
     suspendTenant,
@@ -176,6 +184,7 @@
     updateTenantApiKey,
     updateTenantUser,
   } from '@/api/business';
+  import type { ImportJob } from '@/api/business';
   import { assignTenantAppearanceTheme, getAppearanceThemes, getTenantAppearanceTheme } from '@/api/appearance';
   import AppCreatedApiKeyModal from '@/components/Application/AppCreatedApiKeyModal.vue';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
@@ -254,6 +263,9 @@
   const userFormMode = ref<'create' | 'edit'>('create');
   const savingUser = ref(false);
   const userFormRef = ref<FormInst | null>(null);
+  const memberImportInputRef = ref<HTMLInputElement | null>(null);
+  const memberImportJob = ref<ImportJob | null>(null);
+  const memberImportPollingTimer = ref<number | null>(null);
   const roleOptions = ref<SelectOption[]>([]);
   const themeOptions = ref<SelectOption[]>([]);
   const themesLoading = ref(false);
@@ -290,6 +302,7 @@
   const canToggleTenantUser = (active: boolean) => hasPermission([active ? 'tenant:users:disable' : 'tenant:users:enable']);
   const canCreateTenantApiKey = computed(() => hasPermission(['tenant:api_keys:create']));
   const canRevokeTenantApiKey = computed(() => hasPermission(['tenant:api_keys:revoke']));
+  const memberImportJobRunning = computed(() => !!memberImportJob.value?.is_active);
 
   const statusOptions = [
     { label: '启用', value: 'active' },
@@ -470,6 +483,17 @@
       view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
+        batchActions: [
+          { key: 'template', label: '下载模板', onClick: () => handleMemberDownloadTemplate() },
+          {
+            key: 'import',
+            label: memberImportJobRunning.value ? '导入中' : '导入成员',
+            type: memberImportJobRunning.value ? 'warning' : 'primary',
+            disabled: !canCreateTenantUser.value || memberImportJobRunning.value,
+            onClick: () => memberImportInputRef.value?.click(),
+          },
+          { key: 'export', label: '导出成员', onClick: () => handleMemberExport() },
+        ],
         rightTools: ['refresh'],
       },
       pagination: { pageSize: 20 },
@@ -487,6 +511,17 @@
       view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
+        batchActions: [
+          { key: 'template', label: '下载模板', onClick: () => handleMemberDownloadTemplate() },
+          {
+            key: 'import',
+            label: memberImportJobRunning.value ? '导入中' : '导入成员',
+            type: memberImportJobRunning.value ? 'warning' : 'primary',
+            disabled: !canCreateTenantUser.value || memberImportJobRunning.value,
+            onClick: () => memberImportInputRef.value?.click(),
+          },
+          { key: 'export', label: '导出成员', onClick: () => handleMemberExport() },
+        ],
         rightTools: ['refresh'],
       },
       pagination: { pageSize: 20 },
@@ -611,10 +646,88 @@
     })();
   }
 
+  async function handleMemberDownloadTemplate() {
+    if (!activeTenant.value) return;
+    try {
+      if (isPlatformTenantManagement.value) await downloadTenantUserImportTemplate(activeTenant.value.id);
+      else await downloadCurrentTenantUserImportTemplate();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '成员导入模板下载失败');
+    }
+  }
+
+  async function handleMemberExport() {
+    if (!activeTenant.value) return;
+    try {
+      if (isPlatformTenantManagement.value) await exportTenantUsers(activeTenant.value.id);
+      else await exportCurrentTenantUsers();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '成员导出失败');
+    }
+  }
+
+  async function handleMemberImportFileChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !activeTenant.value) return;
+    if (memberImportJobRunning.value) {
+      message.warning('已有导入任务正在执行，请等待完成后再导入');
+      return;
+    }
+    try {
+      const payload = isPlatformTenantManagement.value
+        ? await importTenantUsers(activeTenant.value.id, file)
+        : await importCurrentTenantUsers(file);
+      memberImportJob.value = payload;
+      message.success('导入任务已提交');
+      startMemberImportPolling();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '成员导入失败');
+    }
+  }
+
+  async function refreshMemberImportJobStatus(showFinishedMessage = true) {
+    if (!activeTenant.value) return;
+    const payload = isPlatformTenantManagement.value
+      ? await getTenantUserImportJob(activeTenant.value.id)
+      : await getCurrentTenantUserImportJob();
+    memberImportJob.value = payload.item || null;
+    if (!memberImportJob.value?.is_active) {
+      stopMemberImportPolling();
+      if (memberImportJob.value?.status === 'succeeded') {
+        if (showFinishedMessage) message.success(`导入完成，共导入 ${memberImportJob.value.result_count || 0} 个成员`);
+        await loadTenantUsers();
+      } else if (memberImportJob.value?.status === 'failed' && showFinishedMessage) {
+        message.error(memberImportJob.value.error || '成员导入失败');
+      }
+    }
+  }
+
+  function startMemberImportPolling() {
+    stopMemberImportPolling();
+    memberImportPollingTimer.value = window.setInterval(() => {
+      refreshMemberImportJobStatus().catch((error) => {
+        message.error(error instanceof Error ? error.message : '导入进度查询失败');
+        stopMemberImportPolling();
+      });
+    }, 1500);
+    refreshMemberImportJobStatus(false).catch(() => undefined);
+  }
+
+  function stopMemberImportPolling() {
+    if (memberImportPollingTimer.value !== null) {
+      window.clearInterval(memberImportPollingTimer.value);
+      memberImportPollingTimer.value = null;
+    }
+  }
+
   async function openDetail(row: TenantRow) {
     activeTenant.value = row;
     detailVisible.value = true;
     await Promise.all([loadTenantUsers(), loadTenantKeys()]);
+    await refreshMemberImportJobStatus(false);
+    if (memberImportJobRunning.value) startMemberImportPolling();
   }
 
   async function ensureRoles() {
@@ -869,6 +982,8 @@
         activeTenant.value = tenant ? { ...tenant, user_count: 0, api_key_count: 0 } : null;
         tenants.value = activeTenant.value ? [activeTenant.value] : [];
         await loadTenantUsers();
+        await refreshMemberImportJobStatus(false);
+        if (memberImportJobRunning.value) startMemberImportPolling();
       }
     } finally {
       loading.value = false;
@@ -881,11 +996,14 @@
       roleOptions.value = [];
       tenantUsers.value = [];
       tenantKeys.value = [];
+      memberImportJob.value = null;
+      stopMemberImportPolling();
       reload();
     }
   );
 
   reload();
+  onBeforeUnmount(() => stopMemberImportPolling());
 </script>
 
 <style lang="less" scoped>

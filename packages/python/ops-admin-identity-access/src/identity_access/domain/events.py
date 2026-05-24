@@ -75,6 +75,18 @@ def user_logged_in(username: str, *, correlation_id: str | None = None) -> Domai
     )
 
 
+def users_imported(items: list[dict[str, Any]], *, correlation_id: str | None = None) -> DomainEvent:
+    return DomainEvent(
+        event_type="identity.users_imported",
+        source=SOURCE,
+        payload={
+            "count": len(items),
+            "users": [user_event_payload(item) for item in items],
+        },
+        correlation_id=correlation_id,
+    )
+
+
 def api_key_created(item: dict[str, Any], *, correlation_id: str | None = None) -> DomainEvent:
     return DomainEvent(
         event_type="identity.api_key_created",

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_login.exceptions import InvalidCredentialsException
 
@@ -184,6 +187,49 @@ def tenant_users(
     return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
 
 
+@router.get("/tenants/{tenant_id}/users/export")
+def export_tenant_users(
+    tenant_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> StreamingResponse:
+    filename = quote("租户成员导出.xlsx")
+    return StreamingResponse(
+        services.export_tenant_users(tenant_id),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/tenants/{tenant_id}/users/import-template")
+def export_tenant_user_import_template(
+    tenant_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> StreamingResponse:
+    filename = quote("租户成员导入模板.xlsx")
+    return StreamingResponse(
+        services.export_tenant_user_import_template(tenant_id),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/tenants/{tenant_id}/users/import")
+async def import_tenant_users(
+    tenant_id: int,
+    upload: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:create")),
+) -> dict[str, Any]:
+    return ok(services.import_tenant_users(tenant_id, await upload.read(), current_user=current_user))
+
+
+@router.get("/tenants/{tenant_id}/users/import-job")
+def tenant_user_import_job(
+    tenant_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> dict[str, Any]:
+    return ok({"item": services.current_import_job()})
+
+
 @router.post("/tenants/{tenant_id}/users")
 def create_tenant_user(
     tenant_id: int,
@@ -281,6 +327,48 @@ def current_tenant_users(
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
     return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+
+
+@router.get("/tenant/users/export")
+def export_current_tenant_users(
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+) -> StreamingResponse:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    filename = quote("租户成员导出.xlsx")
+    return StreamingResponse(
+        services.export_tenant_users(tenant_id),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/tenant/users/import-template")
+def export_current_tenant_user_import_template(
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+) -> StreamingResponse:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    filename = quote("租户成员导入模板.xlsx")
+    return StreamingResponse(
+        services.export_tenant_user_import_template(tenant_id),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/tenant/users/import")
+async def import_current_tenant_users(
+    upload: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:create")),
+) -> dict[str, Any]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    return ok(services.import_tenant_users(tenant_id, await upload.read(), current_user=current_user))
+
+
+@router.get("/tenant/users/import-job")
+def current_tenant_user_import_job(
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
+) -> dict[str, Any]:
+    return ok({"item": services.current_import_job()})
 
 
 @router.post("/tenant/users")
@@ -383,6 +471,45 @@ def rbac_users(
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
 ) -> dict[str, Any]:
     return ok(services.list_platform_users_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+
+
+@router.get("/rbac/users/export")
+def export_rbac_users(
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
+) -> StreamingResponse:
+    filename = quote("用户导出.xlsx")
+    return StreamingResponse(
+        services.export_platform_users(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/rbac/users/import-template")
+def export_rbac_user_import_template(
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
+) -> StreamingResponse:
+    filename = quote("用户导入模板.xlsx")
+    return StreamingResponse(
+        services.export_user_import_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/rbac/users/import")
+async def import_rbac_users(
+    upload: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("system:users:create")),
+) -> dict[str, Any]:
+    return ok(services.import_platform_users(await upload.read(), current_user=current_user))
+
+
+@router.get("/rbac/users/import-job")
+def rbac_user_import_job(
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
+) -> dict[str, Any]:
+    return ok({"item": services.current_import_job()})
 
 
 @router.post("/rbac/users")

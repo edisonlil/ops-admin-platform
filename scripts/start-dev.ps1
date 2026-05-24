@@ -323,6 +323,7 @@ missing = [
         "fastapi",
         "uvicorn",
         "pydantic",
+        "openpyxl",
         "sqlalchemy",
         "system",
         "identity_access",

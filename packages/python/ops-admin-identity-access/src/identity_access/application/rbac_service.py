@@ -65,6 +65,10 @@ def create_user(
     ))
 
 
+def import_users_batch(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _after_access_context_change({"items": repo().import_users_batch(rows)})["items"]
+
+
 def update_user(
     user_id: int,
     *,

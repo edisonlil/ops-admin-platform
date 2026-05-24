@@ -69,6 +69,17 @@ export interface RbacUserUpdatePayload {
   is_superuser?: boolean;
 }
 
+export interface ImportJob {
+  id: string;
+  kind: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  progress: number;
+  message: string;
+  result_count?: number;
+  error?: string;
+  is_active?: boolean;
+}
+
 export interface DepartmentPayload {
   id?: number;
   tenant_id?: number | null;
@@ -296,6 +307,54 @@ function authHeaders() {
     : {};
 }
 
+async function downloadBusinessFile(path: string, filename: string) {
+  const response = await fetch(buildBusinessApiUrl(path), {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, '文件下载失败'));
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function importBusinessFile(path: string, file: File, fallback: string) {
+  const form = new FormData();
+  form.append('upload', file);
+  const response = await fetch(buildBusinessApiUrl(path), {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, fallback));
+  }
+  const payload = await response.json();
+  if (payload?.success === false) {
+    throw new Error(payload?.message || fallback);
+  }
+  return payload?.data || payload;
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = await response.clone().json();
+    return payload?.message || payload?.detail || fallback;
+  } catch {
+    return response.statusText || fallback;
+  }
+}
+
 function buildBusinessApiUrl(path: string) {
   const { apiUrl, urlPrefix } = useGlobSetting();
   const base = trimTrailingSlashes(apiUrl || '');
@@ -384,6 +443,38 @@ export function getTenantUsers(tenantId: number, params: PageParams & SortParams
 
 export function getCurrentTenantUsers(params: PageParams & SortParams = {}) {
   return Alova.Get('/tenant/users', { params: withNoCacheParams(params) });
+}
+
+export function getTenantUserImportJob(tenantId: number) {
+  return Alova.Get<{ item: ImportJob | null }>(`/tenants/${tenantId}/users/import-job`, { params: withNoCacheParams() });
+}
+
+export function getCurrentTenantUserImportJob() {
+  return Alova.Get<{ item: ImportJob | null }>('/tenant/users/import-job', { params: withNoCacheParams() });
+}
+
+export async function downloadTenantUserImportTemplate(tenantId: number) {
+  await downloadBusinessFile(`/tenants/${tenantId}/users/import-template`, '租户成员导入模板.xlsx');
+}
+
+export async function downloadCurrentTenantUserImportTemplate() {
+  await downloadBusinessFile('/tenant/users/import-template', '租户成员导入模板.xlsx');
+}
+
+export async function exportTenantUsers(tenantId: number) {
+  await downloadBusinessFile(`/tenants/${tenantId}/users/export`, '租户成员导出.xlsx');
+}
+
+export async function exportCurrentTenantUsers() {
+  await downloadBusinessFile('/tenant/users/export', '租户成员导出.xlsx');
+}
+
+export async function importTenantUsers(tenantId: number, file: File) {
+  return importBusinessFile(`/tenants/${tenantId}/users/import`, file, '租户成员导入失败');
+}
+
+export async function importCurrentTenantUsers(file: File) {
+  return importBusinessFile('/tenant/users/import', file, '租户成员导入失败');
 }
 
 export function getCurrentTenantRoles(params: SortParams = {}) {
@@ -498,6 +589,10 @@ export function getRbacUsers(params: PageParams & SortParams = {}) {
   return Alova.Get('/rbac/users', { params: withNoCacheParams(params) });
 }
 
+export function getRbacUserImportJob() {
+  return Alova.Get<{ item: ImportJob | null }>('/rbac/users/import-job', { params: withNoCacheParams() });
+}
+
 export function createRbacUser(payload: RbacUserCreatePayload) {
   return Alova.Post('/rbac/users', payload);
 }
@@ -512,6 +607,18 @@ export function enableRbacUser(userId: number) {
 
 export function disableRbacUser(userId: number) {
   return Alova.Post(`/rbac/users/${userId}/disable`);
+}
+
+export async function downloadRbacUserImportTemplate() {
+  await downloadBusinessFile('/rbac/users/import-template', '用户导入模板.xlsx');
+}
+
+export async function exportRbacUsers() {
+  await downloadBusinessFile('/rbac/users/export', '用户导出.xlsx');
+}
+
+export async function importRbacUsers(file: File) {
+  return importBusinessFile('/rbac/users/import', file, '用户导入失败');
 }
 
 export function getDepartments(params: { include_disabled?: boolean; tenant_id?: number | null } & SortParams = {}) {

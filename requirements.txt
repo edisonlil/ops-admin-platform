@@ -7,6 +7,7 @@ SQLAlchemy
 fastapi-login
 pwdlib[argon2]
 python-multipart
+openpyxl
 minio>=7.2,<8
 APScheduler>=3.10,<4
 -e packages/python/ops-admin-system

@@ -14,6 +14,11 @@
         <n-button type="primary" @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
+    <input ref="importInputRef" type="file" accept=".xlsx" style="display: none" @change="handleImportFileChange" />
+    <n-alert v-if="importJob" class="user-import-progress" :type="importJob.status === 'failed' ? 'error' : importJob.status === 'succeeded' ? 'success' : 'info'" :title="importJobTitle">
+      <n-progress type="line" :percentage="importProgress" :status="importProgressStatus" />
+      <div class="user-import-progress__message">{{ importJobMessage }}</div>
+    </n-alert>
 
     <n-modal v-model:show="userModalVisible" preset="card" :style="{ width: '680px' }" :bordered="false">
       <template #header>
@@ -79,10 +84,22 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref } from 'vue';
+  import { computed, h, onBeforeUnmount, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
-  import { createRbacUser, disableRbacUser, enableRbacUser, getRbacRoles, getRbacUsers, updateRbacUser } from '@/api/business';
+  import {
+    createRbacUser,
+    disableRbacUser,
+    downloadRbacUserImportTemplate,
+    enableRbacUser,
+    exportRbacUsers,
+    getRbacUserImportJob,
+    getRbacRoles,
+    getRbacUsers,
+    importRbacUsers,
+    updateRbacUser,
+  } from '@/api/business';
+  import type { ImportJob } from '@/api/business';
   import AppStatusGroup from '@/components/Application/AppStatusGroup.vue';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
@@ -126,6 +143,9 @@
   const rows = ref<UserRow[]>([]);
   const paginationTotal = ref(0);
   const roleOptions = ref<SelectOption[]>([]);
+  const importInputRef = ref<HTMLInputElement | null>(null);
+  const importJob = ref<ImportJob | null>(null);
+  const importPollingTimer = ref<number | null>(null);
   const userFormRef = ref<FormInst | null>(null);
   const userModalVisible = ref(false);
   const userFormMode = ref<'create' | 'edit'>('create');
@@ -151,6 +171,11 @@
   ];
   const userModalTitle = computed(() => (userFormMode.value === 'create' ? '新增用户' : '编辑用户'));
   const userSubmitText = computed(() => (userFormMode.value === 'create' ? '创建' : '保存'));
+  const importJobRunning = computed(() => !!importJob.value?.is_active);
+  const importProgress = computed(() => Math.max(0, Math.min(100, Number(importJob.value?.progress || 0))));
+  const importProgressStatus = computed(() => (importJob.value?.status === 'failed' ? 'error' : importJob.value?.status === 'succeeded' ? 'success' : 'info'));
+  const importJobTitle = computed(() => (importJob.value?.status === 'failed' ? '导入失败' : importJob.value?.status === 'succeeded' ? '导入完成' : '正在导入用户'));
+  const importJobMessage = computed(() => importJob.value?.error || importJob.value?.message || '正在处理导入任务');
 
   const userRules = computed<FormRules>(() => ({
     username: [{ required: true, message: '请输入用户名', trigger: ['blur', 'input'] }],
@@ -248,7 +273,7 @@
     },
   ];
 
-  const userListPage = defineListPage<UserRow>({
+  const userListPage = computed(() => defineListPage<UserRow>({
     id: 'rbac.users',
     title: '用户管理',
     description: '统一管理用户、角色关系、绑定邮箱和用户状态。',
@@ -286,10 +311,29 @@
       primaryAction: hasPermission(['system:users:create'])
         ? { key: 'create', label: '新增用户', type: 'primary', onClick: () => handleCreate() }
         : undefined,
+      batchActions: [
+        {
+          key: 'template',
+          label: '下载模板',
+          onClick: () => handleDownloadTemplate(),
+        },
+        {
+          key: 'import',
+          label: '导入用户',
+          type: 'primary',
+          disabled: !hasPermission(['system:users:create']) || importJobRunning.value,
+          onClick: () => importInputRef.value?.click(),
+        },
+        {
+          key: 'export',
+          label: '导出用户',
+          onClick: () => handleExport(),
+        },
+      ],
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
-  });
+  }));
 
   function resetUserForm() {
     userForm.id = null;
@@ -399,6 +443,75 @@
     })();
   }
 
+  async function handleDownloadTemplate() {
+    try {
+      await downloadRbacUserImportTemplate();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '模板下载失败');
+    }
+  }
+
+  async function handleExport() {
+    try {
+      await exportRbacUsers();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '用户导出失败');
+    }
+  }
+
+  async function handleImportFileChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    if (importJobRunning.value) {
+      message.warning('已有导入任务正在执行，请等待完成后再导入');
+      return;
+    }
+    try {
+      const payload = await importRbacUsers(file);
+      importJob.value = payload;
+      message.success('导入任务已提交');
+      startImportPolling();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '用户导入失败');
+    }
+  }
+
+  async function refreshImportJobStatus(showFinishedMessage = true) {
+    const payload = await getRbacUserImportJob();
+    importJob.value = payload.item || null;
+    if (!importJob.value?.is_active) {
+      stopImportPolling();
+      if (importJob.value?.status === 'succeeded') {
+        if (showFinishedMessage) message.success(`导入完成，共导入 ${importJob.value.result_count || 0} 个用户`);
+        await reload();
+      } else if (importJob.value?.status === 'failed' && showFinishedMessage) {
+        message.error(importJob.value.error || '用户导入失败');
+      }
+    }
+  }
+
+  function startImportPolling() {
+    stopImportPolling();
+    importPollingTimer.value = window.setInterval(() => {
+      refreshImportJobStatus().catch((error) => {
+        message.error(error instanceof Error ? error.message : '导入进度查询失败');
+        stopImportPolling();
+      });
+    }, 1500);
+    refreshImportJobStatus(false).catch(() => undefined);
+  }
+
+  function stopImportPolling() {
+    if (importPollingTimer.value !== null) {
+      window.clearInterval(importPollingTimer.value);
+      importPollingTimer.value = null;
+    }
+  }
+
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
@@ -417,4 +530,22 @@
   }
 
   reload();
+  refreshImportJobStatus(false)
+    .then(() => {
+      if (importJobRunning.value) startImportPolling();
+    })
+    .catch(() => undefined);
+  onBeforeUnmount(() => stopImportPolling());
 </script>
+
+<style lang="less" scoped>
+  .user-import-progress {
+    margin-top: 12px;
+  }
+
+  .user-import-progress__message {
+    margin-top: 6px;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+  }
+</style>

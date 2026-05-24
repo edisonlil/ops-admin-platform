@@ -94,6 +94,12 @@ def set_user_departments(
     )
 
 
+def set_users_departments_batch(rows: list[dict[str, Any]], current_user: dict[str, Any] | None = None) -> None:
+    actor = current_actor(current_user or {})
+    actor_id = current_user_id_or_none(current_user or {})
+    repo().set_users_departments_batch(rows, actor=actor, actor_id=actor_id)
+
+
 def user_departments(*, tenant_id: int, user_id: int) -> list[dict[str, Any]]:
     return repo().user_departments(tenant_id=tenant_id, user_id=user_id)
 
