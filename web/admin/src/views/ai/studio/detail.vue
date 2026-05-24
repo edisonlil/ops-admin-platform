@@ -1171,6 +1171,27 @@
         </template>
       </n-modal>
 
+      <n-modal
+        v-model:show="workflowImportConfirmVisible"
+        preset="card"
+        title="确认导入 Workflow 编排"
+        class="workflow-import-modal"
+        :style="{ width: '520px' }"
+        :bordered="false"
+        :mask-closable="!importingWorkflow"
+      >
+        <p class="workflow-import-modal__text">
+          导入后会替换当前应用的 Workflow 编排，应用名称、Key 和发布状态会保留。
+        </p>
+        <p class="workflow-import-modal__file">文件：{{ pendingWorkflowImportFileName || '未选择文件' }}</p>
+        <template #footer>
+          <div class="workflow-import-modal__footer">
+            <n-button :disabled="importingWorkflow" @click="cancelWorkflowImport">取消</n-button>
+            <n-button type="primary" :loading="importingWorkflow" @click="confirmWorkflowImport">确定导入</n-button>
+          </div>
+        </template>
+      </n-modal>
+
     </n-spin>
   </DetailPageRuntime>
 </template>
@@ -1290,6 +1311,9 @@
   const running = ref(false);
   const exportingWorkflow = ref(false);
   const importingWorkflow = ref(false);
+  const workflowImportConfirmVisible = ref(false);
+  const pendingWorkflowImportFileName = ref('');
+  const pendingWorkflowImportPayload = ref<Record<string, unknown> | null>(null);
   const activeWorkspace = ref<WorkspaceKey>('orchestration');
   const workbenchRef = ref<HTMLElement | null>(null);
   const workflowCanvasPanelRef = ref<HTMLElement | null>(null);
@@ -1956,20 +1980,42 @@
     const file = input.files?.[0];
     input.value = '';
     if (!file || importingWorkflow.value) return;
-    if (!window.confirm('导入后会替换当前应用的 Workflow 编排，应用名称、Key 和发布状态会保留。是否继续？')) return;
-    importingWorkflow.value = true;
     try {
       const text = await file.text();
-      const payload = JSON.parse(text) as Record<string, unknown>;
-      const result = await importAiApplicationWorkflow(form.app_key, payload);
+      pendingWorkflowImportPayload.value = JSON.parse(text) as Record<string, unknown>;
+      pendingWorkflowImportFileName.value = file.name;
+      workflowImportConfirmVisible.value = true;
+    } catch (error) {
+      clearPendingWorkflowImport();
+      message.error(runtimeErrorMessage(error));
+    }
+  }
+
+  async function confirmWorkflowImport() {
+    if (!pendingWorkflowImportPayload.value || importingWorkflow.value) return;
+    importingWorkflow.value = true;
+    try {
+      const result = await importAiApplicationWorkflow(form.app_key, pendingWorkflowImportPayload.value);
       selectApp(result.application);
       activeWorkspace.value = 'orchestration';
+      clearPendingWorkflowImport();
       message.success('Workflow 编排已导入');
     } catch (error) {
       message.error(runtimeErrorMessage(error));
     } finally {
       importingWorkflow.value = false;
     }
+  }
+
+  function cancelWorkflowImport() {
+    if (importingWorkflow.value) return;
+    clearPendingWorkflowImport();
+  }
+
+  function clearPendingWorkflowImport() {
+    workflowImportConfirmVisible.value = false;
+    pendingWorkflowImportFileName.value = '';
+    pendingWorkflowImportPayload.value = null;
   }
 
   async function runDraft() {
@@ -3765,6 +3811,25 @@
 
   .workflow-import-input {
     display: none;
+  }
+
+  .workflow-import-modal__text,
+  .workflow-import-modal__file {
+    margin: 0;
+    color: var(--app-text-color-2);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .workflow-import-modal__file {
+    margin-top: 8px;
+    color: var(--app-text-color-3);
+  }
+
+  .workflow-import-modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .workflow-canvas-panel {
