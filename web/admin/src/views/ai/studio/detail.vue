@@ -63,6 +63,12 @@
               class="workflow-canvas"
               fit-view-on-init
               :default-edge-options="workflowDefaultEdgeOptions"
+              :delete-key-code="null"
+              :selection-key-code="null"
+              :multi-selection-key-code="null"
+              :pan-activation-key-code="null"
+              :zoom-activation-key-code="null"
+              :disable-keyboard-a11y="true"
               @connect="handleWorkflowConnect"
               @edge-click="handleWorkflowEdgeClick"
               @node-click="handleWorkflowNodeClick"
@@ -481,8 +487,8 @@
                       v-model:value="selectedWorkflowNode.data.sql"
                       class="workflow-sql-editor"
                       language="sql"
-                      :min-height="240"
-                      :max-height="420"
+                      height="240px"
+                      :auto-height="false"
                       :read-only="false"
                     />
                   </n-form-item>
@@ -502,8 +508,8 @@
                       v-model:value="selectedWorkflowNode.data.params_text"
                       class="workflow-json-editor"
                       language="json"
-                      :min-height="150"
-                      :max-height="280"
+                      height="180px"
+                      :auto-height="false"
                       :read-only="false"
                     />
                   </n-form-item>

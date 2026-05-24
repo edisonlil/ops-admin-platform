@@ -1,5 +1,5 @@
 <template>
-  <div ref="containerRef" class="code-preview nodrag nopan nowheel" @keydown.stop @keyup.stop @keypress.stop></div>
+  <div ref="containerRef" class="code-preview nodrag nopan nowheel"></div>
 </template>
 
 <script lang="ts" setup>
@@ -39,9 +39,6 @@
   let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let contentSizeDisposable: { dispose: () => void } | null = null;
-  let keydownDisposable: { dispose: () => void } | null = null;
-  let focusDisposable: { dispose: () => void } | null = null;
-  let editorDomKeyboardDisposables: Array<{ dispose: () => void }> = [];
   let layoutFrame: number | null = null;
   let disposed = false;
 
@@ -94,27 +91,6 @@
     });
   }
 
-  function stopEditorDomKeyboardPropagation(event: KeyboardEvent) {
-    if (props.readOnly) return;
-    event.stopPropagation();
-  }
-
-  function installEditorDomKeyboardGuards() {
-    editorDomKeyboardDisposables.forEach((item) => item.dispose());
-    editorDomKeyboardDisposables = [];
-    const domNode = editor?.getDomNode();
-    if (!domNode) return;
-    const targets = Array.from(domNode.querySelectorAll<HTMLElement>('textarea.inputarea, textarea, [contenteditable="true"]'));
-    targets.forEach((target) => {
-      (['keydown', 'keyup', 'keypress'] as const).forEach((eventName) => {
-        target.addEventListener(eventName, stopEditorDomKeyboardPropagation, true);
-        editorDomKeyboardDisposables.push({
-          dispose: () => target.removeEventListener(eventName, stopEditorDomKeyboardPropagation, true),
-        });
-      });
-    });
-  }
-
   onMounted(async () => {
     if (!containerRef.value) return;
     containerRef.value.style.height = props.autoHeight
@@ -148,11 +124,6 @@
       overviewRulerLanes: 0,
     });
     contentSizeDisposable = editor.onDidContentSizeChange(scheduleEditorLayout);
-    keydownDisposable = editor.onKeyDown((event) => {
-      if (props.readOnly) return;
-      event.browserEvent.stopPropagation();
-    });
-    focusDisposable = editor.onDidFocusEditorText(installEditorDomKeyboardGuards);
     editor.onDidChangeModelContent(() => {
       if (props.readOnly) return;
       const value = editor?.getValue() ?? '';
@@ -160,7 +131,6 @@
     });
     resizeObserver = new ResizeObserver(scheduleEditorLayout);
     resizeObserver.observe(containerRef.value);
-    installEditorDomKeyboardGuards();
     scheduleEditorLayout();
   });
 
@@ -201,16 +171,10 @@
     if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame);
     resizeObserver?.disconnect();
     contentSizeDisposable?.dispose();
-    keydownDisposable?.dispose();
-    focusDisposable?.dispose();
-    editorDomKeyboardDisposables.forEach((item) => item.dispose());
     editor?.dispose();
     layoutFrame = null;
     resizeObserver = null;
     contentSizeDisposable = null;
-    keydownDisposable = null;
-    focusDisposable = null;
-    editorDomKeyboardDisposables = [];
     editor = null;
   });
 </script>
