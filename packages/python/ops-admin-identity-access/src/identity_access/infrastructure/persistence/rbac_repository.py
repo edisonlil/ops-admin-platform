@@ -340,6 +340,232 @@ def sync_tenant_menu_overrides_for_key(conn: Any, menu_key: str) -> None:
         )
 
 
+def menu_ancestor_keys(conn: Any, menu_key: str) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT menu_key, parent_key
+        FROM menus
+        WHERE menu_scope = ?
+        """,
+        ("tenant",),
+    ).fetchall()
+    menu_by_key = {str(row["menu_key"]): dict(row) for row in rows}
+    ancestors: list[str] = []
+    parent_key = str(menu_by_key.get(menu_key, {}).get("parent_key", "") or "")
+    visited: set[str] = set()
+    while parent_key and parent_key in menu_by_key and parent_key not in visited:
+        visited.add(parent_key)
+        ancestors.append(parent_key)
+        parent_key = str(menu_by_key[parent_key].get("parent_key", "") or "")
+    return ancestors
+
+
+def normalize_tenant_ids(conn: Any, tenant_ids: list[int]) -> list[int]:
+    normalized = sorted({int(tenant_id) for tenant_id in tenant_ids if int(tenant_id or 0) > 0})
+    if not normalized:
+        return []
+    placeholders = ", ".join("?" for _ in normalized)
+    rows = conn.execute(
+        f"""
+        SELECT id
+        FROM tenants
+        WHERE tenant_key <> ?
+          AND id IN ({placeholders})
+        ORDER BY id
+        """,
+        ("platform", *normalized),
+    ).fetchall()
+    found = [int(row["id"]) for row in rows]
+    missing = sorted(set(normalized) - set(found))
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown tenant ids: {', '.join(str(item) for item in missing)}",
+        )
+    return found
+
+
+def ensure_tenant_override(conn: Any, *, tenant_id: int, menu_key: str, is_enabled: bool) -> None:
+    now = now_iso()
+    existing = conn.execute(
+        """
+        SELECT 1
+        FROM tenant_menu_overrides
+        WHERE tenant_id = ? AND menu_key = ?
+        """,
+        (tenant_id, menu_key),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """
+            UPDATE tenant_menu_overrides
+            SET is_enabled = ?, update_time = ?
+            WHERE tenant_id = ? AND menu_key = ?
+            """,
+            (bool(is_enabled), now, tenant_id, menu_key),
+        )
+        return
+    conn.execute(
+        """
+        INSERT INTO tenant_menu_overrides (tenant_id, menu_key, is_enabled, create_time, update_time)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (tenant_id, menu_key, bool(is_enabled), now, now),
+    )
+
+
+def list_menu_tenant_assignments(
+    menu_key: str,
+    *,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    normalized_key = menu_key.strip()
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        menu_row = conn.execute(
+            """
+            SELECT *
+            FROM menus
+            WHERE menu_key = ?
+              AND menu_scope = ?
+            """,
+            (normalized_key, "tenant"),
+        ).fetchone()
+        if not menu_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant menu not found")
+
+        params: list[Any] = [normalized_key, "platform"]
+        where = "WHERE t.tenant_key <> ?"
+        if q and q.strip():
+            where += " AND (lower(t.tenant_key) LIKE ? OR lower(t.name) LIKE ?)"
+            like = f"%{q.strip().lower()}%"
+            params.extend([like, like])
+
+        sort_columns = {
+            "id": "t.id",
+            "tenant_key": "t.tenant_key",
+            "key": "t.tenant_key",
+            "name": "t.name",
+            "tenant_name": "t.name",
+            "status": "t.status",
+            "tenant_status": "t.status",
+            "is_enabled": "is_enabled",
+            "update_time": "tmo.update_time",
+        }
+        sort_key = (sort_by or "").strip()
+        sort_direction = "DESC" if (sort_dir or "").strip().lower() == "desc" else "ASC"
+        order_by = f"{sort_columns.get(sort_key, 't.id')} {sort_direction}, t.id ASC" if sort_key in sort_columns else "t.id ASC"
+        current_page = max(1, int(page or 1))
+        current_page_size = min(100, max(1, int(page_size or 20)))
+        offset = (current_page - 1) * current_page_size
+
+        total_row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM tenants t
+            LEFT JOIN tenant_menu_overrides tmo ON tmo.tenant_id = t.id AND tmo.menu_key = ?
+            {where}
+            """,
+            tuple(params),
+        ).fetchone()
+        rows = conn.execute(
+            f"""
+            SELECT
+                t.id,
+                t.tenant_key,
+                t.name,
+                t.status,
+                tmo.is_enabled,
+                tmo.update_time,
+                CASE WHEN tmo.tenant_id IS NULL THEN 0 ELSE 1 END AS has_override
+            FROM tenants t
+            LEFT JOIN tenant_menu_overrides tmo ON tmo.tenant_id = t.id AND tmo.menu_key = ?
+            {where}
+            ORDER BY {order_by}
+            LIMIT ? OFFSET ?
+            """,
+            (*params, current_page_size, offset),
+        ).fetchall()
+        assigned_rows = conn.execute(
+            """
+            SELECT tenant_id
+            FROM tenant_menu_overrides
+            WHERE menu_key = ?
+              AND is_enabled = ?
+            ORDER BY tenant_id
+            """,
+            (normalized_key, True),
+        ).fetchall()
+
+    return {
+        "menu": row_to_menu(dict(menu_row)),
+        "assigned_tenant_ids": [int(row["tenant_id"]) for row in assigned_rows],
+        "items": [
+            {
+                "tenant_id": int(row["id"]),
+                "tenant_key": str(row["tenant_key"]),
+                "tenant_name": str(row["name"]),
+                "tenant_status": str(row["status"] or "active"),
+                "is_enabled": bool(row["is_enabled"]),
+                "has_override": bool(row["has_override"]),
+                "update_time": str(row["update_time"] or ""),
+            }
+            for row in rows
+        ],
+        "pagination": {"page": current_page, "page_size": current_page_size, "total": int(total_row["total"] if total_row else 0)},
+    }
+
+
+def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[str, Any]:
+    normalized_key = menu_key.strip()
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        menu_row = conn.execute(
+            """
+            SELECT *
+            FROM menus
+            WHERE menu_key = ?
+              AND menu_scope = ?
+            """,
+            (normalized_key, "tenant"),
+        ).fetchone()
+        if not menu_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant menu not found")
+
+        selected_ids = normalize_tenant_ids(conn, tenant_ids)
+        selected_set = set(selected_ids)
+        tenant_rows = conn.execute(
+            """
+            SELECT id
+            FROM tenants
+            WHERE tenant_key <> ?
+            ORDER BY id
+            """,
+            ("platform",),
+        ).fetchall()
+        all_tenant_ids = [int(row["id"]) for row in tenant_rows]
+        for tenant_id in all_tenant_ids:
+            ensure_tenant_override(
+                conn,
+                tenant_id=tenant_id,
+                menu_key=normalized_key,
+                is_enabled=tenant_id in selected_set,
+            )
+        for parent_key in menu_ancestor_keys(conn, normalized_key):
+            for tenant_id in selected_ids:
+                ensure_tenant_override(conn, tenant_id=tenant_id, menu_key=parent_key, is_enabled=True)
+
+    return {
+        "menu": row_to_menu(dict(menu_row)),
+        "assigned_tenant_ids": selected_ids,
+        "assigned_count": len(selected_ids),
+    }
+
+
 def sync_role_access(conn: Any, role_id: int, menu_keys: list[str]) -> None:
     role_row = conn.execute("SELECT role_scope FROM roles WHERE id = ?", (role_id,)).fetchone()
     role_scope = str(role_row["role_scope"] if role_row else "platform" or "platform")

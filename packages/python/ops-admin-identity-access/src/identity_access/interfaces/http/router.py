@@ -14,6 +14,7 @@ from identity_access.interfaces.http.dtos import (
     ApiKeyUpdateRequest,
     CurrentProfileUpdateRequest,
     RbacMenuCreateRequest,
+    RbacMenuTenantAssignmentsUpdateRequest,
     RbacMenuUpdateRequest,
     RbacRoleCreateRequest,
     RbacRoleMenusUpdateRequest,
@@ -616,6 +617,28 @@ def rbac_menus(
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access")),
 ) -> dict[str, Any]:
     return ok({"items": services.list_menus(menu_scope=scope, sort_by=sort_by, sort_dir=sort_dir)})
+
+
+@router.get("/rbac/menus/{menu_key}/tenant-assignments")
+def rbac_menu_tenant_assignments(
+    menu_key: str,
+    q: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str | None = Query(default=None),
+    sort_dir: str | None = Query(default=None),
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access")),
+) -> dict[str, Any]:
+    return ok(services.list_menu_tenant_assignments(menu_key, q=q, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+
+
+@router.put("/rbac/menus/{menu_key}/tenant-assignments")
+def update_rbac_menu_tenant_assignments(
+    menu_key: str,
+    payload: RbacMenuTenantAssignmentsUpdateRequest,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:assign_tenants")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_menu_tenant_assignments(menu_key, payload.tenant_ids)})
 
 
 @router.post("/rbac/menus")

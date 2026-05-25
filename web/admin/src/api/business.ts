@@ -133,6 +133,27 @@ export interface RbacMenuPayload {
   is_visible?: boolean;
 }
 
+export interface MenuTenantAssignmentRow {
+  tenant_id: number;
+  tenant_key: string;
+  tenant_name: string;
+  tenant_status: string;
+  is_enabled: boolean;
+  has_override: boolean;
+  update_time?: string;
+}
+
+export interface MenuTenantAssignmentData {
+  menu: Record<string, unknown>;
+  assigned_tenant_ids: number[];
+  items: MenuTenantAssignmentRow[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+  };
+}
+
 export interface LlmConfigPayload {
   provider: string;
   model?: string;
@@ -565,6 +586,16 @@ export function updateRbacMenu(menuId: number, payload: RbacMenuPayload) {
 
 export function deleteRbacMenu(menuId: number) {
   return Alova.Delete(`/rbac/menus/${menuId}`);
+}
+
+export function getMenuTenantAssignments(menuKey: string, params: PageParams & SortParams & { q?: string } = {}) {
+  return Alova.Get<MenuTenantAssignmentData>(`/rbac/menus/${encodeURIComponent(menuKey)}/tenant-assignments`, {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function updateMenuTenantAssignments(menuKey: string, tenantIds: number[]) {
+  return Alova.Put(`/rbac/menus/${encodeURIComponent(menuKey)}/tenant-assignments`, { tenant_ids: tenantIds });
 }
 
 export function getRbacRoles(params: PageParams & SortParams = {}) {

@@ -53,6 +53,8 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'menu-management-create',
     'menu-management-update',
     'menu-management-delete',
+    'menu-tenant-assignment',
+    'menu-tenant-assignment-save',
     'role-management',
     'role-management-create',
     'role-management-update',

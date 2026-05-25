@@ -160,6 +160,21 @@ class IdentityAccessRepository(Protocol):
     def list_menus(self, menu_scope: str | None = None) -> list[dict[str, Any]]:
         ...
 
+    def list_menu_tenant_assignments(
+        self,
+        menu_key: str,
+        *,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    def set_menu_tenant_assignments(self, menu_key: str, tenant_ids: list[int]) -> dict[str, Any]:
+        ...
+
     def create_menu(
         self,
         *,

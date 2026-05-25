@@ -1419,6 +1419,96 @@ class ApiTests(unittest.TestCase):
             conn.close()
         self.assertEqual(deleted_override_count, 0)
 
+    def test_menu_tenant_assignment_sets_selected_tenants_and_parents(self) -> None:
+        parent_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "tenant-lab",
+                "label": "Tenant Lab",
+                "menu_scope": "tenant",
+                "menu_type": "directory",
+                "path": "/tenant-lab",
+                "route_name": "tenant-lab",
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "",
+                "sort_order": 210,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(parent_response.status_code, 200)
+        child_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "tenant-lab-child",
+                "label": "Tenant Lab Child",
+                "menu_scope": "tenant",
+                "menu_type": "page",
+                "path": "/tenant-lab/child",
+                "route_name": "tenant-lab-child",
+                "component": "/tenant-lab/child",
+                "icon": "DashboardOutlined",
+                "parent_key": "tenant-lab",
+                "permission_code": "tenant_lab:access",
+                "sort_order": 211,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(child_response.status_code, 200)
+
+        db_path = os.environ["FG_AGENT_DB_PATH"]
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            tenant_ids = [
+                int(row["id"])
+                for row in conn.execute(
+                    "SELECT id FROM tenants WHERE tenant_key <> ? ORDER BY id",
+                    ("platform",),
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        self.assertGreaterEqual(len(tenant_ids), 1)
+        selected_ids = tenant_ids[:1]
+
+        save_response = self.request(
+            "PUT",
+            "/api/rbac/menus/tenant-lab-child/tenant-assignments",
+            json={"tenant_ids": selected_ids},
+        )
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(save_response.json()["data"]["item"]["assigned_tenant_ids"], selected_ids)
+
+        list_response = self.request("GET", "/api/rbac/menus/tenant-lab-child/tenant-assignments?page=1&page_size=100")
+        self.assertEqual(list_response.status_code, 200)
+        rows = list_response.json()["data"]["items"]
+        enabled_ids = sorted(int(row["tenant_id"]) for row in rows if row["is_enabled"])
+        self.assertEqual(enabled_ids, selected_ids)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            parent_enabled = conn.execute(
+                """
+                SELECT is_enabled
+                FROM tenant_menu_overrides
+                WHERE tenant_id = ? AND menu_key = ?
+                """,
+                (selected_ids[0], "tenant-lab"),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(parent_enabled)
+        self.assertTrue(bool(parent_enabled["is_enabled"]))
+
+    def test_platform_menu_cannot_use_tenant_assignment_endpoint(self) -> None:
+        response = self.request("GET", "/api/rbac/menus/menu-management/tenant-assignments")
+        self.assertEqual(response.status_code, 404)
+
     def test_admin_can_create_action_permission_under_page(self) -> None:
         page_response = self.request(
             "POST",

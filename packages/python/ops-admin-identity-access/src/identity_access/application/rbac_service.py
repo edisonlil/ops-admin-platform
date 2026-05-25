@@ -152,6 +152,29 @@ def list_menus(menu_scope: str | None = None) -> list[dict[str, Any]]:
     return repo().list_menus(menu_scope=menu_scope)
 
 
+def list_menu_tenant_assignments(
+    menu_key: str,
+    *,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return repo().list_menu_tenant_assignments(
+        menu_key,
+        q=q,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[str, Any]:
+    return _after_access_context_change(repo().set_menu_tenant_assignments(menu_key, tenant_ids))
+
+
 def create_menu(
     *,
     menu_key: str,

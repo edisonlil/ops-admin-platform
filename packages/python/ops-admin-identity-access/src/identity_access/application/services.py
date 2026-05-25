@@ -628,6 +628,29 @@ def list_menus(menu_scope: str | None = None, *, sort_by: str | None = None, sor
     return sort_dict_items(rbac_service.list_menus(menu_scope=menu_scope), sort_by, sort_dir, allowed=MENU_SORT_COLUMNS)
 
 
+def list_menu_tenant_assignments(
+    menu_key: str,
+    *,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    return rbac_service.list_menu_tenant_assignments(
+        menu_key,
+        q=q,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[str, Any]:
+    return rbac_service.set_menu_tenant_assignments(menu_key, tenant_ids)
+
+
 def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
     try:
         from organization.application import services as organization_services

@@ -73,6 +73,7 @@ const LEGACY_ICON_BY_KEY_OR_ALIAS: Record<string, string> = {
   'appearance-studio': 'BgColorsOutlined',
   rbac: 'SafetyCertificateOutlined',
   'menu-management': 'MenuOutlined',
+  'menu-tenant-assignment': 'ApartmentOutlined',
   'role-management': 'TeamOutlined',
   'user-management': 'UserOutlined',
   'data-scope-management': 'SafetyCertificateOutlined',
