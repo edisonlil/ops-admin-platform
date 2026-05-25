@@ -39,8 +39,8 @@ class PageDesignerTests(unittest.TestCase):
         self.current_user = {
             "id": 7,
             "username": "admin",
-            "tenant_id": 1,
-            "current_tenant": {"id": 1, "tenant_key": "default"},
+            "tenant_id": 7,
+            "current_tenant": {"id": 7, "tenant_key": "tenant-a"},
             "permissions": ["page_designer:page:manage", "page_designer:page:view"],
         }
         self.menu_port = InMemoryMenuPort()
@@ -83,6 +83,7 @@ class PageDesignerTests(unittest.TestCase):
         )["item"]
 
         self.assertEqual(created["status"], "draft")
+        self.assertEqual(created["tenant_id"], 1)
 
         draft = services.save_draft(
             int(created["id"]),
@@ -109,10 +110,57 @@ class PageDesignerTests(unittest.TestCase):
 
         mounted = services.mount_menu(int(created["id"]), {}, self.current_user)["item"]
         self.assertEqual(mounted["mount"]["menu_key"], "page-designer-runtime-ops-dashboard")
+        self.assertEqual(mounted["menu"]["menu_scope"], "tenant")
+        self.assertEqual(mounted["menu"]["parent_key"], "")
         self.assertIn("page-designer-runtime-ops-dashboard", self.menu_port.menus)
 
         services.unmount_menu(int(created["id"]), self.current_user)
         self.assertNotIn("page-designer-runtime-ops-dashboard", self.menu_port.menus)
+
+    def test_platform_page_mount_creates_tenant_menu_under_selected_directory(self) -> None:
+        from page_designer.application import services
+
+        platform_user = {
+            **self.current_user,
+            "tenant_id": None,
+            "current_tenant": None,
+            "auth_scope": "platform",
+            "is_platform_admin": True,
+        }
+        created = services.create_page(
+            {
+                "page_key": "platform-sales-dashboard",
+                "name": "销售仪表盘",
+                "page_type": "dashboard",
+            },
+            platform_user,
+        )["item"]
+        self.assertEqual(created["tenant_id"], 1)
+        services.publish_page(int(created["id"]), platform_user)
+
+        mounted = services.mount_menu(
+            int(created["id"]),
+            {"parent_key": "business-analysis", "label": "销售仪表盘", "sort_order": 120},
+            platform_user,
+        )["item"]
+
+        self.assertEqual(mounted["mount"]["parent_key"], "business-analysis")
+        self.assertEqual(mounted["menu"]["menu_scope"], "tenant")
+        self.assertEqual(mounted["menu"]["label"], "销售仪表盘")
+        self.assertEqual(mounted["menu"]["sort_order"], 120)
+
+    def test_platform_menu_scope_mount_is_rejected(self) -> None:
+        from page_designer.application import services
+        from page_designer.domain.exceptions import PageDesignerDomainError
+
+        created = services.create_page(
+            {"page_key": "invalid-mount-scope", "name": "错误挂载", "page_type": "dashboard"},
+            self.current_user,
+        )["item"]
+        services.publish_page(int(created["id"]), self.current_user)
+
+        with self.assertRaises(PageDesignerDomainError):
+            services.mount_menu(int(created["id"]), {"menu_scope": "platform"}, self.current_user)
 
     def test_list_pages_uses_backend_pagination(self) -> None:
         from page_designer.application import services

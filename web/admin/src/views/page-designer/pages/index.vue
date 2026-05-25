@@ -31,11 +31,44 @@
         </template>
       </n-drawer-content>
     </n-drawer>
+
+    <n-modal v-model:show="mountVisible" preset="card" title="挂载到租户菜单" class="page-designer-mount-modal">
+      <n-alert type="info" :bordered="false" class="page-designer-mount-modal__hint">
+        页面由平台统一设计，挂载后会生成租户菜单项。租户角色绑定该菜单后，对应成员才能看到入口。
+      </n-alert>
+      <n-form :model="mountForm" label-placement="top">
+        <n-form-item label="页面">
+          <n-input :value="mountForm.pageName" disabled />
+        </n-form-item>
+        <n-form-item label="菜单名称">
+          <n-input v-model:value="mountForm.label" placeholder="请输入租户菜单名称" />
+        </n-form-item>
+        <n-form-item label="挂载目录">
+          <n-select
+            v-model:value="mountForm.parent_key"
+            :options="tenantDirectoryOptions"
+            :loading="menuLoading"
+            clearable
+            filterable
+            placeholder="选择租户菜单目录"
+          />
+        </n-form-item>
+        <n-form-item label="排序">
+          <n-input-number v-model:value="mountForm.sort_order" :min="0" :max="99999" class="page-designer-mount-modal__number" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="mountVisible = false">取消</n-button>
+          <n-button type="primary" :loading="mounting" @click="confirmMount">确认挂载</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { h, reactive, ref } from 'vue';
+  import { computed, h, reactive, ref } from 'vue';
   import { useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
@@ -47,9 +80,11 @@
   import {
     createPageDesignerPage,
     deletePageDesignerPage,
+    getPageDesignerMountDirectories,
     getPageDesignerPages,
     mountPageDesignerMenu,
     publishPageDesignerPage,
+    type PageMenuDirectory,
     type PageDefinition,
     updatePageDesignerPage,
   } from '@/api/pageDesigner';
@@ -59,9 +94,13 @@
   const { hasPermission } = usePermission();
   const loading = ref(false);
   const saving = ref(false);
+  const mounting = ref(false);
+  const menuLoading = ref(false);
   const drawerVisible = ref(false);
+  const mountVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<PageDefinition[]>([]);
+  const tenantMenus = ref<PageMenuDirectory[]>([]);
   const paginationTotal = ref(0);
   const keyword = ref('');
   const statusFilter = ref<string | null>(null);
@@ -71,6 +110,14 @@
     name: '',
     description: '',
     page_type: 'dashboard',
+  });
+
+  const mountForm = reactive({
+    pageId: 0,
+    pageName: '',
+    label: '',
+    parent_key: '',
+    sort_order: 869,
   });
 
   const statusOptions: SelectOption[] = [
@@ -128,7 +175,7 @@
             { label: '设计', show: canManage(), onClick: () => openDesigner(row) },
             { label: '编辑', show: canManage(), onClick: () => openEdit(row) },
             { label: '发布', show: canManage() && row.status !== 'published', onClick: () => publish(row) },
-            { label: '挂载', show: canManage() && row.status === 'published' && !row.menu_mounted, onClick: () => mount(row) },
+            { label: row.menu_mounted ? '调整挂载' : '挂载', show: canManage() && row.status === 'published', onClick: () => openMount(row) },
             {
               label: '删除',
               tone: 'danger',
@@ -147,7 +194,7 @@
   const pageSchema = defineListPage<PageDefinition>({
     id: 'page-designer.pages',
     title: '页面设计',
-    description: '创建、设计、发布并挂载租户自定义页面',
+    description: '平台设计仪表盘页面，发布后挂载为租户菜单',
     variant: 'dense-data',
     density: 'compact',
     view: {
@@ -162,6 +209,40 @@
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
+  });
+
+  const tenantDirectoryOptions = computed<SelectOption[]>(() => {
+    const directories = tenantMenus.value.filter((item) => item.menu_type === 'directory' && item.menu_scope === 'tenant');
+    const childrenByParent = new Map<string, PageMenuDirectory[]>();
+    directories.forEach((item) => {
+      const parentKey = String(item.parent_key || '');
+      const children = childrenByParent.get(parentKey) || [];
+      children.push(item);
+      childrenByParent.set(parentKey, children);
+    });
+    childrenByParent.forEach((items) => items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)));
+    const options: SelectOption[] = [{ label: '作为租户根菜单', value: '' }];
+    const visited = new Set<string>();
+
+    function append(parentKey: string, level: number) {
+      for (const item of childrenByParent.get(parentKey) || []) {
+        if (visited.has(item.key)) continue;
+        visited.add(item.key);
+        options.push({
+          label: `${'　'.repeat(level)}${item.label}`,
+          value: item.key,
+        });
+        append(item.key, level + 1);
+      }
+    }
+
+    append('', 0);
+    for (const item of directories) {
+      if (!visited.has(item.key)) {
+        options.push({ label: item.label, value: item.key });
+      }
+    }
+    return options;
   });
 
   function canManage() {
@@ -226,10 +307,44 @@
     await reload();
   }
 
-  async function mount(row: PageDefinition) {
-    await mountPageDesignerMenu(row.id);
-    message.success('页面已挂载到菜单');
-    await reload();
+  async function openMount(row: PageDefinition) {
+    Object.assign(mountForm, {
+      pageId: row.id,
+      pageName: row.name,
+      label: row.name,
+      parent_key: '',
+      sort_order: 869,
+    });
+    mountVisible.value = true;
+    await loadTenantMenus();
+  }
+
+  async function loadTenantMenus() {
+    menuLoading.value = true;
+    try {
+      const payload = await getPageDesignerMountDirectories();
+      tenantMenus.value = payload.items || [];
+    } finally {
+      menuLoading.value = false;
+    }
+  }
+
+  async function confirmMount() {
+    if (!mountForm.pageId) return;
+    mounting.value = true;
+    try {
+      await mountPageDesignerMenu(mountForm.pageId, {
+        label: mountForm.label,
+        menu_scope: 'tenant',
+        parent_key: mountForm.parent_key,
+        sort_order: mountForm.sort_order,
+      });
+      message.success('页面已挂载为租户菜单，请在租户角色中绑定该菜单');
+      mountVisible.value = false;
+      await reload();
+    } finally {
+      mounting.value = false;
+    }
   }
 
   async function remove(row: PageDefinition) {
@@ -267,5 +382,17 @@
 
   .page-designer-list__status {
     width: 160px;
+  }
+
+  .page-designer-mount-modal {
+    width: min(560px, calc(100vw - 32px));
+  }
+
+  .page-designer-mount-modal__hint {
+    margin-bottom: 16px;
+  }
+
+  .page-designer-mount-modal__number {
+    width: 100%;
   }
 </style>

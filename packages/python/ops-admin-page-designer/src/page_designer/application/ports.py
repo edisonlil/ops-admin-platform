@@ -56,6 +56,9 @@ class PageDesignerRepository(Protocol):
 
 
 class MenuMountPort(Protocol):
+    def list_tenant_directories(self) -> list[dict[str, Any]]:
+        ...
+
     def upsert_page_menu(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 

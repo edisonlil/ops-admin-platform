@@ -464,7 +464,7 @@ def save_menu_mount(*, tenant_id: int, page_id: int, payload: dict[str, Any], ac
                     """,
                     (
                         menu_key,
-                        str(payload.get("parent_key") or "page-designer"),
+                        str(payload.get("parent_key") or ""),
                         str(payload["path"]),
                         str(payload["route_name"]),
                         str(payload.get("permission_code") or "page_designer:page:view"),
@@ -488,7 +488,7 @@ def save_menu_mount(*, tenant_id: int, page_id: int, payload: dict[str, Any], ac
                         tenant_id,
                         page_id,
                         menu_key,
-                        str(payload.get("parent_key") or "page-designer"),
+                        str(payload.get("parent_key") or ""),
                         str(payload["path"]),
                         str(payload["route_name"]),
                         str(payload.get("permission_code") or "page_designer:page:view"),

@@ -25,6 +25,7 @@ class PageDraftRequest(BaseModel):
 class PageMenuMountRequest(BaseModel):
     label: str | None = Field(default=None, max_length=200)
     menu_key: str | None = Field(default=None, max_length=120)
+    menu_scope: str | None = Field(default=None, max_length=20)
     parent_key: str | None = Field(default=None, max_length=120)
     path: str | None = Field(default=None, max_length=500)
     route_name: str | None = Field(default=None, max_length=120)

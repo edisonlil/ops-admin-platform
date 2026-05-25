@@ -105,11 +105,21 @@ export interface PageDraftPayload {
 export interface PageMenuMountPayload {
   label?: string;
   menu_key?: string;
+  menu_scope?: 'tenant';
   parent_key?: string;
   path?: string;
   route_name?: string;
   icon?: string;
   permission_code?: string;
+  sort_order?: number;
+}
+
+export interface PageMenuDirectory {
+  key: string;
+  label: string;
+  menu_scope?: 'tenant';
+  menu_type: 'directory';
+  parent_key?: string;
   sort_order?: number;
 }
 
@@ -170,6 +180,12 @@ export function mountPageDesignerMenu(pageId: number, payload: PageMenuMountPayl
     `/page-designer/pages/${pageId}/menu-mount`,
     payload
   );
+}
+
+export function getPageDesignerMountDirectories() {
+  return Alova.Get<{ items: PageMenuDirectory[] }>('/page-designer/menu-mount/directories', {
+    params: withNoCacheParams(),
+  });
 }
 
 export function unmountPageDesignerMenu(pageId: number) {

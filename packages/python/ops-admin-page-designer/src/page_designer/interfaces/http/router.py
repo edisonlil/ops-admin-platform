@@ -21,7 +21,7 @@ def pages(
     keyword: str = "",
     type: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(
         lambda: services.list_pages(
@@ -35,10 +35,17 @@ def pages(
     )
 
 
+@router.get("/menu-mount/directories")
+def mount_directories(
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.list_mount_directories(current_user))
+
+
 @router.post("/pages")
 def create_page(
     payload: PageRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.create_page(payload.model_dump(), current_user))
 
@@ -46,7 +53,7 @@ def create_page(
 @router.get("/pages/{page_id}")
 def page_detail(
     page_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.get_page(page_id, current_user))
 
@@ -55,7 +62,7 @@ def page_detail(
 def update_page(
     page_id: int,
     payload: PageRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.update_page(page_id, payload.model_dump(), current_user))
 
@@ -63,7 +70,7 @@ def update_page(
 @router.delete("/pages/{page_id}")
 def delete_page(
     page_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.delete_page(page_id, current_user))
 
@@ -72,7 +79,7 @@ def delete_page(
 def save_draft(
     page_id: int,
     payload: PageDraftRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_draft(page_id, payload.model_dump(), current_user))
 
@@ -81,7 +88,7 @@ def save_draft(
 def preview_page(
     page_id: int,
     payload: PageDraftRequest | None = None,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.preview_page(page_id, payload.model_dump() if payload else None, current_user))
 
@@ -89,7 +96,7 @@ def preview_page(
 @router.post("/pages/{page_id}/publish")
 def publish_page(
     page_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.publish_page(page_id, current_user))
 
@@ -97,7 +104,7 @@ def publish_page(
 @router.post("/pages/{page_id}/unpublish")
 def unpublish_page(
     page_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.unpublish_page(page_id, current_user))
 
@@ -106,7 +113,7 @@ def unpublish_page(
 def mount_menu(
     page_id: int,
     payload: PageMenuMountRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.mount_menu(page_id, payload.model_dump(exclude_none=True), current_user))
 
@@ -114,7 +121,7 @@ def mount_menu(
 @router.delete("/pages/{page_id}/menu-mount")
 def unmount_menu(
     page_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("page_designer:page:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("page_designer:page:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.unmount_menu(page_id, current_user))
 

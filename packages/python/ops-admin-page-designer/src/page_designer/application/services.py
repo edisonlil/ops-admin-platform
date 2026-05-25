@@ -17,6 +17,7 @@ from page_designer.domain.models import (
 
 repository: PageDesignerRepository | None = None
 menu_port: MenuMountPort | None = None
+PLATFORM_PAGE_TENANT_ID = 1
 
 
 def configure_repository(page_repository: PageDesignerRepository) -> None:
@@ -52,7 +53,7 @@ def list_pages(
 ) -> dict[str, Any]:
     try:
         items, total = repo().list_pages(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_page_tenant_id(current_user),
             page=page,
             page_size=page_size,
             keyword=keyword,
@@ -64,11 +65,21 @@ def list_pages(
     return {"items": [item.to_dict() for item in items], "pagination": {"page": page, "page_size": page_size, "total": total}}
 
 
+def list_mount_directories(current_user: dict[str, Any]) -> dict[str, Any]:
+    _ = current_user
+    items = [
+        item
+        for item in menu_mount_port().list_tenant_directories()
+        if str(item.get("menu_scope") or "tenant") == "tenant" and str(item.get("menu_type") or "") == "directory"
+    ]
+    return {"items": items}
+
+
 def create_page(payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_page_payload(payload)
     try:
         item = repo().create_page(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_page_tenant_id(current_user),
             payload=normalized,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -87,9 +98,10 @@ def get_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 def update_page(page_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     ensure_page(page_id=page_id, current_user=current_user)
     normalized = normalize_page_payload(payload, partial=True)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         page = repo().update_page(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page_id,
             payload=normalized,
             actor=current_actor(current_user),
@@ -106,9 +118,10 @@ def delete_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     page = ensure_page(page_id=page_id, current_user=current_user)
     if page.menu_mounted and page.menu_key:
         menu_mount_port().delete_page_menu(page.menu_key)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         deleted = repo().delete_page(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -123,9 +136,10 @@ def delete_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 def save_draft(page_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
     page = ensure_page(page_id=page_id, current_user=current_user)
     normalized = normalize_version_payload(payload)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         version = repo().save_draft_version(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page_id,
             payload=normalized,
             actor=current_actor(current_user),
@@ -144,7 +158,7 @@ def preview_page(page_id: int, payload: dict[str, Any] | None, current_user: dic
         version_payload = normalize_version_payload(payload)
         version = PageVersion(
             id=0,
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_page_tenant_id(current_user),
             page_id=page.id,
             version_no=0,
             schema_version=str(version_payload.get("schema_version") or DEFAULT_SCHEMA_VERSION),
@@ -164,15 +178,16 @@ def preview_page(page_id: int, payload: dict[str, Any] | None, current_user: dic
 
 def publish_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     page = ensure_page(page_id=page_id, current_user=current_user)
-    version = repo().latest_version(tenant_id=current_tenant_id(current_user), page_id=page.id, status=STATUS_DRAFT)
+    tenant_id = platform_page_tenant_id(current_user)
+    version = repo().latest_version(tenant_id=tenant_id, page_id=page.id, status=STATUS_DRAFT)
     if not version:
-        version = repo().latest_version(tenant_id=current_tenant_id(current_user), page_id=page.id)
+        version = repo().latest_version(tenant_id=tenant_id, page_id=page.id)
     if not version:
         raise PageDesignerNotFoundError("页面版本不存在")
     version.validate(page.page_type)
     try:
         published = repo().publish_page(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page.id,
             version_id=version.id,
             actor=current_actor(current_user),
@@ -182,14 +197,15 @@ def publish_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
         raise PageDesignerStorageNotReadyError(str(exc)) from exc
     if not published:
         raise PageDesignerNotFoundError("页面不存在")
-    return {"item": decorate_page_detail(published, repo().get_version(tenant_id=current_tenant_id(current_user), version_id=version.id))}
+    return {"item": decorate_page_detail(published, repo().get_version(tenant_id=tenant_id, version_id=version.id))}
 
 
 def unpublish_page(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     ensure_page(page_id=page_id, current_user=current_user)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         page = repo().unpublish_page(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page_id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -207,9 +223,10 @@ def mount_menu(page_id: int, payload: dict[str, Any], current_user: dict[str, An
         raise PageDesignerDomainError("只有已发布页面可以挂载到菜单")
     normalized = normalize_mount_payload(page, payload)
     menu_item = menu_mount_port().upsert_page_menu(normalized)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         mount = repo().save_menu_mount(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page.id,
             payload=normalized,
             actor=current_actor(current_user),
@@ -224,9 +241,10 @@ def unmount_menu(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     page = ensure_page(page_id=page_id, current_user=current_user)
     if page.menu_key:
         menu_mount_port().delete_page_menu(page.menu_key)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         mount = repo().delete_menu_mount(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=tenant_id,
             page_id=page.id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -237,7 +255,7 @@ def unmount_menu(page_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
 
 
 def runtime_page(page_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
-    tenant_id = current_tenant_id(current_user)
+    tenant_id = platform_page_tenant_id(current_user)
     try:
         page = repo().get_page_by_key(tenant_id=tenant_id, page_key=page_key)
     except RuntimeError as exc:
@@ -252,7 +270,7 @@ def runtime_page(page_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
 
 def ensure_page(*, page_id: int, current_user: dict[str, Any]) -> PageDefinition:
     try:
-        page = repo().get_page(tenant_id=current_tenant_id(current_user), page_id=page_id)
+        page = repo().get_page(tenant_id=platform_page_tenant_id(current_user), page_id=page_id)
     except RuntimeError as exc:
         raise PageDesignerStorageNotReadyError(str(exc)) from exc
     if not page:
@@ -319,11 +337,14 @@ def normalize_version_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_mount_payload(page: PageDefinition, payload: dict[str, Any]) -> dict[str, Any]:
+    requested_scope = str(payload.get("menu_scope") or "tenant").strip().lower()
+    if requested_scope != "tenant":
+        raise PageDesignerDomainError("页面设计只能挂载为租户菜单")
     menu_key = str(payload.get("menu_key") or f"page-designer-runtime-{page.page_key}").strip()
     path = str(payload.get("path") or f"/page-designer/runtime/{page.page_key}").strip()
     route_name = str(payload.get("route_name") or menu_key).strip()
     label = str(payload.get("label") or page.name).strip()
-    parent_key = str(payload.get("parent_key") or "page-designer").strip()
+    parent_key = str(payload.get("parent_key") or "").strip()
     return {
         "menu_key": menu_key,
         "label": label,
@@ -337,6 +358,13 @@ def normalize_mount_payload(page: PageDefinition, payload: dict[str, Any]) -> di
         "sort_order": int(payload.get("sort_order") or 869),
         "is_visible": True,
     }
+
+
+def platform_page_tenant_id(current_user: dict[str, Any]) -> int:
+    current_tenant = current_user.get("current_tenant") or {}
+    if str(current_tenant.get("tenant_key") or "").strip() == "platform":
+        return int(current_tenant.get("id") or PLATFORM_PAGE_TENANT_ID)
+    return PLATFORM_PAGE_TENANT_ID
 
 
 def current_tenant_id(current_user: dict[str, Any]) -> int:

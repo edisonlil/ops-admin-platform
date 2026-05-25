@@ -12,7 +12,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
   import { getPageDesignerRuntime, type PageRuntimePayload } from '@/api/pageDesigner';
@@ -20,10 +20,11 @@
   const route = useRoute();
   const loading = ref(false);
   const runtimePayload = ref<PageRuntimePayload | null>(null);
-  const pageKey = computed(() => String(route.params.pageKey || route.params.pathMatch || route.query.page_key || '').split('/').filter(Boolean).pop() || '');
+  const pageKey = computed(() => resolvePageKey());
   const payload = computed(() => runtimePayload.value?.item || null);
 
   async function load() {
+    runtimePayload.value = null;
     if (!pageKey.value) return;
     loading.value = true;
     try {
@@ -33,7 +34,16 @@
     }
   }
 
-  load();
+  function resolvePageKey() {
+    const explicitKey = String(route.params.pageKey || route.params.pathMatch || route.query.page_key || '')
+      .split('/')
+      .filter(Boolean)
+      .pop();
+    if (explicitKey) return explicitKey;
+    return route.path.split('/').filter(Boolean).pop() || '';
+  }
+
+  watch(() => route.fullPath, load, { immediate: true });
 </script>
 
 <style lang="less" scoped>
