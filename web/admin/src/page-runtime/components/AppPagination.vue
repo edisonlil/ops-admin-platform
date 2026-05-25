@@ -55,14 +55,14 @@
 .app-pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   min-width: 0;
 }
 
 .app-pagination__summary {
   display: inline-flex;
-  flex: 1;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
