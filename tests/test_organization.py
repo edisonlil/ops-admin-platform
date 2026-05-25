@@ -114,6 +114,37 @@ class OrganizationTests(unittest.TestCase):
         self.assertEqual([row[1] for row in rows], [1, 1, 0])
         self.assertEqual([row[2] for row in rows], [None, None, 1])
 
+    def test_reporting_relationships_resolve_subordinates_and_reject_cycles(self) -> None:
+        from organization.domain.exceptions import OrganizationDomainError
+        from organization.infrastructure.persistence import repositories
+
+        repositories.set_user_reporting_manager(
+            tenant_id=1,
+            user_id=20,
+            manager_user_id=10,
+            actor="tester",
+            actor_id=1,
+        )
+        repositories.set_user_reporting_manager(
+            tenant_id=1,
+            user_id=30,
+            manager_user_id=20,
+            actor="tester",
+            actor_id=1,
+        )
+
+        self.assertEqual(repositories.subordinate_user_ids(tenant_id=1, manager_user_id=10), [10, 20, 30])
+        self.assertEqual(repositories.user_reporting_manager(tenant_id=1, user_id=20)["manager_user_id"], 10)
+
+        with self.assertRaisesRegex(OrganizationDomainError, "cycle"):
+            repositories.set_user_reporting_manager(
+                tenant_id=1,
+                user_id=10,
+                manager_user_id=30,
+                actor="tester",
+                actor_id=1,
+            )
+
     def test_department_rename_keeps_existing_parent(self) -> None:
         from organization.domain.exceptions import OrganizationDomainError
         from organization.infrastructure.persistence import repositories

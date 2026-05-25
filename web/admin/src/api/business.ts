@@ -52,6 +52,7 @@ export interface RbacUserCreatePayload {
   role_keys?: string[];
   department_ids?: number[] | null;
   primary_department_id?: number | null;
+  manager_user_id?: number | null;
   is_active?: boolean;
   is_superuser?: boolean;
 }
@@ -65,6 +66,7 @@ export interface RbacUserUpdatePayload {
   role_keys?: string[];
   department_ids?: number[] | null;
   primary_department_id?: number | null;
+  manager_user_id?: number | null;
   is_active?: boolean;
   is_superuser?: boolean;
 }

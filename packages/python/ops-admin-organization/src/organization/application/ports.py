@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from organization.domain.models import Department
+from organization.domain.models import Department, UserReportingRelationship
 
 
 class OrganizationRepository(Protocol):
@@ -43,3 +43,27 @@ class OrganizationRepository(Protocol):
     def user_departments(self, *, tenant_id: int, user_id: int) -> list[dict[str, Any]]: ...
 
     def users_departments(self, *, tenant_id: int, user_ids: list[int]) -> dict[int, list[dict[str, Any]]]: ...
+
+    def set_user_reporting_manager(
+        self,
+        *,
+        tenant_id: int,
+        user_id: int,
+        manager_user_id: int | None,
+        actor: str,
+        actor_id: int | None,
+    ) -> UserReportingRelationship | None: ...
+
+    def set_users_reporting_managers_batch(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        actor: str,
+        actor_id: int | None,
+    ) -> None: ...
+
+    def user_reporting_manager(self, *, tenant_id: int, user_id: int) -> dict[str, Any] | None: ...
+
+    def users_reporting_managers(self, *, tenant_id: int, user_ids: list[int]) -> dict[int, dict[str, Any] | None]: ...
+
+    def subordinate_user_ids(self, *, tenant_id: int, manager_user_id: int, include_self: bool = True) -> list[int]: ...

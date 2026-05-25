@@ -119,6 +119,9 @@
             placeholder="用于本部门数据权限计算"
           />
         </n-form-item>
+        <n-form-item label="直属上级">
+          <n-select v-model:value="userForm.manager_user_id" clearable filterable :options="managerUserOptions" placeholder="选择直属上级" />
+        </n-form-item>
         <n-form-item label="启用" path="is_active">
           <n-switch v-model:value="userForm.is_active" />
         </n-form-item>
@@ -215,6 +218,7 @@
     departments?: DepartmentRow[];
     department_ids?: number[];
     primary_department_id?: number | null;
+    manager_user_id?: number | null;
     is_active?: boolean;
     is_superuser?: boolean;
     is_tenant_admin?: boolean;
@@ -278,6 +282,7 @@
     role_keys: [] as string[],
     department_ids: [] as number[],
     primary_department_id: null as number | null,
+    manager_user_id: null as number | null,
     is_active: true,
     is_superuser: false,
   });
@@ -329,6 +334,11 @@
 
   const departmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions());
   const primaryDepartmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions(new Set(userForm.department_ids)));
+  const managerUserOptions = computed<SelectOption[]>(() =>
+    tenantUsers.value
+      .filter((user) => Number(user.id) !== Number(userForm.id))
+      .map((user) => ({ label: `${user.full_name || user.username} (${user.username})`, value: user.id }))
+  );
 
   const tenantColumns: DataTableColumns<TenantRow> = [
     { title: 'ID', key: 'id', width: 80 },
@@ -388,6 +398,7 @@
       },
     },
     { title: '部门', key: 'departments', minWidth: 220, render: (row) => departmentNames(row.department_ids || []) },
+    { title: '直属上级', key: 'manager_user_id', minWidth: 160, render: (row) => managerUserName(row.manager_user_id || null) },
     {
       title: '状态',
       key: 'is_active',
@@ -480,7 +491,7 @@
       description: '管理当前租户的成员账号、角色、所属部门和启用状态。',
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 1140, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         batchActions: [
@@ -508,7 +519,7 @@
       embedded: true,
       variant: 'dense-data',
       density: 'compact',
-      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 980, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
+      view: { type: 'table', columns: userColumns, rowKey: (row) => Number(row.id), scrollX: 1140, sort: { remote: true }, columnRuntime: { columns: userColumnRuntime }, tableProps: { size: 'small' } },
       toolbar: {
         primaryAction: canCreateTenantUser.value ? { key: 'create', label: '新增成员', type: 'primary', onClick: () => openUserCreate() } : undefined,
         batchActions: [
@@ -551,6 +562,7 @@
     { key: 'email', sortable: true },
     { key: 'roles', sortable: false },
     { key: 'departments', sortable: false },
+    { key: 'manager_user_id', sortable: false },
     { key: 'is_active', sortable: true },
     { key: 'actions', required: true, sortable: false },
   ];
@@ -562,7 +574,7 @@
   }
 
   function resetUserForm() {
-    Object.assign(userForm, { id: 0, username: '', full_name: '', email: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, is_active: true, is_superuser: false });
+    Object.assign(userForm, { id: 0, username: '', full_name: '', email: '', password: '', role_keys: [], department_ids: [], primary_department_id: null, manager_user_id: null, is_active: true, is_superuser: false });
     userFormRef.value?.restoreValidation();
   }
 
@@ -797,6 +809,7 @@
       role_keys: (row.roles || []).map((role) => String(role.key)),
       department_ids: [...(row.department_ids || [])],
       primary_department_id: row.primary_department_id || null,
+      manager_user_id: row.manager_user_id || null,
       is_active: !!row.is_active,
       is_superuser: !!row.is_superuser,
     });
@@ -821,6 +834,7 @@
         role_keys: userForm.role_keys,
         department_ids: [...userForm.department_ids],
         primary_department_id: primaryId,
+        manager_user_id: userForm.manager_user_id || null,
         is_active: userForm.is_active,
         is_superuser: userForm.is_superuser,
       };
@@ -919,6 +933,12 @@
     if (!ids.length) return '-';
     const names = ids.map((id) => departments.value.find((item) => item.id === id)).filter(Boolean).map((item) => departmentPath(item as DepartmentRow));
     return names.length ? names.join('、') : ids.join('、');
+  }
+
+  function managerUserName(id: number | null) {
+    if (!id) return '-';
+    const user = tenantUsers.value.find((item) => Number(item.id) === Number(id));
+    return user ? `${user.full_name || user.username} (${user.username})` : `#${id}`;
   }
 
   function handleDepartmentIdsChange(value: number[] | null) {

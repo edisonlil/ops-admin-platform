@@ -312,7 +312,7 @@ def row_to_data_access_policy(row: dict[str, Any]) -> DataAccessPolicy:
 def normalize_scopes(value: Any) -> list[str]:
     items = decode_list(value)
     normalized = [str(item).strip() for item in items if str(item).strip() in VALID_DATA_SCOPES]
-    return normalized or ["self", "department", "department_and_children", "custom_departments", "tenant"]
+    return normalized or ["self", "self_and_subordinates", "department", "department_and_children", "custom_departments", "tenant"]
 
 
 def decode_list(value: Any) -> list[Any]:

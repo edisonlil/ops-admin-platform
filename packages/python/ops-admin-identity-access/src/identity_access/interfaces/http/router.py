@@ -236,7 +236,7 @@ def create_tenant_user(
     payload: TenantUserCreateRequest,
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:create")),
 ) -> dict[str, Any]:
-    return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump())})
+    return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump(exclude_unset=True))})
 
 
 @router.put("/tenants/{tenant_id}/users/{user_id}")
@@ -246,7 +246,7 @@ def update_tenant_user(
     payload: TenantUserUpdateRequest,
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:users:update")),
 ) -> dict[str, Any]:
-    return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump())})
+    return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump(exclude_unset=True))})
 
 
 @router.post("/tenants/{tenant_id}/users/{user_id}/enable")
@@ -377,7 +377,7 @@ def create_current_tenant_user(
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:create")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump())})
+    return ok({"item": services.create_tenant_user(tenant_id, payload.model_dump(exclude_unset=True))})
 
 
 @router.put("/tenant/users/{user_id}")
@@ -387,7 +387,7 @@ def update_current_tenant_user(
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:users:update")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump())})
+    return ok({"item": services.update_tenant_user(tenant_id, user_id, payload.model_dump(exclude_unset=True))})
 
 
 @router.post("/tenant/users/{user_id}/enable")
@@ -517,18 +517,7 @@ def create_rbac_user(
     payload: RbacUserCreateRequest,
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:create")),
 ) -> dict[str, Any]:
-    return ok({"item": services.create_user(
-        tenant_id=payload.tenant_id,
-        username=payload.username,
-        full_name=payload.full_name,
-        email=payload.email,
-        password=payload.password,
-        role_keys=payload.role_keys,
-        department_ids=payload.department_ids,
-        primary_department_id=payload.primary_department_id,
-        is_active=payload.is_active,
-        is_superuser=payload.is_superuser,
-    )})
+    return ok({"item": services.create_user(**payload.model_dump(exclude_unset=True))})
 
 
 @router.put("/rbac/users/{user_id}")
@@ -537,19 +526,7 @@ def update_rbac_user(
     payload: RbacUserUpdateRequest,
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:users:update")),
 ) -> dict[str, Any]:
-    return ok({"item": services.update_user(
-        user_id,
-        tenant_id=payload.tenant_id,
-        username=payload.username,
-        full_name=payload.full_name,
-        email=payload.email,
-        password=payload.password,
-        role_keys=payload.role_keys,
-        department_ids=payload.department_ids,
-        primary_department_id=payload.primary_department_id,
-        is_active=payload.is_active,
-        is_superuser=payload.is_superuser,
-    )})
+    return ok({"item": services.update_user(user_id, **payload.model_dump(exclude_unset=True))})
 
 
 @router.post("/rbac/users/{user_id}/enable")

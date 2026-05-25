@@ -60,6 +60,7 @@ API_KEY_SORT_COLUMNS = {
     "create_time": "create_time",
     "update_time": "update_time",
 }
+_MANAGER_USER_UNSET = object()
 
 
 def _after_access_context_change(payload: dict[str, Any]) -> dict[str, Any]:
@@ -374,6 +375,7 @@ def perform_tenant_user_import(
     if progress:
         progress(85, "正在同步部门关系")
     sync_users_departments_batch_if_available(assignments, current_user=current_user)
+    sync_users_reporting_managers_batch_if_available(assignments, current_user=current_user)
     result = list_tenant_users(tenant_id)
     imported_ids = {int(user["id"]) for user in imported}
     items = [item for item in result if int(item["id"]) in imported_ids]
@@ -412,11 +414,11 @@ def set_tenant_user_active(tenant_id: int, user_id: int, is_active: bool) -> dic
 
 
 def list_users() -> list[dict[str, Any]]:
-    return [enrich_user_with_departments(item) for item in rbac_service.list_users()]
+    return [enrich_user_with_reporting_manager(enrich_user_with_departments(item)) for item in rbac_service.list_users()]
 
 
 def list_platform_users(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
-    items = [enrich_user_with_departments(item) for item in rbac_service.list_platform_users()]
+    items = [enrich_user_with_reporting_manager(enrich_user_with_departments(item)) for item in rbac_service.list_platform_users()]
     return sort_dict_items(items, sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
 
 
@@ -461,7 +463,8 @@ def perform_platform_user_import(
     if progress:
         progress(80, "正在同步部门关系")
     sync_users_departments_batch_if_available(assignments, current_user=current_user)
-    result = [enrich_user_with_departments(item) for item in imported]
+    sync_users_reporting_managers_batch_if_available(assignments, current_user=current_user)
+    result = [enrich_user_with_reporting_manager(enrich_user_with_departments(item)) for item in imported]
     publish_event(events.users_imported(result, correlation_id=current_request_id()))
     return _after_access_context_change({"items": result, "count": len(result)})
 
@@ -476,6 +479,7 @@ def create_user(
     role_keys: list[str] | None = None,
     department_ids: list[int] | None = None,
     primary_department_id: int | None = None,
+    manager_user_id: Any = _MANAGER_USER_UNSET,
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
@@ -491,7 +495,10 @@ def create_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    if manager_user_id is not _MANAGER_USER_UNSET:
+        sync_user_reporting_manager_if_available(user, manager_user_id)
     result = enrich_user_with_departments(user)
+    result = enrich_user_with_reporting_manager(result)
     publish_event(events.user_created(result, correlation_id=current_request_id()))
     return _after_access_context_change(result)
 
@@ -507,6 +514,7 @@ def update_user(
     role_keys: list[str] | None = None,
     department_ids: list[int] | None = None,
     primary_department_id: int | None = None,
+    manager_user_id: Any = _MANAGER_USER_UNSET,
     is_active: bool = True,
     is_superuser: bool = False,
 ) -> dict[str, Any]:
@@ -525,12 +533,17 @@ def update_user(
     )
     if department_ids is not None or primary_department_id is not None:
         sync_user_departments_if_available(user, department_ids or [], primary_department_id)
+    if manager_user_id is not _MANAGER_USER_UNSET:
+        sync_user_reporting_manager_if_available(user, manager_user_id)
     result = enrich_user_with_departments(user)
+    result = enrich_user_with_reporting_manager(result)
     changed_fields = ["username", "full_name", "email", "roles", "is_active", "is_superuser", "tenant_id"]
     if password.strip():
         changed_fields.append("password")
     if department_ids is not None or primary_department_id is not None:
         changed_fields.extend(["department_ids", "primary_department_id"])
+    if manager_user_id is not _MANAGER_USER_UNSET:
+        changed_fields.append("manager_user_id")
     publish_event(events.user_updated(result, changed_fields=changed_fields, correlation_id=current_request_id()))
     new_email = str(result.get("email", "") or "")
     if old_email != new_email:
@@ -632,6 +645,23 @@ def sync_user_departments_if_available(user: dict[str, Any], department_ids: lis
     )
 
 
+def sync_user_reporting_manager_if_available(user: dict[str, Any], manager_user_id: int | None) -> None:
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    tenant_id = int(user.get("tenant_id", 0) or 0)
+    user_id = int(user.get("id", 0) or 0)
+    if not tenant_id or not user_id:
+        return
+    organization_services.set_user_reporting_manager(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        manager_user_id=int(manager_user_id or 0) or None,
+        current_user={"username": "system", "id": None},
+    )
+
+
 def sync_users_departments_batch_if_available(rows: list[dict[str, Any]], current_user: dict[str, Any] | None = None) -> None:
     assignments = [row for row in rows if row.get("department_ids") or row.get("primary_department_id")]
     if not assignments:
@@ -641,6 +671,17 @@ def sync_users_departments_batch_if_available(rows: list[dict[str, Any]], curren
     except Exception:
         return
     organization_services.set_users_departments_batch(assignments, current_user=current_user or {"username": "system", "id": None})
+
+
+def sync_users_reporting_managers_batch_if_available(rows: list[dict[str, Any]], current_user: dict[str, Any] | None = None) -> None:
+    assignments = [row for row in rows if row.get("manager_user_id") is not None]
+    if not assignments:
+        return
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    organization_services.set_users_reporting_managers_batch(assignments, current_user=current_user or {"username": "system", "id": None})
 
 
 def enrich_user_with_departments(user: dict[str, Any]) -> dict[str, Any]:
@@ -661,6 +702,24 @@ def enrich_user_with_departments(user: dict[str, Any]) -> dict[str, Any]:
     primary = next((department for department in departments if bool(department.get("is_primary"))), departments[0] if departments else None)
     item["department_ids"] = [int(department["department_id"]) for department in departments]
     item["primary_department_id"] = int(primary["department_id"]) if primary else None
+    return item
+
+
+def enrich_user_with_reporting_manager(user: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return user
+    tenant_id = int(user.get("tenant_id", 0) or 0)
+    user_id = int(user.get("id", 0) or 0)
+    if not tenant_id or not user_id:
+        return user
+    try:
+        relationship = organization_services.user_reporting_manager(tenant_id=tenant_id, user_id=user_id)
+    except Exception:
+        return user
+    item = dict(user)
+    item["manager_user_id"] = int((relationship or {}).get("manager_user_id") or 0) or None
     return item
 
 

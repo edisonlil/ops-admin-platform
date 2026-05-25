@@ -32,3 +32,15 @@ class UserDepartmentMembership:
     is_primary: bool
     create_time: str
     update_time: str
+
+
+@dataclass(frozen=True)
+class UserReportingRelationship:
+    id: int
+    tenant_id: int
+    user_id: int
+    manager_user_id: int
+    is_primary: bool
+    relationship_type: str
+    create_time: str
+    update_time: str

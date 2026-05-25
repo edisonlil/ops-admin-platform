@@ -9,6 +9,7 @@ from authorization.domain.models import (
     DATA_SCOPE_DEPARTMENT,
     DATA_SCOPE_DEPARTMENT_AND_CHILDREN,
     DATA_SCOPE_SELF,
+    DATA_SCOPE_SELF_AND_SUBORDINATES,
     DATA_SCOPE_TENANT,
     POLICY_SUBJECT_DEPARTMENT,
     POLICY_SUBJECT_USER,
@@ -24,6 +25,7 @@ from system.application.data_access import (
     SCOPE_DEPARTMENT,
     SCOPE_DEPARTMENT_AND_CHILDREN,
     SCOPE_SELF,
+    SCOPE_SELF_AND_SUBORDINATES,
     SCOPE_TENANT,
 )
 from system.application.sorting import sort_dict_items
@@ -33,6 +35,7 @@ repository: AuthorizationRepository | None = None
 
 SCOPE_RANK = {
     DATA_SCOPE_SELF: 10,
+    DATA_SCOPE_SELF_AND_SUBORDINATES: 15,
     DATA_SCOPE_DEPARTMENT: 20,
     DATA_SCOPE_CUSTOM_DEPARTMENTS: 25,
     DATA_SCOPE_DEPARTMENT_AND_CHILDREN: 30,
@@ -184,6 +187,14 @@ class BuiltinDataAccessFilterProvider:
             return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_TENANT, user_id=user_id)
         if policy.scope == DATA_SCOPE_SELF:
             return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_SELF, user_id=user_id)
+        if policy.scope == DATA_SCOPE_SELF_AND_SUBORDINATES:
+            user_ids = organization_services.subordinate_user_ids(tenant_id=tenant_id, manager_user_id=user_id, include_self=True)
+            return DataAccessPredicate(
+                tenant_id=tenant_id,
+                scope=SCOPE_SELF_AND_SUBORDINATES,
+                user_id=user_id,
+                user_ids=tuple(user_ids),
+            )
         if policy.scope == DATA_SCOPE_DEPARTMENT:
             department_id = int((primary or {}).get("department_id") or (primary or {}).get("id") or 0)
             return DataAccessPredicate(

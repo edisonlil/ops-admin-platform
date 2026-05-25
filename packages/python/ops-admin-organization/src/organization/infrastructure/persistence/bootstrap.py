@@ -19,7 +19,11 @@ def ensure_organization_schema(conn: Any) -> None:
 
 
 def require_organization_schema(conn: Any) -> None:
-    missing = [name for name in ("departments", "user_department_memberships") if not table_exists(conn, name)]
+    missing = [
+        name
+        for name in ("departments", "user_department_memberships", "user_reporting_relationships")
+        if not table_exists(conn, name)
+    ]
     if missing:
         raise RuntimeError(
             "organization storage is not initialized; run `python scripts/init_organization.py`"

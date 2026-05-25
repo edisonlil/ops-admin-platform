@@ -108,6 +108,19 @@ def tenant_users_departments_if_available(tenant_id: int, user_ids: list[int]) -
         return None
 
 
+def tenant_users_reporting_managers_if_available(tenant_id: int, user_ids: list[int]) -> dict[int, dict[str, Any] | None] | None:
+    if not user_ids:
+        return {}
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return None
+    try:
+        return organization_services.users_reporting_managers(tenant_id=tenant_id, user_ids=user_ids)
+    except Exception:
+        return None
+
+
 def create_tenant(payload: dict[str, Any]) -> dict[str, Any]:
     tenant = tenant_repository.create_tenant(
         tenant_key=str(payload.get("tenant_key") or payload.get("key") or ""),
@@ -281,6 +294,7 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
         user_ids = [int(row["id"]) for row in rows]
         roles_by_user = tenant_user_roles(conn, user_ids)
     departments_by_user = tenant_users_departments_if_available(tenant_id, user_ids)
+    managers_by_user = tenant_users_reporting_managers_if_available(tenant_id, user_ids)
     result = []
     for row in rows:
         user_id = int(row["id"])
@@ -299,6 +313,8 @@ def list_tenant_users(tenant_id: int) -> list[dict[str, Any]]:
         item["is_tenant_admin"] = bool(row["is_tenant_admin"])
         if departments_by_user is not None:
             apply_tenant_user_departments(item, departments_by_user.get(user_id, []))
+        if managers_by_user is not None:
+            apply_tenant_user_reporting_manager(item, managers_by_user.get(user_id))
         result.append(item)
     return result
 
@@ -371,6 +387,11 @@ def apply_tenant_user_departments(item: dict[str, Any], departments: list[dict[s
     return item
 
 
+def apply_tenant_user_reporting_manager(item: dict[str, Any], relationship: dict[str, Any] | None) -> dict[str, Any]:
+    item["manager_user_id"] = int((relationship or {}).get("manager_user_id") or 0) or None
+    return item
+
+
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     role_keys = list(payload.get("role_keys") or [])
     user = rbac_service.create_user(
@@ -400,6 +421,12 @@ def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any
             user_id=int(user["id"]),
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
+        )
+    if "manager_user_id" in payload:
+        sync_tenant_user_reporting_manager_if_available(
+            tenant_id=tenant_id,
+            user_id=int(user["id"]),
+            manager_user_id=payload.get("manager_user_id"),
         )
     return _after_access_context_change(get_tenant_user(tenant_id, int(user["id"])) or user)
 
@@ -482,6 +509,12 @@ def update_tenant_user(tenant_id: int, user_id: int, payload: dict[str, Any]) ->
             department_ids=[int(value) for value in payload.get("department_ids") or []],
             primary_department_id=payload.get("primary_department_id"),
         )
+    if "manager_user_id" in payload:
+        sync_tenant_user_reporting_manager_if_available(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            manager_user_id=payload.get("manager_user_id"),
+        )
     return _after_access_context_change(get_tenant_user(tenant_id, user_id) or user)
 
 
@@ -522,6 +555,24 @@ def sync_tenant_user_departments_if_available(
     )
 
 
+def sync_tenant_user_reporting_manager_if_available(
+    *,
+    tenant_id: int,
+    user_id: int,
+    manager_user_id: Any,
+) -> None:
+    try:
+        from organization.application import services as organization_services
+    except Exception:
+        return
+    organization_services.set_user_reporting_manager(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        manager_user_id=int(manager_user_id or 0) or None,
+        current_user={"username": "system", "id": None},
+    )
+
+
 def enrich_tenant_user_with_departments(item: dict[str, Any], tenant_id: int) -> dict[str, Any]:
     try:
         from organization.application import services as organization_services
@@ -534,4 +585,9 @@ def enrich_tenant_user_with_departments(item: dict[str, Any], tenant_id: int) ->
         departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
     except Exception:
         return item
-    return apply_tenant_user_departments(item, departments)
+    apply_tenant_user_departments(item, departments)
+    try:
+        relationship = organization_services.user_reporting_manager(tenant_id=tenant_id, user_id=user_id)
+    except Exception:
+        relationship = None
+    return apply_tenant_user_reporting_manager(item, relationship)

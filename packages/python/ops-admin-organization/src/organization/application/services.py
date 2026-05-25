@@ -108,6 +108,41 @@ def users_departments(*, tenant_id: int, user_ids: list[int]) -> dict[int, list[
     return repo().users_departments(tenant_id=tenant_id, user_ids=user_ids)
 
 
+def set_user_reporting_manager(
+    *,
+    tenant_id: int,
+    user_id: int,
+    manager_user_id: int | None,
+    current_user: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    item = repo().set_user_reporting_manager(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        manager_user_id=manager_user_id,
+        actor=current_actor(current_user or {}),
+        actor_id=current_user_id_or_none(current_user or {}),
+    )
+    return reporting_relationship_to_dict(item) if item else None
+
+
+def set_users_reporting_managers_batch(rows: list[dict[str, Any]], current_user: dict[str, Any] | None = None) -> None:
+    actor = current_actor(current_user or {})
+    actor_id = current_user_id_or_none(current_user or {})
+    repo().set_users_reporting_managers_batch(rows, actor=actor, actor_id=actor_id)
+
+
+def user_reporting_manager(*, tenant_id: int, user_id: int) -> dict[str, Any] | None:
+    return repo().user_reporting_manager(tenant_id=tenant_id, user_id=user_id)
+
+
+def users_reporting_managers(*, tenant_id: int, user_ids: list[int]) -> dict[int, dict[str, Any] | None]:
+    return repo().users_reporting_managers(tenant_id=tenant_id, user_ids=user_ids)
+
+
+def subordinate_user_ids(*, tenant_id: int, manager_user_id: int, include_self: bool = True) -> list[int]:
+    return repo().subordinate_user_ids(tenant_id=tenant_id, manager_user_id=manager_user_id, include_self=include_self)
+
+
 def department_descendant_ids(*, tenant_id: int, department_id: int, include_self: bool = True) -> list[int]:
     departments = repo().list_departments(tenant_id=tenant_id, include_disabled=False)
     children_by_parent: dict[int | None, list[Department]] = {}
@@ -155,6 +190,19 @@ def department_to_dict(item: Department) -> dict[str, Any]:
         "region": item.region,
         "status": item.status,
         "sort_order": item.sort_order,
+        "create_time": item.create_time,
+        "update_time": item.update_time,
+    }
+
+
+def reporting_relationship_to_dict(item: Any) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "tenant_id": item.tenant_id,
+        "user_id": item.user_id,
+        "manager_user_id": item.manager_user_id,
+        "is_primary": item.is_primary,
+        "relationship_type": item.relationship_type,
         "create_time": item.create_time,
         "update_time": item.update_time,
     }

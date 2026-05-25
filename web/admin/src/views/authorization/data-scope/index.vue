@@ -148,6 +148,7 @@
 
   const scopeOptions: SelectOption[] = [
     { label: '本人数据', value: 'self' },
+    { label: '本人及下属数据', value: 'self_and_subordinates' },
     { label: '本部门数据', value: 'department' },
     { label: '本部门及下级数据', value: 'department_and_children' },
     { label: '自定义部门数据', value: 'custom_departments' },

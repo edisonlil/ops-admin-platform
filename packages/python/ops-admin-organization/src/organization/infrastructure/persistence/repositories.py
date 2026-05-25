@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from organization.domain.exceptions import OrganizationDomainError
-from organization.domain.models import Department, STATUS_ACTIVE, STATUS_DISABLED
+from organization.domain.models import Department, STATUS_ACTIVE, STATUS_DISABLED, UserReportingRelationship
 from organization.infrastructure.persistence.bootstrap import require_organization_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
@@ -387,6 +387,239 @@ def users_departments(*, tenant_id: int, user_ids: list[int]) -> dict[int, list[
     for row in rows:
         departments_by_user.setdefault(int(row["user_id"]), []).append(row_to_user_department(dict(row)))
     return departments_by_user
+
+
+def set_user_reporting_manager(
+    *,
+    tenant_id: int,
+    user_id: int,
+    manager_user_id: int | None,
+    actor: str,
+    actor_id: int | None,
+) -> UserReportingRelationship | None:
+    relationship_type = "direct"
+    normalized_manager_id = int(manager_user_id or 0) or None
+    if normalized_manager_id == int(user_id):
+        raise OrganizationDomainError("user cannot report to themselves")
+    timestamp = now_iso()
+    with connect(database_target(), readonly=False) as conn:
+        require_organization_schema(conn)
+        if normalized_manager_id and reporting_path_contains(
+            conn,
+            tenant_id=tenant_id,
+            start_user_id=normalized_manager_id,
+            target_user_id=user_id,
+        ):
+            raise OrganizationDomainError("reporting relationship cycle detected")
+        existing = conn.execute(
+            """
+            SELECT id, manager_user_id
+            FROM user_reporting_relationships
+            WHERE tenant_id = ? AND user_id = ? AND relationship_type = ? AND deleted = 0
+            LIMIT 1
+            """,
+            (tenant_id, user_id, relationship_type),
+        ).fetchone()
+        if not normalized_manager_id:
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE user_reporting_relationships
+                    SET deleted = 1,
+                        active_marker = NULL,
+                        is_primary = 0,
+                        editor = ?,
+                        editor_id = ?,
+                        update_time = ?,
+                        lock_version = lock_version + 1
+                    WHERE id = ?
+                    """,
+                    (actor, actor_id, timestamp, int(existing["id"])),
+                )
+            return None
+        if existing:
+            conn.execute(
+                """
+                UPDATE user_reporting_relationships
+                SET manager_user_id = ?,
+                    is_primary = 1,
+                    editor = ?,
+                    editor_id = ?,
+                    update_time = ?,
+                    lock_version = lock_version + 1
+                WHERE id = ?
+                """,
+                (normalized_manager_id, actor, actor_id, timestamp, int(existing["id"])),
+            )
+            relationship_id = int(existing["id"])
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO user_reporting_relationships (
+                    tenant_id, user_id, manager_user_id, is_primary, relationship_type, active_marker,
+                    creator, creator_id, editor, editor_id, create_time, update_time
+                )
+                VALUES (?, ?, ?, 1, ?, 1, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tenant_id,
+                    user_id,
+                    normalized_manager_id,
+                    relationship_type,
+                    actor,
+                    actor_id,
+                    actor,
+                    actor_id,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            relationship_id = inserted_id(conn, cursor, "user_reporting_relationships", timestamp, actor)
+    item = user_reporting_manager(tenant_id=tenant_id, user_id=user_id)
+    if item is None:
+        return None
+    return UserReportingRelationship(
+        id=relationship_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        manager_user_id=int(item["manager_user_id"]),
+        is_primary=True,
+        relationship_type=relationship_type,
+        create_time=str(item.get("create_time") or ""),
+        update_time=str(item.get("update_time") or ""),
+    )
+
+
+def set_users_reporting_managers_batch(
+    rows: list[dict[str, Any]],
+    *,
+    actor: str,
+    actor_id: int | None,
+) -> None:
+    for row in rows:
+        tenant_id = int(row.get("tenant_id") or 0)
+        user_id = int(row.get("user_id") or 0)
+        if not tenant_id or not user_id:
+            continue
+        set_user_reporting_manager(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            manager_user_id=int(row.get("manager_user_id") or 0) or None,
+            actor=actor,
+            actor_id=actor_id,
+        )
+
+
+def user_reporting_manager(*, tenant_id: int, user_id: int) -> dict[str, Any] | None:
+    return users_reporting_managers(tenant_id=tenant_id, user_ids=[user_id]).get(int(user_id))
+
+
+def users_reporting_managers(*, tenant_id: int, user_ids: list[int]) -> dict[int, dict[str, Any] | None]:
+    normalized_ids: list[int] = []
+    seen: set[int] = set()
+    for value in user_ids:
+        user_id = int(value or 0)
+        if user_id and user_id not in seen:
+            normalized_ids.append(user_id)
+            seen.add(user_id)
+    if not normalized_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized_ids)
+    with connect(database_target(), readonly=True) as conn:
+        require_organization_schema(conn)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM user_reporting_relationships
+            WHERE tenant_id = ?
+              AND user_id IN ({placeholders})
+              AND relationship_type = ?
+              AND deleted = 0
+            ORDER BY user_id ASC, is_primary DESC, id ASC
+            """,
+            (tenant_id, *normalized_ids, "direct"),
+        ).fetchall()
+    managers_by_user: dict[int, dict[str, Any] | None] = {user_id: None for user_id in normalized_ids}
+    for row in rows:
+        user_id = int(row["user_id"])
+        if managers_by_user.get(user_id) is None:
+            managers_by_user[user_id] = row_to_reporting_relationship(dict(row))
+    return managers_by_user
+
+
+def subordinate_user_ids(*, tenant_id: int, manager_user_id: int, include_self: bool = True) -> list[int]:
+    root_user_id = int(manager_user_id or 0)
+    if not root_user_id:
+        return []
+    with connect(database_target(), readonly=True) as conn:
+        require_organization_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT user_id, manager_user_id
+            FROM user_reporting_relationships
+            WHERE tenant_id = ? AND relationship_type = ? AND deleted = 0
+            ORDER BY id ASC
+            """,
+            (tenant_id, "direct"),
+        ).fetchall()
+    children_by_manager: dict[int, list[int]] = {}
+    for row in rows:
+        children_by_manager.setdefault(int(row["manager_user_id"]), []).append(int(row["user_id"]))
+    collected: list[int] = []
+    pending = [root_user_id]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        if current != root_user_id or include_self:
+            collected.append(current)
+        pending.extend(children_by_manager.get(current, []))
+    return collected
+
+
+def reporting_path_contains(
+    conn: Any,
+    *,
+    tenant_id: int,
+    start_user_id: int,
+    target_user_id: int,
+) -> bool:
+    current_id = int(start_user_id)
+    visited: set[int] = set()
+    while current_id:
+        if current_id == int(target_user_id):
+            return True
+        if current_id in visited:
+            return True
+        visited.add(current_id)
+        row = conn.execute(
+            """
+            SELECT manager_user_id
+            FROM user_reporting_relationships
+            WHERE tenant_id = ? AND user_id = ? AND relationship_type = ? AND deleted = 0
+            LIMIT 1
+            """,
+            (tenant_id, current_id, "direct"),
+        ).fetchone()
+        if not row:
+            return False
+        current_id = int(row["manager_user_id"] or 0)
+    return False
+
+
+def row_to_reporting_relationship(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "tenant_id": int(row["tenant_id"]),
+        "user_id": int(row["user_id"]),
+        "manager_user_id": int(row["manager_user_id"]),
+        "is_primary": bool(row["is_primary"]),
+        "relationship_type": str(row.get("relationship_type") or "direct"),
+        "create_time": str(row.get("create_time") or ""),
+        "update_time": str(row.get("update_time") or ""),
+    }
 
 
 def row_to_user_department(row: dict[str, Any]) -> dict[str, Any]:

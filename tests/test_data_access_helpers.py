@@ -7,6 +7,7 @@ from system.application.data_access import (
     DataAccessPredicate,
     ResourceDescriptor,
     SCOPE_SELF,
+    SCOPE_SELF_AND_SUBORDINATES,
     TenantOnlyDataAccessFilterProvider,
     apply_data_access,
     configure_data_access_filter_provider,
@@ -51,6 +52,24 @@ class DataAccessHelperTests(unittest.TestCase):
 
         self.assertEqual(where, ["o.tenant_id = ?", "o.deleted = 0", "o.owner_user_id = ?"])
         self.assertEqual(params, [3, 7])
+
+    def test_apply_self_and_subordinates_uses_owner_user_set(self) -> None:
+        resource = ResourceDescriptor(resource_key="demo.order")
+        where = ["o.tenant_id = ?", "o.deleted = 0"]
+        params: list[object] = [3]
+        predicate = DataAccessPredicate(tenant_id=3, scope=SCOPE_SELF_AND_SUBORDINATES, user_id=7, user_ids=(7, 8, 9))
+
+        apply_data_access(where, params, data_scope=predicate, resource=resource, alias="o")
+
+        self.assertEqual(where, ["o.tenant_id = ?", "o.deleted = 0", "o.owner_user_id IN (?, ?, ?)"])
+        self.assertEqual(params, [3, 7, 8, 9])
+
+    def test_self_and_subordinates_record_check_uses_owner_user_set(self) -> None:
+        resource = ResourceDescriptor(resource_key="demo.order")
+        predicate = DataAccessPredicate(tenant_id=3, scope=SCOPE_SELF_AND_SUBORDINATES, user_id=7, user_ids=(7, 8))
+
+        self.assertTrue(predicate.allows_record({"tenant_id": 3, "owner_user_id": 8}, resource))
+        self.assertFalse(predicate.allows_record({"tenant_id": 3, "owner_user_id": 9}, resource))
 
     def test_ensure_data_access_record_raises_denied_error_by_default(self) -> None:
         configure_data_access_filter_provider(SelfOnlyProvider())

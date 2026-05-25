@@ -32,6 +32,7 @@ class RbacUserCreateRequest(BaseModel):
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
     primary_department_id: int | None = Field(default=None, ge=1)
+    manager_user_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False
 
@@ -71,6 +72,7 @@ class RbacUserUpdateRequest(BaseModel):
     role_keys: list[str] = Field(default_factory=list)
     department_ids: list[int] | None = None
     primary_department_id: int | None = Field(default=None, ge=1)
+    manager_user_id: int | None = Field(default=None, ge=1)
     is_active: bool = True
     is_superuser: bool = False
 

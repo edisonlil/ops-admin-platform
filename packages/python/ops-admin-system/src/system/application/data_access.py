@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 SCOPE_TENANT = "tenant"
 SCOPE_SELF = "self"
+SCOPE_SELF_AND_SUBORDINATES = "self_and_subordinates"
 SCOPE_DEPARTMENT = "department"
 SCOPE_DEPARTMENT_AND_CHILDREN = "department_and_children"
 SCOPE_CUSTOM_DEPARTMENTS = "custom_departments"
@@ -22,6 +23,7 @@ class ResourceDescriptor:
     requires_data_scope: bool = False
     supported_scopes: tuple[str, ...] = (
         SCOPE_SELF,
+        SCOPE_SELF_AND_SUBORDINATES,
         SCOPE_DEPARTMENT,
         SCOPE_DEPARTMENT_AND_CHILDREN,
         SCOPE_CUSTOM_DEPARTMENTS,
@@ -34,6 +36,7 @@ class DataAccessPredicate:
     tenant_id: int
     scope: str = SCOPE_TENANT
     user_id: int | None = None
+    user_ids: tuple[int, ...] = field(default_factory=tuple)
     department_ids: tuple[int, ...] = field(default_factory=tuple)
 
     def to_sql(self, descriptor: ResourceDescriptor, *, alias: str = "") -> tuple[str, tuple[Any, ...]]:
@@ -53,6 +56,19 @@ class DataAccessPredicate:
                 return " AND ".join(clauses), tuple(params)
             clauses.append(f"{prefix}{owner_column} = ?")
             params.append(int(self.user_id or 0))
+            return " AND ".join(clauses), tuple(params)
+        if self.scope == SCOPE_SELF_AND_SUBORDINATES:
+            owner_column = descriptor.owner_user_column or descriptor.creator_column
+            owner_column = str(owner_column or "").strip()
+            if not owner_column:
+                return " AND ".join(clauses), tuple(params)
+            user_ids = self.user_ids or ((int(self.user_id or 0),) if self.user_id else ())
+            if not user_ids:
+                clauses.append("1 = 0")
+                return " AND ".join(clauses), tuple(params)
+            placeholders = ", ".join("?" for _ in user_ids)
+            clauses.append(f"{prefix}{owner_column} IN ({placeholders})")
+            params.extend(user_ids)
             return " AND ".join(clauses), tuple(params)
         if self.scope in {SCOPE_DEPARTMENT, SCOPE_DEPARTMENT_AND_CHILDREN, SCOPE_CUSTOM_DEPARTMENTS}:
             department_column = str(descriptor.owner_department_column or "").strip()
@@ -81,6 +97,13 @@ class DataAccessPredicate:
             if not owner_column:
                 return False
             return int(read_record_value(record, owner_column) or 0) == int(self.user_id or 0)
+        if self.scope == SCOPE_SELF_AND_SUBORDINATES:
+            owner_column = descriptor.owner_user_column or descriptor.creator_column
+            owner_column = str(owner_column or "").strip()
+            if not owner_column:
+                return False
+            user_ids = self.user_ids or ((int(self.user_id or 0),) if self.user_id else ())
+            return int(read_record_value(record, owner_column) or 0) in set(user_ids)
         if self.scope in {SCOPE_DEPARTMENT, SCOPE_DEPARTMENT_AND_CHILDREN, SCOPE_CUSTOM_DEPARTMENTS}:
             department_column = str(descriptor.owner_department_column or "").strip()
             if not department_column:

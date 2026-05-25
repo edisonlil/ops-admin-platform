@@ -24,6 +24,7 @@ def ensure_authorization_schema(conn: Any) -> None:
     seed_path = PERSISTENCE_DIR / "seed.sql"
     if seed_path.exists():
         apply_sql_script(conn, seed_path)
+    ensure_self_and_subordinates_scope(conn)
 
 
 def require_authorization_schema(conn: Any) -> None:
@@ -53,4 +54,18 @@ def ensure_authorization_active_markers(conn: Any) -> None:
         key_columns=("tenant_id", "subject_type", "subject_id", "resource_key", "action"),
         sqlite_create_table_sql=create_table_statement(PERSISTENCE_DIR / "ddl.sqlite.sql", "data_access_policies"),
         constraint_name="data_access_policies_current_unique",
+    )
+
+
+def ensure_self_and_subordinates_scope(conn: Any) -> None:
+    if not table_exists(conn, "data_resource_descriptors"):
+        return
+    conn.execute(
+        """
+        UPDATE data_resource_descriptors
+        SET supported_scopes_json = '["self","self_and_subordinates","department","department_and_children","custom_departments","tenant"]'
+        WHERE deleted = FALSE
+          AND supported_scopes_json LIKE '%"self"%'
+          AND supported_scopes_json NOT LIKE '%"self_and_subordinates"%'
+        """
     )

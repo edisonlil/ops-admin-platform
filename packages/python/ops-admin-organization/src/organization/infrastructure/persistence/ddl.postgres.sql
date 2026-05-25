@@ -38,7 +38,28 @@ CREATE TABLE IF NOT EXISTS user_department_memberships (
     UNIQUE (tenant_id, user_id, department_id, active_marker)
 );
 
+CREATE TABLE IF NOT EXISTS user_reporting_relationships (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    manager_user_id BIGINT NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT TRUE,
+    relationship_type VARCHAR(40) NOT NULL DEFAULT 'direct',
+    active_marker BIGINT DEFAULT 1,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creator VARCHAR(64) DEFAULT NULL,
+    creator_id BIGINT DEFAULT NULL,
+    update_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    editor VARCHAR(64) DEFAULT NULL,
+    editor_id BIGINT DEFAULT NULL,
+    UNIQUE (tenant_id, user_id, relationship_type, active_marker)
+);
+
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_parent ON departments(tenant_id, parent_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_status ON departments(tenant_id, status, deleted);
 CREATE INDEX IF NOT EXISTS idx_user_department_memberships_user ON user_department_memberships(tenant_id, user_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_user_department_memberships_department ON user_department_memberships(tenant_id, department_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_user_reporting_relationships_user ON user_reporting_relationships(tenant_id, user_id, deleted);
+CREATE INDEX IF NOT EXISTS idx_user_reporting_relationships_manager ON user_reporting_relationships(tenant_id, manager_user_id, deleted);
