@@ -8,7 +8,7 @@
       :is-resizable="!readonly"
       :vertical-compact="true"
       :use-css-transforms="true"
-      @layout-updated="emitChange"
+      @layout-updated="emitLayoutChange"
     >
       <GridItem
         v-for="item in innerLayout"
@@ -29,10 +29,18 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
+  import { ref, watch } from 'vue';
   import { GridItem, GridLayout } from 'grid-layout-plus';
   import type { DashboardLayout, PageComponentConfig } from '@/api/pageDesigner';
   import WidgetRenderer from './WidgetRenderer.vue';
+
+  interface GridCanvasItem {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    i: string;
+  }
 
   const props = withDefaults(
     defineProps<{
@@ -52,47 +60,63 @@
     (event: 'select', value: string): void;
   }>();
 
-  const innerLayout = computed({
-    get() {
-      return (props.layout.items || []).map((item) => ({
-        x: item.x,
-        y: item.y,
-        w: item.w,
-        h: item.h,
-        i: item.id,
-      }));
+  const innerLayout = ref<GridCanvasItem[]>(toGridItems(props.layout));
+
+  watch(
+    () => props.layout.items,
+    () => {
+      const nextItems = toGridItems(props.layout);
+      if (layoutSignature(innerLayout.value) !== layoutSignature(nextItems)) {
+        innerLayout.value = nextItems;
+      }
     },
-    set(value) {
-      emit('update:layout', {
-        ...props.layout,
-        items: value.map((item) => {
-          const existing = props.layout.items.find((layoutItem) => layoutItem.id === item.i);
-          return {
-            id: String(item.i),
-            type: existing?.type,
-            x: Number(item.x || 0),
-            y: Number(item.y || 0),
-            w: Number(item.w || 1),
-            h: Number(item.h || 1),
-            props: existing?.props || {},
-          };
-        }),
-      });
-    },
-  });
+    { deep: true }
+  );
 
   function componentById(id: string) {
     return props.components.find((component) => component.id === id) || { id, type: 'text_block', title: '未知组件', props: {} };
   }
 
-  function emitChange(nextLayout: Array<{ i: string; x: number; y: number; w: number; h: number }>) {
-    innerLayout.value = nextLayout;
+  function emitLayoutChange(nextLayout: GridCanvasItem[]) {
+    const normalizedLayout = {
+      ...props.layout,
+      items: nextLayout.map((item) => {
+        const existing = props.layout.items.find((layoutItem) => layoutItem.id === item.i);
+        return {
+          id: String(item.i),
+          type: existing?.type,
+          x: Number(item.x || 0),
+          y: Number(item.y || 0),
+          w: Number(item.w || 1),
+          h: Number(item.h || 1),
+          props: existing?.props || {},
+        };
+      }),
+    };
+
+    if (layoutSignature(toGridItems(normalizedLayout)) !== layoutSignature(toGridItems(props.layout))) {
+      emit('update:layout', normalizedLayout);
+    }
   }
 
   function selectItem(id: string) {
     if (!props.readonly) {
       emit('select', id);
     }
+  }
+
+  function toGridItems(layout: DashboardLayout): GridCanvasItem[] {
+    return (layout.items || []).map((item) => ({
+      x: Number(item.x || 0),
+      y: Number(item.y || 0),
+      w: Number(item.w || 1),
+      h: Number(item.h || 1),
+      i: item.id,
+    }));
+  }
+
+  function layoutSignature(items: GridCanvasItem[]) {
+    return items.map((item) => `${item.i}:${item.x}:${item.y}:${item.w}:${item.h}`).join('|');
   }
 </script>
 
