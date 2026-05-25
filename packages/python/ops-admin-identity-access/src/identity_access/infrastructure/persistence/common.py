@@ -260,6 +260,7 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "data-scope-management": {"menu_type": "page", "component": "/authorization/data-scope/index", "menu_scope": "tenant"},
     "data-scope-management-read": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "data-scope-management-manage": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "data-scope-management-resource": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "audit-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
     "audit-system-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
     "audit-operation-logs": {"menu_type": "page", "component": "/audit/logs/index", "menu_scope": "tenant"},
@@ -434,6 +435,7 @@ TENANT_ORGANIZATION_MENU_KEYS = [
     "data-scope-management",
     "data-scope-management-read",
     "data-scope-management-manage",
+    "data-scope-management-resource",
 ]
 TENANT_ORGANIZATION_NAV_MENU_KEYS = [
     "organization",
@@ -528,6 +530,7 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "tenant:api_keys:revoke",
     "organization:departments:read",
     "organization:departments:manage",
+    "authorization:data-resource:manage",
     "authorization:data-scope:read",
     "authorization:data-scope:manage",
     "messaging:inbox:view",
@@ -1426,7 +1429,8 @@ def backfill_default_menu_metadata(conn: Any) -> None:
         UPDATE menus
         SET label = CASE
                 WHEN menu_key = 'data-scope-management-read' THEN '查看数据权限'
-                ELSE '管理数据权限'
+                WHEN menu_key = 'data-scope-management-manage' THEN '管理数据权限'
+                ELSE '配置数据资源'
             END,
             menu_type = 'action',
             path = '',
@@ -1436,15 +1440,17 @@ def backfill_default_menu_metadata(conn: Any) -> None:
             parent_key = 'data-scope-management',
             permission_code = CASE
                 WHEN menu_key = 'data-scope-management-read' THEN 'authorization:data-scope:read'
-                ELSE 'authorization:data-scope:manage'
+                WHEN menu_key = 'data-scope-management-manage' THEN 'authorization:data-scope:manage'
+                ELSE 'authorization:data-resource:manage'
             END,
             sort_order = CASE
                 WHEN menu_key = 'data-scope-management-read' THEN 8321
-                ELSE 8322
+                WHEN menu_key = 'data-scope-management-manage' THEN 8322
+                ELSE 8323
             END,
             is_visible = TRUE,
             menu_scope = 'tenant'
-        WHERE menu_key IN ('data-scope-management-read', 'data-scope-management-manage')
+        WHERE menu_key IN ('data-scope-management-read', 'data-scope-management-manage', 'data-scope-management-resource')
         """
     )
     conn.execute(
@@ -1769,6 +1775,16 @@ def ensure_tenant_default_menus(conn: Any) -> None:
             "data-scope-management",
             "authorization:data-scope:manage",
             8322,
+        ),
+        (
+            "data-scope-management-resource",
+            "配置数据资源",
+            "",
+            "",
+            "",
+            "data-scope-management",
+            "authorization:data-resource:manage",
+            8323,
         ),
         (
             "audit-logs",

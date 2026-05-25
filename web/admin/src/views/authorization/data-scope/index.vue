@@ -1,6 +1,9 @@
 <template>
   <div class="data-scope-page">
     <ListPageRuntime :schema="scopePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
+      <template v-if="canManageResource" #header-actions>
+        <n-button secondary @click="openResourceConfig">资源配置</n-button>
+      </template>
       <template #filters>
         <n-select v-model:value="subjectTypeFilter" clearable placeholder="主体类型" :options="subjectTypeOptions" class="data-scope-page__filter" />
         <n-select
@@ -70,6 +73,54 @@
         </template>
       </n-drawer-content>
     </n-drawer>
+
+    <n-drawer v-model:show="resourceDrawerVisible" width="720">
+      <n-drawer-content title="数据资源配置">
+        <n-form ref="resourceFormRef" :model="resourceForm" :rules="resourceRules" label-placement="top">
+          <n-grid :cols="2" :x-gap="16" responsive="screen">
+            <n-form-item-gi label="数据资源" path="resource_key">
+              <n-select v-model:value="resourceForm.resource_key" filterable :options="resourceOptions" @update:value="handleResourceChange" />
+            </n-form-item-gi>
+            <n-form-item-gi label="资源名称" path="name">
+              <n-input v-model:value="resourceForm.name" />
+            </n-form-item-gi>
+            <n-form-item-gi label="租户字段" path="tenant_column">
+              <n-input v-model:value="resourceForm.tenant_column" />
+            </n-form-item-gi>
+            <n-form-item-gi label="创建人字段" path="creator_column">
+              <n-input v-model:value="resourceForm.creator_column" />
+            </n-form-item-gi>
+            <n-form-item-gi label="负责人字段" path="owner_user_column">
+              <n-input v-model:value="resourceForm.owner_user_column" />
+            </n-form-item-gi>
+            <n-form-item-gi label="归属部门字段" path="owner_department_column">
+              <n-input v-model:value="resourceForm.owner_department_column" />
+            </n-form-item-gi>
+          </n-grid>
+          <n-form-item label="资源描述" path="description">
+            <n-input v-model:value="resourceForm.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
+          </n-form-item>
+          <n-form-item label="支持的权限范围" path="supported_scopes">
+            <n-checkbox-group v-model:value="resourceForm.supported_scopes">
+              <n-space>
+                <n-checkbox v-for="option in scopeOptions" :key="String(option.value)" :value="String(option.value)">
+                  {{ option.label }}
+                </n-checkbox>
+              </n-space>
+            </n-checkbox-group>
+          </n-form-item>
+          <n-form-item label="必须配置数据权限" path="requires_data_scope">
+            <n-switch v-model:value="resourceForm.requires_data_scope" />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <n-space justify="end">
+            <n-button @click="resourceDrawerVisible = false">取消</n-button>
+            <n-button type="primary" :loading="resourceSaving" @click="submitResource">保存资源</n-button>
+          </n-space>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
@@ -88,14 +139,22 @@
     getCurrentTenantUsers,
     getDataAccessPolicies,
     getDepartments,
+    saveAuthorizationResource,
     saveDataAccessPolicy,
     type DataAccessPolicyPayload,
+    type DataResourcePayload,
   } from '@/api/business';
 
   interface ResourceRow extends Recordable {
     resource_key: string;
     name: string;
+    description?: string;
+    tenant_column?: string;
+    creator_column?: string;
+    owner_user_column?: string;
+    owner_department_column?: string;
     supported_scopes?: string[];
+    requires_data_scope?: boolean;
   }
 
   interface DepartmentRow extends Recordable {
@@ -122,8 +181,11 @@
   const { hasPermission } = usePermission();
   const loading = ref(false);
   const saving = ref(false);
+  const resourceSaving = ref(false);
   const drawerVisible = ref(false);
+  const resourceDrawerVisible = ref(false);
   const formRef = ref<FormInst | null>(null);
+  const resourceFormRef = ref<FormInst | null>(null);
   const rows = ref<PolicyRow[]>([]);
   const paginationTotal = ref(0);
   const resources = ref<ResourceRow[]>([]);
@@ -139,6 +201,17 @@
     scope: 'self',
     department_ids: [],
     priority: 100,
+  });
+  const resourceForm = reactive<DataResourcePayload>({
+    resource_key: '',
+    name: '',
+    description: '',
+    tenant_column: 'tenant_id',
+    creator_column: 'creator_id',
+    owner_user_column: 'owner_user_id',
+    owner_department_column: 'owner_department_id',
+    supported_scopes: [],
+    requires_data_scope: false,
   });
 
   const subjectTypeOptions: SelectOption[] = [
@@ -168,7 +241,13 @@
     action: [{ required: true, message: '请选择动作', trigger: ['blur', 'change'] }],
     scope: [{ required: true, message: '请选择权限范围', trigger: ['blur', 'change'] }],
   };
+  const resourceRules: FormRules = {
+    resource_key: [{ required: true, message: '请选择数据资源', trigger: ['blur', 'change'] }],
+    name: [{ required: true, message: '请输入资源名称', trigger: ['blur', 'input'] }],
+    supported_scopes: [{ required: true, type: 'array', message: '请选择支持的权限范围', trigger: ['blur', 'change'] }],
+  };
 
+  const canManageResource = computed(() => hasPermission(['authorization:data-resource:manage']));
   const resourceOptions = computed<SelectOption[]>(() =>
     resources.value.map((resource) => ({ label: `${resource.name || resource.resource_key} (${resource.resource_key})`, value: resource.resource_key }))
   );
@@ -280,6 +359,31 @@
     drawerVisible.value = true;
   }
 
+  function openResourceConfig() {
+    const resourceKey = resourceFilter.value || form.resource_key || resources.value[0]?.resource_key || '';
+    applyResourceForm(resources.value.find((item) => item.resource_key === resourceKey) || resources.value[0]);
+    resourceDrawerVisible.value = true;
+    resourceFormRef.value?.restoreValidation();
+  }
+
+  function handleResourceChange(value: string) {
+    applyResourceForm(resources.value.find((item) => item.resource_key === value));
+  }
+
+  function applyResourceForm(resource?: ResourceRow) {
+    Object.assign(resourceForm, {
+      resource_key: resource?.resource_key || '',
+      name: resource?.name || '',
+      description: resource?.description || '',
+      tenant_column: resource?.tenant_column || 'tenant_id',
+      creator_column: resource?.creator_column || 'creator_id',
+      owner_user_column: resource?.owner_user_column || 'owner_user_id',
+      owner_department_column: resource?.owner_department_column || 'owner_department_id',
+      supported_scopes: [...(resource?.supported_scopes || [])],
+      requires_data_scope: Boolean(resource?.requires_data_scope),
+    });
+  }
+
   function handleSubjectTypeChange(value: string) {
     form.subject_id = defaultSubjectId(value as SubjectType);
   }
@@ -306,6 +410,26 @@
       await reload();
     } finally {
       saving.value = false;
+    }
+  }
+
+  async function submitResource() {
+    try {
+      await resourceFormRef.value?.validate();
+    } catch {
+      return;
+    }
+    resourceSaving.value = true;
+    try {
+      await saveAuthorizationResource(resourceForm.resource_key, {
+        ...resourceForm,
+        supported_scopes: [...(resourceForm.supported_scopes || [])],
+      });
+      message.success('数据资源已保存');
+      resourceDrawerVisible.value = false;
+      await reload();
+    } finally {
+      resourceSaving.value = false;
     }
   }
 
