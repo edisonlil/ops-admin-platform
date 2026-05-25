@@ -35,12 +35,21 @@
   }
 
   function resolvePageKey() {
-    const explicitKey = String(route.params.pageKey || route.params.pathMatch || route.query.page_key || '')
+    const queryKey = String(route.query.page_key || '').trim();
+    if (queryKey) return queryKey;
+
+    const parts = route.path.split('/').filter(Boolean);
+    const runtimeIndex = parts.findIndex((part) => part === 'runtime');
+    if (runtimeIndex >= 0 && parts[runtimeIndex + 1]) {
+      return parts[runtimeIndex + 1];
+    }
+
+    const explicitKey = String(route.params.pageKey || route.params.pathMatch || '')
       .split('/')
       .filter(Boolean)
       .pop();
     if (explicitKey) return explicitKey;
-    return route.path.split('/').filter(Boolean).pop() || '';
+    return parts.pop() || '';
   }
 
   watch(() => route.fullPath, load, { immediate: true });
