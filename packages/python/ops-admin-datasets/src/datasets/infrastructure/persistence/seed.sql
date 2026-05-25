@@ -1,0 +1,2 @@
+-- Dataset definitions and rows are tenant business data and should be created
+-- explicitly by administrators.

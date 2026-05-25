@@ -301,6 +301,27 @@ SELECT 'basic-data:dictionary:read', 'Read business dictionaries', 'View and con
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:read');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'datasets:dataset:read', '查看数据集', '查看和预览租户数据集'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'datasets:dataset:read');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'datasets:dataset:manage', '管理数据集', '创建、编辑和删除租户数据集'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'datasets:dataset:manage');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'datasets:dataset:publish', '发布数据集', '发布数据集版本供仪表盘使用'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'datasets:dataset:publish');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'datasets:dataset:preview', '预览数据集', '分页预览数据集运行结果'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'datasets:dataset:preview');
+
+UPDATE permissions SET name = '查看数据集', description = '查看和预览租户数据集' WHERE code = 'datasets:dataset:read';
+UPDATE permissions SET name = '管理数据集', description = '创建、编辑和删除租户数据集' WHERE code = 'datasets:dataset:manage';
+UPDATE permissions SET name = '发布数据集', description = '发布数据集版本供仪表盘使用' WHERE code = 'datasets:dataset:publish';
+UPDATE permissions SET name = '预览数据集', description = '分页预览数据集运行结果' WHERE code = 'datasets:dataset:preview';
+
+INSERT INTO permissions (code, name, description)
 SELECT 'basic-data:dictionary:manage', 'Manage business dictionaries', 'Create, update, disable, and delete tenant business dictionaries'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:manage');
 
@@ -1191,3 +1212,86 @@ WHERE menu_key IN (
     'platform-audit-sql-logs',
     'platform-audit-visitor-logs'
 );
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'data-center', 'tenant', '数据中心', 'directory', '', '', '', 'database', '', '', 84, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'data-center');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management', 'tenant', '数据集管理', 'page', '/datasets/manage', 'dataset-management', '/datasets/manage/index', 'table', 'data-center', 'datasets:dataset:read', 841, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management-create', 'tenant', '新建数据集', 'action', '', '', '', '', 'dataset-management', 'datasets:dataset:manage', 8411, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management-create');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management-update', 'tenant', '编辑数据集', 'action', '', '', '', '', 'dataset-management', 'datasets:dataset:manage', 8412, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management-update');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management-delete', 'tenant', '删除数据集', 'action', '', '', '', '', 'dataset-management', 'datasets:dataset:manage', 8413, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management-publish', 'tenant', '发布数据集', 'action', '', '', '', '', 'dataset-management', 'datasets:dataset:publish', 8414, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management-publish');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'dataset-management-preview', 'tenant', '预览数据集', 'action', '', '', '', '', 'dataset-management', 'datasets:dataset:preview', 8415, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'dataset-management-preview');
+
+UPDATE menus SET label = '数据中心', menu_scope = 'tenant', menu_type = 'directory', parent_key = '', component = '', permission_code = ''
+WHERE menu_key = 'data-center';
+
+UPDATE menus SET label = '数据集管理', menu_scope = 'tenant', menu_type = 'page', path = '/datasets/manage', route_name = 'dataset-management',
+    component = '/datasets/manage/index', parent_key = 'data-center', permission_code = 'datasets:dataset:read', is_visible = TRUE
+WHERE menu_key = 'dataset-management';
+
+UPDATE menus SET label = '新建数据集', parent_key = 'dataset-management', permission_code = 'datasets:dataset:manage'
+WHERE menu_key = 'dataset-management-create';
+
+UPDATE menus SET label = '编辑数据集', parent_key = 'dataset-management', permission_code = 'datasets:dataset:manage'
+WHERE menu_key = 'dataset-management-update';
+
+UPDATE menus SET label = '删除数据集', parent_key = 'dataset-management', permission_code = 'datasets:dataset:manage'
+WHERE menu_key = 'dataset-management-delete';
+
+UPDATE menus SET label = '发布数据集', parent_key = 'dataset-management', permission_code = 'datasets:dataset:publish'
+WHERE menu_key = 'dataset-management-publish';
+
+UPDATE menus SET label = '预览数据集', parent_key = 'dataset-management', permission_code = 'datasets:dataset:preview'
+WHERE menu_key = 'dataset-management-preview';
+
+INSERT INTO role_menus (role_id, menu_id)
+SELECT r.id, m.id
+FROM roles r
+JOIN menus m ON m.menu_key IN (
+    'data-center',
+    'dataset-management',
+    'dataset-management-create',
+    'dataset-management-update',
+    'dataset-management-delete',
+    'dataset-management-publish',
+    'dataset-management-preview'
+)
+WHERE r.role_key = 'tenant-admin'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_menus rm
+      WHERE rm.role_id = r.id AND rm.menu_id = m.id
+  );
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code IN (
+    'datasets:dataset:read',
+    'datasets:dataset:manage',
+    'datasets:dataset:publish',
+    'datasets:dataset:preview'
+)
+WHERE r.role_key = 'tenant-admin'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_permissions rp
+      WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  );

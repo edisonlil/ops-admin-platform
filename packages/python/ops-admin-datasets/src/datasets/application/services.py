@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+from typing import Any
+
+from datasets.application.ports import DatasetRepository, ExternalDatasetExecutorPort
+from datasets.domain.exceptions import DatasetDomainError, DatasetNotFoundError, DatasetRuntimeUnavailableError, DatasetStorageNotReadyError
+from datasets.domain.models import (
+    DATASET_TYPE_MANUAL,
+    DATASET_TYPES,
+    FIELD_TYPE_TEXT,
+    FIELD_TYPES,
+    STATUS_DRAFT,
+    DATASET_STATUSES,
+    Dataset,
+    DatasetField,
+)
+from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
+from system.application.sorting import InvalidSortError
+
+
+repository: DatasetRepository | None = None
+external_executor: ExternalDatasetExecutorPort | None = None
+DATASET_RESOURCE = ResourceDescriptor(resource_key="dataset.definition")
+
+
+def configure_repository(dataset_repository: DatasetRepository) -> None:
+    global repository
+    repository = dataset_repository
+
+
+def configure_external_executor(executor: ExternalDatasetExecutorPort | None) -> None:
+    global external_executor
+    external_executor = executor
+
+
+def repo() -> DatasetRepository:
+    if repository is None:
+        raise DatasetStorageNotReadyError("dataset repository is not configured")
+    return repository
+
+
+def list_datasets(
+    *,
+    page: int,
+    page_size: int,
+    keyword: str = "",
+    status: str | None = None,
+    dataset_type: str = "",
+    current_user: dict[str, Any],
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    try:
+        items, total = repo().list_datasets(
+            tenant_id=current_tenant_id(current_user),
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status=status,
+            dataset_type=dataset_type,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            data_scope=data_access_for(current_user, DATASET_RESOURCE).read(),
+        )
+    except InvalidSortError as exc:
+        raise DatasetDomainError(str(exc)) from exc
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    return {
+        "items": [item.to_dict() for item in items],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    }
+
+
+def dataset_detail(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
+    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset_id)
+    return {"item": dataset.to_dict(), "fields": [field.to_dict() for field in fields]}
+
+
+def save_dataset(payload: dict[str, Any], current_user: dict[str, Any], dataset_id: int | None = None) -> dict[str, Any]:
+    tenant_id = current_tenant_id(current_user)
+    normalized = normalize_dataset_payload({**payload, "id": dataset_id or payload.get("id")})
+    if int(normalized.get("id") or 0):
+        ensure_dataset_access(int(normalized["id"]), current_user=current_user, action="write")
+    normalized.update(data_owner_fields(current_user))
+    item = Dataset(
+        id=int(normalized.get("id") or 0),
+        tenant_id=tenant_id,
+        create_time="",
+        update_time="",
+        **dataset_model_fields(normalized),
+    )
+    item.validate()
+    try:
+        saved = repo().save_dataset(
+            tenant_id=tenant_id,
+            payload=normalized,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    ensure_data_access_record(saved.to_dict(), current_user=current_user, resource=DATASET_RESOURCE, action="write")
+    return {"item": saved.to_dict()}
+
+
+def delete_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="manage")
+    try:
+        deleted = repo().delete_dataset(
+            tenant_id=current_tenant_id(current_user),
+            dataset_id=dataset.id,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    if not deleted:
+        raise DatasetNotFoundError("dataset not found")
+    return {"id": dataset_id, "deleted": True}
+
+
+def save_fields(dataset_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="write")
+    raw_fields = payload.get("fields")
+    if not isinstance(raw_fields, list):
+        raise DatasetDomainError("fields must be an array")
+    normalized = normalize_fields(raw_fields)
+    try:
+        fields = repo().replace_fields(
+            tenant_id=current_tenant_id(current_user),
+            dataset_id=dataset.id,
+            fields=normalized,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    return {"items": [field.to_dict() for field in fields]}
+
+
+def save_manual_rows(dataset_id: int, payload: dict[str, Any], current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="write")
+    if dataset.dataset_type != DATASET_TYPE_MANUAL:
+        raise DatasetDomainError("only manual datasets can store manual rows")
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise DatasetDomainError("rows must be an array")
+    normalized = [item for item in rows if isinstance(item, dict)]
+    if len(normalized) != len(rows):
+        raise DatasetDomainError("each row must be an object")
+    try:
+        count = repo().replace_manual_rows(
+            tenant_id=current_tenant_id(current_user),
+            dataset_id=dataset.id,
+            rows=normalized,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    return {"count": count}
+
+
+def publish_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="manage")
+    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id)
+    if not fields:
+        raise DatasetDomainError("dataset fields are required before publishing")
+    rows, _ = repo().list_manual_rows(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
+    schema = {"fields": [field.to_dict() for field in fields]}
+    try:
+        version = repo().publish_dataset(
+            tenant_id=current_tenant_id(current_user),
+            dataset_id=dataset.id,
+            schema=schema,
+            sample_rows=rows,
+            actor=current_actor(current_user),
+            actor_id=current_user_id_or_none(current_user),
+        )
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    return {"item": version.to_dict()}
+
+
+def preview_dataset(
+    *,
+    dataset_id: int,
+    page: int,
+    page_size: int,
+    variables: dict[str, Any] | None = None,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
+    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id)
+    if dataset.dataset_type == DATASET_TYPE_MANUAL:
+        rows, total = repo().list_manual_rows(
+            tenant_id=current_tenant_id(current_user),
+            dataset_id=dataset.id,
+            page=page,
+            page_size=page_size,
+        )
+        return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "manual"})
+    if external_executor is None:
+        raise DatasetRuntimeUnavailableError("dataset runtime executor is unavailable")
+    rows, total, meta = external_executor.execute_preview(
+        dataset=dataset,
+        fields=fields,
+        page=page,
+        page_size=page_size,
+        variables=variables or {},
+    )
+    return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
+
+
+def runtime_payload(
+    dataset: Dataset,
+    fields: list[DatasetField],
+    rows: list[dict[str, Any]],
+    total: int,
+    page: int,
+    page_size: int,
+    meta: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "dataset": dataset.to_dict(),
+        "fields": [field.to_dict() for field in fields],
+        "items": rows,
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+        "meta": {"published_version_id": dataset.published_version_id, **meta},
+    }
+
+
+def ensure_dataset_access(dataset_id: int, *, current_user: dict[str, Any], action: str) -> Dataset:
+    tenant_id = current_tenant_id(current_user)
+    try:
+        row = repo().get_dataset_row(tenant_id=tenant_id, dataset_id=dataset_id)
+    except RuntimeError as exc:
+        raise DatasetStorageNotReadyError(str(exc)) from exc
+    if not row:
+        raise DatasetNotFoundError("dataset not found")
+    ensure_data_access_record(row, current_user=current_user, resource=DATASET_RESOURCE, action=action)
+    dataset = repo().get_dataset(tenant_id=tenant_id, dataset_id=dataset_id)
+    if dataset is None:
+        raise DatasetNotFoundError("dataset not found")
+    return dataset
+
+
+def normalize_dataset_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = {
+        "id": int(payload.get("id") or 0),
+        "key": str(payload.get("key") or "").strip(),
+        "name": str(payload.get("name") or "").strip(),
+        "description": str(payload.get("description") or "").strip(),
+        "dataset_type": str(payload.get("dataset_type") or DATASET_TYPE_MANUAL).strip() or DATASET_TYPE_MANUAL,
+        "status": str(payload.get("status") or STATUS_DRAFT).strip() or STATUS_DRAFT,
+        "visibility": str(payload.get("visibility") or "tenant").strip() or "tenant",
+        "published_version_id": payload.get("published_version_id"),
+    }
+    if normalized["dataset_type"] not in DATASET_TYPES:
+        raise DatasetDomainError(f"unsupported dataset_type: {normalized['dataset_type']}")
+    if normalized["status"] not in DATASET_STATUSES:
+        raise DatasetDomainError(f"unsupported dataset status: {normalized['status']}")
+    return normalized
+
+
+def dataset_model_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": str(payload.get("key") or "").strip(),
+        "name": str(payload.get("name") or "").strip(),
+        "description": str(payload.get("description") or "").strip(),
+        "dataset_type": str(payload.get("dataset_type") or DATASET_TYPE_MANUAL),
+        "status": str(payload.get("status") or STATUS_DRAFT),
+        "visibility": str(payload.get("visibility") or "tenant"),
+        "owner_user_id": payload.get("owner_user_id"),
+        "owner_department_id": payload.get("owner_department_id"),
+        "published_version_id": payload.get("published_version_id"),
+    }
+
+
+def normalize_fields(raw_fields: list[Any]) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_fields):
+        if not isinstance(raw, dict):
+            raise DatasetDomainError("each field must be an object")
+        field_key = str(raw.get("field_key") or "").strip()
+        if not field_key:
+            raise DatasetDomainError("field_key is required")
+        if field_key in seen:
+            raise DatasetDomainError(f"duplicate field_key: {field_key}")
+        seen.add(field_key)
+        data_type = str(raw.get("data_type") or FIELD_TYPE_TEXT).strip() or FIELD_TYPE_TEXT
+        if data_type not in FIELD_TYPES:
+            raise DatasetDomainError(f"unsupported field data_type: {data_type}")
+        item = {
+            "field_key": field_key,
+            "label": str(raw.get("label") or field_key).strip(),
+            "data_type": data_type,
+            "semantic_type": str(raw.get("semantic_type") or "").strip(),
+            "unit": str(raw.get("unit") or "").strip(),
+            "precision": raw.get("precision"),
+            "nullable": bool(raw.get("nullable", True)),
+            "visible": bool(raw.get("visible", True)),
+            "sort_order": int(raw.get("sort_order") if raw.get("sort_order") is not None else index),
+            "expression": str(raw.get("expression") or "").strip(),
+            "config": raw.get("config") if isinstance(raw.get("config"), dict) else {},
+        }
+        DatasetField(id=0, tenant_id=0, dataset_id=0, create_time="", update_time="", **item).validate()
+        fields.append(item)
+    return fields
+
+
+def current_tenant_id(current_user: dict[str, Any]) -> int:
+    current = current_user.get("current_tenant")
+    if isinstance(current, dict) and current.get("id") is not None:
+        return int(current.get("id") or 0)
+    return int(current_user.get("tenant_id") or 0)
+
+
+def current_actor(current_user: dict[str, Any]) -> str:
+    return str(current_user.get("username") or current_user.get("name") or "system")
+
+
+def current_user_id_or_none(current_user: dict[str, Any]) -> int | None:
+    value = current_user.get("id")
+    return int(value) if value not in (None, "") else None

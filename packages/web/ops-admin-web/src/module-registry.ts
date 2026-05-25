@@ -6,6 +6,7 @@ export type OpsAdminModuleKey =
   | 'appearance'
   | 'llm_runtime'
   | 'basic_data'
+  | 'datasets'
   | 'page_designer'
   | 'file_management'
   | 'ai_assets'
@@ -149,6 +150,15 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'file-preview-profiles-manage',
     'file-tenant-quotas',
     'file-tenant-quotas-manage',
+  ],
+  datasets: [
+    'data-center',
+    'dataset-management',
+    'dataset-management-create',
+    'dataset-management-update',
+    'dataset-management-delete',
+    'dataset-management-publish',
+    'dataset-management-preview',
   ],
   ai_assets: [
     'ai-assets',
@@ -301,6 +311,16 @@ export function registerFileManagementModule(options: OpsAdminModuleOptions = {}
     key: 'file_management',
     label: options.label || '文件管理',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.file_management,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerDatasetsModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'datasets',
+    label: options.label || '数据集',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.datasets,
     routes: options.routes,
     install: options.install,
   });

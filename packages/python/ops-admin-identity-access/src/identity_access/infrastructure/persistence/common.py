@@ -193,6 +193,13 @@ DEFAULT_MENU_METADATA: dict[str, dict[str, str]] = {
     "file-preview-profiles-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "file-tenant-quotas": {"menu_type": "page", "component": "/files/tenant-quotas/index", "menu_scope": "platform"},
     "file-tenant-quotas-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
+    "data-center": {"menu_type": "directory", "component": "", "menu_scope": "tenant"},
+    "dataset-management": {"menu_type": "page", "component": "/datasets/manage/index", "menu_scope": "tenant"},
+    "dataset-management-create": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "dataset-management-update": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "dataset-management-delete": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "dataset-management-publish": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
+    "dataset-management-preview": {"menu_type": "action", "component": "", "menu_scope": "tenant"},
     "ai-tenant-quotas": {"menu_type": "page", "component": "/ai/tenant-quotas/index", "menu_scope": "platform"},
     "ai-tenant-quotas-manage": {"menu_type": "action", "component": "", "menu_scope": "platform"},
     "ai-platform-capabilities": {"menu_type": "page", "component": "/ai/studio/index", "menu_scope": "platform"},
@@ -363,6 +370,19 @@ TENANT_FILE_NAV_MENU_KEYS = [
     "file-libraries",
     "file-objects",
 ]
+TENANT_DATASET_MENU_KEYS = [
+    "data-center",
+    "dataset-management",
+    "dataset-management-create",
+    "dataset-management-update",
+    "dataset-management-delete",
+    "dataset-management-publish",
+    "dataset-management-preview",
+]
+TENANT_DATASET_NAV_MENU_KEYS = [
+    "data-center",
+    "dataset-management",
+]
 TENANT_BASIC_DATA_MENU_KEYS = [
     "basic-data",
     "basic-data-dictionaries",
@@ -486,6 +506,7 @@ TENANT_ADMIN_MENU_KEYS = (
     ]
     + TENANT_MESSAGING_MENU_KEYS
     + TENANT_FILE_MENU_KEYS
+    + TENANT_DATASET_MENU_KEYS
     + TENANT_BASIC_DATA_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + TENANT_CRON_MENU_KEYS
@@ -498,6 +519,7 @@ DEFAULT_TENANT_ENABLED_MENU_KEYS = (
     ["tenant-settings", "tenant-user-management", "tenant-api-keys"]
     + TENANT_MESSAGING_NAV_MENU_KEYS
     + TENANT_FILE_NAV_MENU_KEYS
+    + TENANT_DATASET_NAV_MENU_KEYS
     + TENANT_BASIC_DATA_NAV_MENU_KEYS
     + TENANT_LLM_MENU_KEYS
     + ["cron", "cron-tasks", "cron-runs"]
@@ -562,6 +584,10 @@ TENANT_ADMIN_EXTRA_PERMISSION_CODES = [
     "file:object:read",
     "file:object:upload",
     "file:object:delete",
+    "datasets:dataset:read",
+    "datasets:dataset:manage",
+    "datasets:dataset:publish",
+    "datasets:dataset:preview",
     "basic-data:dictionary:read",
     "basic-data:dictionary:manage",
     "basic-data:region:read",
@@ -2814,6 +2840,7 @@ def ensure_tenant_default_roles(conn: Any) -> None:
             _run_init_step("default RBAC: bind tenant-admin LLM menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_LLM_MENU_KEYS))
             _run_init_step("default RBAC: bind tenant-admin cron menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_CRON_MENU_KEYS))
             _run_init_step("default RBAC: bind tenant-admin file menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_FILE_MENU_KEYS))
+            _run_init_step("default RBAC: bind tenant-admin dataset menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_DATASET_MENU_KEYS))
             _run_init_step("default RBAC: bind tenant-admin basic data menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_BASIC_DATA_MENU_KEYS))
             _run_init_step("default RBAC: bind tenant-admin AI asset menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_AI_ASSETS_MENU_KEYS))
             _run_init_step("default RBAC: bind tenant-admin organization menus", lambda: ensure_role_menus_by_key(conn, role_key, TENANT_ORGANIZATION_MENU_KEYS))

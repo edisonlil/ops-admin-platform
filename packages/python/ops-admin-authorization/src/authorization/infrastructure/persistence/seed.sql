@@ -73,6 +73,17 @@ FROM (
         FALSE
     UNION ALL
     SELECT
+        'dataset.definition',
+        '数据集',
+        '租户数据集定义、字段和仪表盘运行时数据契约',
+        'tenant_id',
+        'creator_id',
+        'owner_user_id',
+        'owner_department_id',
+        '["self","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
         'file.object',
         '文件管理',
         '文件库、文件对象和文件访问记录',

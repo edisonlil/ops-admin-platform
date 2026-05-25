@@ -39,6 +39,7 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("personalization", "personalization.entrypoints:router", fake_router("personalization")),
             FakeEntryPoint("page_designer", "page_designer.entrypoints:router", fake_router("page_designer")),
             FakeEntryPoint("file_management", "file_management.entrypoints:router", fake_router("file_management")),
+            FakeEntryPoint("datasets", "datasets.entrypoints:router", fake_router("datasets")),
             FakeEntryPoint("audit_logging", "audit_logging.entrypoints:router", fake_router("audit_logging")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
             FakeEntryPoint("llm_runtime", "llm_runtime.entrypoints:router", fake_router("llm_runtime")),
@@ -54,7 +55,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 17)
+        self.assertEqual(len(routers), 18)
         self.assertEqual(
             loaded,
             [
@@ -68,6 +69,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "personalization",
                 "page_designer",
                 "file_management",
+                "datasets",
                 "audit_logging",
                 "messaging",
                 "llm_runtime",
@@ -128,6 +130,11 @@ class PackageEntrypointTests(unittest.TestCase):
                 lambda: (lambda: {"file_management": lambda conn: None}),
             ),
             FakeEntryPoint(
+                "datasets",
+                "datasets.entrypoints:init_tasks",
+                lambda: (lambda: {"datasets": lambda conn: None}),
+            ),
+            FakeEntryPoint(
                 "audit_logging",
                 "audit_logging.entrypoints:init_tasks",
                 lambda: (lambda: {"audit_logging": lambda conn: None}),
@@ -174,6 +181,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "personalization",
                 "page_designer",
                 "file_management",
+                "datasets",
                 "audit_logging",
                 "appearance",
                 "messaging",

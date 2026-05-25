@@ -5,6 +5,7 @@ import {
   registerBasicDataModule,
   registerCronModule,
   registerAppearanceModule,
+  registerDatasetsModule,
   registerFileManagementModule,
   registerIdentityAccessModule,
   registerLlmRuntimeModule,
@@ -30,6 +31,10 @@ export function setupStarterModules() {
 
   if (import.meta.env.VITE_ENABLE_FILE_MANAGEMENT !== 'false') {
     registerFileManagementModule();
+  }
+
+  if (import.meta.env.VITE_ENABLE_DATASETS !== 'false') {
+    registerDatasetsModule();
   }
 
   if (import.meta.env.VITE_ENABLE_PAGE_DESIGNER !== 'false') {
