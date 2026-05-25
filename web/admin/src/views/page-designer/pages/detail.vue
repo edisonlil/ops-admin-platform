@@ -24,7 +24,7 @@
       </aside>
 
       <main class="page-designer-detail__canvas">
-        <DashboardGridCanvas v-model:layout="layout" :components="components" :selected-id="selectedId" @select="selectedId = $event" />
+        <DashboardGridCanvas :layout="layout" :components="components" :selected-id="selectedId" @update:layout="assignLayout" @select="selectedId = $event" />
       </main>
 
       <aside class="page-designer-detail__props">
