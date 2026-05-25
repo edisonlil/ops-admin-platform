@@ -18,7 +18,6 @@ JobRunner = Callable[[ProgressUpdater], dict[str, Any]]
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="identity-import")
 _lock = Lock()
 _jobs: dict[str, ImportJob] = {}
-_active_job_id: str | None = None
 
 
 def now_iso() -> str:
@@ -29,6 +28,7 @@ def now_iso() -> str:
 class ImportJob:
     id: str
     kind: str
+    scope_id: int | None = None
     status: str = "pending"
     progress: int = 0
     message: str = "等待执行"
@@ -42,6 +42,7 @@ class ImportJob:
         return {
             "id": self.id,
             "kind": self.kind,
+            "scope_id": self.scope_id,
             "status": self.status,
             "progress": self.progress,
             "message": self.message,
@@ -54,26 +55,38 @@ class ImportJob:
         }
 
 
-def start_import_job(kind: str, runner: JobRunner) -> dict[str, Any]:
-    global _active_job_id
+def start_import_job(kind: str, runner: JobRunner, *, scope_id: int | None = None) -> dict[str, Any]:
     with _lock:
-        active = _jobs.get(_active_job_id or "")
-        if active and active.status in ACTIVE_STATUSES:
+        active = next(
+            (
+                job
+                for job in _jobs.values()
+                if job.kind == kind
+                and job.scope_id == scope_id
+                and job.status in ACTIVE_STATUSES
+            ),
+            None,
+        )
+        if active:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="已有导入任务正在执行，请等待完成后再导入")
-        job = ImportJob(id=uuid4().hex, kind=kind)
+        job = ImportJob(id=uuid4().hex, kind=kind, scope_id=scope_id)
         _jobs[job.id] = job
-        _active_job_id = job.id
         _executor.submit(_run_job, job.id, runner)
         return job.to_dict()
 
 
-def current_import_job() -> dict[str, Any] | None:
+def current_import_job(kind: str | None = None, *, scope_id: int | None = None) -> dict[str, Any] | None:
     with _lock:
-        if _active_job_id and _active_job_id in _jobs:
-            return _jobs[_active_job_id].to_dict()
-        if not _jobs:
+        jobs = [
+            job
+            for job in _jobs.values()
+            if (kind is None or job.kind == kind)
+            and (scope_id is None or job.scope_id == scope_id)
+        ]
+        if not jobs:
             return None
-        latest = max(_jobs.values(), key=lambda item: item.create_time)
+        active = [job for job in jobs if job.status in ACTIVE_STATUSES]
+        latest = max(active or jobs, key=lambda item: item.create_time)
         return latest.to_dict()
 
 
@@ -94,7 +107,6 @@ def _run_job(job_id: str, runner: JobRunner) -> None:
 
 
 def _update_job(job_id: str, **changes: Any) -> None:
-    global _active_job_id
     with _lock:
         job = _jobs.get(job_id)
         if not job:
@@ -103,5 +115,8 @@ def _update_job(job_id: str, **changes: Any) -> None:
             if key == "progress":
                 value = max(0, min(100, int(value)))
             setattr(job, key, value)
-        if job.status in TERMINAL_STATUSES and _active_job_id == job_id:
-            _active_job_id = job_id
+
+
+def reset_import_jobs_for_tests() -> None:
+    with _lock:
+        _jobs.clear()

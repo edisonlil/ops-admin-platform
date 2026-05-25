@@ -227,7 +227,7 @@ def tenant_user_import_job(
     tenant_id: int,
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok({"item": services.current_import_job()})
+    return ok({"item": services.current_import_job("tenant_users", scope_id=tenant_id)})
 
 
 @router.post("/tenants/{tenant_id}/users")
@@ -368,7 +368,8 @@ async def import_current_tenant_users(
 def current_tenant_user_import_job(
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
 ) -> dict[str, Any]:
-    return ok({"item": services.current_import_job()})
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    return ok({"item": services.current_import_job("tenant_users", scope_id=tenant_id)})
 
 
 @router.post("/tenant/users")
@@ -509,7 +510,7 @@ async def import_rbac_users(
 def rbac_user_import_job(
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
 ) -> dict[str, Any]:
-    return ok({"item": services.current_import_job()})
+    return ok({"item": services.current_import_job("platform_users")})
 
 
 @router.post("/rbac/users")

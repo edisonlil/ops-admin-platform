@@ -37,6 +37,7 @@ class PackageEntrypointTests(unittest.TestCase):
             FakeEntryPoint("basic_data", "basic_data.entrypoints:router", fake_router("basic_data")),
             FakeEntryPoint("metadata_support", "metadata_support.entrypoints:router", fake_router("metadata_support")),
             FakeEntryPoint("personalization", "personalization.entrypoints:router", fake_router("personalization")),
+            FakeEntryPoint("page_designer", "page_designer.entrypoints:router", fake_router("page_designer")),
             FakeEntryPoint("file_management", "file_management.entrypoints:router", fake_router("file_management")),
             FakeEntryPoint("audit_logging", "audit_logging.entrypoints:router", fake_router("audit_logging")),
             FakeEntryPoint("system", "system.entrypoints:router", fake_router("system")),
@@ -53,7 +54,7 @@ class PackageEntrypointTests(unittest.TestCase):
         with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
             routers = module_registry.module_routers()
 
-        self.assertEqual(len(routers), 16)
+        self.assertEqual(len(routers), 17)
         self.assertEqual(
             loaded,
             [
@@ -65,6 +66,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "basic_data",
                 "metadata_support",
                 "personalization",
+                "page_designer",
                 "file_management",
                 "audit_logging",
                 "messaging",
@@ -116,6 +118,11 @@ class PackageEntrypointTests(unittest.TestCase):
                 lambda: (lambda: {"personalization": lambda conn: None}),
             ),
             FakeEntryPoint(
+                "page_designer",
+                "page_designer.entrypoints:init_tasks",
+                lambda: (lambda: {"page_designer": lambda conn: None}),
+            ),
+            FakeEntryPoint(
                 "file_management",
                 "file_management.entrypoints:init_tasks",
                 lambda: (lambda: {"file_management": lambda conn: None}),
@@ -165,6 +172,7 @@ class PackageEntrypointTests(unittest.TestCase):
                 "basic_data",
                 "metadata_support",
                 "personalization",
+                "page_designer",
                 "file_management",
                 "audit_logging",
                 "appearance",

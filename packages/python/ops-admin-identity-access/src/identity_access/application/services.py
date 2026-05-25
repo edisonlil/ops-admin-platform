@@ -349,6 +349,7 @@ def import_tenant_users(tenant_id: int, content: bytes, current_user: dict[str, 
     return import_jobs.start_import_job(
         "tenant_users",
         lambda progress: perform_tenant_user_import(tenant_id, content, current_user=current_user, progress=progress),
+        scope_id=tenant_id,
     )
 
 
@@ -383,8 +384,8 @@ def perform_tenant_user_import(
     return _after_access_context_change({"items": items, "count": len(items)})
 
 
-def current_import_job() -> dict[str, Any] | None:
-    return import_jobs.current_import_job()
+def current_import_job(kind: str | None = None, *, scope_id: int | None = None) -> dict[str, Any] | None:
+    return import_jobs.current_import_job(kind, scope_id=scope_id)
 
 
 def create_tenant_user(tenant_id: int, payload: dict[str, Any]) -> dict[str, Any]:

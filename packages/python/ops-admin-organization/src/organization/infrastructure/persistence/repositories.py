@@ -269,11 +269,13 @@ def set_users_departments_batch(
 ) -> None:
     normalized_rows: list[dict[str, Any]] = []
     department_keys: set[tuple[int, int]] = set()
+    user_keys: set[tuple[int, int]] = set()
     for row in rows:
         tenant_id = int(row.get("tenant_id") or 0)
         user_id = int(row.get("user_id") or 0)
         if not tenant_id or not user_id:
             continue
+        user_keys.add((tenant_id, user_id))
         department_ids: list[int] = []
         seen: set[int] = set()
         for value in list(row.get("department_ids") or []):
@@ -324,17 +326,66 @@ def set_users_departments_batch(
                 tenant_id, department_id = missing[0]
                 raise OrganizationDomainError(f"department not found: {tenant_id}/{department_id}")
 
+        if user_keys:
+            for tenant_id, user_id in user_keys:
+                conn.execute(
+                    """
+                    UPDATE user_department_memberships
+                    SET deleted = 1,
+                        active_marker = NULL,
+                        is_primary = 0,
+                        editor = ?,
+                        editor_id = ?,
+                        update_time = ?,
+                        lock_version = lock_version + 1
+                    WHERE tenant_id = ?
+                      AND user_id = ?
+                      AND deleted = 0
+                    """,
+                    (actor, actor_id, timestamp, tenant_id, user_id),
+                )
+
         insert_rows: list[tuple[Any, ...]] = []
         for row in normalized_rows:
             tenant_id = int(row["tenant_id"])
             user_id = int(row["user_id"])
             for department_id in list(row.get("department_ids") or []):
+                is_primary = int(department_id) == int(row.get("primary_department_id") or 0)
+                existing = conn.execute(
+                    """
+                    SELECT id
+                    FROM user_department_memberships
+                    WHERE tenant_id = ?
+                      AND user_id = ?
+                      AND department_id = ?
+                    ORDER BY deleted ASC, id DESC
+                    LIMIT 1
+                    """,
+                    (tenant_id, user_id, int(department_id)),
+                )
+                existing_row = existing.fetchone()
+                if existing_row:
+                    conn.execute(
+                        """
+                        UPDATE user_department_memberships
+                        SET deleted = 0,
+                            active_marker = 1,
+                            is_primary = ?,
+                            editor = ?,
+                            editor_id = ?,
+                            update_time = ?,
+                            lock_version = lock_version + 1
+                        WHERE id = ?
+                        """,
+                        (is_primary, actor, actor_id, timestamp, int(existing_row["id"])),
+                    )
+                    continue
                 insert_rows.append(
                     (
                         tenant_id,
                         user_id,
                         int(department_id),
-                        int(department_id) == int(row.get("primary_department_id") or 0),
+                        is_primary,
                         actor,
                         actor_id,
                         actor,

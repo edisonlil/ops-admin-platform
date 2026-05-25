@@ -6,6 +6,7 @@ export type OpsAdminModuleKey =
   | 'appearance'
   | 'llm_runtime'
   | 'basic_data'
+  | 'page_designer'
   | 'file_management'
   | 'ai_assets'
   | 'audit_logging'
@@ -169,6 +170,12 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'basic-data-regions-delete',
     'basic-data-regions-import',
   ],
+  page_designer: [
+    'page-designer',
+    'page-designer-pages',
+    'page-designer-create',
+    'page-designer-publish',
+  ],
   audit_logging: [
     'audit-logs',
   ],
@@ -262,6 +269,16 @@ export function registerBasicDataModule(options: OpsAdminModuleOptions = {}) {
     key: 'basic_data',
     label: options.label || '基础数据',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.basic_data,
+    routes: options.routes,
+    install: options.install,
+  });
+}
+
+export function registerPageDesignerModule(options: OpsAdminModuleOptions = {}) {
+  registerOpsAdminModule({
+    key: 'page_designer',
+    label: options.label || '页面设计',
+    menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.page_designer,
     routes: options.routes,
     install: options.install,
   });

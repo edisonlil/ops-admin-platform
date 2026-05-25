@@ -114,6 +114,64 @@ class OrganizationTests(unittest.TestCase):
         self.assertEqual([row[1] for row in rows], [1, 1, 0])
         self.assertEqual([row[2] for row in rows], [None, None, 1])
 
+    def test_set_users_departments_batch_is_idempotent_and_replaces_memberships(self) -> None:
+        from organization.infrastructure.persistence import repositories
+
+        first = repositories.save_department(
+            tenant_id=1,
+            payload={"code": "batch-a", "name": "Batch A", "status": "active"},
+            actor="tester",
+            actor_id=1,
+        )
+        second = repositories.save_department(
+            tenant_id=1,
+            payload={"code": "batch-b", "name": "Batch B", "status": "active"},
+            actor="tester",
+            actor_id=1,
+        )
+
+        rows = [
+            {
+                "tenant_id": 1,
+                "user_id": 20,
+                "department_ids": [first.id, second.id],
+                "primary_department_id": second.id,
+            }
+        ]
+        repositories.set_users_departments_batch(rows, actor="tester", actor_id=1)
+        repositories.set_users_departments_batch(rows, actor="tester", actor_id=1)
+
+        assigned = repositories.user_departments(tenant_id=1, user_id=20)
+        self.assertEqual([item["department_id"] for item in assigned], [second.id, first.id])
+        self.assertTrue(assigned[0]["is_primary"])
+
+        replacement = [
+            {
+                "tenant_id": 1,
+                "user_id": 20,
+                "department_ids": [first.id],
+                "primary_department_id": first.id,
+            }
+        ]
+        repositories.set_users_departments_batch(replacement, actor="tester", actor_id=1)
+        assigned = repositories.user_departments(tenant_id=1, user_id=20)
+        self.assertEqual([item["department_id"] for item in assigned], [first.id])
+        self.assertTrue(assigned[0]["is_primary"])
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            rows = conn.execute(
+                """
+                SELECT department_id, deleted, active_marker
+                FROM user_department_memberships
+                WHERE tenant_id = 1 AND user_id = 20
+                ORDER BY department_id
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(rows, [(first.id, 0, 1), (second.id, 1, None)])
+
     def test_reporting_relationships_resolve_subordinates_and_reject_cycles(self) -> None:
         from organization.domain.exceptions import OrganizationDomainError
         from organization.infrastructure.persistence import repositories

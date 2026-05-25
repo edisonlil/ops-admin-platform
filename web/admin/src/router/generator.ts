@@ -61,6 +61,7 @@ const LEGACY_ICON_BY_KEY_OR_ALIAS: Record<string, string> = {
   'cron-runs': 'FileSearchOutlined',
   ScheduleOutlined: 'ScheduleOutlined',
   'file-text': 'FileTextOutlined',
+  'page-designer': 'DashboardOutlined',
   'tenant-settings': 'SettingOutlined',
   organization: 'ApartmentOutlined',
   'organization-departments': 'ApartmentOutlined',
@@ -136,6 +137,21 @@ function moduleVisibleMenus(items: BackendMenu[] = []) {
 
 function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute[] {
   const key = String(menu.key || '').trim();
+  if (key === 'page-designer-pages') {
+    return [
+      {
+        path: `${stripLeadingSlash(routePath)}/:id`,
+        name: 'page-designer-page-detail',
+        component: '/page-designer/pages/detail',
+        meta: {
+          title: '页面设计',
+          permissions: ['page_designer:page:manage'],
+          activeMenu: routeName(menu) || key,
+          hidden: true,
+        },
+      },
+    ];
+  }
   if (!isAiStudioMenuKey(key)) {
     return [];
   }

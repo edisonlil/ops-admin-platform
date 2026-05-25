@@ -9,6 +9,7 @@ import {
   registerIdentityAccessModule,
   registerLlmRuntimeModule,
   registerMessagingModule,
+  registerPageDesignerModule,
 } from '@edisonlil/ops-admin-web';
 
 export function setupStarterModules() {
@@ -29,6 +30,10 @@ export function setupStarterModules() {
 
   if (import.meta.env.VITE_ENABLE_FILE_MANAGEMENT !== 'false') {
     registerFileManagementModule();
+  }
+
+  if (import.meta.env.VITE_ENABLE_PAGE_DESIGNER !== 'false') {
+    registerPageDesignerModule();
   }
 
   if (import.meta.env.VITE_ENABLE_LLM_RUNTIME !== 'false') {
