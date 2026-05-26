@@ -103,6 +103,30 @@
                 <n-form-item label="标题">
                   <n-input v-model:value="selectedComponent.title" placeholder="请输入组件标题" />
                 </n-form-item>
+                <template v-if="isSelectedDataDriven">
+                  <n-form-item label="数据来源">
+                    <n-select
+                      v-model:value="selectedDataSource.type"
+                      :options="dataSourceOptions"
+                      @update:value="handleDataSourceTypeChange"
+                    />
+                  </n-form-item>
+                  <n-form-item v-if="selectedDataSource.type === 'static_json'" label="静态 JSON">
+                    <n-input
+                      v-model:value="selectedDataSource.staticJson"
+                      type="textarea"
+                      placeholder="请输入 JSON 数据"
+                      :autosize="{ minRows: 10, maxRows: 18 }"
+                      class="page-designer-config__json"
+                    />
+                    <template #feedback>
+                      <n-button text type="primary" @click="fillSelectedSampleData">填入当前组件样例</n-button>
+                    </template>
+                  </n-form-item>
+                  <n-form-item v-else label="数据集">
+                    <n-select disabled placeholder="后续接入数据集后可选择" />
+                  </n-form-item>
+                </template>
                 <n-form-item v-if="selectedComponent.type === 'metric_card'" label="指标值">
                   <n-input v-model:value="selectedComponent.props.value" placeholder="例如 128.6万" />
                 </n-form-item>
@@ -172,7 +196,16 @@
     PlusOutlined,
   } from '@vicons/antd';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
-  import { widgetDefinition, widgetDefinitions, type WidgetDefinition } from '@/components/PageDesigner/widgets';
+  import {
+    defaultDataSourceForWidget,
+    isDataDrivenWidget,
+    sampleDataJsonForWidget,
+    widgetDefinition,
+    widgetDefinitions,
+    withDefaultDataSource,
+    type WidgetDataSourceConfig,
+    type WidgetDefinition,
+  } from '@/components/PageDesigner/widgets';
   import {
     getPageDesignerPage,
     previewPageDesignerPage,
@@ -206,6 +239,17 @@
 
   const selectedComponent = computed(() => components.value.find((component) => component.id === selectedId.value));
   const selectedDefinition = computed(() => widgetDefinition(selectedComponent.value?.type || 'metric_card'));
+  const isSelectedDataDriven = computed(() => Boolean(selectedComponent.value && isDataDrivenWidget(selectedComponent.value.type)));
+  const selectedDataSource = computed<WidgetDataSourceConfig>({
+    get() {
+      if (!selectedComponent.value) return defaultDataSourceForWidget('metric_card');
+      return ensureComponentDataSource(selectedComponent.value);
+    },
+    set(value) {
+      if (!selectedComponent.value) return;
+      selectedComponent.value.props.dataSource = value;
+    },
+  });
   const selectedPreviewLayout = computed<DashboardLayout>(() => ({
     cols: 12,
     rowHeight: 70,
@@ -216,6 +260,10 @@
     { title: '视图', items: widgetDefinitions.filter((widget) => widget.type === 'data_table') },
     { title: '其他', items: widgetDefinitions.filter((widget) => ['text_block', 'quick_link'].includes(widget.type)) },
   ]);
+  const dataSourceOptions = [
+    { label: '静态 JSON', value: 'static_json' },
+    { label: '数据集（即将支持）', value: 'dataset', disabled: true },
+  ];
 
   function assignLayout(nextLayout: DashboardLayout) {
     layout.cols = nextLayout.cols || 24;
@@ -256,7 +304,7 @@
       id,
       type,
       title: definition.defaultTitle,
-      props: { ...definition.defaultProps },
+      props: withDefaultDataSource(type, { ...definition.defaultProps }),
     });
     selectedId.value = id;
     widgetPickerVisible.value = false;
@@ -272,7 +320,7 @@
       ...sourceComponent,
       id: nextId,
       title: `${sourceComponent.title || widgetDefinition(sourceComponent.type).defaultTitle} 副本`,
-      props: { ...(sourceComponent.props || {}) },
+      props: withDefaultDataSource(sourceComponent.type, { ...(sourceComponent.props || {}) }),
     });
     selectedId.value = nextId;
   }
@@ -314,8 +362,32 @@
   function normalizeComponents(items: PageComponentConfig[]) {
     return items.map((component) => ({
       ...component,
-      props: { ...(component.props || {}) },
+      props: withDefaultDataSource(component.type, { ...(component.props || {}) }),
     }));
+  }
+
+  function ensureComponentDataSource(component: PageComponentConfig) {
+    const props = (component.props ||= {});
+    props.dataSource = withDefaultDataSource(component.type, props).dataSource as WidgetDataSourceConfig;
+    return props.dataSource;
+  }
+
+  function handleDataSourceTypeChange(value: string) {
+    if (!selectedComponent.value) return;
+    selectedDataSource.value = {
+      ...selectedDataSource.value,
+      type: value === 'dataset' ? 'dataset' : 'static_json',
+      staticJson: selectedDataSource.value.staticJson || sampleDataJsonForWidget(selectedComponent.value.type),
+    };
+  }
+
+  function fillSelectedSampleData() {
+    if (!selectedComponent.value) return;
+    selectedDataSource.value = {
+      ...selectedDataSource.value,
+      type: 'static_json',
+      staticJson: sampleDataJsonForWidget(selectedComponent.value.type),
+    };
   }
 
   function createLayoutItem(id: string, type: string, definition: WidgetDefinition, y: number): DashboardLayoutItem {
@@ -643,6 +715,13 @@
     padding: 4px 2px;
     border-left: 1px solid #e2e8f0;
     padding-left: 18px;
+  }
+
+  .page-designer-config__json {
+    :deep(textarea) {
+      font-family: Consolas, 'Courier New', monospace;
+      line-height: 1.55;
+    }
   }
 
   .page-designer-detail__preview {

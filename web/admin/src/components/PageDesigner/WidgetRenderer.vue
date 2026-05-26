@@ -6,8 +6,8 @@
     </div>
     <div class="page-widget__body">
       <template v-if="component.type === 'metric_card'">
-        <div class="page-widget__metric">{{ component.props?.value || '0' }}</div>
-        <div class="page-widget__trend">{{ component.props?.trend || '0%' }}</div>
+        <div class="page-widget__metric">{{ metricData.value || component.props?.value || '0' }}</div>
+        <div class="page-widget__trend">{{ metricData.trend || component.props?.trend || '0%' }}</div>
       </template>
       <template v-else-if="component.type === 'text_block'">
         <p>{{ component.props?.content || '输入说明内容' }}</p>
@@ -17,12 +17,12 @@
       </template>
       <template v-else-if="component.type === 'data_table'">
         <div class="page-widget__table">
-          <span v-for="index in 4" :key="index"></span>
+          <span v-for="row in tableRows" :key="row"></span>
         </div>
       </template>
       <template v-else>
         <div class="page-widget__chart">
-          <span v-for="index in 7" :key="index" :style="{ height: `${28 + index * 7}%` }"></span>
+          <span v-for="(value, index) in chartValues" :key="index" :style="{ height: `${chartHeight(value)}%` }"></span>
         </div>
       </template>
     </div>
@@ -32,7 +32,7 @@
 <script lang="ts" setup>
   import { computed } from 'vue';
   import type { PageComponentConfig } from '@/api/pageDesigner';
-  import { componentTitle, widgetDefinition } from './widgets';
+  import { componentTitle, parseStaticWidgetData, widgetDefinition } from './widgets';
 
   const props = defineProps<{
     component: PageComponentConfig;
@@ -40,6 +40,22 @@
 
   const definition = computed(() => widgetDefinition(props.component.type));
   const title = computed(() => componentTitle(props.component));
+  const staticData = computed(() => parseStaticWidgetData(props.component));
+  const metricData = computed(() => staticData.value || {});
+  const chartValues = computed(() => {
+    const data = staticData.value as { series?: Array<{ data?: number[] }> };
+    const values = data.series?.[0]?.data || [];
+    return values.length ? values : [12, 18, 24, 31, 28, 36, 42];
+  });
+  const tableRows = computed(() => {
+    const data = staticData.value as { rows?: unknown[] };
+    return Array.from({ length: Math.max(1, Math.min(data.rows?.length || Number(props.component.props?.rows) || 4, 8)) }, (_, index) => index);
+  });
+
+  function chartHeight(value: number) {
+    const max = Math.max(...chartValues.value, 1);
+    return Math.max(18, Math.round((Number(value || 0) / max) * 92));
+  }
 </script>
 
 <style lang="less" scoped>
