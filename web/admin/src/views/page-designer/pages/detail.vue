@@ -112,11 +112,12 @@
                     />
                   </n-form-item>
                   <n-form-item v-if="selectedDataSource.type === 'static_json'" label="静态 JSON">
-                    <n-input
+                    <CodePreview
                       v-model:value="selectedDataSource.staticJson"
-                      type="textarea"
-                      placeholder="请输入 JSON 数据"
-                      :autosize="{ minRows: 10, maxRows: 18 }"
+                      language="json"
+                      height="260px"
+                      :auto-height="false"
+                      :read-only="false"
                       class="page-designer-config__json"
                     />
                     <template #feedback>
@@ -195,6 +196,7 @@
     FullscreenOutlined,
     PlusOutlined,
   } from '@vicons/antd';
+  import CodePreview from '@/components/CodePreview/index.vue';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
   import {
     defaultDataSourceForWidget,
@@ -718,10 +720,9 @@
   }
 
   .page-designer-config__json {
-    :deep(textarea) {
-      font-family: Consolas, 'Courier New', monospace;
-      line-height: 1.55;
-    }
+    min-height: 260px;
+    border: 1px solid #dbe3ee;
+    border-radius: 6px;
   }
 
   .page-designer-detail__preview {
