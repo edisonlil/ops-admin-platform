@@ -6,6 +6,7 @@ from typing import Any
 from system.infrastructure.persistence.dialect import (
     add_column_if_missing,
     apply_sql_script,
+    backend_name,
     column_exists,
     create_table_statement,
     ddl_filename,
@@ -50,6 +51,8 @@ def require_datasets_schema(conn: Any) -> None:
     for table_name in ("datasets", "dataset_fields"):
         if not column_exists(conn, table_name, "active_marker"):
             missing_columns.append(f"{table_name}.active_marker")
+    if not column_exists(conn, "datasets", "query_config_json"):
+        missing_columns.append("datasets.query_config_json")
     if missing_columns:
         raise RuntimeError(
             "dataset storage is not initialized; run `python scripts/init_datasets.py`"
@@ -61,7 +64,14 @@ def require_datasets_schema(conn: Any) -> None:
 def ensure_datasets_columns(conn: Any) -> None:
     add_column_if_missing(conn, "datasets", "owner_user_id", "BIGINT DEFAULT NULL")
     add_column_if_missing(conn, "datasets", "owner_department_id", "BIGINT DEFAULT NULL")
+    add_column_if_missing(conn, "datasets", "query_config_json", query_config_column_definition(conn))
     add_column_if_missing(conn, "datasets", "published_version_id", "BIGINT DEFAULT NULL")
+
+
+def query_config_column_definition(conn: Any) -> str:
+    if backend_name(conn) == "mysql":
+        return "LONGTEXT"
+    return "TEXT NOT NULL DEFAULT '{}'"
 
 
 def ensure_datasets_active_markers(conn: Any) -> None:

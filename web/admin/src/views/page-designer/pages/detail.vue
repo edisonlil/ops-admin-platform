@@ -199,6 +199,7 @@
   import CodePreview from '@/components/CodePreview/index.vue';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
   import {
+    chartWidgetTypes,
     defaultDataSourceForWidget,
     isDataDrivenWidget,
     sampleDataJsonForWidget,
@@ -258,7 +259,7 @@
     items: [{ ...selectedLayoutItem, id: selectedId.value, x: 0, y: 0, w: 12, h: Math.max(3, Math.min(6, selectedLayoutItem.h || 3)) }],
   }));
   const widgetGroups = computed(() => [
-    { title: '图表', items: widgetDefinitions.filter((widget) => ['metric_card', 'line_chart', 'bar_chart'].includes(widget.type)) },
+    { title: '图表', items: widgetDefinitions.filter((widget) => chartWidgetTypes.includes(widget.type)) },
     { title: '视图', items: widgetDefinitions.filter((widget) => widget.type === 'data_table') },
     { title: '其他', items: widgetDefinitions.filter((widget) => ['text_block', 'quick_link'].includes(widget.type)) },
   ]);
@@ -649,6 +650,133 @@
     height: 4px;
     transform: rotate(-28deg);
     transform-origin: center;
+  }
+
+  .widget-picker__icon.is_pie_chart {
+    align-items: center;
+
+    i {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: conic-gradient(#2563eb 0 42%, #14b8a6 42% 68%, #f97316 68% 100%);
+    }
+  }
+
+  .widget-picker__icon.is_stacked_area_chart {
+    position: relative;
+    align-items: end;
+
+    i {
+      width: 28px;
+      height: 16px;
+      border-radius: 12px 12px 2px 2px;
+      opacity: 0.76;
+      transform: skewX(-18deg);
+    }
+
+    i:nth-child(1) {
+      height: 18px;
+      background: #93c5fd;
+    }
+
+    i:nth-child(2) {
+      height: 26px;
+      background: #5eead4;
+    }
+
+    i:nth-child(3) {
+      height: 34px;
+      background: #fdba74;
+    }
+  }
+
+  .widget-picker__icon.is_scatter_chart {
+    position: relative;
+    display: block;
+
+    i {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #2563eb;
+    }
+
+    i:nth-child(1) {
+      left: 18px;
+      bottom: 9px;
+    }
+
+    i:nth-child(2) {
+      left: 32px;
+      bottom: 25px;
+      background: #14b8a6;
+    }
+
+    i:nth-child(3) {
+      right: 16px;
+      bottom: 16px;
+      background: #f97316;
+    }
+  }
+
+  .widget-picker__icon.is_radar_chart {
+    position: relative;
+    align-items: center;
+
+    i {
+      width: 30px;
+      height: 30px;
+      clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+      border-radius: 0;
+      background: rgba(37, 99, 235, 0.18);
+      outline: 2px solid #2563eb;
+      outline-offset: -2px;
+    }
+
+    i:nth-child(2) {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: rgba(20, 184, 166, 0.22);
+      outline-color: #14b8a6;
+    }
+
+    i:nth-child(3) {
+      display: none;
+    }
+  }
+
+  .widget-picker__icon.is_gauge_chart {
+    position: relative;
+    align-items: end;
+
+    i {
+      width: 34px;
+      height: 18px;
+      border: 4px solid #2563eb;
+      border-bottom: 0;
+      border-radius: 34px 34px 0 0;
+      background: transparent;
+    }
+
+    i:nth-child(2) {
+      position: absolute;
+      bottom: 7px;
+      left: 50%;
+      width: 22px;
+      height: 3px;
+      border: 0;
+      border-radius: 999px;
+      background: #0f172a;
+      transform: translateX(-50%) rotate(-28deg);
+      transform-origin: 3px center;
+    }
+
+    i:nth-child(3) {
+      display: none;
+    }
   }
 
   .widget-picker__icon.is_data_table {

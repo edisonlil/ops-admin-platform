@@ -12,6 +12,7 @@ class DatasetRequest(BaseModel):
     dataset_type: str = "manual"
     status: str = "draft"
     visibility: str = "platform"
+    query_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class DatasetFieldRequest(BaseModel):

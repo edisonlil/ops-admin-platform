@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from datasets.application.ports import DatasetRepository, ExternalDatasetExecutorPort
 from datasets.domain.exceptions import DatasetDomainError, DatasetNotFoundError, DatasetRuntimeUnavailableError, DatasetStorageNotReadyError
 from datasets.domain.models import (
     DATASET_TYPE_MANUAL,
+    DATASET_TYPE_SOURCE_QUERY,
     DATASET_TYPES,
     FIELD_TYPE_TEXT,
     FIELD_TYPES,
@@ -166,13 +168,16 @@ def publish_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, 
     fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
     if not fields:
         raise DatasetDomainError("dataset fields are required before publishing")
-    rows, _ = repo().list_manual_rows(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
+    rows: list[dict[str, Any]] = []
+    if dataset.dataset_type == DATASET_TYPE_MANUAL:
+        rows, _ = repo().list_manual_rows(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
     schema = {"fields": [field.to_dict() for field in fields]}
     try:
         version = repo().publish_dataset(
             tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             schema=schema,
+            query_config=dataset.query_config,
             sample_rows=rows,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -200,6 +205,8 @@ def preview_dataset(
             page_size=page_size,
         )
         return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "manual"})
+    if dataset.dataset_type == DATASET_TYPE_SOURCE_QUERY:
+        validate_source_query_ready(dataset)
     if external_executor is None:
         raise DatasetRuntimeUnavailableError("dataset runtime executor is unavailable")
     rows, total, meta = external_executor.execute_preview(
@@ -208,6 +215,7 @@ def preview_dataset(
         page=page,
         page_size=page_size,
         variables=variables or {},
+        current_user=current_user,
     )
     return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
 
@@ -255,6 +263,7 @@ def normalize_dataset_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "status": str(payload.get("status") or STATUS_DRAFT).strip() or STATUS_DRAFT,
         "visibility": str(payload.get("visibility") or "platform").strip() or "platform",
         "published_version_id": payload.get("published_version_id"),
+        "query_config": normalize_query_config(payload.get("query_config")),
     }
     if normalized["dataset_type"] not in DATASET_TYPES:
         raise DatasetDomainError(f"unsupported dataset_type: {normalized['dataset_type']}")
@@ -271,6 +280,7 @@ def dataset_model_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "dataset_type": str(payload.get("dataset_type") or DATASET_TYPE_MANUAL),
         "status": str(payload.get("status") or STATUS_DRAFT),
         "visibility": str(payload.get("visibility") or "platform"),
+        "query_config": payload.get("query_config") if isinstance(payload.get("query_config"), dict) else {},
         "owner_user_id": payload.get("owner_user_id"),
         "owner_department_id": payload.get("owner_department_id"),
         "published_version_id": payload.get("published_version_id"),
@@ -308,6 +318,75 @@ def normalize_fields(raw_fields: list[Any]) -> list[dict[str, Any]]:
         DatasetField(id=0, tenant_id=0, dataset_id=0, create_time="", update_time="", **item).validate()
         fields.append(item)
     return fields
+
+
+def normalize_query_config(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise DatasetDomainError("query_config must be an object")
+    config = dict(value)
+    sql = str(config.get("sql") or config.get("query") or "").strip()
+    if sql:
+        ensure_select_sql(sql)
+    params = config.get("params")
+    if params in (None, ""):
+        params = []
+    if not isinstance(params, (list, dict)):
+        raise DatasetDomainError("query_config.params must be an array or object")
+    data_access = config.get("data_access")
+    if data_access in (None, ""):
+        data_access = {}
+    if not isinstance(data_access, dict):
+        raise DatasetDomainError("query_config.data_access must be an object")
+    max_rows = config.get("max_rows")
+    if max_rows in (None, ""):
+        max_rows = 1000
+    try:
+        max_rows = max(1, min(1000, int(max_rows)))
+    except (TypeError, ValueError) as exc:
+        raise DatasetDomainError("query_config.max_rows must be a number") from exc
+    return {
+        **config,
+        "sql": sql,
+        "params": params,
+        "data_access": data_access,
+        "max_rows": max_rows,
+    }
+
+
+def validate_source_query_ready(dataset: Dataset) -> None:
+    config = dataset.query_config if isinstance(dataset.query_config, dict) else {}
+    sql = str(config.get("sql") or "").strip()
+    if not sql:
+        raise DatasetDomainError("source query dataset requires query_config.sql")
+    ensure_select_sql(sql)
+
+
+def ensure_select_sql(sql: str) -> None:
+    compact = strip_sql_comments(sql).strip()
+    statements = [item.strip() for item in compact.split(";") if item.strip()]
+    if len(statements) > 1 or (compact.endswith(";") and len(statements) != 1):
+        raise DatasetDomainError("source query only supports a single SELECT statement")
+    if first_sql_token(compact) not in {"select", "with"}:
+        raise DatasetDomainError("source query only supports SELECT statements")
+    dangerous = re.search(
+        r"\b(insert|update|delete|drop|alter|truncate|create|replace|merge|call|execute|grant|revoke)\b",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if dangerous:
+        raise DatasetDomainError(f"source query rejected non-read-only keyword: {dangerous.group(1).upper()}")
+
+
+def strip_sql_comments(sql: str) -> str:
+    without_line_comments = re.sub(r"--.*?(?=\r?\n|$)", " ", sql)
+    return re.sub(r"/\*.*?\*/", " ", without_line_comments, flags=re.DOTALL)
+
+
+def first_sql_token(sql: str) -> str:
+    match = re.match(r"\s*([a-zA-Z_]+)", sql)
+    return match.group(1).lower() if match else ""
 
 
 def platform_dataset_tenant_id(current_user: dict[str, Any]) -> int:

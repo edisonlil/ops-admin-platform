@@ -37,6 +37,7 @@ export interface Dataset {
   dataset_type: string;
   status: string;
   visibility: string;
+  query_config?: Record<string, unknown>;
   published_version_id?: number | null;
   field_count?: number;
   row_count?: number;
@@ -52,6 +53,7 @@ export interface DatasetPayload {
   dataset_type?: string;
   status?: string;
   visibility?: string;
+  query_config?: Record<string, unknown>;
 }
 
 export interface DatasetRuntimePayload {
@@ -99,6 +101,7 @@ export function saveDataset(payload: DatasetPayload) {
     dataset_type: payload.dataset_type || 'manual',
     status: payload.status || 'draft',
     visibility: payload.visibility || 'platform',
+    query_config: payload.query_config || {},
   };
   if (payload.id) {
     return Alova.Put<{ item: Dataset }>(`/datasets/${payload.id}`, body);

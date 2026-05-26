@@ -28,6 +28,17 @@
           <n-form-item label="说明">
             <n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
           </n-form-item>
+          <template v-if="form.dataset_type === 'source_query'">
+            <n-form-item label="查询 SQL">
+              <CodePreview v-model:value="querySql" language="sql" :read-only="false" :min-height="180" :max-height="360" />
+            </n-form-item>
+            <n-form-item label="查询参数 JSON">
+              <CodePreview v-model:value="queryParamsJson" language="json" :read-only="false" :min-height="120" :max-height="260" />
+            </n-form-item>
+            <n-form-item label="数据权限 JSON">
+              <CodePreview v-model:value="queryDataAccessJson" language="json" :read-only="false" :min-height="140" :max-height="300" />
+            </n-form-item>
+          </template>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -111,6 +122,9 @@
   const activeDataset = ref<Dataset | null>(null);
   const fieldJson = ref('');
   const rowsJson = ref('');
+  const querySql = ref('');
+  const queryParamsJson = ref('[]');
+  const queryDataAccessJson = ref('');
   const previewRows = ref<Record<string, unknown>[]>([]);
   const previewFields = ref<DatasetField[]>([]);
   const previewTotal = ref(0);
@@ -123,6 +137,7 @@
     dataset_type: 'manual',
     status: 'draft',
     visibility: 'platform',
+    query_config: {},
   });
 
   const typeOptions: SelectOption[] = [
@@ -173,6 +188,7 @@
             { label: '预览', show: hasPermission(['datasets:dataset:preview']), onClick: () => openPreview(row) },
             { label: '字段', show: hasPermission(['datasets:dataset:manage']), onClick: () => openFields(row) },
             { label: '数据', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'manual', onClick: () => openRows(row) },
+            { label: '查询', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'source_query', onClick: () => openEdit(row) },
             { label: '发布', tone: 'primary', show: hasPermission(['datasets:dataset:publish']), onClick: () => publish(row) },
             {
               label: '删除',
@@ -231,7 +247,11 @@
       dataset_type: 'manual',
       status: 'draft',
       visibility: 'platform',
+      query_config: {},
     });
+    querySql.value = '';
+    queryParamsJson.value = '[]';
+    queryDataAccessJson.value = defaultDataAccessJson();
     formRef.value?.restoreValidation();
   }
 
@@ -242,6 +262,10 @@
 
   function openEdit(row: Dataset) {
     Object.assign(form, row, { visibility: row.visibility || 'platform' });
+    const config = row.query_config || {};
+    querySql.value = String(config.sql || '');
+    queryParamsJson.value = JSON.stringify(config.params || [], null, 2);
+    queryDataAccessJson.value = JSON.stringify(config.data_access || defaultDataAccess(), null, 2);
     datasetDrawerVisible.value = true;
   }
 
@@ -253,7 +277,9 @@
     }
     saving.value = true;
     try {
-      await saveDataset(form as Dataset);
+      const payload = { ...(form as Dataset), query_config: buildQueryConfig() };
+      if (!payload.query_config) return;
+      await saveDataset(payload);
       message.success('平台数据集已保存');
       datasetDrawerVisible.value = false;
       await reload();
@@ -368,6 +394,59 @@
       message.error(`${label}不是有效 JSON`);
       return null;
     }
+  }
+
+  function parseJsonObject(value: string, label: string) {
+    try {
+      const parsed = JSON.parse(value || '{}');
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        message.error(`${label}必须是 JSON 对象`);
+        return null;
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      message.error(`${label}不是有效 JSON`);
+      return null;
+    }
+  }
+
+  function buildQueryConfig() {
+    if (form.dataset_type !== 'source_query') return {};
+    const params = parseJsonValue(queryParamsJson.value, '查询参数');
+    if (!params || (!Array.isArray(params) && typeof params !== 'object')) {
+      message.error('查询参数必须是 JSON 数组或对象');
+      return null;
+    }
+    const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
+    if (!dataAccess) return null;
+    return {
+      sql: querySql.value.trim(),
+      params,
+      data_access: dataAccess,
+      max_rows: 1000,
+    };
+  }
+
+  function parseJsonValue(value: string, label: string) {
+    try {
+      return JSON.parse(value || '[]');
+    } catch {
+      message.error(`${label}不是有效 JSON`);
+      return null;
+    }
+  }
+
+  function defaultDataAccess() {
+    return {
+      resource_key: 'dataset.source_query',
+      tenant_column: 'tenant_id',
+      owner_user_column: 'owner_user_id',
+      owner_department_column: 'owner_department_id',
+    };
+  }
+
+  function defaultDataAccessJson() {
+    return JSON.stringify(defaultDataAccess(), null, 2);
   }
 
   function defaultFields(): DatasetField[] {

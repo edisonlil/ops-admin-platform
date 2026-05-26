@@ -12,6 +12,21 @@ sys.path.insert(0, str(ROOT / "packages" / "python" / "ops-admin-datasets" / "sr
 sys.path.insert(0, str(ROOT / "packages" / "python" / "ops-admin-system" / "src"))
 
 from datasets.application import services
+from system.application.data_access import (
+    DataAccessPredicate,
+    TenantOnlyDataAccessFilterProvider,
+    configure_data_access_filter_provider,
+)
+
+
+class SelfOnlyProvider:
+    def resolve_filter(self, *, current_user: dict[str, object], resource: object, action: str) -> DataAccessPredicate:
+        tenant = current_user.get("current_tenant") or {}
+        return DataAccessPredicate(
+            tenant_id=int(tenant.get("id") or current_user.get("tenant_id") or 0),
+            scope="self",
+            user_id=int(current_user.get("id") or 0),
+        )
 
 
 class DatasetTests(unittest.TestCase):
@@ -32,8 +47,10 @@ class DatasetTests(unittest.TestCase):
         )
         self.env_patch.start()
         from datasets.infrastructure.persistence import repositories
+        from datasets.infrastructure.query_executor import SqlDatasetExecutor
 
         services.configure_repository(repositories)
+        services.configure_external_executor(SqlDatasetExecutor())
         self.user = {
             "id": 10,
             "username": "owner",
@@ -49,6 +66,7 @@ class DatasetTests(unittest.TestCase):
         self.initialize_db()
 
     def tearDown(self) -> None:
+        configure_data_access_filter_provider(TenantOnlyDataAccessFilterProvider())
         self.env_patch.stop()
         self.temp_dir.cleanup()
 
@@ -118,6 +136,40 @@ class DatasetTests(unittest.TestCase):
         detail = services.dataset_detail(int(created["id"]), self.other_user)
         self.assertEqual(detail["item"]["id"], created["id"])
 
+    def test_source_query_dataset_applies_current_tenant_scope(self) -> None:
+        self.seed_orders()
+        created = self.create_source_query_dataset()
+
+        preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=20, current_user=self.user)
+
+        self.assertEqual(preview["pagination"]["total"], 2)
+        self.assertEqual({row["name"] for row in preview["items"]}, {"自己的订单", "同租户订单"})
+        self.assertEqual(preview["meta"]["runtime"], "source_query")
+
+    def test_source_query_dataset_applies_data_permission_scope(self) -> None:
+        self.seed_orders()
+        created = self.create_source_query_dataset()
+        configure_data_access_filter_provider(SelfOnlyProvider())
+
+        preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=20, current_user=self.user)
+
+        self.assertEqual(preview["pagination"]["total"], 1)
+        self.assertEqual(preview["items"][0]["name"], "自己的订单")
+
+    def test_source_query_dataset_rejects_non_select_sql(self) -> None:
+        with self.assertRaises(Exception) as caught:
+            services.save_dataset(
+                {
+                    "key": "bad_query",
+                    "name": "危险查询",
+                    "dataset_type": "source_query",
+                    "query_config": {"sql": "DELETE FROM business_orders"},
+                },
+                self.user,
+            )
+
+        self.assertIn("SELECT", str(caught.exception))
+
     def test_requires_explicit_initialization(self) -> None:
         missing_db = Path(self.temp_dir.name) / "missing.db"
         sqlite3.connect(missing_db).close()
@@ -134,6 +186,58 @@ class DatasetTests(unittest.TestCase):
             self.assertEqual(repositories.dataset_key_column(), "`key`")
             self.assertEqual(repositories.dataset_key_column("d"), "d.`key`")
             self.assertEqual(repositories.dataset_sort_columns()["key"], "d.`key`")
+
+    def seed_orders(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE business_orders (
+                    id INTEGER PRIMARY KEY,
+                    tenant_id INTEGER NOT NULL,
+                    owner_user_id INTEGER NOT NULL,
+                    owner_department_id INTEGER,
+                    name TEXT NOT NULL,
+                    amount INTEGER NOT NULL
+                )
+                """
+            )
+            conn.executemany(
+                "INSERT INTO business_orders (tenant_id, owner_user_id, owner_department_id, name, amount) VALUES (?, ?, ?, ?, ?)",
+                [
+                    (7, 10, 1, "自己的订单", 100),
+                    (7, 11, 1, "同租户订单", 200),
+                    (8, 11, 2, "其他租户订单", 300),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def create_source_query_dataset(self) -> dict[str, object]:
+        created = services.save_dataset(
+            {
+                "key": "orders_query",
+                "name": "订单查询数据集",
+                "dataset_type": "source_query",
+                "query_config": {
+                    "sql": "SELECT tenant_id, owner_user_id, owner_department_id, name, amount FROM business_orders",
+                    "data_access": {"resource_key": "business.orders"},
+                },
+            },
+            self.user,
+        )["item"]
+        services.save_fields(
+            int(created["id"]),
+            {
+                "fields": [
+                    {"field_key": "name", "label": "订单名称", "data_type": "text", "sort_order": 1},
+                    {"field_key": "amount", "label": "金额", "data_type": "number", "sort_order": 2},
+                ]
+            },
+            self.user,
+        )
+        return created
 
 
 if __name__ == "__main__":

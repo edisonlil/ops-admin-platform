@@ -19,7 +19,17 @@ export interface WidgetDataSourceConfig {
   datasetId?: string;
 }
 
-export const dataDrivenWidgetTypes = ['metric_card', 'line_chart', 'bar_chart', 'data_table'];
+export const chartWidgetTypes = [
+  'metric_card',
+  'line_chart',
+  'bar_chart',
+  'pie_chart',
+  'stacked_area_chart',
+  'scatter_chart',
+  'radar_chart',
+  'gauge_chart',
+];
+export const dataDrivenWidgetTypes = [...chartWidgetTypes, 'data_table'];
 
 export function isDataDrivenWidget(type: string) {
   return dataDrivenWidgetTypes.includes(type);
@@ -44,6 +54,84 @@ export function sampleDataForWidget(type: string) {
       rows: [
         { name: '客户 A', status: '正常', count: 128 },
         { name: '客户 B', status: '跟进中', count: 76 },
+      ],
+    };
+  }
+
+  if (type === 'pie_chart') {
+    return {
+      categories: ['线上渠道', '线下渠道', '自然搜索', '复购客户'],
+      series: [
+        {
+          name: '占比',
+          data: [36, 24, 18, 22],
+        },
+      ],
+    };
+  }
+
+  if (type === 'stacked_area_chart') {
+    return {
+      categories: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+      series: [
+        {
+          name: '新增',
+          data: [12, 18, 22, 28, 25, 31, 36],
+        },
+        {
+          name: '活跃',
+          data: [18, 22, 27, 32, 30, 35, 40],
+        },
+        {
+          name: '转化',
+          data: [8, 10, 14, 18, 16, 20, 24],
+        },
+      ],
+    };
+  }
+
+  if (type === 'scatter_chart') {
+    return {
+      categories: ['样本 A', '样本 B', '样本 C', '样本 D', '样本 E', '样本 F', '样本 G'],
+      series: [
+        {
+          name: '样本分布',
+          data: [
+            [12, 18],
+            [18, 31],
+            [24, 24],
+            [31, 42],
+            [36, 28],
+            [42, 49],
+            [48, 38],
+          ],
+        },
+      ],
+    };
+  }
+
+  if (type === 'radar_chart') {
+    return {
+      categories: ['响应速度', '稳定性', '转化率', '满意度', '覆盖率', '成本控制'],
+      series: [
+        {
+          name: '当前表现',
+          data: [86, 92, 74, 88, 79, 68],
+        },
+      ],
+    };
+  }
+
+  if (type === 'gauge_chart') {
+    return {
+      value: 76,
+      max: 100,
+      unit: '%',
+      label: '完成率',
+      thresholds: [
+        { label: '低', value: 40 },
+        { label: '中', value: 70 },
+        { label: '高', value: 100 },
       ],
     };
   }
@@ -121,6 +209,41 @@ export const widgetDefinitions: WidgetDefinition[] = [
     defaultTitle: '分类对比',
     defaultProps: withDefaultDataSource('bar_chart', { description: '展示不同分类的数据对比' }),
     defaultSize: { w: 12, h: 5 },
+  },
+  {
+    type: 'pie_chart',
+    label: '饼图',
+    defaultTitle: '占比分布',
+    defaultProps: withDefaultDataSource('pie_chart', { description: '展示不同分类的占比结构' }),
+    defaultSize: { w: 8, h: 5 },
+  },
+  {
+    type: 'stacked_area_chart',
+    label: '折叠面积图',
+    defaultTitle: '累计趋势',
+    defaultProps: withDefaultDataSource('stacked_area_chart', { description: '展示多组指标的累计趋势' }),
+    defaultSize: { w: 12, h: 5 },
+  },
+  {
+    type: 'scatter_chart',
+    label: '散点图',
+    defaultTitle: '样本分布',
+    defaultProps: withDefaultDataSource('scatter_chart', { description: '展示两个指标之间的分布关系' }),
+    defaultSize: { w: 12, h: 5 },
+  },
+  {
+    type: 'radar_chart',
+    label: '雷达图',
+    defaultTitle: '能力评估',
+    defaultProps: withDefaultDataSource('radar_chart', { description: '展示多维指标的综合表现' }),
+    defaultSize: { w: 8, h: 5 },
+  },
+  {
+    type: 'gauge_chart',
+    label: '进度仪表盘',
+    defaultTitle: '目标进度',
+    defaultProps: withDefaultDataSource('gauge_chart', { description: '展示单个指标的目标完成进度' }),
+    defaultSize: { w: 8, h: 5 },
   },
   {
     type: 'data_table',

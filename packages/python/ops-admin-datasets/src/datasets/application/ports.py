@@ -49,7 +49,17 @@ class DatasetRepository(Protocol):
     def list_manual_rows(self, *, tenant_id: int, dataset_id: int, page: int, page_size: int) -> tuple[list[dict[str, Any]], int]:
         ...
 
-    def publish_dataset(self, *, tenant_id: int, dataset_id: int, schema: dict[str, Any], sample_rows: list[dict[str, Any]], actor: str, actor_id: int | None) -> DatasetVersion:
+    def publish_dataset(
+        self,
+        *,
+        tenant_id: int,
+        dataset_id: int,
+        schema: dict[str, Any],
+        query_config: dict[str, Any],
+        sample_rows: list[dict[str, Any]],
+        actor: str,
+        actor_id: int | None,
+    ) -> DatasetVersion:
         ...
 
 
@@ -62,5 +72,6 @@ class ExternalDatasetExecutorPort(Protocol):
         page: int,
         page_size: int,
         variables: dict[str, Any],
+        current_user: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         ...

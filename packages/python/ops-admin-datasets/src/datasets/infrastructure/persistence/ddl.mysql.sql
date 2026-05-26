@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     dataset_type VARCHAR(64) NOT NULL DEFAULT 'manual',
     status VARCHAR(64) NOT NULL DEFAULT 'draft',
     visibility VARCHAR(64) NOT NULL DEFAULT 'platform',
+    query_config_json TEXT NOT NULL,
     published_version_id BIGINT DEFAULT NULL,
     active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,

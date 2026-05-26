@@ -114,7 +114,7 @@ def runtime_preview(
     payload: DatasetPreviewRequest,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:preview")),
+    current_user: dict[str, Any] = Depends(auth.require_business_api_key_or_permission("datasets:dataset:preview")),
 ) -> dict[str, Any]:
     return ok_or_error(
         lambda: services.preview_dataset(

@@ -92,6 +92,7 @@ class Dataset:
     dataset_type: str = DATASET_TYPE_MANUAL
     status: str = STATUS_DRAFT
     visibility: str = "platform"
+    query_config: dict[str, Any] = field(default_factory=dict)
     owner_user_id: int | None = None
     owner_department_id: int | None = None
     published_version_id: int | None = None
@@ -120,6 +121,7 @@ class Dataset:
             "dataset_type": self.dataset_type,
             "status": self.status,
             "visibility": self.visibility,
+            "query_config": self.query_config,
             "owner_user_id": self.owner_user_id,
             "owner_department_id": self.owner_department_id,
             "published_version_id": self.published_version_id,

@@ -150,6 +150,7 @@ def save_dataset(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_i
         str(payload.get("dataset_type") or "manual").strip() or "manual",
         str(payload.get("status") or "draft").strip() or "draft",
         str(payload.get("visibility") or "platform").strip() or "platform",
+        encode_json(payload.get("query_config") if isinstance(payload.get("query_config"), dict) else {}),
         payload.get("published_version_id"),
         actor,
         actor_id,
@@ -163,7 +164,7 @@ def save_dataset(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_i
                     f"""
                     UPDATE datasets
                     SET {dataset_key_column()} = ?, name = ?, description = ?, dataset_type = ?, status = ?, visibility = ?,
-                        published_version_id = ?, editor = ?, editor_id = ?, update_time = ?,
+                        query_config_json = ?, published_version_id = ?, editor = ?, editor_id = ?, update_time = ?,
                         lock_version = lock_version + 1
                     WHERE id = ? AND tenant_id = ? AND deleted = 0
                     """,
@@ -175,16 +176,16 @@ def save_dataset(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_i
                     f"""
                     INSERT INTO datasets (
                         tenant_id, owner_user_id, owner_department_id, {dataset_key_column()}, name, description,
-                        dataset_type, status, visibility, published_version_id,
+                        dataset_type, status, visibility, query_config_json, published_version_id,
                         creator, creator_id, editor, editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         tenant_id,
                         payload.get("owner_user_id"),
                         payload.get("owner_department_id"),
-                        *values[:7],
+                        *values[:8],
                         actor,
                         actor_id,
                         actor,
@@ -356,7 +357,16 @@ def list_manual_rows(*, tenant_id: int, dataset_id: int, page: int, page_size: i
     return [decode_json_object(row["row_json"]) for row in rows], int(total_row["total"] if total_row else 0)
 
 
-def publish_dataset(*, tenant_id: int, dataset_id: int, schema: dict[str, Any], sample_rows: list[dict[str, Any]], actor: str, actor_id: int | None) -> DatasetVersion:
+def publish_dataset(
+    *,
+    tenant_id: int,
+    dataset_id: int,
+    schema: dict[str, Any],
+    query_config: dict[str, Any],
+    sample_rows: list[dict[str, Any]],
+    actor: str,
+    actor_id: int | None,
+) -> DatasetVersion:
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
         require_datasets_schema(conn)
@@ -379,7 +389,7 @@ def publish_dataset(*, tenant_id: int, dataset_id: int, schema: dict[str, Any], 
                 version_no,
                 VERSION_STATUS_PUBLISHED,
                 encode_json(schema),
-                encode_json({}),
+                encode_json(query_config),
                 encode_json(sample_rows),
                 timestamp,
                 actor,
@@ -455,6 +465,7 @@ def row_to_dataset(row: dict[str, Any]) -> Dataset:
         dataset_type=str(row.get("dataset_type") or "manual"),
         status=str(row.get("status") or "draft"),
         visibility=str(row.get("visibility") or "platform"),
+        query_config=decode_json_object(row.get("query_config_json")),
         owner_user_id=optional_int(row.get("owner_user_id")),
         owner_department_id=optional_int(row.get("owner_department_id")),
         published_version_id=optional_int(row.get("published_version_id")),
