@@ -275,18 +275,24 @@
                     v-else-if="isMediaVariableField(field)"
                     :accept="mediaVariableAccept(field)"
                     :default-upload="false"
-                    :max="1"
+                    :max="mediaVariableMaxFiles(field)"
+                    :multiple="field.type === 'image'"
                     @change="(options) => handleMediaVariableChange(field, options)"
                   >
-                    <n-upload-dragger>
+                    <n-upload-dragger
+                      tabindex="0"
+                      @paste.stop.prevent="(event) => handleImageVariablePaste(field, event)"
+                    >
                       <div class="runtime-media-upload__title">{{ mediaVariableUploadTitle(field) }}</div>
                       <div class="runtime-media-upload__hint">{{ mediaVariableUploadHint(field) }}</div>
                     </n-upload-dragger>
                   </n-upload>
                   <n-input v-else v-model:value="runtimeVariableValues[field.key]" clearable :placeholder="field.placeholder" />
-                  <div v-if="isMediaVariableField(field) && mediaVariableValue(field.key)" class="runtime-media-file">
-                    <span>{{ mediaVariableValue(field.key)?.name }}</span>
-                    <span>{{ formatBytes(mediaVariableValue(field.key)?.size || 0) }}</span>
+                  <div v-if="isMediaVariableField(field) && mediaVariableValues(field.key).length" class="runtime-media-file-list">
+                    <div v-for="item in mediaVariableValues(field.key)" :key="`${field.key}-${item.name}-${item.size}`" class="runtime-media-file">
+                      <span>{{ item.name }}</span>
+                      <span>{{ formatBytes(item.size || 0) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -760,18 +766,24 @@
                     v-else-if="isMediaVariableField(field)"
                     :accept="mediaVariableAccept(field)"
                     :default-upload="false"
-                    :max="1"
+                    :max="mediaVariableMaxFiles(field)"
+                    :multiple="field.type === 'image'"
                     @change="(options) => handleMediaVariableChange(field, options)"
                   >
-                    <n-upload-dragger>
+                    <n-upload-dragger
+                      tabindex="0"
+                      @paste.stop.prevent="(event) => handleImageVariablePaste(field, event)"
+                    >
                       <div class="runtime-media-upload__title">{{ mediaVariableUploadTitle(field) }}</div>
                       <div class="runtime-media-upload__hint">{{ mediaVariableUploadHint(field) }}</div>
                     </n-upload-dragger>
                   </n-upload>
                   <n-input v-else v-model:value="runtimeVariableValues[field.key]" clearable :placeholder="field.placeholder" />
-                  <div v-if="isMediaVariableField(field) && mediaVariableValue(field.key)" class="runtime-media-file">
-                    <span>{{ mediaVariableValue(field.key)?.name }}</span>
-                    <span>{{ formatBytes(mediaVariableValue(field.key)?.size || 0) }}</span>
+                  <div v-if="isMediaVariableField(field) && mediaVariableValues(field.key).length" class="runtime-media-file-list">
+                    <div v-for="item in mediaVariableValues(field.key)" :key="`${field.key}-${item.name}-${item.size}`" class="runtime-media-file">
+                      <span>{{ item.name }}</span>
+                      <span>{{ formatBytes(item.size || 0) }}</span>
+                    </div>
                   </div>
                   <div v-if="field.description" class="runtime-variable-description">{{ field.description }}</div>
                 </div>
@@ -1300,7 +1312,7 @@
 
   type SchemaRecord = Record<string, unknown>;
   type RuntimeVariableType = 'text' | 'number' | 'boolean' | 'image' | 'file' | 'audio' | 'video';
-  type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | null;
+  type RuntimeVariableValue = string | number | boolean | RuntimeMediaVariableValue | RuntimeMediaVariableValue[] | null;
   type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
@@ -1319,6 +1331,7 @@
     file_ref?: string | null;
     file_id?: number | null;
     sha256?: string;
+    data_url?: string;
     preview_url?: string;
     storage_status?: 'stored' | 'unavailable';
     redacted?: boolean;
@@ -2967,58 +2980,109 @@ WHERE product_line = :product_line
   }
 
   async function handleMediaVariableChange(field: RuntimeVariableField, options: { fileList: UploadFileInfo[] }) {
-    const uploadFile = options.fileList[0]?.file as File | undefined;
-    if (!uploadFile) {
+    const uploadFiles = options.fileList.map((item) => item.file).filter(Boolean) as File[];
+    await applyMediaVariableFiles(field, uploadFiles, { append: false });
+  }
+
+  async function handleImageVariablePaste(field: RuntimeVariableField, event: ClipboardEvent) {
+    if (field.type !== 'image') return;
+    const pastedFiles = clipboardImageFiles(event);
+    if (!pastedFiles.length) {
+      message.warning('剪贴板中没有可上传的图片');
+      return;
+    }
+    await applyMediaVariableFiles(field, pastedFiles, { append: true });
+  }
+
+  function clipboardImageFiles(event: ClipboardEvent) {
+    const items = Array.from(event.clipboardData?.items || []);
+    return items
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) return null;
+        const extension = imageFileExtension(file.type) || 'png';
+        const name = file.name || `pasted-image-${Date.now()}-${index + 1}.${extension}`;
+        return file.name ? file : new File([file], name, { type: file.type || 'image/png', lastModified: Date.now() });
+      })
+      .filter(Boolean) as File[];
+  }
+
+  async function applyMediaVariableFiles(field: RuntimeVariableField, uploadFiles: File[], options: { append: boolean }) {
+    if (!uploadFiles.length) {
+      if (!options.append) runtimeVariableValues[field.key] = null;
+      return;
+    }
+    const oversizedFile = uploadFiles.find((file) => file.size > maxMediaVariableBytes(field));
+    if (oversizedFile) {
+      message.warning(`${oversizedFile.name || field.label} 文件过大，请选择 ${formatBytes(maxMediaVariableBytes(field))} 以内的文件`);
       runtimeVariableValues[field.key] = null;
       return;
     }
-    if (uploadFile.size > maxMediaVariableBytes(field)) {
-      message.warning(`${field.label} 文件过大，请选择 ${formatBytes(maxMediaVariableBytes(field))} 以内的文件`);
+    if (field.type === 'image' && uploadFiles.some((file) => !isSupportedRuntimeImageFile(file))) {
+      message.warning('请选择 PNG、JPEG、WebP 或 GIF 格式的图片');
       runtimeVariableValues[field.key] = null;
       return;
+    }
+    const existingImages = options.append && field.type === 'image' ? mediaVariableValues(field.key).filter((item) => item.type === 'image') : [];
+    const remainingSlots = mediaVariableMaxFiles(field) - existingImages.length;
+    if (field.type === 'image' && remainingSlots <= 0) {
+      message.warning(`最多上传 ${mediaVariableMaxFiles(field)} 张图片`);
+      return;
+    }
+    const filesToApply = field.type === 'image' ? uploadFiles.slice(0, Math.max(0, remainingSlots)) : uploadFiles;
+    if (field.type === 'image' && filesToApply.length < uploadFiles.length) {
+      message.warning(`最多上传 ${mediaVariableMaxFiles(field)} 张图片，已保留前 ${filesToApply.length} 张`);
     }
     try {
-      const text = await readTextPreviewIfSupported(uploadFile);
-      const baseValue: RuntimeMediaVariableValue = {
-        type: field.type as RuntimeMediaVariableValue['type'],
-        name: uploadFile.name,
-        mime_type: uploadFile.type || fallbackMimeType(field),
-        size: uploadFile.size,
-        ...(text ? { text } : {}),
-      };
-      try {
-        const uploaded = await uploadManagedFile({
-          file: uploadFile,
-          visibility: 'tenant',
-          metadata: {
-            source: 'ai_application_runtime',
-            variable_key: field.key,
-            variable_type: field.type,
-          },
-        });
-        const item = uploaded.item;
-        runtimeVariableValues[field.key] = {
-          ...baseValue,
-          file_ref: `file_${item.id}`,
-          file_id: item.id,
-          sha256: item.sha256,
-          preview_url: `/files/${item.id}/preview`,
-          storage_status: 'stored',
-          redacted: true,
-        };
-      } catch (uploadError) {
-        runtimeVariableValues[field.key] = {
-          ...baseValue,
-          file_ref: null,
-          storage_status: 'unavailable',
-          redacted: true,
-          reason: 'file_upload_unavailable',
-        };
-        message.warning('文件上传能力不可用，本次运行日志仅记录文件名和脱敏标记');
-      }
+      const values = await Promise.all(filesToApply.map((file) => buildRuntimeMediaVariableValue(field, file)));
+      runtimeVariableValues[field.key] = field.type === 'image' ? [...existingImages, ...values] : values[0] || null;
     } catch (error) {
       runtimeVariableValues[field.key] = null;
       message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function buildRuntimeMediaVariableValue(field: RuntimeVariableField, uploadFile: File): Promise<RuntimeMediaVariableValue> {
+    const text = await readTextPreviewIfSupported(uploadFile);
+    const dataUrl = isBinaryRuntimeMediaField(field) ? await readFileAsDataUrl(uploadFile) : '';
+    const baseValue: RuntimeMediaVariableValue = {
+      type: field.type as RuntimeMediaVariableValue['type'],
+      name: uploadFile.name,
+      mime_type: uploadFile.type || fallbackMimeType(field),
+      size: uploadFile.size,
+      ...(dataUrl ? { data_url: dataUrl } : {}),
+      ...(text ? { text } : {}),
+    };
+    try {
+      const uploaded = await uploadManagedFile({
+        file: uploadFile,
+        visibility: 'tenant',
+        metadata: {
+          source: 'ai_application_runtime',
+          variable_key: field.key,
+          variable_type: field.type,
+        },
+      });
+      const item = uploaded.item;
+      return {
+        ...baseValue,
+        file_ref: `file_${item.id}`,
+        file_id: item.id,
+        sha256: item.sha256,
+        preview_url: `/files/${item.id}/preview`,
+        storage_status: 'stored',
+        redacted: true,
+      };
+    } catch (uploadError) {
+      message.warning('文件上传能力不可用，本次运行日志仅记录文件名和脱敏标记');
+      return {
+        ...baseValue,
+        file_ref: null,
+        storage_status: 'unavailable',
+        redacted: true,
+        reason: 'file_upload_unavailable',
+      };
     }
   }
 
@@ -3531,9 +3595,11 @@ WHERE product_line = :product_line
       runtimeVariableValues[key] = typeof currentValue === 'boolean' ? currentValue : false;
     } else if (type === 'number') {
       runtimeVariableValues[key] = typeof currentValue === 'number' ? currentValue : null;
+    } else if (type === 'image') {
+      runtimeVariableValues[key] = normalizeRuntimeImageVariableValue(currentValue);
     } else if (['image', 'audio', 'video', 'file'].includes(type)) {
       runtimeVariableValues[key] = isRuntimeMediaVariableValue(currentValue) && currentValue.type === type ? currentValue : null;
-    } else if (isRuntimeMediaVariableValue(currentValue) || typeof currentValue === 'boolean' || typeof currentValue === 'number') {
+    } else if (isRuntimeMediaVariableValue(currentValue) || isRuntimeMediaVariableList(currentValue) || typeof currentValue === 'boolean' || typeof currentValue === 'number') {
       runtimeVariableValues[key] = null;
     }
   }
@@ -3655,7 +3721,7 @@ WHERE product_line = :product_line
       .filter((field) => field.required)
       .filter((field) => {
         const value = runtimeVariableValues[field.key];
-        return value === null || typeof value === 'undefined' || (typeof value === 'string' && !value.trim());
+        return value === null || typeof value === 'undefined' || (typeof value === 'string' && !value.trim()) || (Array.isArray(value) && !value.length);
       })
       .map((field) => field.label);
   }
@@ -3669,15 +3735,38 @@ WHERE product_line = :product_line
     return isRuntimeMediaVariableValue(value) ? value : null;
   }
 
+  function mediaVariableValues(key: string) {
+    const value = runtimeVariableValues[key];
+    if (isRuntimeMediaVariableList(value)) return value;
+    return isRuntimeMediaVariableValue(value) ? [value] : [];
+  }
+
   function isRuntimeMediaVariableValue(value: unknown): value is RuntimeMediaVariableValue {
-    return !!value && typeof value === 'object' && ['image', 'file', 'audio', 'video'].includes(String((value as any).type || ''));
+    return !!value && typeof value === 'object' && !Array.isArray(value) && ['image', 'file', 'audio', 'video'].includes(String((value as any).type || ''));
+  }
+
+  function isRuntimeMediaVariableList(value: unknown): value is RuntimeMediaVariableValue[] {
+    return Array.isArray(value) && value.every((item) => isRuntimeMediaVariableValue(item));
+  }
+
+  function normalizeRuntimeImageVariableValue(value: unknown): RuntimeMediaVariableValue[] | null {
+    if (isRuntimeMediaVariableList(value)) {
+      const images = value.filter((item) => item.type === 'image');
+      return images.length ? images : null;
+    }
+    if (isRuntimeMediaVariableValue(value) && value.type === 'image') return [value];
+    return null;
   }
 
   function mediaVariableAccept(field: RuntimeVariableField) {
-    if (field.type === 'image') return 'image/*';
+    if (field.type === 'image') return 'image/png,image/jpeg,image/webp,image/gif';
     if (field.type === 'audio') return 'audio/*';
     if (field.type === 'video') return 'video/*';
     return '';
+  }
+
+  function mediaVariableMaxFiles(field: RuntimeVariableField) {
+    return field.type === 'image' ? 9 : 1;
   }
 
   function mediaVariableUploadTitle(field: RuntimeVariableField) {
@@ -3702,6 +3791,25 @@ WHERE product_line = :product_line
     if (field.type === 'audio') return 20 * 1024 * 1024;
     if (field.type === 'video') return 32 * 1024 * 1024;
     return 10 * 1024 * 1024;
+  }
+
+  function isBinaryRuntimeMediaField(field: RuntimeVariableField) {
+    return ['image', 'audio', 'video'].includes(field.type);
+  }
+
+  function isSupportedRuntimeImageFile(file: File) {
+    const mimeType = (file.type || '').toLowerCase();
+    if (['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'].includes(mimeType)) return true;
+    return /\.(png|jpe?g|webp|gif)$/i.test(file.name || '');
+  }
+
+  function imageFileExtension(mimeType: string) {
+    const normalized = mimeType.toLowerCase();
+    if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+    if (normalized === 'image/webp') return 'webp';
+    if (normalized === 'image/gif') return 'gif';
+    if (normalized === 'image/png') return 'png';
+    return '';
   }
 
   function startRunStopwatch() {
@@ -3741,6 +3849,15 @@ WHERE product_line = :product_line
       reader.onload = () => resolve(String(reader.result || '').slice(0, 20000));
       reader.onerror = () => resolve('');
       reader.readAsText(file);
+    });
+  }
+
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
     });
   }
 

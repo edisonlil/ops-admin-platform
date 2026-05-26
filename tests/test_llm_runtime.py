@@ -9,6 +9,8 @@ from unittest import mock
 import json
 
 from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
+from ai_runtime_core.prompt_runtime import media_content_part
+from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_capabilities.application import services as ai_capabilities
 from ai_applications.application import services as ai_applications
 from ai_applications.infrastructure.persistence.bootstrap import ensure_ai_applications_schema
@@ -362,6 +364,47 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertTrue(any(part.get("type") == "text" for part in content))
         audio_part = next(part for part in content if part.get("type") == "audio_url")
         self.assertEqual(audio_part["audio_url"]["url"], "data:audio/mpeg;base64,abc")
+
+    def test_image_media_part_requires_supported_valid_data_url_or_remote_url(self) -> None:
+        valid_png = "data:image/png;base64,iVBORw0KGgo="
+
+        self.assertEqual(
+            media_content_part("image", {"type": "image", "name": "screen.png", "data_url": valid_png}),
+            {"type": "image_url", "image_url": {"url": valid_png}},
+        )
+        self.assertEqual(
+            media_content_part("image", {"type": "image", "name": "remote.png", "url": "https://example.com/remote.png"}),
+            {"type": "image_url", "image_url": {"url": "https://example.com/remote.png"}},
+        )
+        self.assertEqual(
+            media_content_part("image", {"type": "image", "name": "icon.svg", "data_url": "data:image/svg+xml;base64,PHN2Zz4="})["type"],
+            "text",
+        )
+        self.assertEqual(
+            media_content_part("image", {"type": "image", "name": "bad.png", "data_url": "data:image/png;base64,not valid"})["type"],
+            "text",
+        )
+        self.assertEqual(
+            media_content_part("image", {"type": "image", "name": "local.png", "preview_url": "/files/1/preview"})["type"],
+            "text",
+        )
+
+    def test_image_media_variable_list_renders_multiple_image_parts(self) -> None:
+        first = "data:image/png;base64,iVBORw0KGgo="
+        second = "data:image/png;base64,iVBORw0KGgoA"
+
+        parts = media_content_parts(
+            {
+                "images": [
+                    {"type": "image", "name": "first.png", "data_url": first},
+                    {"type": "image", "name": "second.png", "data_url": second},
+                ]
+            }
+        )
+
+        self.assertEqual([part["type"] for part in parts], ["image_url", "image_url"])
+        self.assertEqual(parts[0]["image_url"]["url"], first)
+        self.assertEqual(parts[1]["image_url"]["url"], second)
 
     def test_openai_chat_completion_can_call_configured_model_key(self) -> None:
         db_path = self._temporary_db_path()
@@ -931,7 +974,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         self.assertEqual(content[0]["type"], "text")
                         self.assertIn("已上传image", content[0]["text"])
                         self.assertEqual(content[1]["type"], "image_url")
-                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,abc")
+                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgo=")
                         return {"choices": [{"message": {"content": "图片里有一个按钮"}}], "usage": {}}
 
                     with mock.patch(
@@ -947,7 +990,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                         "name": "screen.png",
                                         "mime_type": "image/png",
                                         "size": 12,
-                                        "data_url": "data:image/png;base64,abc",
+                                        "data_url": "data:image/png;base64,iVBORw0KGgo=",
                                     }
                                 }
                             },
@@ -955,7 +998,69 @@ class LLMRuntimeTests(unittest.TestCase):
 
             self.assertEqual(result["answer"], "图片里有一个按钮")
             self.assertIn("[image]", result["trace"]["rendered_prompt"])
-            self.assertNotIn("base64,abc", json.dumps(result["trace"], ensure_ascii=False))
+            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(result["trace"], ensure_ascii=False))
+        finally:
+            self._unlink_db(db_path)
+
+    def test_ai_application_image_variable_accepts_multiple_images(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    app_payload = self._sample_ai_application("vision-gallery")
+                    app_payload["user_prompt_template"] = "请分析图片：{{images}}"
+                    app_payload["variables_schema"] = {
+                        "type": "object",
+                        "required": ["images"],
+                        "properties": {"images": {"type": "image"}},
+                    }
+                    ai_applications.save_ai_application(app_payload)
+
+                    def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                        messages = kwargs["messages"]
+                        assert isinstance(messages, list)
+                        content = messages[-1]["content"]
+                        assert isinstance(content, list)
+                        self.assertEqual([part["type"] for part in content], ["text", "image_url", "image_url"])
+                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgo=")
+                        self.assertEqual(content[2]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgoA")
+                        return {"choices": [{"message": {"content": "两张图片已分析"}}], "usage": {}}
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        side_effect=fake_chat_completions,
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "vision-gallery",
+                            {
+                                "variables": {
+                                    "images": [
+                                        {
+                                            "type": "image",
+                                            "name": "screen-1.png",
+                                            "mime_type": "image/png",
+                                            "size": 12,
+                                            "data_url": "data:image/png;base64,iVBORw0KGgo=",
+                                        },
+                                        {
+                                            "type": "image",
+                                            "name": "screen-2.png",
+                                            "mime_type": "image/png",
+                                            "size": 13,
+                                            "data_url": "data:image/png;base64,iVBORw0KGgoA",
+                                        },
+                                    ]
+                                }
+                            },
+                        )
+
+                    trace_detail = ai_applications.get_prompt_runtime_trace(result["trace_id"])
+
+            self.assertEqual(result["answer"], "两张图片已分析")
+            self.assertIn("[image]", result["trace"]["rendered_prompt"])
+            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(trace_detail, ensure_ascii=False))
+            self.assertNotIn("base64,iVBORw0KGgoA", json.dumps(trace_detail, ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 
@@ -987,7 +1092,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                         "name": "screen.png",
                                         "mime_type": "image/png",
                                         "size": 12,
-                                        "data_url": "data:image/png;base64,abc",
+                                        "data_url": "data:image/png;base64,iVBORw0KGgo=",
                                     }
                                 }
                             },
@@ -999,8 +1104,8 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertEqual(len(traces), 1)
             self.assertEqual(traces[0]["input_variables"]["image"]["name"], "screen.png")
             self.assertTrue(traces[0]["input_variables"]["image"]["redacted"])
-            self.assertNotIn("base64,abc", json.dumps(traces[0], ensure_ascii=False))
-            self.assertNotIn("base64,abc", json.dumps(trace_detail, ensure_ascii=False))
+            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(traces[0], ensure_ascii=False))
+            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(trace_detail, ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 
