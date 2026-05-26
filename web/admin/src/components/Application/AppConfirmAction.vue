@@ -13,7 +13,7 @@
     <template #trigger>
       <button
         class="app-confirm-action"
-        :class="[`app-confirm-action--${resolvedTone}`, { 'is-disabled': disabled }]"
+        :class="[`app-confirm-action--${resolvedTone}`, `app-confirm-action--${variant}`, { 'is-disabled': disabled }]"
         type="button"
         :disabled="disabled"
         @click.stop
@@ -45,7 +45,7 @@
   <button
     v-else
     class="app-confirm-action"
-    :class="[`app-confirm-action--${resolvedTone}`, { 'is-disabled': disabled }]"
+    :class="[`app-confirm-action--${resolvedTone}`, `app-confirm-action--${variant}`, { 'is-disabled': disabled }]"
     type="button"
     :disabled="disabled || loading"
     @click="emit('click')"
@@ -71,9 +71,11 @@
       negativeText?: string;
       loading?: boolean;
       confirmHandler?: () => void | Promise<void>;
+      variant?: 'button' | 'menu-item';
     }>(),
     {
       tone: 'default',
+      variant: 'button',
       positiveText: '确认',
       negativeText: '取消',
     }
@@ -145,6 +147,42 @@
       background: var(--app-table-action-disabled-bg, #f8fafc);
       border-color: var(--app-table-action-disabled-border, #d9e1ec);
       opacity: 0.78;
+    }
+
+    &--menu-item {
+      justify-content: flex-start;
+      width: 100%;
+      height: 32px;
+      padding: 0 10px;
+      color: var(--app-text-color, #1f2937);
+      text-align: left;
+      background: transparent;
+      border-color: transparent;
+      border-radius: 4px;
+
+      &:hover:not(:disabled) {
+        color: var(--app-table-action-default-text, #2563eb);
+        background: color-mix(in srgb, var(--app-table-action-default-text, #2563eb) 8%, transparent);
+      }
+
+      &.app-confirm-action--primary {
+        color: var(--app-table-action-default-text, #2563eb);
+      }
+
+      &.app-confirm-action--danger {
+        color: var(--app-table-action-danger-text, #dc2626);
+
+        &:hover:not(:disabled) {
+          color: var(--app-table-action-danger-text, #dc2626);
+          background: color-mix(in srgb, var(--app-table-action-danger-text, #dc2626) 8%, transparent);
+        }
+      }
+
+      &.is-disabled,
+      &:disabled {
+        background: transparent;
+        border-color: transparent;
+      }
     }
   }
 

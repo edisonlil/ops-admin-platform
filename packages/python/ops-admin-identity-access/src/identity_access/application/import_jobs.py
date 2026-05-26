@@ -103,7 +103,18 @@ def _run_job(job_id: str, runner: JobRunner) -> None:
         count = int(result.get("count", 0) or 0)
         _update_job(job_id, status="succeeded", progress=100, message=f"导入完成，共导入 {count} 条数据", result_count=count, ended_at=now_iso())
     except Exception as exc:
-        _update_job(job_id, status="failed", progress=100, message="导入失败", error=str(exc), ended_at=now_iso())
+        _update_job(job_id, status="failed", progress=100, message="导入失败", error=_job_error_message(exc), ended_at=now_iso())
+
+
+def _job_error_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, str):
+            return detail
+        if detail:
+            return str(detail)
+    message = str(exc).strip()
+    return message or "导入失败，请查看后端日志"
 
 
 def _update_job(job_id: str, **changes: Any) -> None:

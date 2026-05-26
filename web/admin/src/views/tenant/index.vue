@@ -9,6 +9,10 @@
 
     <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
     <input ref="memberImportInputRef" type="file" accept=".xlsx" style="display: none" @change="handleMemberImportFileChange" />
+    <n-alert v-if="memberImportJob && !isPlatformTenantManagement" class="member-import-progress" :type="memberImportJob.status === 'failed' ? 'error' : memberImportJob.status === 'succeeded' ? 'success' : 'info'" :title="memberImportJobTitle">
+      <n-progress type="line" :percentage="memberImportProgress" :status="memberImportProgressStatus" />
+      <div class="member-import-progress__message">{{ memberImportJobMessage }}</div>
+    </n-alert>
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
       <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
       <n-form ref="tenantFormRef" :model="tenantForm" :rules="tenantRules" label-placement="left" :label-width="96">
@@ -59,6 +63,10 @@
             </n-descriptions>
           </n-tab-pane>
           <n-tab-pane name="users" tab="成员">
+            <n-alert v-if="memberImportJob" class="member-import-progress member-import-progress--drawer" :type="memberImportJob.status === 'failed' ? 'error' : memberImportJob.status === 'succeeded' ? 'success' : 'info'" :title="memberImportJobTitle">
+              <n-progress type="line" :percentage="memberImportProgress" :status="memberImportProgressStatus" />
+              <div class="member-import-progress__message">{{ memberImportJobMessage }}</div>
+            </n-alert>
             <ListPageRuntime :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
           </n-tab-pane>
           <n-tab-pane name="keys" tab="API Key">
@@ -270,6 +278,7 @@
   const memberImportInputRef = ref<HTMLInputElement | null>(null);
   const memberImportJob = ref<ImportJob | null>(null);
   const memberImportPollingTimer = ref<number | null>(null);
+  const memberImportMessageShownForJobId = ref('');
   const roleOptions = ref<SelectOption[]>([]);
   const themeOptions = ref<SelectOption[]>([]);
   const themesLoading = ref(false);
@@ -308,6 +317,10 @@
   const canCreateTenantApiKey = computed(() => hasPermission(['tenant:api_keys:create']));
   const canRevokeTenantApiKey = computed(() => hasPermission(['tenant:api_keys:revoke']));
   const memberImportJobRunning = computed(() => !!memberImportJob.value?.is_active);
+  const memberImportProgress = computed(() => Math.max(0, Math.min(100, Number(memberImportJob.value?.progress || 0))));
+  const memberImportProgressStatus = computed(() => (memberImportJob.value?.status === 'failed' ? 'error' : memberImportJob.value?.status === 'succeeded' ? 'success' : 'info'));
+  const memberImportJobTitle = computed(() => (memberImportJob.value?.status === 'failed' ? '导入失败' : memberImportJob.value?.status === 'succeeded' ? '导入完成' : '正在导入成员'));
+  const memberImportJobMessage = computed(() => memberImportJob.value?.error || memberImportJob.value?.message || '正在处理导入任务');
 
   const statusOptions = [
     { label: '启用', value: 'active' },
@@ -707,11 +720,17 @@
     memberImportJob.value = payload.item || null;
     if (!memberImportJob.value?.is_active) {
       stopMemberImportPolling();
+      const jobId = memberImportJob.value?.id || '';
+      const shouldShowMessage = showFinishedMessage && (!jobId || memberImportMessageShownForJobId.value !== jobId);
       if (memberImportJob.value?.status === 'succeeded') {
-        if (showFinishedMessage) message.success(`导入完成，共导入 ${memberImportJob.value.result_count || 0} 个成员`);
+        if (shouldShowMessage) {
+          message.success(`导入完成，共导入 ${memberImportJob.value.result_count || 0} 个成员`);
+          memberImportMessageShownForJobId.value = jobId;
+        }
         await loadTenantUsers();
-      } else if (memberImportJob.value?.status === 'failed' && showFinishedMessage) {
-        message.error(memberImportJob.value.error || '成员导入失败');
+      } else if (memberImportJob.value?.status === 'failed' && shouldShowMessage) {
+        message.error(memberImportJob.value.error || memberImportJob.value.message || '成员导入失败');
+        memberImportMessageShownForJobId.value = jobId;
       }
     }
   }
@@ -724,7 +743,7 @@
         stopMemberImportPolling();
       });
     }, 1500);
-    refreshMemberImportJobStatus(false).catch(() => undefined);
+    refreshMemberImportJobStatus().catch(() => undefined);
   }
 
   function stopMemberImportPolling() {
@@ -1042,6 +1061,20 @@
   .tenant-drawer-note {
     color: var(--app-text-color-2);
     font-size: 13px;
+  }
+
+  .member-import-progress {
+    margin-top: 12px;
+  }
+
+  .member-import-progress__message {
+    margin-top: 6px;
+    color: var(--app-text-color-2);
+    font-size: 13px;
+  }
+
+  .member-import-progress--drawer {
+    margin-bottom: 10px;
   }
 
 </style>

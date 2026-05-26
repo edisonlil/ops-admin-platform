@@ -44,6 +44,7 @@
           :positive-text="action.positiveText"
           :negative-text="action.negativeText"
           :loading="action.loading"
+          variant="menu-item"
           :confirm-handler="() => handleOverflowConfirm(action)"
           @click="handleOverflowClick(action)"
           @cancel="action.onCancel"
@@ -146,9 +147,9 @@
   .app-table-actions__menu {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 6px;
-    min-width: 96px;
-    padding: 8px;
+    gap: 2px;
+    min-width: 108px;
+    padding: 6px;
     background: var(--app-table-action-confirm-bg, #ffffff);
     border: 1px solid var(--app-table-action-confirm-border, #d9e1ec);
     border-radius: var(--app-table-action-confirm-radius, 6px);
