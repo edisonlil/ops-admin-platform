@@ -10,6 +10,11 @@
             </n-space>
           </template>
           <n-input v-model:value="menuPattern" clearable placeholder="搜索菜单名称或 Key" />
+          <n-space class="menu-panel__actions" size="small">
+            <n-button size="small" quaternary @click="toggleMenuTreeExpanded">
+              {{ expandedMenuKeys.length ? '收起全部' : '展开全部' }}
+            </n-button>
+          </n-space>
           <div class="menu-panel__tree">
             <n-spin :show="menusLoading">
               <n-tree
@@ -19,6 +24,8 @@
                 :selected-keys="selectedMenuKey ? [selectedMenuKey] : []"
                 :expanded-keys="expandedMenuKeys"
                 virtual-scroll
+                :scrollbar-props="{ style: { height: '100%' } }"
+                class="menu-tree"
                 @update:selected-keys="handleSelectMenu"
                 @update:expanded-keys="(keys) => (expandedMenuKeys = keys.map(String))"
               />
@@ -56,6 +63,35 @@
             <n-tag size="small" type="success" :bordered="false">已选择 {{ selectedTenantIds.length }} 个租户</n-tag>
           </template>
           <template #table-tools>
+            <n-space class="assignment-bulk-actions" align="center" justify="space-between">
+              <n-space align="center" size="small">
+                <n-tag size="small" type="info" :bordered="false">当前页 {{ rows.length }} 个租户</n-tag>
+                <n-tag size="small" type="success" :bordered="false">本页已选 {{ selectedCurrentPageCount }} 个</n-tag>
+              </n-space>
+              <n-space size="small">
+                <n-button
+                  size="small"
+                  :disabled="!selectedMenuKey || !rows.length || allCurrentPageSelected || !canAssignTenants"
+                  @click="selectCurrentPage"
+                >
+                  本页全选
+                </n-button>
+                <n-button
+                  size="small"
+                  :disabled="!selectedMenuKey || !rows.length || !canAssignTenants"
+                  @click="invertCurrentPage"
+                >
+                  本页反选
+                </n-button>
+                <n-button
+                  size="small"
+                  :disabled="!selectedMenuKey || !rows.length || !selectedCurrentPageCount || !canAssignTenants"
+                  @click="clearCurrentPage"
+                >
+                  清除本页
+                </n-button>
+              </n-space>
+            </n-space>
             <n-alert v-if="selectedMenu" type="info" class="assignment-summary" :show-icon="false">
               <n-space align="center" justify="space-between">
                 <span>
@@ -114,6 +150,14 @@
   const currentState = ref<ListRuntimeState>();
 
   const selectedMenu = computed(() => menuRows.value.find((item) => item.key === selectedMenuKey.value) || null);
+  const canAssignTenants = computed(() => hasPermission(['system:menus:assign_tenants']));
+  const currentPageTenantIds = computed(() => rows.value.map((row) => row.tenant_id));
+  const selectedCurrentPageCount = computed(
+    () => currentPageTenantIds.value.filter((tenantId) => selectedTenantIds.value.includes(tenantId)).length
+  );
+  const allCurrentPageSelected = computed(
+    () => currentPageTenantIds.value.length > 0 && selectedCurrentPageCount.value === currentPageTenantIds.value.length
+  );
   const changed = computed(() => {
     const current = [...selectedTenantIds.value].sort((a, b) => a - b).join(',');
     const saved = [...savedTenantIds.value].sort((a, b) => a - b).join(',');
@@ -199,6 +243,7 @@
     toolbar: {
       batchActions: [
         { key: 'select-page', label: '本页全选', onClick: selectCurrentPage },
+        { key: 'invert-page', label: '本页反选', onClick: invertCurrentPage },
         { key: 'clear-page', label: '清除本页', onClick: clearCurrentPage },
       ],
       rightTools: ['refresh'],
@@ -244,15 +289,30 @@
     return keys;
   }
 
+  function collectNonLeafKeys(nodes: TreeOption[]) {
+    const keys: string[] = [];
+    const visit = (items: TreeOption[]) => {
+      items.forEach((item) => {
+        if (item.children?.length) {
+          keys.push(String(item.key));
+          visit(item.children);
+        }
+      });
+    };
+    visit(nodes);
+    return keys;
+  }
+
+  function syncExpandedMenuKeys() {
+    expandedMenuKeys.value = collectNonLeafKeys(menuTree.value);
+  }
+
   async function loadMenus() {
     menusLoading.value = true;
     try {
       const response = await getRbacMenus({ scope: 'tenant' });
       menuRows.value = ((response as Recordable).items || []) as MenuRow[];
-      expandedMenuKeys.value = collectTreeKeys(menuTree.value).filter((key) => {
-        const menu = menuRows.value.find((item) => item.key === key);
-        return menu?.menu_type === 'directory';
-      });
+      syncExpandedMenuKeys();
       if (!selectedMenuKey.value && menuRows.value.length) {
         const firstPage = menuRows.value.find((item) => item.menu_type !== 'action') || menuRows.value[0];
         selectedMenuKey.value = firstPage.key;
@@ -308,8 +368,16 @@
     rows.value.forEach((row) => toggleTenant(row.tenant_id, true));
   }
 
+  function invertCurrentPage() {
+    rows.value.forEach((row) => toggleTenant(row.tenant_id, !selectedTenantIds.value.includes(row.tenant_id)));
+  }
+
   function clearCurrentPage() {
     rows.value.forEach((row) => toggleTenant(row.tenant_id, false));
+  }
+
+  function toggleMenuTreeExpanded() {
+    expandedMenuKeys.value = expandedMenuKeys.value.length ? [] : collectNonLeafKeys(menuTree.value);
   }
 
   function resetSelection() {
@@ -340,11 +408,25 @@
     min-height: 520px;
   }
 
+  .menu-panel__actions {
+    margin-top: 10px;
+  }
+
   .menu-panel__tree {
     height: calc(100vh - 270px);
     min-height: 360px;
     margin-top: 12px;
-    overflow: hidden;
+    overflow: auto;
+  }
+
+  .menu-panel__tree :deep(.n-spin-container),
+  .menu-panel__tree :deep(.n-spin-content),
+  .menu-tree {
+    height: 100%;
+  }
+
+  .assignment-bulk-actions {
+    margin-bottom: 12px;
   }
 
   .assignment-summary {
