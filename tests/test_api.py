@@ -503,6 +503,49 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(cross_tenant_response.status_code, 200)
 
+    def test_tenant_users_can_be_filtered_by_member_fields(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "member-filters", "name": "Member Filters"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        users = [
+            {
+                "username": "alpha.member",
+                "full_name": "张三",
+                "email": "alpha@example.com",
+                "password": "alpha-pass",
+                "role_keys": ["tenant-admin"],
+                "is_active": True,
+                "is_superuser": False,
+            },
+            {
+                "username": "beta.member",
+                "full_name": "李四",
+                "email": "beta@example.com",
+                "password": "beta-pass",
+                "role_keys": [],
+                "is_active": False,
+                "is_superuser": False,
+            },
+        ]
+        for user in users:
+            response = self.request("POST", f"/api/tenants/{tenant_id}/users", json=user)
+            self.assertEqual(response.status_code, 200)
+
+        username_response = self.request("GET", f"/api/tenants/{tenant_id}/users", params={"username": "alpha"})
+        email_response = self.request("GET", f"/api/tenants/{tenant_id}/users", params={"email": "BETA@EXAMPLE.COM"})
+        name_response = self.request("GET", f"/api/tenants/{tenant_id}/users", params={"full_name": "张"})
+        active_response = self.request("GET", f"/api/tenants/{tenant_id}/users", params={"is_active": "false"})
+
+        self.assertEqual(username_response.status_code, 200)
+        self.assertEqual(email_response.status_code, 200)
+        self.assertEqual(name_response.status_code, 200)
+        self.assertEqual(active_response.status_code, 200)
+        self.assertEqual([item["username"] for item in username_response.json()["data"]["items"]], ["alpha.member"])
+        self.assertEqual([item["username"] for item in email_response.json()["data"]["items"]], ["beta.member"])
+        self.assertEqual([item["username"] for item in name_response.json()["data"]["items"]], ["alpha.member"])
+        self.assertEqual([item["username"] for item in active_response.json()["data"]["items"]], ["beta.member"])
+
     def test_platform_admin_can_login_with_email_and_profile_updates_email(self) -> None:
         create_response = self.request(
             "POST",

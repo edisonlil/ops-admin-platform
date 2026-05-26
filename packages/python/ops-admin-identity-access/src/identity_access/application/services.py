@@ -322,8 +322,24 @@ def suspend_tenant(tenant_id: int) -> dict[str, Any]:
     return _after_access_context_change(tenant_service.suspend_tenant(tenant_id))
 
 
-def list_tenant_users(tenant_id: int, *, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
-    return sort_dict_items(tenant_service.list_tenant_users(tenant_id), sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
+def list_tenant_users(
+    tenant_id: int,
+    *,
+    username: str | None = None,
+    email: str | None = None,
+    full_name: str | None = None,
+    is_active: bool | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict[str, Any]]:
+    items = filter_tenant_users(
+        tenant_service.list_tenant_users(tenant_id),
+        username=username,
+        email=email,
+        full_name=full_name,
+        is_active=is_active,
+    )
+    return sort_dict_items(items, sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
 
 
 def list_tenant_users_page(
@@ -331,10 +347,52 @@ def list_tenant_users_page(
     *,
     page: int,
     page_size: int,
+    username: str | None = None,
+    email: str | None = None,
+    full_name: str | None = None,
+    is_active: bool | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
-    return page_items(list_tenant_users(tenant_id, sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
+    return page_items(
+        list_tenant_users(
+            tenant_id,
+            username=username,
+            email=email,
+            full_name=full_name,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        ),
+        page=page,
+        page_size=page_size,
+    )
+
+
+def filter_tenant_users(
+    items: list[dict[str, Any]],
+    *,
+    username: str | None = None,
+    email: str | None = None,
+    full_name: str | None = None,
+    is_active: bool | None = None,
+) -> list[dict[str, Any]]:
+    username_text = (username or "").strip().lower()
+    email_text = (email or "").strip().lower()
+    full_name_text = (full_name or "").strip().lower()
+
+    def matches(item: dict[str, Any]) -> bool:
+        if username_text and username_text not in str(item.get("username", "") or "").lower():
+            return False
+        if email_text and email_text not in str(item.get("email", "") or "").lower():
+            return False
+        if full_name_text and full_name_text not in str(item.get("full_name", "") or "").lower():
+            return False
+        if is_active is not None and bool(item.get("is_active", False)) != bool(is_active):
+            return False
+        return True
+
+    return [item for item in items if matches(item)]
 
 
 def export_tenant_users(tenant_id: int) -> Any:

@@ -182,11 +182,27 @@ def tenant_users(
     tenant_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    username: str | None = Query(default=None),
+    email: str | None = Query(default=None),
+    full_name: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_tenant_users_page(
+            tenant_id,
+            page=page,
+            page_size=page_size,
+            username=username,
+            email=email,
+            full_name=full_name,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
 
 
 @router.get("/tenants/{tenant_id}/users/export")
@@ -323,12 +339,28 @@ def revoke_tenant_api_key(
 def current_tenant_users(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    username: str | None = Query(default=None),
+    email: str | None = Query(default=None),
+    full_name: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:user:manage")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok(services.list_tenant_users_page(tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_tenant_users_page(
+            tenant_id,
+            page=page,
+            page_size=page_size,
+            username=username,
+            email=email,
+            full_name=full_name,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
 
 
 @router.get("/tenant/users/export")

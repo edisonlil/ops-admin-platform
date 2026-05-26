@@ -7,12 +7,17 @@
       </template>
     </ListPageRuntime>
 
-    <ListPageRuntime v-else :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
+    <ListPageRuntime v-else :key="tenantUserRuntimeKey" :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers">
+      <template #filters>
+        <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+        <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+        <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+        <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" class="tenant-page__member-status" @update:value="searchTenantUsers" />
+        <n-button @click="searchTenantUsers">查询</n-button>
+        <n-button secondary @click="resetTenantUserFilters">重置</n-button>
+      </template>
+    </ListPageRuntime>
     <input ref="memberImportInputRef" type="file" accept=".xlsx" style="display: none" @change="handleMemberImportFileChange" />
-    <n-alert v-if="memberImportJob && !isPlatformTenantManagement" class="member-import-progress" :type="memberImportJob.status === 'failed' ? 'error' : memberImportJob.status === 'succeeded' ? 'success' : 'info'" :title="memberImportJobTitle">
-      <n-progress type="line" :percentage="memberImportProgress" :status="memberImportProgressStatus" />
-      <div class="member-import-progress__message">{{ memberImportJobMessage }}</div>
-    </n-alert>
     <n-modal v-model:show="tenantModalVisible" preset="card" :style="{ width: '560px' }" :bordered="false">
       <template #header>{{ tenantFormMode === 'create' ? '新增租户' : '编辑租户' }}</template>
       <n-form ref="tenantFormRef" :model="tenantForm" :rules="tenantRules" label-placement="left" :label-width="96">
@@ -63,11 +68,16 @@
             </n-descriptions>
           </n-tab-pane>
           <n-tab-pane name="users" tab="成员">
-            <n-alert v-if="memberImportJob" class="member-import-progress member-import-progress--drawer" :type="memberImportJob.status === 'failed' ? 'error' : memberImportJob.status === 'succeeded' ? 'success' : 'info'" :title="memberImportJobTitle">
-              <n-progress type="line" :percentage="memberImportProgress" :status="memberImportProgressStatus" />
-              <div class="member-import-progress__message">{{ memberImportJobMessage }}</div>
-            </n-alert>
-            <ListPageRuntime :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" />
+            <ListPageRuntime :key="tenantUserRuntimeKey" :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers">
+              <template #filters>
+                <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+                <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+                <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
+                <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" class="tenant-page__member-status" @update:value="searchTenantUsers" />
+                <n-button @click="searchTenantUsers">查询</n-button>
+                <n-button secondary @click="resetTenantUserFilters">重置</n-button>
+              </template>
+            </ListPageRuntime>
           </n-tab-pane>
           <n-tab-pane name="keys" tab="API Key">
             <ListPageRuntime :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys" />
@@ -279,6 +289,14 @@
   const memberImportJob = ref<ImportJob | null>(null);
   const memberImportPollingTimer = ref<number | null>(null);
   const memberImportMessageShownForJobId = ref('');
+  const tenantUserRuntimeState = ref<ListRuntimeState>();
+  const tenantUserRuntimeRevision = ref(0);
+  const memberFilters = reactive({
+    username: '',
+    email: '',
+    full_name: '',
+    is_active: null as boolean | null,
+  });
   const roleOptions = ref<SelectOption[]>([]);
   const themeOptions = ref<SelectOption[]>([]);
   const themesLoading = ref(false);
@@ -317,14 +335,15 @@
   const canCreateTenantApiKey = computed(() => hasPermission(['tenant:api_keys:create']));
   const canRevokeTenantApiKey = computed(() => hasPermission(['tenant:api_keys:revoke']));
   const memberImportJobRunning = computed(() => !!memberImportJob.value?.is_active);
-  const memberImportProgress = computed(() => Math.max(0, Math.min(100, Number(memberImportJob.value?.progress || 0))));
-  const memberImportProgressStatus = computed(() => (memberImportJob.value?.status === 'failed' ? 'error' : memberImportJob.value?.status === 'succeeded' ? 'success' : 'info'));
-  const memberImportJobTitle = computed(() => (memberImportJob.value?.status === 'failed' ? '导入失败' : memberImportJob.value?.status === 'succeeded' ? '导入完成' : '正在导入成员'));
-  const memberImportJobMessage = computed(() => memberImportJob.value?.error || memberImportJob.value?.message || '正在处理导入任务');
+  const tenantUserRuntimeKey = computed(() => `tenant-users-${activeTenant.value?.id || 'current'}-${tenantUserRuntimeRevision.value}`);
 
   const statusOptions = [
     { label: '启用', value: 'active' },
     { label: '停用', value: 'suspended' },
+  ];
+  const memberActiveOptions: SelectOption[] = [
+    { label: '启用', value: true },
+    { label: '停用', value: false },
   ];
 
   const tenantRules: FormRules = {
@@ -671,6 +690,46 @@
     })();
   }
 
+  function tenantUserFilterParams() {
+    const params: Record<string, string | boolean> = {};
+    if (memberFilters.username.trim()) params.username = memberFilters.username.trim();
+    if (memberFilters.email.trim()) params.email = memberFilters.email.trim();
+    if (memberFilters.full_name.trim()) params.full_name = memberFilters.full_name.trim();
+    if (memberFilters.is_active !== null) params.is_active = memberFilters.is_active;
+    return params;
+  }
+
+  function tenantUserListParams(state?: ListRuntimeState) {
+    const runtimeState = state || tenantUserRuntimeState.value;
+    return {
+      ...runtimeListParams(runtimeState),
+      ...tenantUserFilterParams(),
+    };
+  }
+
+  async function searchTenantUsers() {
+    tenantUserRuntimeRevision.value += 1;
+    tenantUserRuntimeState.value = {
+      ...(tenantUserRuntimeState.value || {}),
+      pagination: {
+        page: 1,
+        pageSize: tenantUserRuntimeState.value?.pagination?.pageSize || 20,
+      },
+    };
+    await loadTenantUsers(tenantUserRuntimeState.value);
+  }
+
+  async function resetTenantUserFilters() {
+    Object.assign(memberFilters, { username: '', email: '', full_name: '', is_active: null });
+    await searchTenantUsers();
+  }
+
+  function clearTenantUserFilters() {
+    Object.assign(memberFilters, { username: '', email: '', full_name: '', is_active: null });
+    tenantUserRuntimeState.value = undefined;
+    tenantUserRuntimeRevision.value += 1;
+  }
+
   async function handleMemberDownloadTemplate() {
     if (!activeTenant.value) return;
     try {
@@ -754,6 +813,9 @@
   }
 
   async function openDetail(row: TenantRow) {
+    if (!activeTenant.value || Number(activeTenant.value.id) !== Number(row.id)) {
+      clearTenantUserFilters();
+    }
     activeTenant.value = row;
     detailVisible.value = true;
     await Promise.all([loadTenantUsers(), loadTenantKeys()]);
@@ -781,10 +843,11 @@
 
   async function loadTenantUsers(state?: ListRuntimeState) {
     if (!activeTenant.value) return;
+    tenantUserRuntimeState.value = state || tenantUserRuntimeState.value;
     usersLoading.value = true;
     try {
       const tenantId = activeTenant.value.id;
-      const params = runtimeListParams(state);
+      const params = tenantUserListParams(state);
       const departmentsPromise = ensureDepartments();
       const usersPromise = isPlatformTenantManagement.value ? getTenantUsers(tenantId, params) : getCurrentTenantUsers(params);
       const [payload] = await Promise.all([usersPromise, departmentsPromise]);
@@ -1036,6 +1099,7 @@
       tenantUsers.value = [];
       tenantKeys.value = [];
       memberImportJob.value = null;
+      clearTenantUserFilters();
       stopMemberImportPolling();
       reload();
     }
@@ -1054,6 +1118,14 @@
     width: min(320px, 100%);
   }
 
+  .tenant-page__member-filter {
+    width: min(220px, 100%);
+  }
+
+  .tenant-page__member-status {
+    width: 140px;
+  }
+
   .tenant-detail-drawer {
     --app-page-embedded-section-gap: 10px;
   }
@@ -1061,20 +1133,6 @@
   .tenant-drawer-note {
     color: var(--app-text-color-2);
     font-size: 13px;
-  }
-
-  .member-import-progress {
-    margin-top: 12px;
-  }
-
-  .member-import-progress__message {
-    margin-top: 6px;
-    color: var(--app-text-color-2);
-    font-size: 13px;
-  }
-
-  .member-import-progress--drawer {
-    margin-bottom: 10px;
   }
 
 </style>
