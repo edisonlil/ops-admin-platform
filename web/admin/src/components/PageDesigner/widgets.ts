@@ -1,4 +1,5 @@
 import type { PageComponentConfig } from '@/api/pageDesigner';
+import type { DatasetField, DatasetRuntimePayload } from '@/api/datasets';
 
 export interface WidgetDefinition {
   type: string;
@@ -16,7 +17,7 @@ export type WidgetDataSourceType = 'static_json' | 'dataset';
 export interface WidgetDataSourceConfig {
   type: WidgetDataSourceType;
   staticJson?: string;
-  datasetId?: string;
+  datasetId?: string | number | null;
 }
 
 export const chartWidgetTypes = [
@@ -188,6 +189,123 @@ export function parseStaticWidgetData(component?: PageComponentConfig) {
   }
 }
 
+export function parseWidgetData(component?: PageComponentConfig, datasetPayload?: DatasetRuntimePayload | null) {
+  if (!component) return sampleDataForWidget('metric_card');
+  const dataSource = component.props?.dataSource as WidgetDataSourceConfig | undefined;
+  if (dataSource?.type === 'dataset' && datasetPayload) {
+    return datasetPayloadToWidgetData(component.type, datasetPayload);
+  }
+  return parseStaticWidgetData(component);
+}
+
+export function datasetIdForComponent(component?: PageComponentConfig) {
+  const dataSource = component?.props?.dataSource as WidgetDataSourceConfig | undefined;
+  if (dataSource?.type !== 'dataset' || dataSource.datasetId === null || dataSource.datasetId === undefined || dataSource.datasetId === '') {
+    return '';
+  }
+  return String(dataSource.datasetId);
+}
+
+function datasetPayloadToWidgetData(type: string, payload: DatasetRuntimePayload) {
+  const fields = (payload.fields || []).filter((field) => field.visible !== false);
+  const rows = payload.items || [];
+
+  if (type === 'data_table') {
+    return {
+      columns: fields.map((field) => ({ key: field.field_key, title: field.label || field.field_key })),
+      rows,
+    };
+  }
+
+  if (type === 'metric_card') {
+    const row = rows[0] || {};
+    const valueField = preferredField(fields, ['value', 'metric', 'amount', 'count', 'total']) || firstNumberField(fields) || fields[0];
+    const trendField = preferredField(fields, ['trend', 'rate', 'change', 'growth']);
+    return {
+      value: valueField ? formatDatasetValue(row[valueField.field_key], valueField) : '0',
+      trend: trendField ? formatDatasetValue(row[trendField.field_key], trendField) : '',
+      unit: valueField?.unit || '',
+    };
+  }
+
+  if (type === 'scatter_chart') {
+    const numberFields = fields.filter(isNumberField);
+    const xField = numberFields[0];
+    const yField = numberFields[1] || numberFields[0];
+    return {
+      categories: rows.map((row, index) => String(row[labelField(fields)?.field_key || ''] ?? `样本 ${index + 1}`)),
+      series: [
+        {
+          name: payload.dataset?.name || '样本分布',
+          data: rows.map((row) => [toNumber(row[xField?.field_key || '']), toNumber(row[yField?.field_key || ''])]),
+        },
+      ],
+    };
+  }
+
+  if (type === 'gauge_chart') {
+    const row = rows[0] || {};
+    const valueField = preferredField(fields, ['value', 'progress', 'rate', 'percent']) || firstNumberField(fields);
+    const maxField = preferredField(fields, ['max', 'target']);
+    return {
+      value: toNumber(row[valueField?.field_key || '']),
+      max: Math.max(toNumber(row[maxField?.field_key || '']) || 100, 1),
+      unit: valueField?.unit || '%',
+      label: valueField?.label || payload.dataset?.name || '完成率',
+    };
+  }
+
+  const categoryField = labelField(fields);
+  const valueFields = fields.filter(isNumberField);
+  const values = valueFields.length ? valueFields : fields.slice(0, 1);
+  return {
+    categories: rows.map((row, index) => String(row[categoryField?.field_key || ''] ?? `项目 ${index + 1}`)),
+    series: values.map((field) => ({
+      name: field.label || field.field_key,
+      data: rows.map((row) => toNumber(row[field.field_key])),
+    })),
+  };
+}
+
+function preferredField(fields: DatasetField[], semanticTypes: string[]) {
+  const lowered = semanticTypes.map((item) => item.toLowerCase());
+  return fields.find((field) => {
+    const semanticType = String(field.semantic_type || '').toLowerCase();
+    const key = String(field.field_key || '').toLowerCase();
+    return lowered.includes(semanticType) || lowered.some((item) => key.includes(item));
+  });
+}
+
+function labelField(fields: DatasetField[]) {
+  return (
+    preferredField(fields, ['category', 'dimension', 'label', 'name', 'date', 'time']) ||
+    fields.find((field) => ['text', 'date', 'datetime'].includes(field.data_type)) ||
+    fields[0]
+  );
+}
+
+function firstNumberField(fields: DatasetField[]) {
+  return fields.find(isNumberField);
+}
+
+function isNumberField(field: DatasetField) {
+  return ['number', 'integer'].includes(field.data_type);
+}
+
+function formatDatasetValue(value: unknown, field: DatasetField) {
+  if (value === null || value === undefined || value === '') return '0';
+  if (!isNumberField(field)) return String(value);
+  const numberValue = toNumber(value);
+  const precision = field.precision;
+  const formatted = typeof precision === 'number' && precision >= 0 ? numberValue.toFixed(precision) : String(numberValue);
+  return `${formatted}${field.unit || ''}`;
+}
+
+function toNumber(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
 export const widgetDefinitions: WidgetDefinition[] = [
   {
     type: 'metric_card',
@@ -219,7 +337,7 @@ export const widgetDefinitions: WidgetDefinition[] = [
   },
   {
     type: 'stacked_area_chart',
-    label: '折叠面积图',
+    label: '堆叠面积图',
     defaultTitle: '累计趋势',
     defaultProps: withDefaultDataSource('stacked_area_chart', { description: '展示多组指标的累计趋势' }),
     defaultSize: { w: 12, h: 5 },

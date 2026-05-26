@@ -35,7 +35,7 @@
               </button>
             </n-dropdown>
           </div>
-          <WidgetRenderer :component="componentById(item.i)" />
+          <WidgetRenderer :component="componentById(item.i)" :dataset-payloads="datasetPayloads" />
         </div>
       </GridItem>
     </GridLayout>
@@ -43,10 +43,12 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, watch } from 'vue';
+  import { computed, reactive, ref, watch } from 'vue';
   import { GridItem, GridLayout } from 'grid-layout-plus';
   import { MoreOutlined } from '@vicons/antd';
+  import { previewDatasetRuntime, type DatasetRuntimePayload } from '@/api/datasets';
   import type { DashboardLayout, PageComponentConfig } from '@/api/pageDesigner';
+  import { datasetIdForComponent } from './widgets';
   import WidgetRenderer from './WidgetRenderer.vue';
 
   interface GridCanvasItem {
@@ -79,6 +81,8 @@
   }>();
 
   const innerLayout = ref<GridCanvasItem[]>(toGridItems(props.layout));
+  const datasetPayloads = reactive<Record<string, DatasetRuntimePayload | null | undefined>>({});
+  const datasetIds = computed(() => Array.from(new Set(props.components.map(datasetIdForComponent).filter(Boolean))));
   const componentActionOptions = [
     { label: '配置', key: 'configure' },
     { label: '复制', key: 'duplicate' },
@@ -97,8 +101,30 @@
     { deep: true }
   );
 
+  watch(
+    datasetIds,
+    (ids) => {
+      ids.forEach((id) => {
+        if (datasetPayloads[id] !== undefined) return;
+        datasetPayloads[id] = null;
+        void loadDatasetPreview(id);
+      });
+    },
+    { immediate: true }
+  );
+
   function componentById(id: string) {
     return props.components.find((component) => component.id === id) || { id, type: 'text_block', title: '未知组件', props: {} };
+  }
+
+  async function loadDatasetPreview(id: string) {
+    const datasetId = Number(id);
+    if (!Number.isFinite(datasetId) || datasetId <= 0) return;
+    try {
+      datasetPayloads[id] = await previewDatasetRuntime(datasetId, {}, { page: 1, page_size: 100 });
+    } catch {
+      datasetPayloads[id] = null;
+    }
   }
 
   function emitLayoutChange(nextLayout: GridCanvasItem[]) {

@@ -125,7 +125,15 @@
                     </template>
                   </n-form-item>
                   <n-form-item v-else label="数据集">
-                    <n-select disabled placeholder="后续接入数据集后可选择" />
+                    <n-select
+                      v-model:value="selectedDataSource.datasetId"
+                      filterable
+                      clearable
+                      :loading="datasetsLoading"
+                      :options="datasetOptions"
+                      placeholder="请选择平台数据集"
+                      @focus="loadDatasets"
+                    />
                   </n-form-item>
                 </template>
                 <n-form-item v-if="selectedComponent.type === 'metric_card'" label="指标值">
@@ -188,6 +196,7 @@
   import { computed, reactive, ref } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
+  import type { SelectOption } from 'naive-ui';
   import {
     ArrowLeftOutlined,
     BgColorsOutlined,
@@ -198,6 +207,7 @@
   } from '@vicons/antd';
   import CodePreview from '@/components/CodePreview/index.vue';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
+  import { listDatasets, type Dataset } from '@/api/datasets';
   import {
     chartWidgetTypes,
     defaultDataSourceForWidget,
@@ -229,6 +239,7 @@
   const saving = ref(false);
   const publishing = ref(false);
   const previewing = ref(false);
+  const datasetsLoading = ref(false);
   const previewVisible = ref(false);
   const widgetPickerVisible = ref(false);
   const configVisible = ref(false);
@@ -239,6 +250,7 @@
   const layout = reactive<DashboardLayout>({ cols: 24, rowHeight: 64, items: [] });
   const selectedLayoutItem = reactive<DashboardLayoutItem>({ id: '', type: '', x: 0, y: 0, w: 6, h: 3, props: {} });
   const components = ref<PageComponentConfig[]>([]);
+  const datasets = ref<Dataset[]>([]);
 
   const selectedComponent = computed(() => components.value.find((component) => component.id === selectedId.value));
   const selectedDefinition = computed(() => widgetDefinition(selectedComponent.value?.type || 'metric_card'));
@@ -265,8 +277,14 @@
   ]);
   const dataSourceOptions = [
     { label: '静态 JSON', value: 'static_json' },
-    { label: '数据集（即将支持）', value: 'dataset', disabled: true },
+    { label: '数据集', value: 'dataset' },
   ];
+  const datasetOptions = computed<SelectOption[]>(() =>
+    datasets.value.map((dataset) => ({
+      label: `${dataset.name}（${dataset.key}）`,
+      value: String(dataset.id),
+    }))
+  );
 
   function assignLayout(nextLayout: DashboardLayout) {
     layout.cols = nextLayout.cols || 24;
@@ -382,6 +400,20 @@
       type: value === 'dataset' ? 'dataset' : 'static_json',
       staticJson: selectedDataSource.value.staticJson || sampleDataJsonForWidget(selectedComponent.value.type),
     };
+    if (value === 'dataset') {
+      void loadDatasets();
+    }
+  }
+
+  async function loadDatasets() {
+    if (datasets.value.length || datasetsLoading.value) return;
+    datasetsLoading.value = true;
+    try {
+      const payload = await listDatasets({ page: 1, page_size: 100, status: 'active' });
+      datasets.value = payload.items || [];
+    } finally {
+      datasetsLoading.value = false;
+    }
   }
 
   function fillSelectedSampleData() {

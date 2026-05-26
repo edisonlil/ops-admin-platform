@@ -2,8 +2,10 @@ import * as echarts from 'echarts/core';
 
 import {
   BarChart,
+  GaugeChart,
   LineChart,
   PieChart,
+  ScatterChart,
   MapChart,
   PictorialBarChart,
   RadarChart,
@@ -37,8 +39,10 @@ echarts.use([
   AriaComponent,
   ParallelComponent,
   BarChart,
+  GaugeChart,
   LineChart,
   PieChart,
+  ScatterChart,
   MapChart,
   RadarChart,
   SVGRenderer,
