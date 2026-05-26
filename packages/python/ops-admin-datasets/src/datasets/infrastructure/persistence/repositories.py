@@ -15,19 +15,31 @@ from system.application.sorting import build_order_by, parse_sort_params
 
 
 DATASET_RESOURCE = ResourceDescriptor(resource_key="dataset.definition")
-DATASET_SORT_COLUMNS = {
-    "id": "d.id",
-    "key": "d.key",
-    "name": "d.name",
-    "dataset_type": "d.dataset_type",
-    "status": "d.status",
-    "create_time": "d.create_time",
-    "update_time": "d.update_time",
-}
 
 
 def database_target() -> str | Path:
     return resolve_database_url() or resolve_db_path()
+
+
+def is_mysql_target() -> bool:
+    return str(database_target()).startswith(("mysql://", "mysql+pymysql://", "mysql+mysqlconnector://"))
+
+
+def dataset_key_column(alias: str = "") -> str:
+    column = "`key`" if is_mysql_target() else "key"
+    return f"{alias}.{column}" if alias else column
+
+
+def dataset_sort_columns() -> dict[str, str]:
+    return {
+        "id": "d.id",
+        "key": dataset_key_column("d"),
+        "name": "d.name",
+        "dataset_type": "d.dataset_type",
+        "status": "d.status",
+        "create_time": "d.create_time",
+        "update_time": "d.update_time",
+    }
 
 
 def now_iso() -> str:
@@ -51,7 +63,7 @@ def list_datasets(
     params: list[Any] = [tenant_id]
     append_data_scope(where, params, data_scope)
     if keyword.strip():
-        where.append("(d.key LIKE ? OR d.name LIKE ? OR d.description LIKE ?)")
+        where.append(f"({dataset_key_column('d')} LIKE ? OR d.name LIKE ? OR d.description LIKE ?)")
         text = f"%{keyword.strip()}%"
         params.extend([text, text, text])
     if status:
@@ -63,7 +75,7 @@ def list_datasets(
     where_sql = " AND ".join(where)
     order_by = build_order_by(
         parse_sort_params(sort_by, sort_dir),
-        allowed=DATASET_SORT_COLUMNS,
+        allowed=dataset_sort_columns(),
         default="d.update_time DESC, d.id DESC",
         tie_breaker="d.id DESC",
     )
@@ -122,7 +134,7 @@ def get_dataset_by_key(*, tenant_id: int, key: str) -> Dataset | None:
     with connect(database_target(), readonly=True) as conn:
         require_datasets_schema(conn)
         row = conn.execute(
-            "SELECT *, 0 AS field_count, 0 AS row_count FROM datasets WHERE tenant_id = ? AND key = ? AND deleted = 0",
+            f"SELECT *, 0 AS field_count, 0 AS row_count FROM datasets WHERE tenant_id = ? AND {dataset_key_column()} = ? AND deleted = 0",
             (tenant_id, key),
         ).fetchone()
     return row_to_dataset(dict(row)) if row else None
@@ -148,9 +160,9 @@ def save_dataset(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_i
         try:
             if dataset_id:
                 conn.execute(
-                    """
+                    f"""
                     UPDATE datasets
-                    SET key = ?, name = ?, description = ?, dataset_type = ?, status = ?, visibility = ?,
+                    SET {dataset_key_column()} = ?, name = ?, description = ?, dataset_type = ?, status = ?, visibility = ?,
                         published_version_id = ?, editor = ?, editor_id = ?, update_time = ?,
                         lock_version = lock_version + 1
                     WHERE id = ? AND tenant_id = ? AND deleted = 0
@@ -160,9 +172,9 @@ def save_dataset(*, tenant_id: int, payload: dict[str, Any], actor: str, actor_i
                 saved_id = dataset_id
             else:
                 cursor = conn.execute(
-                    """
+                    f"""
                     INSERT INTO datasets (
-                        tenant_id, owner_user_id, owner_department_id, key, name, description,
+                        tenant_id, owner_user_id, owner_department_id, {dataset_key_column()}, name, description,
                         dataset_type, status, visibility, published_version_id,
                         creator, creator_id, editor, editor_id, create_time, update_time
                     )

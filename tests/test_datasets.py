@@ -127,6 +127,14 @@ class DatasetTests(unittest.TestCase):
 
         self.assertIn("init_datasets.py", str(caught.exception))
 
+    def test_mysql_dataset_key_column_is_quoted(self) -> None:
+        from datasets.infrastructure.persistence import repositories
+
+        with mock.patch.object(repositories, "database_target", return_value="mysql://user:pass@localhost/app"):
+            self.assertEqual(repositories.dataset_key_column(), "`key`")
+            self.assertEqual(repositories.dataset_key_column("d"), "d.`key`")
+            self.assertEqual(repositories.dataset_sort_columns()["key"], "d.`key`")
+
 
 if __name__ == "__main__":
     unittest.main()
