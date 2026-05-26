@@ -1332,6 +1332,9 @@
     file_id?: number | null;
     sha256?: string;
     data_url?: string;
+    original_mime_type?: string;
+    original_size?: number;
+    optimized_for_model?: boolean;
     preview_url?: string;
     storage_status?: 'stored' | 'unavailable';
     redacted?: boolean;
@@ -1341,6 +1344,9 @@
 
   const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
   const RESERVED_SCHEMA_KEYS = new Set(['type', 'title', 'label', 'description', 'properties', 'required', 'default', 'example']);
+  const MODEL_IMAGE_MAX_EDGE = 1280;
+  const MODEL_IMAGE_JPEG_QUALITY = 0.78;
+  const MODEL_IMAGE_MAX_DATA_URL_BYTES = 900 * 1024;
   const markdownRenderer = new MarkdownIt({
     html: false,
     linkify: true,
@@ -3045,12 +3051,14 @@ WHERE product_line = :product_line
 
   async function buildRuntimeMediaVariableValue(field: RuntimeVariableField, uploadFile: File): Promise<RuntimeMediaVariableValue> {
     const text = await readTextPreviewIfSupported(uploadFile);
-    const dataUrl = isBinaryRuntimeMediaField(field) ? await readFileAsDataUrl(uploadFile) : '';
+    const modelImage = field.type === 'image' ? await buildModelImageDataUrl(uploadFile) : null;
+    const dataUrl = modelImage?.dataUrl || (isBinaryRuntimeMediaField(field) ? await readFileAsDataUrl(uploadFile) : '');
     const baseValue: RuntimeMediaVariableValue = {
       type: field.type as RuntimeMediaVariableValue['type'],
       name: uploadFile.name,
-      mime_type: uploadFile.type || fallbackMimeType(field),
-      size: uploadFile.size,
+      mime_type: modelImage?.mimeType || uploadFile.type || fallbackMimeType(field),
+      size: modelImage?.size || uploadFile.size,
+      ...(modelImage ? { original_mime_type: uploadFile.type || fallbackMimeType(field), original_size: uploadFile.size, optimized_for_model: true } : {}),
       ...(dataUrl ? { data_url: dataUrl } : {}),
       ...(text ? { text } : {}),
     };
@@ -3696,10 +3704,43 @@ WHERE product_line = :product_line
   function sampleRuntimeVariables() {
     const variables: Record<string, unknown> = {};
     runtimeVariableFields.value.forEach((field) => {
-      const value = field.type === 'number' ? 123 : field.type === 'boolean' ? true : isMediaVariableField(field) ? `<${field.type}>` : field.label;
+      const value = sampleRuntimeVariableValue(field);
       assignVariableValue(variables, field.key, value);
     });
     return variables;
+  }
+
+  function sampleRuntimeVariableValue(field: RuntimeVariableField): unknown {
+    if (field.type === 'number') return 123;
+    if (field.type === 'boolean') return true;
+    if (field.type === 'image') {
+      return [
+        {
+          type: 'image',
+          name: 'image-1.png',
+          mime_type: 'image/png',
+          size: 123456,
+          data_url: 'data:image/png;base64,<BASE64_IMAGE_1>',
+        },
+        {
+          type: 'image',
+          name: 'image-2.png',
+          mime_type: 'image/png',
+          size: 123456,
+          data_url: 'data:image/png;base64,<BASE64_IMAGE_2>',
+        },
+      ];
+    }
+    if (field.type === 'audio') {
+      return { type: 'audio', name: 'audio.mp3', mime_type: 'audio/mpeg', size: 123456, data_url: 'data:audio/mpeg;base64,<BASE64_AUDIO>' };
+    }
+    if (field.type === 'video') {
+      return { type: 'video', name: 'video.mp4', mime_type: 'video/mp4', size: 123456, data_url: 'data:video/mp4;base64,<BASE64_VIDEO>' };
+    }
+    if (field.type === 'file') {
+      return { type: 'file', name: 'document.txt', mime_type: 'text/plain', size: 123456, text: '文件文本内容' };
+    }
+    return field.label;
   }
 
   function assignVariableValue(target: Record<string, unknown>, key: string, value: unknown) {
@@ -3810,6 +3851,44 @@ WHERE product_line = :product_line
     if (normalized === 'image/gif') return 'gif';
     if (normalized === 'image/png') return 'png';
     return '';
+  }
+
+  async function buildModelImageDataUrl(file: File) {
+    const sourceUrl = URL.createObjectURL(file);
+    try {
+      const image = await loadImageElement(sourceUrl);
+      const scale = Math.min(1, MODEL_IMAGE_MAX_EDGE / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+      const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return { dataUrl: await readFileAsDataUrl(file), mimeType: file.type || 'image/png', size: file.size };
+      context.drawImage(image, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', MODEL_IMAGE_JPEG_QUALITY);
+      const size = dataUrlByteLength(dataUrl);
+      if (size > MODEL_IMAGE_MAX_DATA_URL_BYTES) {
+        message.warning(`${file.name || '图片'} 已压缩，但图片内容仍较大，多图运行可能超过模型上下文限制`);
+      }
+      return { dataUrl, mimeType: 'image/jpeg', size };
+    } finally {
+      URL.revokeObjectURL(sourceUrl);
+    }
+  }
+
+  function loadImageElement(url: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('图片读取失败'));
+      image.src = url;
+    });
+  }
+
+  function dataUrlByteLength(dataUrl: string) {
+    const payload = dataUrl.split(',', 2)[1] || '';
+    return Math.floor((payload.length * 3) / 4);
   }
 
   function startRunStopwatch() {

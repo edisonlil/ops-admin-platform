@@ -10,6 +10,7 @@ python-multipart
 openpyxl
 minio>=7.2,<8
 APScheduler>=3.10,<4
+Pillow>=10,<12
 -e packages/python/ops-admin-system
 -e packages/python/ops-admin-cron
 -e packages/python/ops-admin-identity-access

@@ -4,9 +4,13 @@ import sqlite3
 import unittest
 import uuid
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from unittest import mock
 import json
+import base64
+
+from PIL import Image
 
 from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
 from ai_runtime_core.prompt_runtime import media_content_part
@@ -366,12 +370,11 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual(audio_part["audio_url"]["url"], "data:audio/mpeg;base64,abc")
 
     def test_image_media_part_requires_supported_valid_data_url_or_remote_url(self) -> None:
-        valid_png = "data:image/png;base64,iVBORw0KGgo="
+        valid_png = self._image_data_url()
 
-        self.assertEqual(
-            media_content_part("image", {"type": "image", "name": "screen.png", "data_url": valid_png}),
-            {"type": "image_url", "image_url": {"url": valid_png}},
-        )
+        image_part = media_content_part("image", {"type": "image", "name": "screen.png", "data_url": valid_png})
+        self.assertEqual(image_part["type"], "image_url")
+        self.assertTrue(image_part["image_url"]["url"].startswith("data:image/jpeg;base64,"))
         self.assertEqual(
             media_content_part("image", {"type": "image", "name": "remote.png", "url": "https://example.com/remote.png"}),
             {"type": "image_url", "image_url": {"url": "https://example.com/remote.png"}},
@@ -390,8 +393,8 @@ class LLMRuntimeTests(unittest.TestCase):
         )
 
     def test_image_media_variable_list_renders_multiple_image_parts(self) -> None:
-        first = "data:image/png;base64,iVBORw0KGgo="
-        second = "data:image/png;base64,iVBORw0KGgoA"
+        first = self._image_data_url(width=1600, height=900, color=(220, 30, 30))
+        second = self._image_data_url(width=1400, height=800, color=(30, 30, 220))
 
         parts = media_content_parts(
             {
@@ -403,8 +406,10 @@ class LLMRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual([part["type"] for part in parts], ["image_url", "image_url"])
-        self.assertEqual(parts[0]["image_url"]["url"], first)
-        self.assertEqual(parts[1]["image_url"]["url"], second)
+        self.assertTrue(parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertTrue(parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertLess(len(parts[0]["image_url"]["url"]), 900 * 1024)
+        self.assertLess(len(parts[1]["image_url"]["url"]), 900 * 1024)
 
     def test_openai_chat_completion_can_call_configured_model_key(self) -> None:
         db_path = self._temporary_db_path()
@@ -974,7 +979,7 @@ class LLMRuntimeTests(unittest.TestCase):
                         self.assertEqual(content[0]["type"], "text")
                         self.assertIn("已上传image", content[0]["text"])
                         self.assertEqual(content[1]["type"], "image_url")
-                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgo=")
+                        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
                         return {"choices": [{"message": {"content": "图片里有一个按钮"}}], "usage": {}}
 
                     with mock.patch(
@@ -990,7 +995,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                         "name": "screen.png",
                                         "mime_type": "image/png",
                                         "size": 12,
-                                        "data_url": "data:image/png;base64,iVBORw0KGgo=",
+                                        "data_url": self._image_data_url(width=1600, height=900),
                                     }
                                 }
                             },
@@ -998,7 +1003,7 @@ class LLMRuntimeTests(unittest.TestCase):
 
             self.assertEqual(result["answer"], "图片里有一个按钮")
             self.assertIn("[image]", result["trace"]["rendered_prompt"])
-            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(result["trace"], ensure_ascii=False))
+            self.assertNotIn("iVBORw0KGgo", json.dumps(result["trace"], ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 
@@ -1023,8 +1028,8 @@ class LLMRuntimeTests(unittest.TestCase):
                         content = messages[-1]["content"]
                         assert isinstance(content, list)
                         self.assertEqual([part["type"] for part in content], ["text", "image_url", "image_url"])
-                        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgo=")
-                        self.assertEqual(content[2]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgoA")
+                        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+                        self.assertTrue(content[2]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
                         return {"choices": [{"message": {"content": "两张图片已分析"}}], "usage": {}}
 
                     with mock.patch(
@@ -1041,14 +1046,14 @@ class LLMRuntimeTests(unittest.TestCase):
                                             "name": "screen-1.png",
                                             "mime_type": "image/png",
                                             "size": 12,
-                                            "data_url": "data:image/png;base64,iVBORw0KGgo=",
+                                            "data_url": self._image_data_url(width=1600, height=900, color=(220, 30, 30)),
                                         },
                                         {
                                             "type": "image",
                                             "name": "screen-2.png",
                                             "mime_type": "image/png",
                                             "size": 13,
-                                            "data_url": "data:image/png;base64,iVBORw0KGgoA",
+                                            "data_url": self._image_data_url(width=1400, height=800, color=(30, 30, 220)),
                                         },
                                     ]
                                 }
@@ -1059,8 +1064,7 @@ class LLMRuntimeTests(unittest.TestCase):
 
             self.assertEqual(result["answer"], "两张图片已分析")
             self.assertIn("[image]", result["trace"]["rendered_prompt"])
-            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(trace_detail, ensure_ascii=False))
-            self.assertNotIn("base64,iVBORw0KGgoA", json.dumps(trace_detail, ensure_ascii=False))
+            self.assertNotIn("iVBORw0KGgo", json.dumps(trace_detail, ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 
@@ -1092,7 +1096,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                         "name": "screen.png",
                                         "mime_type": "image/png",
                                         "size": 12,
-                                        "data_url": "data:image/png;base64,iVBORw0KGgo=",
+                                        "data_url": self._image_data_url(width=1600, height=900),
                                     }
                                 }
                             },
@@ -1104,8 +1108,8 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertEqual(len(traces), 1)
             self.assertEqual(traces[0]["input_variables"]["image"]["name"], "screen.png")
             self.assertTrue(traces[0]["input_variables"]["image"]["redacted"])
-            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(traces[0], ensure_ascii=False))
-            self.assertNotIn("base64,iVBORw0KGgo=", json.dumps(trace_detail, ensure_ascii=False))
+            self.assertNotIn("iVBORw0KGgo", json.dumps(traces[0], ensure_ascii=False))
+            self.assertNotIn("iVBORw0KGgo", json.dumps(trace_detail, ensure_ascii=False))
         finally:
             self._unlink_db(db_path)
 
@@ -1815,6 +1819,14 @@ class LLMRuntimeTests(unittest.TestCase):
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _image_data_url(width: int = 64, height: int = 64, color: tuple[int, int, int] = (30, 120, 220)) -> str:
+        image = Image.new("RGB", (width, height), color)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        payload = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{payload}"
 
     @staticmethod
     def _sample_ai_application(app_key: str) -> dict[str, object]:

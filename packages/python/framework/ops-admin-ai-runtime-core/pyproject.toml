@@ -7,7 +7,7 @@ name = "ops-admin-ai-runtime-core"
 version = "0.1.0"
 description = "Shared AI runtime core primitives for ops-admin-platform."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Pillow>=10,<12"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

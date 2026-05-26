@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 import re
 from typing import Any
+
+from PIL import Image, ImageOps
 
 
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 MEDIA_VARIABLE_TYPES = {"image", "file", "audio", "video"}
 BINARY_MEDIA_VARIABLE_TYPES = {"image", "audio", "video"}
 SUPPORTED_IMAGE_DATA_URL_MIME_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
+MODEL_IMAGE_MAX_EDGE = 1280
+MODEL_IMAGE_JPEG_QUALITY = 78
+MODEL_IMAGE_MAX_BYTES = 900 * 1024
 
 
 def render_template(template: str, variables: dict[str, Any]) -> str:
@@ -133,10 +139,34 @@ def normalize_image_data_url(media_url: str) -> str:
     if mime_type not in SUPPORTED_IMAGE_DATA_URL_MIME_TYPES or "base64" not in {item.strip().lower() for item in metadata[1:]}:
         return ""
     try:
-        base64.b64decode(payload, validate=True)
+        image_bytes = base64.b64decode(payload, validate=True)
     except Exception:
         return ""
-    return media_url
+    return optimize_image_data_url(image_bytes)
+
+
+def optimize_image_data_url(image_bytes: bytes) -> str:
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            elif image.mode == "L":
+                image = image.convert("RGB")
+            image.thumbnail((MODEL_IMAGE_MAX_EDGE, MODEL_IMAGE_MAX_EDGE), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=MODEL_IMAGE_JPEG_QUALITY, optimize=True)
+            optimized = output.getvalue()
+    except Exception:
+        return ""
+    if len(optimized) > MODEL_IMAGE_MAX_BYTES:
+        output = BytesIO()
+        with Image.open(BytesIO(optimized)) as image:
+            image.thumbnail((960, 960), Image.Resampling.LANCZOS)
+            image.save(output, format="JPEG", quality=68, optimize=True)
+        optimized = output.getvalue()
+    payload = base64.b64encode(optimized).decode("ascii")
+    return f"data:image/jpeg;base64,{payload}"
 
 
 def media_format(name: str, mime_type: str, fallback: str) -> str:
