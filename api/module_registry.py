@@ -117,6 +117,18 @@ def module_init_tasks() -> dict[str, Callable[[Any], None]]:
     return tasks
 
 
+def module_init_task(module_name: str) -> Callable[[Any], None]:
+    for entrypoint in ordered_entry_points(INIT_TASK_GROUP):
+        if entrypoint.name != module_name:
+            continue
+        task_map = entrypoint.load()()
+        task = task_map.get(module_name)
+        if task is None:
+            raise KeyError(f"init task map from {entrypoint.value} does not contain {module_name}")
+        return task
+    raise KeyError(f"init task is not registered: {module_name}")
+
+
 def ordered_entry_points(group: str) -> list[EntryPoint]:
     ensure_local_package_sources()
     discovered = list(entry_points(group=group))

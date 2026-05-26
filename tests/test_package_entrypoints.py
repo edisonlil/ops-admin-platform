@@ -192,6 +192,29 @@ class PackageEntrypointTests(unittest.TestCase):
             },
         )
 
+    def test_module_registry_loads_single_init_task_without_other_modules(self) -> None:
+        from api import module_registry
+
+        called: list[str] = []
+
+        def broken_loader() -> object:
+            raise ModuleNotFoundError("No module named 'PIL'")
+
+        def dataset_loader() -> object:
+            called.append("datasets")
+            return lambda: {"datasets": lambda conn: None}
+
+        entrypoints = [
+            FakeEntryPoint("ai_applications", "ai_applications.entrypoints:init_tasks", broken_loader),
+            FakeEntryPoint("datasets", "datasets.entrypoints:init_tasks", dataset_loader),
+        ]
+
+        with mock.patch("api.module_registry.entry_points", return_value=entrypoints):
+            task = module_registry.module_init_task("datasets")
+
+        self.assertTrue(callable(task))
+        self.assertEqual(called, ["datasets"])
+
 
 if __name__ == "__main__":
     unittest.main()
