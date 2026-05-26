@@ -22,7 +22,12 @@
       >
         <div class="dashboard-grid-canvas__item" :class="{ 'is-selected': item.i === selectedId && !readonly }">
           <div v-if="item.i === selectedId && !readonly" class="dashboard-grid-canvas__item-tools" @click.stop>
-            <n-dropdown trigger="click" :options="componentActionOptions" @select="(key) => handleComponentAction(key, item.i)">
+            <n-dropdown
+              trigger="click"
+              :options="componentActionOptions"
+              :style="{ minWidth: '148px' }"
+              @select="(key) => handleComponentAction(key, item.i)"
+            >
               <button class="dashboard-grid-canvas__item-menu" type="button" aria-label="组件操作">
                 <n-icon size="18">
                   <MoreOutlined />
