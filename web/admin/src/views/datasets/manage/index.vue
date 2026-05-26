@@ -163,16 +163,17 @@
     {
       title: '操作',
       key: 'actions',
-      width: 270,
+      width: 210,
       fixed: 'right',
       render(row) {
         return h(AppTableActions, {
+          inlineLimit: 2,
           actions: [
             { label: '编辑', show: hasPermission(['datasets:dataset:manage']), onClick: () => openEdit(row) },
+            { label: '预览', show: hasPermission(['datasets:dataset:preview']), onClick: () => openPreview(row) },
             { label: '字段', show: hasPermission(['datasets:dataset:manage']), onClick: () => openFields(row) },
             { label: '数据', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'manual', onClick: () => openRows(row) },
             { label: '发布', tone: 'primary', show: hasPermission(['datasets:dataset:publish']), onClick: () => publish(row) },
-            { label: '预览', show: hasPermission(['datasets:dataset:preview']), onClick: () => openPreview(row) },
             {
               label: '删除',
               tone: 'danger',
