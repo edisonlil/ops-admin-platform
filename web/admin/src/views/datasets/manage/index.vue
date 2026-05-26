@@ -2,20 +2,20 @@
   <div class="dataset-page">
     <ListPageRuntime :schema="datasetPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
       <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索数据集名称或编码" class="dataset-page__filter" @keyup.enter="reload()" />
+        <n-input v-model:value="keyword" clearable placeholder="搜索平台数据集名称或编码" class="dataset-page__filter" @keyup.enter="reload()" />
         <n-select v-model:value="typeFilter" clearable placeholder="数据集类型" :options="typeOptions" class="dataset-page__select" @update:value="reload()" />
         <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="dataset-page__select" @update:value="reload()" />
       </template>
     </ListPageRuntime>
 
     <n-drawer v-model:show="datasetDrawerVisible" width="560">
-      <n-drawer-content :title="form.id ? '编辑数据集' : '新建数据集'">
+      <n-drawer-content :title="form.id ? '编辑平台数据集' : '新建平台数据集'">
         <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
           <n-form-item label="数据集名称" path="name">
-            <n-input v-model:value="form.name" placeholder="例如：每日销售" />
+            <n-input v-model:value="form.name" placeholder="例如：销售趋势图数据" />
           </n-form-item>
           <n-form-item label="数据集编码" path="key">
-            <n-input v-model:value="form.key" placeholder="例如：sales_daily" />
+            <n-input v-model:value="form.key" placeholder="例如：sales.trend" />
           </n-form-item>
           <n-grid :cols="2" :x-gap="16" responsive="screen">
             <n-form-item-gi label="类型" path="dataset_type">
@@ -40,7 +40,7 @@
 
     <n-modal v-model:show="schemaModalVisible" preset="card" title="字段配置" class="dataset-page__modal">
       <n-alert type="info" :bordered="false" class="dataset-page__alert">每行一个字段对象，字段编码会作为预览数据中的列键。</n-alert>
-      <n-input v-model:value="fieldJson" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" />
+      <CodePreview v-model:value="fieldJson" language="json" :read-only="false" :min-height="260" :max-height="520" />
       <template #footer>
         <n-space justify="end">
           <n-button @click="schemaModalVisible = false">取消</n-button>
@@ -50,8 +50,8 @@
     </n-modal>
 
     <n-modal v-model:show="rowsModalVisible" preset="card" title="手工数据" class="dataset-page__modal">
-      <n-alert type="info" :bordered="false" class="dataset-page__alert">请输入 JSON 数组。首期手工数据用于仪表盘联调和静态数据集预览。</n-alert>
-      <n-input v-model:value="rowsJson" type="textarea" :autosize="{ minRows: 14, maxRows: 22 }" />
+      <n-alert type="info" :bordered="false" class="dataset-page__alert">请输入 JSON 数组。首期手工数据用于页面设计图表联调和静态数据集预览。</n-alert>
+      <CodePreview v-model:value="rowsJson" language="json" :read-only="false" :min-height="260" :max-height="520" />
       <template #footer>
         <n-space justify="end">
           <n-button @click="rowsModalVisible = false">取消</n-button>
@@ -76,6 +76,7 @@
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import CodePreview from '@/components/CodePreview/index.vue';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -121,7 +122,7 @@
     description: '',
     dataset_type: 'manual',
     status: 'draft',
-    visibility: 'tenant',
+    visibility: 'platform',
   });
 
   const typeOptions: SelectOption[] = [
@@ -177,7 +178,7 @@
               tone: 'danger',
               show: hasPermission(['datasets:dataset:manage']),
               confirm: true,
-              confirmTitle: '删除数据集',
+              confirmTitle: '删除平台数据集',
               confirmContent: `确认删除「${row.name}」吗？`,
               onConfirm: () => remove(row),
             },
@@ -189,8 +190,8 @@
 
   const datasetPage = defineListPage<Dataset>({
     id: 'datasets.manage',
-    title: '数据集管理',
-    description: '维护仪表盘和后续数据源复用的数据集定义、字段和预览数据。',
+    title: '平台数据集',
+    description: '维护页面设计图表使用的数据集定义、字段和预览数据。',
     variant: 'dense-data',
     density: 'compact',
     view: {
@@ -203,7 +204,7 @@
     },
     toolbar: {
       primaryAction: hasPermission(['datasets:dataset:manage'])
-        ? { key: 'create', label: '新建数据集', type: 'primary', onClick: () => openCreate() }
+        ? { key: 'create', label: '新建平台数据集', type: 'primary', onClick: () => openCreate() }
         : undefined,
       rightTools: ['refresh'],
     },
@@ -228,7 +229,7 @@
       description: '',
       dataset_type: 'manual',
       status: 'draft',
-      visibility: 'tenant',
+      visibility: 'platform',
     });
     formRef.value?.restoreValidation();
   }
@@ -239,7 +240,7 @@
   }
 
   function openEdit(row: Dataset) {
-    Object.assign(form, row);
+    Object.assign(form, row, { visibility: row.visibility || 'platform' });
     datasetDrawerVisible.value = true;
   }
 
@@ -252,7 +253,7 @@
     saving.value = true;
     try {
       await saveDataset(form as Dataset);
-      message.success('数据集已保存');
+      message.success('平台数据集已保存');
       datasetDrawerVisible.value = false;
       await reload();
     } finally {
@@ -306,13 +307,13 @@
 
   async function publish(row: Dataset) {
     await publishDataset(row.id);
-    message.success('数据集已发布');
+    message.success('平台数据集已发布');
     await reload();
   }
 
   async function remove(row: Dataset) {
     await deleteDataset(row.id);
-    message.success('数据集已删除');
+    message.success('平台数据集已删除');
     await reload();
   }
 

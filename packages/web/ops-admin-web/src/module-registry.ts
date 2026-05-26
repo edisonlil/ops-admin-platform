@@ -152,7 +152,6 @@ const DEFAULT_MODULE_MENU_KEYS: Record<string, string[]> = {
     'file-tenant-quotas-manage',
   ],
   datasets: [
-    'data-center',
     'dataset-management',
     'dataset-management-create',
     'dataset-management-update',
@@ -319,7 +318,7 @@ export function registerFileManagementModule(options: OpsAdminModuleOptions = {}
 export function registerDatasetsModule(options: OpsAdminModuleOptions = {}) {
   registerOpsAdminModule({
     key: 'datasets',
-    label: options.label || '数据集',
+    label: options.label || '平台数据集',
     menuKeys: options.menuKeys || DEFAULT_MODULE_MENU_KEYS.datasets,
     routes: options.routes,
     install: options.install,

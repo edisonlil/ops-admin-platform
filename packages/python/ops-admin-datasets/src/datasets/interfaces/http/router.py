@@ -23,7 +23,7 @@ def datasets(
     dataset_type: str = "",
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:read")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:read")),
 ) -> dict[str, Any]:
     return ok_or_error(
         lambda: services.list_datasets(
@@ -42,7 +42,7 @@ def datasets(
 @router.post("")
 def create_dataset(
     payload: DatasetRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_dataset(payload.model_dump(), current_user))
 
@@ -50,7 +50,7 @@ def create_dataset(
 @router.get("/{dataset_id}")
 def dataset_detail(
     dataset_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:read")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:read")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.dataset_detail(dataset_id, current_user))
 
@@ -59,7 +59,7 @@ def dataset_detail(
 def update_dataset(
     dataset_id: int,
     payload: DatasetRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_dataset(payload.model_dump(), current_user, dataset_id=dataset_id))
 
@@ -67,7 +67,7 @@ def update_dataset(
 @router.delete("/{dataset_id}")
 def delete_dataset(
     dataset_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.delete_dataset(dataset_id, current_user))
 
@@ -76,7 +76,7 @@ def delete_dataset(
 def save_dataset_fields(
     dataset_id: int,
     payload: DatasetFieldsRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_fields(dataset_id, payload.model_dump(), current_user))
 
@@ -85,7 +85,7 @@ def save_dataset_fields(
 def save_dataset_rows(
     dataset_id: int,
     payload: DatasetRowsRequest,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:manage")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_manual_rows(dataset_id, payload.model_dump(), current_user))
 
@@ -93,7 +93,7 @@ def save_dataset_rows(
 @router.post("/{dataset_id}/publish")
 def publish_dataset(
     dataset_id: int,
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:publish")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:publish")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.publish_dataset(dataset_id, current_user))
 
@@ -103,7 +103,7 @@ def preview_dataset(
     dataset_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:preview")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:preview")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.preview_dataset(dataset_id=dataset_id, page=page, page_size=page_size, current_user=current_user))
 
@@ -114,7 +114,7 @@ def runtime_preview(
     payload: DatasetPreviewRequest,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    current_user: dict[str, Any] = Depends(auth.require_permission("datasets:dataset:preview")),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:preview")),
 ) -> dict[str, Any]:
     return ok_or_error(
         lambda: services.preview_dataset(

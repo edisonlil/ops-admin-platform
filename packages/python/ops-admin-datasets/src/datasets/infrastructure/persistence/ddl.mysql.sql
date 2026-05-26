@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     description TEXT NOT NULL,
     dataset_type VARCHAR(64) NOT NULL DEFAULT 'manual',
     status VARCHAR(64) NOT NULL DEFAULT 'draft',
-    visibility VARCHAR(64) NOT NULL DEFAULT 'tenant',
+    visibility VARCHAR(64) NOT NULL DEFAULT 'platform',
     published_version_id BIGINT DEFAULT NULL,
     active_marker BIGINT DEFAULT 1,
     lock_version BIGINT NOT NULL DEFAULT 0,

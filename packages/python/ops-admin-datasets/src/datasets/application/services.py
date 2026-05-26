@@ -14,13 +14,13 @@ from datasets.domain.models import (
     Dataset,
     DatasetField,
 )
-from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
+from system.application.data_access import data_owner_fields
 from system.application.sorting import InvalidSortError
 
 
 repository: DatasetRepository | None = None
 external_executor: ExternalDatasetExecutorPort | None = None
-DATASET_RESOURCE = ResourceDescriptor(resource_key="dataset.definition")
+PLATFORM_DATASET_TENANT_ID = 1
 
 
 def configure_repository(dataset_repository: DatasetRepository) -> None:
@@ -52,7 +52,7 @@ def list_datasets(
 ) -> dict[str, Any]:
     try:
         items, total = repo().list_datasets(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             page=page,
             page_size=page_size,
             keyword=keyword,
@@ -60,7 +60,6 @@ def list_datasets(
             dataset_type=dataset_type,
             sort_by=sort_by,
             sort_dir=sort_dir,
-            data_scope=data_access_for(current_user, DATASET_RESOURCE).read(),
         )
     except InvalidSortError as exc:
         raise DatasetDomainError(str(exc)) from exc
@@ -74,12 +73,12 @@ def list_datasets(
 
 def dataset_detail(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
-    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset_id)
+    fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset_id)
     return {"item": dataset.to_dict(), "fields": [field.to_dict() for field in fields]}
 
 
 def save_dataset(payload: dict[str, Any], current_user: dict[str, Any], dataset_id: int | None = None) -> dict[str, Any]:
-    tenant_id = current_tenant_id(current_user)
+    tenant_id = platform_dataset_tenant_id(current_user)
     normalized = normalize_dataset_payload({**payload, "id": dataset_id or payload.get("id")})
     if int(normalized.get("id") or 0):
         ensure_dataset_access(int(normalized["id"]), current_user=current_user, action="write")
@@ -101,7 +100,6 @@ def save_dataset(payload: dict[str, Any], current_user: dict[str, Any], dataset_
         )
     except RuntimeError as exc:
         raise DatasetStorageNotReadyError(str(exc)) from exc
-    ensure_data_access_record(saved.to_dict(), current_user=current_user, resource=DATASET_RESOURCE, action="write")
     return {"item": saved.to_dict()}
 
 
@@ -109,7 +107,7 @@ def delete_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, A
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="manage")
     try:
         deleted = repo().delete_dataset(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             actor=current_actor(current_user),
             actor_id=current_user_id_or_none(current_user),
@@ -129,7 +127,7 @@ def save_fields(dataset_id: int, payload: dict[str, Any], current_user: dict[str
     normalized = normalize_fields(raw_fields)
     try:
         fields = repo().replace_fields(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             fields=normalized,
             actor=current_actor(current_user),
@@ -152,7 +150,7 @@ def save_manual_rows(dataset_id: int, payload: dict[str, Any], current_user: dic
         raise DatasetDomainError("each row must be an object")
     try:
         count = repo().replace_manual_rows(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             rows=normalized,
             actor=current_actor(current_user),
@@ -165,14 +163,14 @@ def save_manual_rows(dataset_id: int, payload: dict[str, Any], current_user: dic
 
 def publish_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="manage")
-    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id)
+    fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
     if not fields:
         raise DatasetDomainError("dataset fields are required before publishing")
-    rows, _ = repo().list_manual_rows(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
+    rows, _ = repo().list_manual_rows(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
     schema = {"fields": [field.to_dict() for field in fields]}
     try:
         version = repo().publish_dataset(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             schema=schema,
             sample_rows=rows,
@@ -193,10 +191,10 @@ def preview_dataset(
     current_user: dict[str, Any],
 ) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
-    fields = repo().list_fields(tenant_id=current_tenant_id(current_user), dataset_id=dataset.id)
+    fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
     if dataset.dataset_type == DATASET_TYPE_MANUAL:
         rows, total = repo().list_manual_rows(
-            tenant_id=current_tenant_id(current_user),
+            tenant_id=platform_dataset_tenant_id(current_user),
             dataset_id=dataset.id,
             page=page,
             page_size=page_size,
@@ -233,14 +231,14 @@ def runtime_payload(
 
 
 def ensure_dataset_access(dataset_id: int, *, current_user: dict[str, Any], action: str) -> Dataset:
-    tenant_id = current_tenant_id(current_user)
+    _ = action
+    tenant_id = platform_dataset_tenant_id(current_user)
     try:
         row = repo().get_dataset_row(tenant_id=tenant_id, dataset_id=dataset_id)
     except RuntimeError as exc:
         raise DatasetStorageNotReadyError(str(exc)) from exc
     if not row:
         raise DatasetNotFoundError("dataset not found")
-    ensure_data_access_record(row, current_user=current_user, resource=DATASET_RESOURCE, action=action)
     dataset = repo().get_dataset(tenant_id=tenant_id, dataset_id=dataset_id)
     if dataset is None:
         raise DatasetNotFoundError("dataset not found")
@@ -255,7 +253,7 @@ def normalize_dataset_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "description": str(payload.get("description") or "").strip(),
         "dataset_type": str(payload.get("dataset_type") or DATASET_TYPE_MANUAL).strip() or DATASET_TYPE_MANUAL,
         "status": str(payload.get("status") or STATUS_DRAFT).strip() or STATUS_DRAFT,
-        "visibility": str(payload.get("visibility") or "tenant").strip() or "tenant",
+        "visibility": str(payload.get("visibility") or "platform").strip() or "platform",
         "published_version_id": payload.get("published_version_id"),
     }
     if normalized["dataset_type"] not in DATASET_TYPES:
@@ -272,7 +270,7 @@ def dataset_model_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "description": str(payload.get("description") or "").strip(),
         "dataset_type": str(payload.get("dataset_type") or DATASET_TYPE_MANUAL),
         "status": str(payload.get("status") or STATUS_DRAFT),
-        "visibility": str(payload.get("visibility") or "tenant"),
+        "visibility": str(payload.get("visibility") or "platform"),
         "owner_user_id": payload.get("owner_user_id"),
         "owner_department_id": payload.get("owner_department_id"),
         "published_version_id": payload.get("published_version_id"),
@@ -312,11 +310,11 @@ def normalize_fields(raw_fields: list[Any]) -> list[dict[str, Any]]:
     return fields
 
 
-def current_tenant_id(current_user: dict[str, Any]) -> int:
+def platform_dataset_tenant_id(current_user: dict[str, Any]) -> int:
     current = current_user.get("current_tenant")
-    if isinstance(current, dict) and current.get("id") is not None:
+    if isinstance(current, dict) and str(current.get("tenant_key") or "").strip() == "platform" and current.get("id") is not None:
         return int(current.get("id") or 0)
-    return int(current_user.get("tenant_id") or 0)
+    return PLATFORM_DATASET_TENANT_ID
 
 
 def current_actor(current_user: dict[str, Any]) -> str:

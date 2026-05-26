@@ -75,7 +75,7 @@ FROM (
     SELECT
         'dataset.definition',
         '数据集',
-        '租户数据集定义、字段和仪表盘运行时数据契约',
+        '平台数据集定义、字段和页面设计图表运行时数据契约',
         'tenant_id',
         'creator_id',
         'owner_user_id',

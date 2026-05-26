@@ -109,13 +109,14 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(listed["items"][0]["field_count"], 2)
         self.assertEqual(listed["items"][0]["row_count"], 2)
 
-    def test_dataset_is_tenant_scoped(self) -> None:
-        created = services.save_dataset({"key": "tenant_only", "name": "租户数据集"}, self.user)["item"]
+    def test_dataset_is_platform_scoped(self) -> None:
+        created = services.save_dataset({"key": "platform_only", "name": "平台数据集"}, self.user)["item"]
 
-        with self.assertRaises(Exception) as caught:
-            services.dataset_detail(int(created["id"]), self.other_user)
+        self.assertEqual(created["tenant_id"], 1)
+        self.assertEqual(created["visibility"], "platform")
 
-        self.assertEqual(caught.exception.__class__.__name__, "DatasetNotFoundError")
+        detail = services.dataset_detail(int(created["id"]), self.other_user)
+        self.assertEqual(detail["item"]["id"], created["id"])
 
     def test_requires_explicit_initialization(self) -> None:
         missing_db = Path(self.temp_dir.name) / "missing.db"

@@ -1,2 +1,2 @@
--- Dataset definitions and rows are tenant business data and should be created
--- explicitly by administrators.
+-- Dataset definitions and rows are platform-managed data and should be created
+-- explicitly by platform administrators.

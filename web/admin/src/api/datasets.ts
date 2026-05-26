@@ -98,7 +98,7 @@ export function saveDataset(payload: DatasetPayload) {
     description: payload.description || '',
     dataset_type: payload.dataset_type || 'manual',
     status: payload.status || 'draft',
-    visibility: payload.visibility || 'tenant',
+    visibility: payload.visibility || 'platform',
   };
   if (payload.id) {
     return Alova.Put<{ item: Dataset }>(`/datasets/${payload.id}`, body);

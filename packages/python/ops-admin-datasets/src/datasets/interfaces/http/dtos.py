@@ -11,7 +11,7 @@ class DatasetRequest(BaseModel):
     description: str = ""
     dataset_type: str = "manual"
     status: str = "draft"
-    visibility: str = "tenant"
+    visibility: str = "platform"
 
 
 class DatasetFieldRequest(BaseModel):

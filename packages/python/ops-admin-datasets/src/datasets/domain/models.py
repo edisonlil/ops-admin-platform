@@ -91,7 +91,7 @@ class Dataset:
     description: str = ""
     dataset_type: str = DATASET_TYPE_MANUAL
     status: str = STATUS_DRAFT
-    visibility: str = "tenant"
+    visibility: str = "platform"
     owner_user_id: int | None = None
     owner_department_id: int | None = None
     published_version_id: int | None = None
