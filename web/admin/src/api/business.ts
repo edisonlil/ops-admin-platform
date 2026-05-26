@@ -154,6 +154,17 @@ export interface MenuTenantAssignmentData {
   };
 }
 
+export interface TenantMenuAssignmentsData {
+  tenant: {
+    id: number;
+    tenant_key: string;
+    name: string;
+    status: string;
+  };
+  menus: RbacMenuPayload[];
+  assigned_menu_keys: string[];
+}
+
 export interface LlmConfigPayload {
   provider: string;
   model?: string;
@@ -596,6 +607,18 @@ export function getMenuTenantAssignments(menuKey: string, params: PageParams & S
 
 export function updateMenuTenantAssignments(menuKey: string, tenantIds: number[]) {
   return Alova.Put(`/rbac/menus/${encodeURIComponent(menuKey)}/tenant-assignments`, { tenant_ids: tenantIds });
+}
+
+export function getTenantMenuAssignments(tenantId: number) {
+  return Alova.Get<TenantMenuAssignmentsData>(`/rbac/tenants/${tenantId}/menu-assignments`, {
+    params: withNoCacheParams(),
+  });
+}
+
+export function updateTenantMenuAssignments(tenantId: number, menuKeys: string[]) {
+  return Alova.Put<{ item: TenantMenuAssignmentsData & { assigned_count: number } }>(`/rbac/tenants/${tenantId}/menu-assignments`, {
+    menu_keys: menuKeys,
+  });
 }
 
 export function getRbacRoles(params: PageParams & SortParams = {}) {

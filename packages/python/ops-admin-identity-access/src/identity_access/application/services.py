@@ -651,6 +651,14 @@ def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[st
     return rbac_service.set_menu_tenant_assignments(menu_key, tenant_ids)
 
 
+def get_tenant_menu_assignments(tenant_id: int) -> dict[str, Any]:
+    return rbac_service.get_tenant_menu_assignments(tenant_id)
+
+
+def set_tenant_menu_assignments(tenant_id: int, menu_keys: list[str]) -> dict[str, Any]:
+    return rbac_service.set_tenant_menu_assignments(tenant_id, menu_keys)
+
+
 def sync_user_departments_if_available(user: dict[str, Any], department_ids: list[int], primary_department_id: int | None) -> None:
     try:
         from organization.application import services as organization_services

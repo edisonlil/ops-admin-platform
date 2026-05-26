@@ -1,93 +1,101 @@
 <template>
-  <div class="menu-tenant-assignment">
-    <n-grid cols="1 m:3 xl:4" responsive="screen" :x-gap="12" :y-gap="12">
-      <n-gi span="1">
-        <n-card :bordered="false" size="small" class="menu-panel">
-          <template #header>
-            <n-space align="center" justify="space-between">
-              <span>租户菜单</span>
-              <n-button text size="small" :loading="menusLoading" @click="loadMenus">刷新</n-button>
-            </n-space>
-          </template>
-          <n-input v-model:value="menuPattern" clearable placeholder="搜索菜单名称或 Key" />
-          <n-space class="menu-panel__actions" size="small">
-            <n-button size="small" quaternary @click="toggleMenuTreeExpanded">
+  <div class="tenant-menu-assignment">
+    <ListPageRuntime
+      :schema="assignmentPage"
+      :rows="rows"
+      :loading="loading"
+      :pagination-total="paginationTotal"
+      @refresh="reload"
+    >
+      <template #filters>
+        <n-input v-model:value="query" clearable placeholder="搜索租户名称或 Key" class="tenant-menu-assignment__search" @keyup.enter="reload" />
+        <n-button @click="reload">查询</n-button>
+      </template>
+    </ListPageRuntime>
+
+    <n-modal v-model:show="menuModalVisible" preset="card" :style="{ width: '720px' }" :bordered="false">
+      <template #header>
+        <span>{{ currentTenant ? `${currentTenant.name} / ${currentTenant.tenant_key} 菜单配置` : '租户菜单配置' }}</span>
+      </template>
+
+      <n-space vertical :size="12">
+        <n-input v-model:value="menuPattern" clearable placeholder="搜索菜单名称或 Key" />
+        <n-space align="center" justify="space-between">
+          <n-space size="small">
+            <n-button size="small" @click="toggleMenuTreeExpanded">
               {{ expandedMenuKeys.length ? '收起全部' : '展开全部' }}
             </n-button>
+            <n-button size="small" :disabled="!canAssignMenus" @click="selectAllMenus">全选菜单</n-button>
+            <n-button size="small" :disabled="!canAssignMenus" @click="invertMenus">反选菜单</n-button>
+            <n-button size="small" :disabled="!checkedMenuKeys.length || !canAssignMenus" @click="clearMenus">清空选择</n-button>
           </n-space>
-          <div class="menu-panel__tree">
-            <n-spin :show="menusLoading">
-              <n-tree
-                block-line
-                :data="menuTree"
-                :pattern="menuPattern"
-                :selected-keys="selectedMenuKey ? [selectedMenuKey] : []"
-                :expanded-keys="expandedMenuKeys"
-                virtual-scroll
-                :scrollbar-props="{ style: { height: '100%' } }"
-                class="menu-tree"
-                @update:selected-keys="handleSelectMenu"
-                @update:expanded-keys="(keys) => (expandedMenuKeys = keys.map(String))"
-              />
-            </n-spin>
-          </div>
-        </n-card>
-      </n-gi>
+          <n-tag size="small" type="success" :bordered="false">已启用 {{ checkedMenuKeys.length }} 个菜单</n-tag>
+        </n-space>
 
-      <n-gi span="1 m:2 xl:3">
-        <ListPageRuntime
-          :schema="assignmentPage"
-          :rows="rows"
-          :loading="loading"
-          :pagination-total="paginationTotal"
-          @refresh="reload"
-        >
-          <template #header-actions>
-            <n-space>
-              <n-button :disabled="!selectedMenuKey || !changed" @click="resetSelection">重置</n-button>
-              <n-button
-                v-if="hasPermission(['system:menus:assign_tenants'])"
-                type="primary"
-                :disabled="!selectedMenuKey || !changed"
-                :loading="saving"
-                @click="saveAssignments"
-              >
-                保存分配
-              </n-button>
-            </n-space>
-          </template>
-          <template #toolbar-left>
-            <div class="assignment-context">
-              <template v-if="selectedMenu">
-                <span class="assignment-context__menu">
-                  {{ selectedMenu.label || selectedMenu.key }}
-                  <span class="assignment-context__key">{{ selectedMenu.key }}</span>
-                </span>
-                <span>已选 {{ selectedTenantIds.length }} 个租户</span>
-                <span>本页 {{ selectedCurrentPageCount }}/{{ rows.length }}</span>
-              </template>
-              <span v-else>请选择左侧租户菜单</span>
-            </div>
-          </template>
-        </ListPageRuntime>
-      </n-gi>
-    </n-grid>
+        <div class="tenant-menu-tree">
+          <n-spin :show="menusLoading">
+            <n-tree
+              block-line
+              checkable
+              virtual-scroll
+              :data="menuTree"
+              :pattern="menuPattern"
+              :checked-keys="checkedMenuKeys"
+              :indeterminate-keys="checkedMenuIndeterminateKeys"
+              :expanded-keys="expandedMenuKeys"
+              :scrollbar-props="{ style: { height: '100%' } }"
+              @update:checked-keys="handleCheckedMenuKeys"
+              @update:expanded-keys="handleExpandedMenuKeys"
+            />
+          </n-spin>
+        </div>
+      </n-space>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="menuModalVisible = false">取消</n-button>
+          <n-button :disabled="!changed" @click="resetSelection">重置</n-button>
+          <n-button
+            v-if="canAssignMenus"
+            type="primary"
+            :disabled="!currentTenant || !changed"
+            :loading="saving"
+            @click="saveAssignments"
+          >
+            保存配置
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, onMounted, ref } from 'vue';
-  import { NCheckbox, NTag, useMessage } from 'naive-ui';
+  import { computed, h, ref } from 'vue';
+  import { NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns, TreeOption } from 'naive-ui';
   import {
-    getMenuTenantAssignments,
     getRbacMenus,
-    updateMenuTenantAssignments,
-    type MenuTenantAssignmentRow,
+    getTenantMenuAssignments,
+    getTenants,
+    updateTenantMenuAssignments,
+    type TenantMenuAssignmentsData,
   } from '@/api/business';
+  import AppStatusTag from '@/components/Application/AppStatusTag.vue';
+  import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { usePermission } from '@/hooks/web/usePermission';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { formatToDateTime } from '@/utils/dateUtil';
+
+  interface TenantRow extends Recordable {
+    id: number;
+    tenant_key: string;
+    name: string;
+    status: string;
+    user_count?: number;
+    api_key_count?: number;
+    update_time?: string;
+  }
 
   interface MenuRow extends Recordable {
     key: string;
@@ -98,79 +106,80 @@
     children?: MenuRow[];
   }
 
+  type TreeCheckMeta = {
+    action?: 'check' | 'uncheck' | string;
+    node?: TreeOption;
+  };
+
   const message = useMessage();
   const { hasPermission } = usePermission();
-  const menusLoading = ref(false);
+  const canAssignMenus = computed(() => hasPermission(['system:menus:assign_tenants']));
   const loading = ref(false);
+  const menusLoading = ref(false);
   const saving = ref(false);
-  const menuRows = ref<MenuRow[]>([]);
-  const rows = ref<MenuTenantAssignmentRow[]>([]);
+  const rows = ref<TenantRow[]>([]);
+  const query = ref('');
   const paginationTotal = ref(0);
-  const selectedMenuKey = ref('');
+  const currentState = ref<ListRuntimeState>();
+  const menuModalVisible = ref(false);
+  const currentTenant = ref<TenantRow | null>(null);
+  const menuRows = ref<MenuRow[]>([]);
   const menuPattern = ref('');
   const expandedMenuKeys = ref<string[]>([]);
-  const selectedTenantIds = ref<number[]>([]);
-  const savedTenantIds = ref<number[]>([]);
-  const currentState = ref<ListRuntimeState>();
+  const checkedMenuKeys = ref<string[]>([]);
+  const savedMenuKeys = ref<string[]>([]);
 
-  const selectedMenu = computed(() => menuRows.value.find((item) => item.key === selectedMenuKey.value) || null);
-  const canAssignTenants = computed(() => hasPermission(['system:menus:assign_tenants']));
-  const currentPageTenantIds = computed(() => rows.value.map((row) => row.tenant_id));
-  const selectedCurrentPageCount = computed(
-    () => currentPageTenantIds.value.filter((tenantId) => selectedTenantIds.value.includes(tenantId)).length
-  );
-  const changed = computed(() => {
-    const current = [...selectedTenantIds.value].sort((a, b) => a - b).join(',');
-    const saved = [...savedTenantIds.value].sort((a, b) => a - b).join(',');
-    return current !== saved;
-  });
+  const menuTree = computed(() => buildMenuTree(menuRows.value.filter((menu) => menu.menu_type !== 'action')));
+  const checkedMenuIndeterminateKeys = computed(() => collectIndeterminateMenuKeys(checkedMenuKeys.value, menuTree.value));
+  const changed = computed(() => sortedKeyText(checkedMenuKeys.value) !== sortedKeyText(savedMenuKeys.value));
 
-  const columns: DataTableColumns<MenuTenantAssignmentRow> = [
+  const columns: DataTableColumns<TenantRow> = [
+    { title: 'ID', key: 'id', width: 80 },
+    { title: '租户名称', key: 'name', minWidth: 180, ellipsis: { tooltip: true } },
+    { title: '租户 Key', key: 'tenant_key', minWidth: 160, ellipsis: { tooltip: true } },
     {
-      title: '启用',
-      key: 'is_enabled',
-      width: 84,
-      fixed: 'left',
+      title: '状态',
+      key: 'status',
+      width: 100,
       render(row) {
-        return h(NCheckbox, {
-          checked: selectedTenantIds.value.includes(row.tenant_id),
-          disabled: !hasPermission(['system:menus:assign_tenants']),
-          onUpdateChecked: (checked: boolean) => toggleTenant(row.tenant_id, checked),
+        return h(AppStatusTag, {
+          tone: row.status === 'active' ? 'success' : 'warning',
+          label: row.status === 'active' ? '启用' : '停用',
         });
       },
     },
-    { title: '租户名称', key: 'tenant_name', minWidth: 180, ellipsis: { tooltip: true } },
-    { title: '租户 Key', key: 'tenant_key', minWidth: 160, ellipsis: { tooltip: true } },
-    {
-      title: '租户状态',
-      key: 'tenant_status',
-      width: 120,
-      render(row) {
-        const active = row.tenant_status === 'active';
-        return h(NTag, { size: 'small', type: active ? 'success' : 'warning', bordered: false }, () => (active ? '启用' : '停用'));
-      },
-    },
-    {
-      title: '分配状态',
-      key: 'assignment',
-      width: 130,
-      render(row) {
-        const enabled = selectedTenantIds.value.includes(row.tenant_id);
-        return h(NTag, { size: 'small', type: enabled ? 'success' : 'default', bordered: false }, () => (enabled ? '已分配' : '未分配'));
-      },
-    },
+    { title: '成员', key: 'user_count', width: 90 },
+    { title: 'API Key', key: 'api_key_count', width: 100 },
     {
       title: '更新时间',
       key: 'update_time',
       width: 190,
-      render: (row) => formatToDateTime(row.update_time),
+      render: (row) => formatToDateTime(row.update_time || ''),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 150,
+      fixed: 'right',
+      render(row) {
+        return h(AppTableActions, {
+          actions: [
+            {
+              label: '菜单配置',
+              tone: 'primary',
+              show: hasPermission(['system:menu:access']),
+              onClick: () => openTenantMenus(row),
+            },
+          ],
+        });
+      },
     },
   ];
 
-  const assignmentPage = defineListPage<MenuTenantAssignmentRow>({
-    id: 'rbac.menuTenantAssignments',
-    title: '菜单租户分配',
-    description: '按菜单控制哪些租户可以使用对应的租户级菜单入口。',
+  const assignmentPage = defineListPage<TenantRow>({
+    id: 'rbac.tenantMenuAssignments',
+    title: '租户菜单配置',
+    description: '选择租户后配置该租户启用哪些租户级菜单入口。',
     variant: 'enterprise',
     density: 'compact',
     filters: [
@@ -184,17 +193,19 @@
     view: {
       type: 'table',
       columns,
-      rowKey: (row) => row.tenant_id,
-      scrollX: 920,
+      rowKey: (row) => Number(row.id),
+      scrollX: 1080,
       sort: { remote: true },
       columnRuntime: {
         columns: [
-          { key: 'is_enabled', required: true, sortable: false },
-          { key: 'tenant_name', sortable: true },
+          { key: 'id', sortable: true },
+          { key: 'name', sortable: true },
           { key: 'tenant_key', sortable: true },
-          { key: 'tenant_status', sortable: true },
-          { key: 'assignment', sortable: false },
+          { key: 'status', sortable: true },
+          { key: 'user_count', sortable: true },
+          { key: 'api_key_count', sortable: true },
           { key: 'update_time', sortable: true },
+          { key: 'actions', required: true, sortable: false },
         ],
       },
       tableProps: {
@@ -202,17 +213,14 @@
       },
     },
     toolbar: {
-      batchActions: [
-        { key: 'select-page', label: '本页全选', onClick: selectCurrentPage },
-        { key: 'invert-page', label: '本页反选', onClick: invertCurrentPage },
-        { key: 'clear-page', label: '清除本页', onClick: clearCurrentPage },
-      ],
       rightTools: ['refresh'],
     },
     pagination: { pageSize: 20 },
   });
 
-  const menuTree = computed(() => buildMenuTree(menuRows.value.filter((menu) => menu.menu_type !== 'action')));
+  function sortedKeyText(keys: string[]) {
+    return [...keys].sort().join(',');
+  }
 
   function buildMenuTree(items: MenuRow[]) {
     const nodeMap = new Map<string, MenuRow>();
@@ -221,18 +229,15 @@
     nodeMap.forEach((node) => {
       const parentKey = String(node.parent_key || '');
       const parent = parentKey ? nodeMap.get(parentKey) : undefined;
-      if (parent) {
-        parent.children?.push(node);
-      } else {
-        roots.push(node);
-      }
+      if (parent) parent.children?.push(node);
+      else roots.push(node);
     });
     const normalize = (nodes: MenuRow[]): TreeOption[] =>
       nodes
         .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
         .map((node) => ({
           key: node.key,
-          label: `${node.label || node.key}`,
+          label: node.label || node.key,
           children: node.children?.length ? normalize(node.children) : undefined,
         }));
     return normalize(roots);
@@ -243,7 +248,7 @@
     const visit = (items: TreeOption[]) => {
       items.forEach((item) => {
         keys.push(String(item.key));
-        if (item.children?.length) visit(item.children);
+        item.children?.length && visit(item.children);
       });
     };
     visit(nodes);
@@ -264,21 +269,56 @@
     return keys;
   }
 
-  function syncExpandedMenuKeys() {
-    expandedMenuKeys.value = collectNonLeafKeys(menuTree.value);
+  function collectIndeterminateMenuKeys(keys: Array<string | number>, nodes: TreeOption[]) {
+    const selected = new Set(keys.map((key) => String(key)));
+    const indeterminateKeys: string[] = [];
+    const visit = (node: TreeOption): { anySelected: boolean; fullySelected: boolean } => {
+      const key = String(node.key);
+      const children = node.children || [];
+      const selfSelected = selected.has(key);
+      if (!children.length) return { anySelected: selfSelected, fullySelected: selfSelected };
+      const childStates = children.map(visit);
+      const anyChildSelected = childStates.some((state) => state.anySelected);
+      const allChildrenFullySelected = childStates.every((state) => state.fullySelected);
+      if (anyChildSelected && (!selfSelected || !allChildrenFullySelected)) {
+        indeterminateKeys.push(key);
+      }
+      return {
+        anySelected: selfSelected || anyChildSelected,
+        fullySelected: selfSelected && allChildrenFullySelected,
+      };
+    };
+    nodes.forEach(visit);
+    return indeterminateKeys;
   }
 
-  async function loadMenus() {
+  function collectNodeAndDescendantKeys(node: TreeOption) {
+    const keys: string[] = [];
+    const visit = (item: TreeOption) => {
+      keys.push(String(item.key));
+      item.children?.forEach(visit);
+    };
+    visit(node);
+    return keys;
+  }
+
+  function applyTreeCheckUpdate(keys: Array<string | number>, meta?: TreeCheckMeta) {
+    const selected = new Set(keys.map((key) => String(key)));
+    if (!meta?.node?.children?.length) return Array.from(selected);
+    collectNodeAndDescendantKeys(meta.node).forEach((key) => {
+      if (meta.action === 'uncheck') selected.delete(key);
+      else if (meta.action === 'check') selected.add(key);
+    });
+    return Array.from(selected);
+  }
+
+  async function ensureMenusLoaded() {
+    if (menuRows.value.length) return;
     menusLoading.value = true;
     try {
       const response = await getRbacMenus({ scope: 'tenant' });
       menuRows.value = ((response as Recordable).items || []) as MenuRow[];
-      syncExpandedMenuKeys();
-      if (!selectedMenuKey.value && menuRows.value.length) {
-        const firstPage = menuRows.value.find((item) => item.menu_type !== 'action') || menuRows.value[0];
-        selectedMenuKey.value = firstPage.key;
-        await reload();
-      }
+      expandedMenuKeys.value = collectNonLeafKeys(menuTree.value);
     } finally {
       menusLoading.value = false;
     }
@@ -286,127 +326,101 @@
 
   async function reload(state?: ListRuntimeState) {
     currentState.value = state || currentState.value;
-    if (!selectedMenuKey.value) {
-      rows.value = [];
-      paginationTotal.value = 0;
-      selectedTenantIds.value = [];
-      savedTenantIds.value = [];
-      return;
-    }
     loading.value = true;
     try {
-      const params = runtimeListParams(currentState.value);
-      const response = await getMenuTenantAssignments(selectedMenuKey.value, params);
-      rows.value = response.items || [];
-      paginationTotal.value = Number(response.pagination?.total || 0);
-      selectedTenantIds.value = [...(response.assigned_tenant_ids || [])].sort((a, b) => a - b);
-      savedTenantIds.value = [...selectedTenantIds.value];
+      const response = (await getTenants({ ...runtimeListParams(currentState.value), q: query.value.trim() || undefined })) as Recordable;
+      rows.value = (response.items || []) as TenantRow[];
+      paginationTotal.value = Number(response.pagination?.total || rows.value.length);
     } finally {
       loading.value = false;
     }
   }
 
-  function handleSelectMenu(keys: Array<string | number>) {
-    const nextKey = String(keys[0] || '');
-    if (!nextKey || nextKey === selectedMenuKey.value) return;
-    selectedMenuKey.value = nextKey;
-    selectedTenantIds.value = [];
-    savedTenantIds.value = [];
-    reload();
-  }
-
-  function toggleTenant(tenantId: number, enabled: boolean) {
-    const next = new Set(selectedTenantIds.value);
-    if (enabled) {
-      next.add(tenantId);
-    } else {
-      next.delete(tenantId);
+  async function openTenantMenus(row: TenantRow) {
+    currentTenant.value = row;
+    menuModalVisible.value = true;
+    checkedMenuKeys.value = [];
+    savedMenuKeys.value = [];
+    await ensureMenusLoaded();
+    menusLoading.value = true;
+    try {
+      const response = (await getTenantMenuAssignments(row.id)) as TenantMenuAssignmentsData;
+      checkedMenuKeys.value = [...(response.assigned_menu_keys || [])];
+      savedMenuKeys.value = [...checkedMenuKeys.value];
+      expandedMenuKeys.value = collectNonLeafKeys(menuTree.value);
+    } finally {
+      menusLoading.value = false;
     }
-    selectedTenantIds.value = [...next].sort((a, b) => a - b);
   }
 
-  function selectCurrentPage() {
-    if (!selectedMenuKey.value || !canAssignTenants.value) return;
-    rows.value.forEach((row) => toggleTenant(row.tenant_id, true));
+  function handleCheckedMenuKeys(keys: Array<string | number>, _options?: TreeOption[], meta?: TreeCheckMeta) {
+    checkedMenuKeys.value = applyTreeCheckUpdate(keys, meta);
   }
 
-  function invertCurrentPage() {
-    if (!selectedMenuKey.value || !canAssignTenants.value) return;
-    rows.value.forEach((row) => toggleTenant(row.tenant_id, !selectedTenantIds.value.includes(row.tenant_id)));
-  }
-
-  function clearCurrentPage() {
-    if (!selectedMenuKey.value || !canAssignTenants.value) return;
-    rows.value.forEach((row) => toggleTenant(row.tenant_id, false));
+  function handleExpandedMenuKeys(keys: Array<string | number>) {
+    expandedMenuKeys.value = keys.map((key) => String(key));
   }
 
   function toggleMenuTreeExpanded() {
     expandedMenuKeys.value = expandedMenuKeys.value.length ? [] : collectNonLeafKeys(menuTree.value);
   }
 
+  function selectAllMenus() {
+    checkedMenuKeys.value = collectTreeKeys(menuTree.value);
+  }
+
+  function invertMenus() {
+    const selected = new Set(checkedMenuKeys.value);
+    checkedMenuKeys.value = collectTreeKeys(menuTree.value).filter((key) => !selected.has(key));
+  }
+
+  function clearMenus() {
+    checkedMenuKeys.value = [];
+  }
+
   function resetSelection() {
-    selectedTenantIds.value = [...savedTenantIds.value];
+    checkedMenuKeys.value = [...savedMenuKeys.value];
   }
 
   async function saveAssignments() {
-    if (!selectedMenuKey.value) return;
+    if (!currentTenant.value) return;
     saving.value = true;
     try {
-      await updateMenuTenantAssignments(selectedMenuKey.value, selectedTenantIds.value);
-      message.success('菜单租户分配已保存');
-      await reload(currentState.value);
+      const response = await updateTenantMenuAssignments(currentTenant.value.id, checkedMenuKeys.value);
+      checkedMenuKeys.value = [...(response.item?.assigned_menu_keys || checkedMenuKeys.value)];
+      savedMenuKeys.value = [...checkedMenuKeys.value];
+      message.success('租户菜单配置已保存');
+      menuModalVisible.value = false;
     } finally {
       saving.value = false;
     }
   }
 
-  onMounted(loadMenus);
+  reload();
 </script>
 
 <style scoped>
-  .menu-tenant-assignment {
+  .tenant-menu-assignment {
     width: 100%;
   }
 
-  .menu-panel {
-    min-height: 520px;
+  .tenant-menu-assignment__search {
+    width: min(360px, 100%);
   }
 
-  .menu-panel__actions {
-    margin-top: 10px;
-  }
-
-  .menu-panel__tree {
-    height: calc(100vh - 270px);
+  .tenant-menu-tree {
+    box-sizing: border-box;
+    height: min(520px, calc(100vh - 300px));
     min-height: 360px;
-    margin-top: 12px;
+    padding: 8px 4px;
     overflow: auto;
+    border: 1px solid var(--app-border-color);
+    border-radius: var(--app-card-radius);
   }
 
-  .menu-panel__tree :deep(.n-spin-container),
-  .menu-panel__tree :deep(.n-spin-content),
-  .menu-tree {
+  .tenant-menu-tree :deep(.n-spin-container),
+  .tenant-menu-tree :deep(.n-spin-content),
+  .tenant-menu-tree :deep(.n-tree) {
     height: 100%;
-  }
-
-  .assignment-context {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    align-items: center;
-    min-height: 28px;
-    color: var(--text-color-2);
-    font-size: 13px;
-  }
-
-  .assignment-context__menu {
-    color: var(--text-color-1);
-    font-weight: 500;
-  }
-
-  .assignment-context__key {
-    margin-left: 6px;
-    color: var(--text-color-3);
-    font-weight: 400;
   }
 </style>

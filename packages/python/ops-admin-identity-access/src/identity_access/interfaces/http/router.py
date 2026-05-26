@@ -16,6 +16,7 @@ from identity_access.interfaces.http.dtos import (
     RbacMenuCreateRequest,
     RbacMenuTenantAssignmentsUpdateRequest,
     RbacMenuUpdateRequest,
+    RbacTenantMenuAssignmentsUpdateRequest,
     RbacRoleCreateRequest,
     RbacRoleMenusUpdateRequest,
     RbacRoleUpdateRequest,
@@ -639,6 +640,23 @@ def update_rbac_menu_tenant_assignments(
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:assign_tenants")),
 ) -> dict[str, Any]:
     return ok({"item": services.set_menu_tenant_assignments(menu_key, payload.tenant_ids)})
+
+
+@router.get("/rbac/tenants/{tenant_id}/menu-assignments")
+def rbac_tenant_menu_assignments(
+    tenant_id: int,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menu:access")),
+) -> dict[str, Any]:
+    return ok(services.get_tenant_menu_assignments(tenant_id))
+
+
+@router.put("/rbac/tenants/{tenant_id}/menu-assignments")
+def update_rbac_tenant_menu_assignments(
+    tenant_id: int,
+    payload: RbacTenantMenuAssignmentsUpdateRequest,
+    _: dict[str, Any] = Depends(auth.require_platform_permission("system:menus:assign_tenants")),
+) -> dict[str, Any]:
+    return ok({"item": services.set_tenant_menu_assignments(tenant_id, payload.menu_keys)})
 
 
 @router.post("/rbac/menus")

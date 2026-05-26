@@ -175,6 +175,12 @@ class IdentityAccessRepository(Protocol):
     def set_menu_tenant_assignments(self, menu_key: str, tenant_ids: list[int]) -> dict[str, Any]:
         ...
 
+    def get_tenant_menu_assignments(self, tenant_id: int) -> dict[str, Any]:
+        ...
+
+    def set_tenant_menu_assignments(self, tenant_id: int, menu_keys: list[str]) -> dict[str, Any]:
+        ...
+
     def create_menu(
         self,
         *,

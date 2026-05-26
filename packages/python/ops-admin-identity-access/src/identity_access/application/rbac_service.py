@@ -175,6 +175,14 @@ def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[st
     return _after_access_context_change(repo().set_menu_tenant_assignments(menu_key, tenant_ids))
 
 
+def get_tenant_menu_assignments(tenant_id: int) -> dict[str, Any]:
+    return repo().get_tenant_menu_assignments(tenant_id)
+
+
+def set_tenant_menu_assignments(tenant_id: int, menu_keys: list[str]) -> dict[str, Any]:
+    return _after_access_context_change(repo().set_tenant_menu_assignments(tenant_id, menu_keys))
+
+
 def create_menu(
     *,
     menu_key: str,

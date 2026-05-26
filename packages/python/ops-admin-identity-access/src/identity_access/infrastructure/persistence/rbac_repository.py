@@ -360,6 +360,49 @@ def menu_ancestor_keys(conn: Any, menu_key: str) -> list[str]:
     return ancestors
 
 
+def normalize_tenant_id(conn: Any, tenant_id: int) -> int:
+    normalized = int(tenant_id or 0)
+    if normalized <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tenant id must be positive")
+    row = conn.execute(
+        """
+        SELECT id
+        FROM tenants
+        WHERE id = ?
+          AND tenant_key <> ?
+        """,
+        (normalized, "platform"),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found")
+    return int(row["id"])
+
+
+def normalize_tenant_menu_keys(conn: Any, menu_keys: list[str]) -> list[str]:
+    normalized = sorted({str(menu_key).strip() for menu_key in menu_keys if str(menu_key or "").strip()})
+    if not normalized:
+        return []
+    placeholders = ", ".join("?" for _ in normalized)
+    rows = conn.execute(
+        f"""
+        SELECT menu_key
+        FROM menus
+        WHERE menu_scope = ?
+          AND menu_key IN ({placeholders})
+        ORDER BY sort_order, id
+        """,
+        ("tenant", *normalized),
+    ).fetchall()
+    found = [str(row["menu_key"]) for row in rows]
+    missing = sorted(set(normalized) - set(found))
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown tenant menu keys: {', '.join(missing)}",
+        )
+    return found
+
+
 def normalize_tenant_ids(conn: Any, tenant_ids: list[int]) -> list[int]:
     normalized = sorted({int(tenant_id) for tenant_id in tenant_ids if int(tenant_id or 0) > 0})
     if not normalized:
@@ -563,6 +606,83 @@ def set_menu_tenant_assignments(menu_key: str, tenant_ids: list[int]) -> dict[st
         "menu": row_to_menu(dict(menu_row)),
         "assigned_tenant_ids": selected_ids,
         "assigned_count": len(selected_ids),
+    }
+
+
+def get_tenant_menu_assignments(tenant_id: int) -> dict[str, Any]:
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        normalized_tenant_id = normalize_tenant_id(conn, tenant_id)
+        tenant_row = conn.execute("SELECT * FROM tenants WHERE id = ?", (normalized_tenant_id,)).fetchone()
+        menu_rows = conn.execute(
+            """
+            SELECT *
+            FROM menus
+            WHERE menu_scope = ?
+            ORDER BY sort_order, id
+            """,
+            ("tenant",),
+        ).fetchall()
+        assignment_rows = conn.execute(
+            """
+            SELECT menu_key
+            FROM tenant_menu_overrides
+            WHERE tenant_id = ?
+              AND is_enabled = ?
+            ORDER BY menu_key
+            """,
+            (normalized_tenant_id, True),
+        ).fetchall()
+
+    return {
+        "tenant": {
+            "id": int(tenant_row["id"]),
+            "tenant_key": str(tenant_row["tenant_key"]),
+            "name": str(tenant_row["name"]),
+            "status": str(tenant_row["status"] or "active"),
+        },
+        "menus": [row_to_menu(dict(row)) for row in menu_rows],
+        "assigned_menu_keys": [str(row["menu_key"]) for row in assignment_rows],
+    }
+
+
+def set_tenant_menu_assignments(tenant_id: int, menu_keys: list[str]) -> dict[str, Any]:
+    with connect(auth_database_target(), readonly=False) as conn:
+        require_auth_ready(conn)
+        normalized_tenant_id = normalize_tenant_id(conn, tenant_id)
+        tenant_row = conn.execute("SELECT * FROM tenants WHERE id = ?", (normalized_tenant_id,)).fetchone()
+        selected_keys = normalize_tenant_menu_keys(conn, menu_keys)
+        selected_set = set(selected_keys)
+        for menu_key in list(selected_keys):
+            selected_set.update(menu_ancestor_keys(conn, menu_key))
+        all_menu_rows = conn.execute(
+            """
+            SELECT *
+            FROM menus
+            WHERE menu_scope = ?
+            ORDER BY sort_order, id
+            """,
+            ("tenant",),
+        ).fetchall()
+        all_menu_keys = [str(row["menu_key"]) for row in all_menu_rows]
+        for menu_key in all_menu_keys:
+            ensure_tenant_override(
+                conn,
+                tenant_id=normalized_tenant_id,
+                menu_key=menu_key,
+                is_enabled=menu_key in selected_set,
+            )
+
+    assigned_menu_keys = [menu_key for menu_key in all_menu_keys if menu_key in selected_set]
+    return {
+        "tenant": {
+            "id": int(tenant_row["id"]),
+            "tenant_key": str(tenant_row["tenant_key"]),
+            "name": str(tenant_row["name"]),
+            "status": str(tenant_row["status"] or "active"),
+        },
+        "assigned_menu_keys": assigned_menu_keys,
+        "assigned_count": len(assigned_menu_keys),
     }
 
 

@@ -238,6 +238,10 @@ class RbacMenuTenantAssignmentsUpdateRequest(BaseModel):
     tenant_ids: list[int] = Field(default_factory=list)
 
 
+class RbacTenantMenuAssignmentsUpdateRequest(BaseModel):
+    menu_keys: list[str] = Field(default_factory=list)
+
+
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
