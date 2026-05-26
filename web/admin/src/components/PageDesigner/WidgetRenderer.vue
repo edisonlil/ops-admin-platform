@@ -22,7 +22,11 @@
       </template>
       <template v-else>
         <div class="page-widget__chart">
-          <span v-for="(value, index) in chartValues" :key="index" :style="{ height: `${chartHeight(value)}%` }"></span>
+          <div v-for="(value, index) in chartValues" :key="index" class="page-widget__chart-item">
+            <span class="page-widget__chart-value">{{ value }}</span>
+            <span class="page-widget__chart-bar" :style="{ height: `${chartHeight(value)}%` }"></span>
+            <span class="page-widget__chart-label">{{ chartCategories[index] || `项${index + 1}` }}</span>
+          </div>
         </div>
       </template>
     </div>
@@ -46,6 +50,10 @@
     const data = staticData.value as { series?: Array<{ data?: number[] }> };
     const values = data.series?.[0]?.data || [];
     return values.length ? values : [12, 18, 24, 31, 28, 36, 42];
+  });
+  const chartCategories = computed(() => {
+    const data = staticData.value as { categories?: string[] };
+    return Array.isArray(data.categories) ? data.categories.map((item) => String(item)) : [];
   });
   const tableRows = computed(() => {
     const data = staticData.value as { rows?: unknown[] };
@@ -114,16 +122,47 @@
 
   .page-widget__chart {
     display: flex;
-    align-items: end;
+    align-items: stretch;
     gap: 8px;
     height: 100%;
+    min-height: 0;
+  }
 
-    span {
-      flex: 1;
-      min-width: 8px;
-      background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
-      border-radius: 3px 3px 0 0;
-    }
+  .page-widget__chart-item {
+    display: grid;
+    grid-template-rows: 18px 1fr 20px;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    align-items: end;
+  }
+
+  .page-widget__chart-value {
+    align-self: start;
+    color: #1e3a8a;
+    font-size: 12px;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  .page-widget__chart-bar {
+    width: 100%;
+    min-width: 8px;
+    background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+    border-radius: 3px 3px 0 0;
+  }
+
+  .page-widget__chart-label {
+    display: block;
+    align-self: end;
+    min-width: 0;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .page-widget__table {
