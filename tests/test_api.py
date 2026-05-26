@@ -1509,6 +1509,76 @@ class ApiTests(unittest.TestCase):
         response = self.request("GET", "/api/rbac/menus/menu-management/tenant-assignments")
         self.assertEqual(response.status_code, 404)
 
+    def test_tenant_menu_assignment_sets_selected_menus_and_parents(self) -> None:
+        parent_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "tenant-lab-v2",
+                "label": "Tenant Lab V2",
+                "menu_scope": "tenant",
+                "menu_type": "directory",
+                "path": "/tenant-lab-v2",
+                "route_name": "tenant-lab-v2",
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": "",
+                "sort_order": 220,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(parent_response.status_code, 200)
+        child_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": "tenant-lab-v2-child",
+                "label": "Tenant Lab V2 Child",
+                "menu_scope": "tenant",
+                "menu_type": "page",
+                "path": "/tenant-lab-v2/child",
+                "route_name": "tenant-lab-v2-child",
+                "component": "/tenant-lab-v2/child",
+                "icon": "DashboardOutlined",
+                "parent_key": "tenant-lab-v2",
+                "permission_code": "tenant_lab_v2:access",
+                "sort_order": 221,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(child_response.status_code, 200)
+
+        db_path = os.environ["FG_AGENT_DB_PATH"]
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            tenant_id = int(
+                conn.execute(
+                    "SELECT id FROM tenants WHERE tenant_key <> ? ORDER BY id",
+                    ("platform",),
+                ).fetchone()["id"]
+            )
+        finally:
+            conn.close()
+
+        save_response = self.request(
+            "PUT",
+            f"/api/rbac/tenants/{tenant_id}/menu-assignments",
+            json={"menu_keys": ["tenant-lab-v2-child"]},
+        )
+        self.assertEqual(save_response.status_code, 200)
+        assigned_keys = save_response.json()["data"]["item"]["assigned_menu_keys"]
+        self.assertIn("tenant-lab-v2", assigned_keys)
+        self.assertIn("tenant-lab-v2-child", assigned_keys)
+
+        list_response = self.request("GET", f"/api/rbac/tenants/{tenant_id}/menu-assignments")
+        self.assertEqual(list_response.status_code, 200)
+        payload = list_response.json()["data"]
+        self.assertEqual(payload["tenant"]["id"], tenant_id)
+        self.assertIn("tenant-lab-v2", payload["assigned_menu_keys"])
+        self.assertIn("tenant-lab-v2-child", payload["assigned_menu_keys"])
+
     def test_admin_can_create_action_permission_under_page(self) -> None:
         page_response = self.request(
             "POST",

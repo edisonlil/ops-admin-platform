@@ -1206,7 +1206,7 @@ def ensure_default_rbac(conn: Any) -> None:
 
 def ensure_file_management_permissions(conn: Any) -> None:
     permission_rows = [
-        ("system:menus:assign_tenants", "分配菜单租户", "配置租户级菜单可分配给哪些租户"),
+        ("system:menus:assign_tenants", "配置租户菜单", "配置租户可以使用哪些租户级菜单"),
         ("file:library:manage", "管理文件库", "创建、更新和删除租户文件库"),
         ("file:object:read", "查看文件", "浏览、搜索和下载租户文件"),
         ("file:object:upload", "上传文件", "上传文件到租户文件库"),
@@ -1611,8 +1611,8 @@ def ensure_platform_default_menus(conn: Any) -> None:
         ("menu-management-create", "新增菜单", "", "", "", "menu-management", "system:menus:create", 1011),
         ("menu-management-update", "编辑菜单", "", "", "", "menu-management", "system:menus:update", 1012),
         ("menu-management-delete", "删除菜单", "", "", "", "menu-management", "system:menus:delete", 1013),
-        ("menu-tenant-assignment", "菜单租户分配", "/rbac/menu-tenant-assignments", "menu-tenant-assignment", "ApartmentOutlined", "rbac", "system:menu:access", 1014),
-        ("menu-tenant-assignment-save", "保存菜单租户分配", "", "", "", "menu-tenant-assignment", "system:menus:assign_tenants", 10141),
+        ("menu-tenant-assignment", "租户菜单配置", "/rbac/menu-tenant-assignments", "menu-tenant-assignment", "ApartmentOutlined", "rbac", "system:menu:access", 1014),
+        ("menu-tenant-assignment-save", "保存租户菜单配置", "", "", "", "menu-tenant-assignment", "system:menus:assign_tenants", 10141),
         ("role-management", "角色权限", "/rbac/roles", "role-management", "users", "rbac", "system:role:access", 102),
         ("role-management-create", "新增角色", "", "", "", "role-management", "system:roles:create", 1021),
         ("role-management-update", "编辑角色", "", "", "", "role-management", "system:roles:update", 1022),
