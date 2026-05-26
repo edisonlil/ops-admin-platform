@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import io
@@ -1026,7 +1027,8 @@ def external_preview_url(profile: PreviewProfile, source_url: str) -> str:
 
 def kkfileview_preview_url(profile: PreviewProfile, source_url: str) -> str:
     param_name = str(profile.config.get("url_param_name") or "url")
-    return f"{profile.base_url.rstrip('/')}/onlinePreview?{urllib.parse.urlencode({param_name: source_url})}"
+    encoded_source_url = base64.b64encode(source_url.encode("utf-8")).decode("ascii")
+    return f"{profile.base_url.rstrip('/')}/onlinePreview?{urllib.parse.urlencode({param_name: encoded_source_url})}"
 
 
 def custom_preview_url(profile: PreviewProfile, source_url: str) -> str:

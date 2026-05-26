@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import sqlite3
@@ -342,7 +343,9 @@ class FileManagementTests(unittest.TestCase):
         self.assertEqual(parsed.scheme, "http")
         self.assertEqual(parsed.netloc, "kkfileview.local")
         self.assertEqual(parsed.path, "/onlinePreview")
-        source_url = urllib.parse.parse_qs(parsed.query)["url"][0]
+        encoded_source_url = urllib.parse.parse_qs(parsed.query)["url"][0]
+        self.assertNotIn("http://testserver", encoded_source_url)
+        source_url = base64.b64decode(encoded_source_url).decode("utf-8")
         source = urllib.parse.urlparse(source_url)
         self.assertEqual(source_url.split("?", 1)[0], f"http://testserver/api/files/{upload['id']}/preview-source")
         query = urllib.parse.parse_qs(source.query)
