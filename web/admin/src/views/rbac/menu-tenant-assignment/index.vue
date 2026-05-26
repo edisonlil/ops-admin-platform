@@ -57,53 +57,17 @@
             </n-space>
           </template>
           <template #toolbar-left>
-            <n-tag v-if="selectedMenu" size="small" type="info" :bordered="false">
-              {{ selectedMenu.label || selectedMenu.key }}
-            </n-tag>
-            <n-tag size="small" type="success" :bordered="false">已选择 {{ selectedTenantIds.length }} 个租户</n-tag>
-          </template>
-          <template #table-tools>
-            <n-space class="assignment-bulk-actions" align="center" justify="space-between">
-              <n-space align="center" size="small">
-                <n-tag size="small" type="info" :bordered="false">当前页 {{ rows.length }} 个租户</n-tag>
-                <n-tag size="small" type="success" :bordered="false">本页已选 {{ selectedCurrentPageCount }} 个</n-tag>
-              </n-space>
-              <n-space size="small">
-                <n-button
-                  size="small"
-                  :disabled="!selectedMenuKey || !rows.length || allCurrentPageSelected || !canAssignTenants"
-                  @click="selectCurrentPage"
-                >
-                  本页全选
-                </n-button>
-                <n-button
-                  size="small"
-                  :disabled="!selectedMenuKey || !rows.length || !canAssignTenants"
-                  @click="invertCurrentPage"
-                >
-                  本页反选
-                </n-button>
-                <n-button
-                  size="small"
-                  :disabled="!selectedMenuKey || !rows.length || !selectedCurrentPageCount || !canAssignTenants"
-                  @click="clearCurrentPage"
-                >
-                  清除本页
-                </n-button>
-              </n-space>
-            </n-space>
-            <n-alert v-if="selectedMenu" type="info" class="assignment-summary" :show-icon="false">
-              <n-space align="center" justify="space-between">
-                <span>
-                  当前菜单：{{ selectedMenu.label || selectedMenu.key }}
-                  <n-text depth="3">({{ selectedMenu.key }})</n-text>
+            <div class="assignment-context">
+              <template v-if="selectedMenu">
+                <span class="assignment-context__menu">
+                  {{ selectedMenu.label || selectedMenu.key }}
+                  <span class="assignment-context__key">{{ selectedMenu.key }}</span>
                 </span>
-                <n-tag size="small" type="success">已选择 {{ selectedTenantIds.length }} 个租户</n-tag>
-              </n-space>
-            </n-alert>
-            <n-alert v-else type="info" class="assignment-summary" :show-icon="false">
-              请先选择一个租户菜单，再分配可使用该菜单的租户。
-            </n-alert>
+                <span>已选 {{ selectedTenantIds.length }} 个租户</span>
+                <span>本页 {{ selectedCurrentPageCount }}/{{ rows.length }}</span>
+              </template>
+              <span v-else>请选择左侧租户菜单</span>
+            </div>
           </template>
         </ListPageRuntime>
       </n-gi>
@@ -113,7 +77,7 @@
 
 <script lang="ts" setup>
   import { computed, h, onMounted, ref } from 'vue';
-  import { NCheckbox, NTag, NText, useMessage } from 'naive-ui';
+  import { NCheckbox, NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns, TreeOption } from 'naive-ui';
   import {
     getMenuTenantAssignments,
@@ -154,9 +118,6 @@
   const currentPageTenantIds = computed(() => rows.value.map((row) => row.tenant_id));
   const selectedCurrentPageCount = computed(
     () => currentPageTenantIds.value.filter((tenantId) => selectedTenantIds.value.includes(tenantId)).length
-  );
-  const allCurrentPageSelected = computed(
-    () => currentPageTenantIds.value.length > 0 && selectedCurrentPageCount.value === currentPageTenantIds.value.length
   );
   const changed = computed(() => {
     const current = [...selectedTenantIds.value].sort((a, b) => a - b).join(',');
@@ -365,14 +326,17 @@
   }
 
   function selectCurrentPage() {
+    if (!selectedMenuKey.value || !canAssignTenants.value) return;
     rows.value.forEach((row) => toggleTenant(row.tenant_id, true));
   }
 
   function invertCurrentPage() {
+    if (!selectedMenuKey.value || !canAssignTenants.value) return;
     rows.value.forEach((row) => toggleTenant(row.tenant_id, !selectedTenantIds.value.includes(row.tenant_id)));
   }
 
   function clearCurrentPage() {
+    if (!selectedMenuKey.value || !canAssignTenants.value) return;
     rows.value.forEach((row) => toggleTenant(row.tenant_id, false));
   }
 
@@ -425,11 +389,24 @@
     height: 100%;
   }
 
-  .assignment-bulk-actions {
-    margin-bottom: 12px;
+  .assignment-context {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+    min-height: 28px;
+    color: var(--text-color-2);
+    font-size: 13px;
   }
 
-  .assignment-summary {
-    margin-bottom: 12px;
+  .assignment-context__menu {
+    color: var(--text-color-1);
+    font-weight: 500;
+  }
+
+  .assignment-context__key {
+    margin-left: 6px;
+    color: var(--text-color-3);
+    font-weight: 400;
   }
 </style>
