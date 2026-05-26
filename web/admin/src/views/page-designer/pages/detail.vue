@@ -445,9 +445,7 @@
     min-width: 0;
     min-height: 0;
     overflow: auto;
-    background:
-      linear-gradient(135deg, rgba(15, 23, 42, 0.035) 25%, transparent 25%) 0 0 / 220px 220px,
-      #fbfdff;
+    background: #fbfdff;
   }
 
   .page-designer-studio__stage :deep(.dashboard-grid-canvas) {
