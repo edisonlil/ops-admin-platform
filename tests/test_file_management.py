@@ -349,6 +349,7 @@ class FileManagementTests(unittest.TestCase):
         source = urllib.parse.urlparse(source_url)
         self.assertEqual(source_url.split("?", 1)[0], f"http://testserver/api/files/{upload['id']}/preview-source")
         query = urllib.parse.parse_qs(source.query)
+        self.assertEqual(query["fullfilename"][0], "proposal.docx")
         item, download = services.preview_source_file(
             int(upload["id"]),
             expires=int(query["expires"][0]),

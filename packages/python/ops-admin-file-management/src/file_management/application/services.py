@@ -1046,7 +1046,13 @@ def signed_preview_source_url(item: ManagedFile, profile: PreviewProfile) -> str
     url_prefix = external_url_prefix().strip("/")
     path_prefix = f"/{url_prefix}" if url_prefix else ""
     path = f"{path_prefix}/files/{item.id}/preview-source"
-    query = urllib.parse.urlencode({"expires": expires, "signature": signature})
+    query = urllib.parse.urlencode(
+        {
+            "expires": expires,
+            "signature": signature,
+            "fullfilename": item.original_name,
+        }
+    )
     base_url = external_base_url().rstrip("/")
     return f"{base_url}{path}?{query}" if base_url else f"{path}?{query}"
 
