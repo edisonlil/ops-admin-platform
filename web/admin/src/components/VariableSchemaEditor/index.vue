@@ -73,6 +73,7 @@
     description: string;
     type: VariableSchemaType;
     required: boolean;
+    source: 'template' | 'manual';
   }
 
   type SchemaRecord = Record<string, unknown>;
@@ -125,7 +126,7 @@
   watch(
     () => props.templateText,
     () => {
-      rows.value = rowsFromSchema(buildSchema(), props.templateText);
+      rows.value = rowsFromTemplateChange();
       syncValueKeys();
       emitSchema();
     }
@@ -134,8 +135,11 @@
   watch(
     () => props.values,
     (value) => {
-      valueDraft.value = { ...(value || {}) };
-      syncValueKeys();
+      const nextValues = flattenValues(asRecord(value) || {});
+      if (!isSameValue(valueDraft.value, nextValues)) {
+        valueDraft.value = nextValues;
+      }
+      syncValueKeys({ emit: false });
     },
     { immediate: true, deep: true }
   );
@@ -150,6 +154,7 @@
         description: '',
         type: 'text',
         required: true,
+        source: 'manual',
       },
     ];
     syncValueKeys();
@@ -168,7 +173,7 @@
   }
 
   function syncFromTemplate() {
-    rows.value = rowsFromSchema(buildSchema(), props.templateText);
+    rows.value = rowsFromTemplateChange();
     syncValueKeys();
     emitSchema();
   }
@@ -184,18 +189,22 @@
   }
 
   function emitSchema() {
+    const nextSchema = buildSchema();
+    if (isSameValue(nextSchema, props.modelValue || {})) return;
     syncing = true;
-    emit('update:modelValue', buildSchema());
+    emit('update:modelValue', nextSchema);
     queueMicrotask(() => {
       syncing = false;
     });
   }
 
   function emitValues() {
-    emit('update:values', buildNestedValues(compactValues(valueDraft.value)));
+    const nextValues = buildNestedValues(compactValues(valueDraft.value));
+    if (isSameValue(nextValues, props.values || {})) return;
+    emit('update:values', nextValues);
   }
 
-  function syncValueKeys() {
+  function syncValueKeys(options: { emit?: boolean } = {}) {
     if (!props.showValues) return;
     const activeKeys = new Set(rows.value.map((row) => row.key).filter(Boolean));
     const nextValues = { ...valueDraft.value };
@@ -206,14 +215,17 @@
       if (!row.key || typeof nextValues[row.key] !== 'undefined') return;
       nextValues[row.key] = defaultValueForType(row.type);
     });
+    const changed = !isSameValue(valueDraft.value, nextValues);
     valueDraft.value = nextValues;
-    emitValues();
+    if (options.emit !== false && changed) emitValues();
   }
 
   function rowsFromSchema(schemaValue: unknown, templateText = ''): VariableRow[] {
     const schema = asRecord(schemaValue);
     const { entries, requiredKeys } = collectSchemaEntries(schema || undefined);
-    const keys = [...new Set([...extractTemplateVariableKeys(templateText), ...entries.keys()])];
+    const templateKeys = extractTemplateVariableKeys(templateText);
+    const templateKeySet = new Set(templateKeys);
+    const keys = [...new Set([...templateKeys, ...entries.keys()])];
     return keys.map((key) => {
       const raw = entries.get(key);
       const node = asRecord(raw);
@@ -225,8 +237,29 @@
         description: String(node?.description || node?.help || ''),
         type: normalizeType(String(node?.type || '')),
         required: node?.required === false ? false : requiredKeys.has(key) || node?.required === true || templateText.includes(`{{${key}}`),
+        source: templateKeySet.has(key) ? 'template' : 'manual',
       };
     });
+  }
+
+  function rowsFromTemplateChange(): VariableRow[] {
+    const templateKeys = extractTemplateVariableKeys(props.templateText);
+    const templateKeySet = new Set(templateKeys);
+    const currentRows = new Map(rows.value.map((row) => [row.key, row]));
+    const templateRows = templateKeys.map((key) => {
+      const current = currentRows.get(key);
+      return {
+        id: current?.id || uniqueId(key),
+        key,
+        label: current?.label || key,
+        description: current?.description || '',
+        type: current?.type || 'text',
+        required: current?.required ?? true,
+        source: 'template' as const,
+      };
+    });
+    const manualRows = rows.value.filter((row) => row.source === 'manual' && row.key && !templateKeySet.has(row.key));
+    return [...templateRows, ...manualRows];
   }
 
   function buildSchema(): Record<string, unknown> {
@@ -343,6 +376,40 @@
       });
     });
     return nested;
+  }
+
+  function flattenValues(values: Record<string, unknown>, prefix = '') {
+    const flat: Record<string, unknown> = {};
+    Object.entries(values).forEach(([key, value]) => {
+      const nextKey = prefix ? `${prefix}.${key}` : key;
+      const record = asRecord(value);
+      if (record) {
+        Object.assign(flat, flattenValues(record, nextKey));
+        return;
+      }
+      flat[nextKey] = value;
+    });
+    return flat;
+  }
+
+  function isSameValue(left: unknown, right: unknown) {
+    return stableStringify(left) === stableStringify(right);
+  }
+
+  function stableStringify(value: unknown): string {
+    return JSON.stringify(sortJsonValue(value));
+  }
+
+  function sortJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(sortJsonValue);
+    const record = asRecord(value);
+    if (!record) return value;
+    return Object.keys(record)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        result[key] = sortJsonValue(record[key]);
+        return result;
+      }, {});
   }
 
   function nextVariableKey() {
