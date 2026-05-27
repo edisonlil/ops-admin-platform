@@ -211,6 +211,52 @@ class DatasetTests(unittest.TestCase):
         self.assertIn("amount", {column["name"] for column in orders["columns"]})
         self.assertIn("tenant_id", {column["name"] for column in orders["columns"]})
 
+    def test_mysql_schema_introspection_handles_uppercase_information_schema_keys(self) -> None:
+        from datasets.infrastructure.schema_introspection import inspect_mysql_tables
+
+        class FakeCursor:
+            def __init__(self, rows: list[dict[str, object]]) -> None:
+                self.rows = rows
+
+            def fetchall(self) -> list[dict[str, object]]:
+                return self.rows
+
+        class FakeConnection:
+            column_params: tuple[object, ...] | None = None
+
+            def execute(self, sql: str, params: tuple[object, ...] = ()) -> FakeCursor:
+                if "information_schema.tables" in sql:
+                    return FakeCursor([{"TABLE_SCHEMA": "ops_admin", "TABLE_NAME": "users"}])
+                if "information_schema.columns" in sql:
+                    self.column_params = params
+                    return FakeCursor(
+                        [
+                            {
+                                "COLUMN_NAME": "id",
+                                "DATA_TYPE": "bigint",
+                                "IS_NULLABLE": "NO",
+                                "PRIMARY_KEY": 1,
+                            },
+                            {
+                                "COLUMN_NAME": "username",
+                                "DATA_TYPE": "varchar",
+                                "IS_NULLABLE": "YES",
+                                "PRIMARY_KEY": 0,
+                            },
+                        ]
+                    )
+                raise AssertionError(sql)
+
+        conn = FakeConnection()
+        tables = inspect_mysql_tables(conn)
+
+        self.assertEqual(tables[0]["schema"], "ops_admin")
+        self.assertEqual(tables[0]["name"], "users")
+        self.assertEqual(conn.column_params[:2], ("ops_admin", "users"))
+        self.assertEqual([column["name"] for column in tables[0]["columns"]], ["id", "username"])
+        self.assertTrue(tables[0]["columns"][0]["primary_key"])
+        self.assertFalse(tables[0]["columns"][0]["nullable"])
+
     def test_source_query_dataset_rejects_non_select_sql(self) -> None:
         with self.assertRaises(Exception) as caught:
             services.save_dataset(

@@ -169,8 +169,17 @@ def quote_sqlite_identifier(value: str) -> str:
 
 def read_value(row: Any, key: str) -> Any:
     if isinstance(row, dict):
-        return row.get(key)
+        if key in row:
+            return row.get(key)
+        normalized_key = key.lower()
+        for row_key, value in row.items():
+            if str(row_key).lower() == normalized_key:
+                return value
+        return None
     try:
         return row[key]
     except Exception:
-        return getattr(row, key, None)
+        for attribute in (key, key.lower(), key.upper()):
+            if hasattr(row, attribute):
+                return getattr(row, attribute)
+        return None

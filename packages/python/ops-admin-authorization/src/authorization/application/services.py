@@ -180,7 +180,7 @@ class BuiltinDataAccessFilterProvider:
         except Exception:
             policies = []
         if not policies:
-            return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_SELF, user_id=user_id)
+            return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_TENANT, user_id=user_id)
         policy = max(policies, key=lambda item: (int(item.priority), SCOPE_RANK.get(item.scope, 0)))
         primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
         if policy.scope == DATA_SCOPE_TENANT:

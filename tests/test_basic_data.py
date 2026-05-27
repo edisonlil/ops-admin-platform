@@ -24,6 +24,11 @@ class SelfOnlyProvider:
         return DataAccessPredicate(tenant_id=tenant_id, scope="self", user_id=int(current_user.get("id") or 0))
 
 
+class EmptyAuthorizationRepository:
+    def list_data_access_policies(self, **_kwargs: object) -> list[object]:
+        return []
+
+
 class BasicDataTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -231,6 +236,28 @@ class BasicDataTests(unittest.TestCase):
         page = services.list_dictionary_types(page=1, page_size=20, keyword="", status=None, category="", current_user=other_user)
 
         self.assertEqual(page["pagination"]["total"], 0)
+
+    def test_dictionary_service_without_data_policy_uses_tenant_scope(self) -> None:
+        from authorization.application import services as authorization_services
+        from basic_data.application import services
+        from system.application.data_access import configure_data_access_filter_provider
+
+        previous_authorization_repository = authorization_services.repository
+        try:
+            authorization_services.configure_repository(EmptyAuthorizationRepository())
+            configure_data_access_filter_provider(authorization_services.BuiltinDataAccessFilterProvider())
+            owner = {**self.current_user, "id": 7, "is_platform_admin": False, "is_tenant_admin": False}
+            other = {**self.current_user, "id": 8, "is_platform_admin": False, "is_tenant_admin": False}
+            saved_type = services.save_dictionary_type({"code": "ticket_status", "name": "工单状态"}, owner)["item"]
+            services.save_dictionary_item(int(saved_type["id"]), {"code": "open", "value": "待处理"}, owner)
+
+            type_page = services.list_dictionary_types(page=1, page_size=20, keyword="", status=None, category="", current_user=other)
+            item_page = services.list_dictionary_items(type_id=int(saved_type["id"]), page=1, page_size=20, keyword="", status=None, current_user=other)
+
+            self.assertEqual(type_page["pagination"]["total"], 1)
+            self.assertEqual(item_page["pagination"]["total"], 1)
+        finally:
+            authorization_services.repository = previous_authorization_repository
 
     def test_http_envelope_and_pagination(self) -> None:
         create_response = self.request(
