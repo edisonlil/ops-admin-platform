@@ -766,6 +766,80 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_sql_node_applies_scope_without_projecting_owner_columns(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE workflow_orders (
+                        id INTEGER PRIMARY KEY,
+                        tenant_id INTEGER NOT NULL,
+                        owner_user_id INTEGER NOT NULL,
+                        owner_department_id INTEGER,
+                        name TEXT NOT NULL,
+                        amount INTEGER NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO workflow_orders (tenant_id, owner_user_id, owner_department_id, name, amount) VALUES (?, ?, ?, ?, ?)",
+                    (7, 10, 1, "自己的订单", 12),
+                )
+                conn.execute(
+                    "INSERT INTO workflow_orders (tenant_id, owner_user_id, owner_department_id, name, amount) VALUES (?, ?, ?, ?, ?)",
+                    (7, 11, 1, "别人的订单", 34),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            app = self._sample_ai_application("workflow-sql-public-columns")
+            app["app_type"] = "workflow"
+            app["tenant_id"] = 7
+            app["runtime_config"] = {
+                "workflow": {
+                    "nodes": [
+                        {"id": "start", "type": "start", "data": {}},
+                        {
+                            "id": "sql_1",
+                            "type": "sql_query",
+                            "data": {
+                                "sql": "SELECT name, amount FROM workflow_orders",
+                                "output_key": "records",
+                                "data_access": {"resource_key": "workflow.orders"},
+                            },
+                        },
+                        {"id": "end", "type": "end", "data": {"output": "{{records.rows}}"}},
+                    ],
+                    "edges": [
+                        {"source": "start", "target": "sql_1"},
+                        {"source": "sql_1", "target": "end"},
+                    ],
+                }
+            }
+            current_user = {"id": 10, "tenant_id": 7, "current_tenant": {"id": 7}}
+
+            with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                with mock.patch(
+                    "ai_applications.application.services.resolve_data_access_filter",
+                    return_value=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+                ):
+                    ai_applications.save_ai_application(app)
+                    result = ai_applications.run_draft_application(
+                        "workflow-sql-public-columns",
+                        {"variables": {}},
+                        current_user=current_user,
+                    )
+
+            self.assertIn("自己的订单", result["answer"])
+            self.assertNotIn("别人的订单", result["answer"])
+        finally:
+            self._unlink_db(db_path)
+
     def test_workflow_without_llm_node_does_not_require_model(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

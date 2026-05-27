@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from authorization.domain.exceptions import AuthorizationDomainError
-from authorization.domain.models import DataAccessPolicy, ResourceDescriptorRecord, VALID_DATA_SCOPES, VALID_POLICY_SUBJECT_TYPES
+from authorization.domain.models import (
+    ACCESS_MODE_OWNER_COLUMNS,
+    ACCESS_MODE_RELATION_TABLE,
+    DataAccessPolicy,
+    ResourceDescriptorRecord,
+    VALID_ACCESS_MODES,
+    VALID_DATA_SCOPES,
+    VALID_POLICY_SUBJECT_TYPES,
+)
 from authorization.infrastructure.persistence.bootstrap import require_authorization_schema
 from system.application.database import connect, resolve_database_url, resolve_db_path
 
@@ -52,6 +60,8 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
     if not name:
         raise AuthorizationDomainError("resource name is required")
     supported_scopes = normalize_scopes(payload.get("supported_scopes"))
+    access_mode = normalize_access_mode(payload.get("access_mode"))
+    validate_relation_table_payload(payload, access_mode, supported_scopes)
     timestamp = now_iso()
     with connect(database_target(), readonly=False) as conn:
         require_authorization_schema(conn)
@@ -63,9 +73,22 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
             name,
             str(payload.get("description") or "").strip(),
             str(payload.get("tenant_column") or "tenant_id").strip() or "tenant_id",
+            str(payload.get("resource_id_column") or "id").strip() or "id",
             str(payload.get("creator_column") or "creator_id").strip() or "creator_id",
             str(payload.get("owner_user_column") or "owner_user_id").strip() or "owner_user_id",
             str(payload.get("owner_department_column") or "owner_department_id").strip() or "owner_department_id",
+            access_mode,
+            str(payload.get("relation_table") or "").strip(),
+            str(payload.get("relation_resource_id_column") or "").strip(),
+            str(payload.get("relation_user_column") or "").strip(),
+            str(payload.get("relation_department_column") or "").strip(),
+            str(payload.get("relation_tenant_column") or "tenant_id").strip() or "tenant_id",
+            str(payload.get("relation_deleted_column") or "deleted").strip(),
+            str(payload.get("relation_resource_key_column") or "").strip(),
+            str(payload.get("relation_resource_key_value") or "").strip(),
+            str(payload.get("relation_subject_type_column") or "").strip(),
+            str(payload.get("relation_subject_type_user_value") or "").strip(),
+            str(payload.get("relation_subject_type_department_value") or "").strip(),
             json.dumps(supported_scopes, ensure_ascii=False, separators=(",", ":")),
             bool(payload.get("requires_data_scope", False)),
             actor,
@@ -78,8 +101,13 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
                 conn.execute(
                     """
                     UPDATE data_resource_descriptors
-                    SET name = ?, description = ?, tenant_column = ?, creator_column = ?,
-                        owner_user_column = ?, owner_department_column = ?, supported_scopes_json = ?,
+                    SET name = ?, description = ?, tenant_column = ?, resource_id_column = ?, creator_column = ?,
+                        owner_user_column = ?, owner_department_column = ?, access_mode = ?,
+                        relation_table = ?, relation_resource_id_column = ?, relation_user_column = ?,
+                        relation_department_column = ?, relation_tenant_column = ?, relation_deleted_column = ?,
+                        relation_resource_key_column = ?, relation_resource_key_value = ?,
+                        relation_subject_type_column = ?, relation_subject_type_user_value = ?,
+                        relation_subject_type_department_value = ?, supported_scopes_json = ?,
                         requires_data_scope = ?, editor = ?, editor_id = ?, update_time = ?,
                         lock_version = lock_version + 1
                     WHERE id = ?
@@ -90,15 +118,20 @@ def upsert_resource_descriptor(payload: dict[str, Any], *, actor: str, actor_id:
                 cursor = conn.execute(
                     """
                     INSERT INTO data_resource_descriptors (
-                        resource_key, name, description, tenant_column, creator_column,
-                        owner_user_column, owner_department_column, supported_scopes_json,
+                        resource_key, name, description, tenant_column, resource_id_column,
+                        creator_column, owner_user_column, owner_department_column, access_mode,
+                        relation_table, relation_resource_id_column, relation_user_column,
+                        relation_department_column, relation_tenant_column, relation_deleted_column,
+                        relation_resource_key_column, relation_resource_key_value,
+                        relation_subject_type_column, relation_subject_type_user_value,
+                        relation_subject_type_department_value, supported_scopes_json,
                         requires_data_scope, creator, creator_id, editor, editor_id, create_time, update_time
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         resource_key,
-                        *values[:8],
+                        *values[:21],
                         actor,
                         actor_id,
                         actor,
@@ -283,9 +316,22 @@ def row_to_resource_descriptor(row: dict[str, Any]) -> ResourceDescriptorRecord:
         name=str(row.get("name") or ""),
         description=str(row.get("description") or ""),
         tenant_column=str(row.get("tenant_column") or "tenant_id"),
+        resource_id_column=str(row.get("resource_id_column") or "id"),
         creator_column=str(row.get("creator_column") or "creator_id"),
         owner_user_column=str(row.get("owner_user_column") or "owner_user_id"),
         owner_department_column=str(row.get("owner_department_column") or "owner_department_id"),
+        access_mode=normalize_access_mode(row.get("access_mode")),
+        relation_table=str(row.get("relation_table") or ""),
+        relation_resource_id_column=str(row.get("relation_resource_id_column") or ""),
+        relation_user_column=str(row.get("relation_user_column") or ""),
+        relation_department_column=str(row.get("relation_department_column") or ""),
+        relation_tenant_column=str(row.get("relation_tenant_column") or "tenant_id"),
+        relation_deleted_column=str(row.get("relation_deleted_column") or "deleted"),
+        relation_resource_key_column=str(row.get("relation_resource_key_column") or ""),
+        relation_resource_key_value=str(row.get("relation_resource_key_value") or ""),
+        relation_subject_type_column=str(row.get("relation_subject_type_column") or ""),
+        relation_subject_type_user_value=str(row.get("relation_subject_type_user_value") or ""),
+        relation_subject_type_department_value=str(row.get("relation_subject_type_department_value") or ""),
         supported_scopes=tuple(normalize_scopes(row.get("supported_scopes_json"))),
         requires_data_scope=bool(row.get("requires_data_scope", False)),
         create_time=str(row.get("create_time") or ""),
@@ -313,6 +359,35 @@ def normalize_scopes(value: Any) -> list[str]:
     items = decode_list(value)
     normalized = [str(item).strip() for item in items if str(item).strip() in VALID_DATA_SCOPES]
     return normalized or ["self", "self_and_subordinates", "department", "department_and_children", "custom_departments", "tenant"]
+
+
+def normalize_access_mode(value: Any) -> str:
+    mode = str(value or ACCESS_MODE_OWNER_COLUMNS).strip() or ACCESS_MODE_OWNER_COLUMNS
+    if mode not in VALID_ACCESS_MODES:
+        raise AuthorizationDomainError("未知的数据资源归属模式")
+    return mode
+
+
+def validate_relation_table_payload(payload: dict[str, Any], access_mode: str, supported_scopes: list[str]) -> None:
+    if access_mode != ACCESS_MODE_RELATION_TABLE:
+        return
+    required = {
+        "relation_table": payload.get("relation_table"),
+        "resource_id_column": payload.get("resource_id_column") or "id",
+        "relation_resource_id_column": payload.get("relation_resource_id_column"),
+        "relation_tenant_column": payload.get("relation_tenant_column") or "tenant_id",
+    }
+    if any(scope in supported_scopes for scope in ("self", "self_and_subordinates")):
+        required["relation_user_column"] = payload.get("relation_user_column")
+        if str(payload.get("relation_subject_type_column") or "").strip():
+            required["relation_subject_type_user_value"] = payload.get("relation_subject_type_user_value")
+    if any(scope in supported_scopes for scope in ("department", "department_and_children", "custom_departments")):
+        required["relation_department_column"] = payload.get("relation_department_column")
+        if str(payload.get("relation_subject_type_column") or "").strip():
+            required["relation_subject_type_department_value"] = payload.get("relation_subject_type_department_value")
+    missing = [name for name, value in required.items() if not str(value or "").strip()]
+    if missing:
+        raise AuthorizationDomainError("关系表归属模式缺少必要配置: " + ", ".join(missing))
 
 
 def decode_list(value: Any) -> list[Any]:

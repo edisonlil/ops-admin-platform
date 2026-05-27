@@ -8,6 +8,8 @@ from datasets.domain.exceptions import DatasetDomainError
 from datasets.domain.models import Dataset, DatasetField
 from system.application.data_access import ResourceDescriptor, resolve_data_access_filter
 from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.sql_data_access import SQLDataAccessInjectionError, SQLDataAccessInjectionRequest
+from system.application.sql_data_access import inject_data_access_into_select
 
 
 class SqlDatasetExecutor:
@@ -28,15 +30,28 @@ class SqlDatasetExecutor:
         params = resolve_params(config.get("params"), variables)
         descriptor = resource_descriptor(config)
         predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read")
-        scope_sql, scope_params = predicate.to_sql(descriptor, alias="dataset_sql_source")
-        base_sql = f"FROM ({sql}) AS dataset_sql_source"
-        where_sql = f" WHERE {scope_sql}" if scope_sql else ""
+        data_access = data_access_config(config)
+        try:
+            guarded_sql, guarded_params = inject_data_access_into_select(
+                SQLDataAccessInjectionRequest(
+                    sql=sql,
+                    params=tuple(params),
+                    resource=descriptor,
+                    predicate=predicate,
+                    dialect=str(data_access.get("dialect") or data_access.get("sql_dialect") or "sqlite"),
+                    source_table=str(data_access.get("source_table") or ""),
+                    source_alias=str(data_access.get("source_alias") or ""),
+                )
+            )
+        except SQLDataAccessInjectionError as exc:
+            raise DatasetDomainError(f"数据集 SQL 数据权限注入失败: {exc}") from exc
+        base_sql = f"FROM ({guarded_sql}) AS dataset_sql_source"
         offset = (page - 1) * page_size
         max_rows = bounded_max_rows(config.get("max_rows"))
         limit = max(1, min(page_size, max_rows))
-        rows_sql = f"SELECT * {base_sql}{where_sql} LIMIT ? OFFSET ?"
-        count_sql = f"SELECT COUNT(*) AS total {base_sql}{where_sql}"
-        query_params = [*params, *(scope_params if scope_sql else ())]
+        rows_sql = f"SELECT * {base_sql} LIMIT ? OFFSET ?"
+        count_sql = f"SELECT COUNT(*) AS total {base_sql}"
+        query_params = list(guarded_params)
         try:
             with connect(database_target(), readonly=True) as conn:
                 total_row = conn.execute(count_sql, tuple(query_params)).fetchone()
@@ -116,15 +131,32 @@ def resolve_variable(variables: dict[str, Any], path: str) -> Any:
 
 
 def resource_descriptor(config: dict[str, Any]) -> ResourceDescriptor:
-    data_access = config.get("data_access") if isinstance(config.get("data_access"), dict) else {}
+    data_access = data_access_config(config)
     return ResourceDescriptor(
         resource_key=str(data_access.get("resource_key") or "dataset.source_query"),
+        access_mode=str(data_access.get("access_mode") or "owner_columns"),
         tenant_column=config_column(data_access, "tenant_column", "tenant_id"),
+        resource_id_column=config_column(data_access, "resource_id_column", "id"),
         creator_column=config_column(data_access, "creator_column", "creator_id"),
         owner_user_column=config_column(data_access, "owner_user_column", "owner_user_id"),
         owner_department_column=config_column(data_access, "owner_department_column", "owner_department_id"),
+        relation_table=config_column(data_access, "relation_table", ""),
+        relation_resource_id_column=config_column(data_access, "relation_resource_id_column", ""),
+        relation_user_column=config_column(data_access, "relation_user_column", ""),
+        relation_department_column=config_column(data_access, "relation_department_column", ""),
+        relation_tenant_column=config_column(data_access, "relation_tenant_column", "tenant_id"),
+        relation_deleted_column=config_column(data_access, "relation_deleted_column", "deleted"),
+        relation_resource_key_column=config_column(data_access, "relation_resource_key_column", ""),
+        relation_resource_key_value=str(data_access.get("relation_resource_key_value") or ""),
+        relation_subject_type_column=config_column(data_access, "relation_subject_type_column", ""),
+        relation_subject_type_user_value=str(data_access.get("relation_subject_type_user_value") or ""),
+        relation_subject_type_department_value=str(data_access.get("relation_subject_type_department_value") or ""),
         requires_data_scope=bool(data_access.get("requires_data_scope", False)),
     )
+
+
+def data_access_config(config: dict[str, Any]) -> dict[str, Any]:
+    return config.get("data_access") if isinstance(config.get("data_access"), dict) else {}
 
 
 def config_column(config: dict[str, Any], key: str, default: str) -> str:

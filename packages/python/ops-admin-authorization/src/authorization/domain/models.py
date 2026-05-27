@@ -27,6 +27,14 @@ VALID_POLICY_SUBJECT_TYPES = {
     POLICY_SUBJECT_DEPARTMENT,
 }
 
+ACCESS_MODE_OWNER_COLUMNS = "owner_columns"
+ACCESS_MODE_RELATION_TABLE = "relation_table"
+
+VALID_ACCESS_MODES = {
+    ACCESS_MODE_OWNER_COLUMNS,
+    ACCESS_MODE_RELATION_TABLE,
+}
+
 
 @dataclass(frozen=True)
 class ResourceDescriptorRecord:
@@ -35,9 +43,22 @@ class ResourceDescriptorRecord:
     name: str
     description: str
     tenant_column: str
+    resource_id_column: str
     creator_column: str
     owner_user_column: str
     owner_department_column: str
+    access_mode: str
+    relation_table: str
+    relation_resource_id_column: str
+    relation_user_column: str
+    relation_department_column: str
+    relation_tenant_column: str
+    relation_deleted_column: str
+    relation_resource_key_column: str
+    relation_resource_key_value: str
+    relation_subject_type_column: str
+    relation_subject_type_user_value: str
+    relation_subject_type_department_value: str
     supported_scopes: tuple[str, ...]
     requires_data_scope: bool
     create_time: str

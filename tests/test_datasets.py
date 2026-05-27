@@ -158,6 +158,27 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(preview["pagination"]["total"], 1)
         self.assertEqual(preview["items"][0]["name"], "自己的订单")
 
+    def test_source_query_dataset_applies_scope_without_projecting_owner_columns(self) -> None:
+        self.seed_orders()
+        created = services.save_dataset(
+            {
+                "key": "orders_public_columns",
+                "name": "订单公开列查询",
+                "dataset_type": "source_query",
+                "query_config": {
+                    "sql": "SELECT name, amount FROM business_orders",
+                    "data_access": {"resource_key": "business.orders"},
+                },
+            },
+            self.user,
+        )["item"]
+        configure_data_access_filter_provider(SelfOnlyProvider())
+
+        preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=20, current_user=self.user)
+
+        self.assertEqual(preview["pagination"]["total"], 1)
+        self.assertEqual(preview["items"][0]["name"], "自己的订单")
+
     def test_source_query_preview_can_use_temporary_query_config_without_saving(self) -> None:
         self.seed_orders()
         created = self.create_source_query_dataset()

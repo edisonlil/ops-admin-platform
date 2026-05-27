@@ -29,6 +29,9 @@ from system.interfaces.http import current_request_id
 from llm_runtime.application.services import require_database
 from system.application.data_access import ResourceDescriptor
 from system.application.data_access import resolve_data_access_filter
+from system.application.sql_data_access import SQLDataAccessInjectionError
+from system.application.sql_data_access import SQLDataAccessInjectionRequest
+from system.application.sql_data_access import inject_data_access_into_select
 
 
 AI_APPLICATION_SORT_COLUMNS = {
@@ -889,25 +892,30 @@ def execute_workflow_sql_query(
         current_user = workflow_sql_system_user(app)
     descriptor = workflow_sql_resource_descriptor(request)
     predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read")
-    scope_sql, scope_params = predicate.to_sql(descriptor, alias="workflow_sql_source")
     limit = max(1, min(1000, int(request.max_rows or 100)))
-    guarded_sql = f"SELECT * FROM ({request.sql}) AS workflow_sql_source"
-    if scope_sql:
-        guarded_sql = f"{guarded_sql} WHERE {scope_sql}"
-    guarded_sql = f"{guarded_sql} LIMIT ?"
-    params = [*request.params, *(scope_params if scope_sql else ()), limit + 1]
+    config = request.data_access if isinstance(request.data_access, dict) else {}
+    try:
+        guarded_sql, guarded_params = inject_data_access_into_select(
+            SQLDataAccessInjectionRequest(
+                sql=request.sql,
+                params=tuple(request.params),
+                resource=descriptor,
+                predicate=predicate,
+                dialect=str(config.get("dialect") or config.get("sql_dialect") or "sqlite"),
+                source_table=str(config.get("source_table") or ""),
+                source_alias=str(config.get("source_alias") or ""),
+            )
+        )
+    except SQLDataAccessInjectionError as exc:
+        raise WorkflowRuntimeError(f"SQL 节点数据权限注入失败：{exc}") from exc
+    guarded_sql = f"SELECT * FROM ({guarded_sql}) AS workflow_sql_source LIMIT ?"
+    params = [*guarded_params, limit + 1]
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             cursor = conn.execute(guarded_sql, tuple(params))
             rows = cursor.fetchall()
     except Exception as exc:
-        msg = str(exc)
-        if "Unknown column" in msg and "workflow_sql_source." in msg:
-            raise WorkflowRuntimeError(
-                "SQL node 查询被自动注入租户/范围过滤时失败（检查 data_access 配置）。请确保 SQL 结果包含对应列（如 tenant_id、owner_user_id 或 owner_department_id），"
-                "或在 data_access 中设置 tenant_column/owner_user_column/owner_department_column 为空以放宽过滤。"
-            ) from exc
         raise WorkflowRuntimeError(f"SQL node query failed: {exc}") from exc
     normalized_rows = [normalize_sql_row(row) for row in rows[:limit]]
     columns = list(normalized_rows[0].keys()) if normalized_rows else sql_cursor_columns(cursor)
@@ -926,10 +934,23 @@ def workflow_sql_resource_descriptor(request: WorkflowSQLRequest) -> ResourceDes
     tenant_column = tenant_column.strip()
     return ResourceDescriptor(
         resource_key=str(config.get("resource_key") or "ai_applications.workflow_sql"),
+        access_mode=str(config.get("access_mode") or "owner_columns"),
         tenant_column=tenant_column,
+        resource_id_column=str(config.get("resource_id_column") or "id").strip(),
         creator_column=str(config.get("creator_column") or "creator_id"),
         owner_user_column=str(config.get("owner_user_column") or "owner_user_id"),
         owner_department_column=str(config.get("owner_department_column") or "owner_department_id"),
+        relation_table=str(config.get("relation_table") or "").strip(),
+        relation_resource_id_column=str(config.get("relation_resource_id_column") or "").strip(),
+        relation_user_column=str(config.get("relation_user_column") or "").strip(),
+        relation_department_column=str(config.get("relation_department_column") or "").strip(),
+        relation_tenant_column=str(config.get("relation_tenant_column") or "tenant_id").strip(),
+        relation_deleted_column=str(config.get("relation_deleted_column") or "deleted").strip(),
+        relation_resource_key_column=str(config.get("relation_resource_key_column") or "").strip(),
+        relation_resource_key_value=str(config.get("relation_resource_key_value") or "").strip(),
+        relation_subject_type_column=str(config.get("relation_subject_type_column") or "").strip(),
+        relation_subject_type_user_value=str(config.get("relation_subject_type_user_value") or "").strip(),
+        relation_subject_type_department_value=str(config.get("relation_subject_type_department_value") or "").strip(),
         requires_data_scope=bool(config.get("requires_data_scope", False)),
     )
 

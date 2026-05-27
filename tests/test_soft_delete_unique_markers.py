@@ -72,6 +72,225 @@ class SoftDeleteUniqueMarkerTests(unittest.TestCase):
         )
         self.assertIsNotNone(repositories.delete_data_access_policy(tenant_id=7, policy_id=second.id))
 
+    def test_authorization_descriptor_relation_table_fields_round_trip(self) -> None:
+        from authorization.infrastructure.persistence.bootstrap import ensure_authorization_schema
+        from authorization.infrastructure.persistence import repositories
+
+        self.initialize(ensure_authorization_schema)
+
+        item = repositories.upsert_resource_descriptor(
+            {
+                "resource_key": "demo.document",
+                "name": "Demo Document",
+                "access_mode": "relation_table",
+                "resource_id_column": "id",
+                "relation_table": "demo_document_members",
+                "relation_resource_id_column": "document_id",
+                "relation_user_column": "subject_user_id",
+                "relation_department_column": "subject_department_id",
+                "relation_tenant_column": "tenant_id",
+                "relation_deleted_column": "deleted",
+                "relation_resource_key_column": "resource_key",
+                "relation_resource_key_value": "demo.document",
+                "relation_subject_type_column": "subject_type",
+                "relation_subject_type_user_value": "user",
+                "relation_subject_type_department_value": "department",
+                "supported_scopes": ["self", "department", "tenant"],
+            },
+            actor="tester",
+            actor_id=1,
+        )
+
+        self.assertEqual(item.access_mode, "relation_table")
+        self.assertEqual(item.resource_id_column, "id")
+        self.assertEqual(item.relation_table, "demo_document_members")
+        self.assertEqual(item.relation_resource_id_column, "document_id")
+        self.assertEqual(item.relation_user_column, "subject_user_id")
+        self.assertEqual(item.relation_department_column, "subject_department_id")
+        self.assertEqual(item.relation_subject_type_user_value, "user")
+
+    def test_authorization_init_adds_descriptor_relation_columns_and_seed_preserves_custom_config(self) -> None:
+        from authorization.infrastructure.persistence.bootstrap import ensure_authorization_schema
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute(
+                """
+                CREATE TABLE data_resource_descriptors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL DEFAULT 1,
+                    resource_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    tenant_column TEXT NOT NULL DEFAULT 'tenant_id',
+                    creator_column TEXT NOT NULL DEFAULT 'creator_id',
+                    owner_user_column TEXT NOT NULL DEFAULT 'owner_user_id',
+                    owner_department_column TEXT NOT NULL DEFAULT 'owner_department_id',
+                    supported_scopes_json TEXT NOT NULL DEFAULT '[]',
+                    requires_data_scope INTEGER NOT NULL DEFAULT 0,
+                    lock_version INTEGER NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    creator TEXT DEFAULT NULL,
+                    creator_id INTEGER DEFAULT NULL,
+                    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    editor TEXT DEFAULT NULL,
+                    editor_id INTEGER DEFAULT NULL,
+                    UNIQUE (resource_key, deleted)
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO data_resource_descriptors (
+                    resource_key, name, description, tenant_column, creator_column,
+                    owner_user_column, owner_department_column, supported_scopes_json, requires_data_scope
+                )
+                VALUES ('basic-data.region', 'Region', 'custom', 'tenant_id', 'creator_id',
+                        'owner_user_id', 'owner_department_id', '["self","tenant"]', 0)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE data_access_policies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL DEFAULT 1,
+                    subject_type TEXT NOT NULL,
+                    subject_id INTEGER NOT NULL,
+                    resource_key TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    department_ids_json TEXT NOT NULL DEFAULT '[]',
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    lock_version INTEGER NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    creator TEXT DEFAULT NULL,
+                    creator_id INTEGER DEFAULT NULL,
+                    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    editor TEXT DEFAULT NULL,
+                    editor_id INTEGER DEFAULT NULL,
+                    UNIQUE (tenant_id, subject_type, subject_id, resource_key, action, deleted)
+                )
+                """
+            )
+            conn.commit()
+
+            ensure_authorization_schema(conn)
+            conn.execute(
+                """
+                UPDATE data_resource_descriptors
+                SET access_mode = 'relation_table',
+                    relation_table = 'region_members',
+                    relation_resource_id_column = 'region_id',
+                    relation_user_column = 'user_id'
+                WHERE resource_key = 'basic-data.region'
+                """
+            )
+            ensure_authorization_schema(conn)
+            row = conn.execute(
+                """
+                SELECT access_mode, relation_table, relation_resource_id_column, relation_user_column
+                FROM data_resource_descriptors
+                WHERE resource_key = 'basic-data.region' AND deleted = 0
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+
+        self.assertEqual(row["access_mode"], "relation_table")
+        self.assertEqual(row["relation_table"], "region_members")
+        self.assertEqual(row["relation_resource_id_column"], "region_id")
+        self.assertEqual(row["relation_user_column"], "user_id")
+
+    def test_authorization_require_schema_checks_descriptor_relation_columns(self) -> None:
+        from authorization.infrastructure.persistence.bootstrap import require_authorization_schema
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute(
+                """
+                CREATE TABLE data_resource_descriptors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL DEFAULT 1,
+                    resource_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    tenant_column TEXT NOT NULL DEFAULT 'tenant_id',
+                    creator_column TEXT NOT NULL DEFAULT 'creator_id',
+                    owner_user_column TEXT NOT NULL DEFAULT 'owner_user_id',
+                    owner_department_column TEXT NOT NULL DEFAULT 'owner_department_id',
+                    supported_scopes_json TEXT NOT NULL DEFAULT '[]',
+                    requires_data_scope INTEGER NOT NULL DEFAULT 0,
+                    lock_version INTEGER NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    creator TEXT DEFAULT NULL,
+                    creator_id INTEGER DEFAULT NULL,
+                    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    editor TEXT DEFAULT NULL,
+                    editor_id INTEGER DEFAULT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE data_access_policies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL DEFAULT 1,
+                    subject_type TEXT NOT NULL,
+                    subject_id INTEGER NOT NULL,
+                    resource_key TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    department_ids_json TEXT NOT NULL DEFAULT '[]',
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    active_marker INTEGER DEFAULT 1,
+                    lock_version INTEGER NOT NULL DEFAULT 0,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    creator TEXT DEFAULT NULL,
+                    creator_id INTEGER DEFAULT NULL,
+                    update_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    editor TEXT DEFAULT NULL,
+                    editor_id INTEGER DEFAULT NULL
+                )
+                """
+            )
+            conn.commit()
+            with self.assertRaisesRegex(RuntimeError, "data_resource_descriptors.access_mode"):
+                require_authorization_schema(conn)
+        finally:
+            conn.close()
+
+    def test_authorization_resource_descriptor_dto_requires_relation_table_columns(self) -> None:
+        from pydantic import ValidationError
+
+        from authorization.interfaces.http.dtos import ResourceDescriptorRequest
+
+        with self.assertRaises(ValidationError):
+            ResourceDescriptorRequest(
+                resource_key="demo.document",
+                name="Demo Document",
+                access_mode="relation_table",
+                supported_scopes=["self"],
+                relation_table="demo_document_members",
+                relation_resource_id_column="document_id",
+            )
+
+        valid = ResourceDescriptorRequest(
+            resource_key="demo.document",
+            name="Demo Document",
+            access_mode="relation_table",
+            supported_scopes=["self"],
+            relation_table="demo_document_members",
+            relation_resource_id_column="document_id",
+            relation_user_column="subject_user_id",
+        )
+        self.assertEqual(valid.access_mode, "relation_table")
+
     def test_file_library_and_folder_can_be_deleted_recreated_and_deleted_again(self) -> None:
         from file_management.infrastructure.persistence.bootstrap import ensure_file_management_schema
         from file_management.infrastructure.persistence import repositories

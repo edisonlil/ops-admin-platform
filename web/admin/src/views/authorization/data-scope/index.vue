@@ -84,17 +84,62 @@
             <n-form-item-gi label="资源名称" path="name">
               <n-input v-model:value="resourceForm.name" />
             </n-form-item-gi>
+            <n-form-item-gi label="归属模式" path="access_mode">
+              <n-radio-group v-model:value="resourceForm.access_mode">
+                <n-space>
+                  <n-radio-button v-for="option in accessModeOptions" :key="String(option.value)" :value="String(option.value)">
+                    {{ option.label }}
+                  </n-radio-button>
+                </n-space>
+              </n-radio-group>
+            </n-form-item-gi>
             <n-form-item-gi label="租户字段" path="tenant_column">
               <n-input v-model:value="resourceForm.tenant_column" />
             </n-form-item-gi>
-            <n-form-item-gi label="创建人字段" path="creator_column">
+            <n-form-item-gi v-if="isOwnerColumnsMode" label="创建人字段" path="creator_column">
               <n-input v-model:value="resourceForm.creator_column" />
             </n-form-item-gi>
-            <n-form-item-gi label="负责人字段" path="owner_user_column">
+            <n-form-item-gi v-if="isOwnerColumnsMode" label="负责人字段" path="owner_user_column">
               <n-input v-model:value="resourceForm.owner_user_column" />
             </n-form-item-gi>
-            <n-form-item-gi label="归属部门字段" path="owner_department_column">
+            <n-form-item-gi v-if="isOwnerColumnsMode" label="归属部门字段" path="owner_department_column">
               <n-input v-model:value="resourceForm.owner_department_column" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="关系表" path="relation_table">
+              <n-input v-model:value="resourceForm.relation_table" placeholder="例如 document_members" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="资源主键字段" path="resource_id_column">
+              <n-input v-model:value="resourceForm.resource_id_column" placeholder="默认 id" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="关系表资源字段" path="relation_resource_id_column">
+              <n-input v-model:value="resourceForm.relation_resource_id_column" placeholder="例如 document_id" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="用户外键字段" path="relation_user_column">
+              <n-input v-model:value="resourceForm.relation_user_column" placeholder="例如 user_id" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="部门外键字段" path="relation_department_column">
+              <n-input v-model:value="resourceForm.relation_department_column" placeholder="例如 department_id" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="关系表租户字段" path="relation_tenant_column">
+              <n-input v-model:value="resourceForm.relation_tenant_column" placeholder="默认 tenant_id" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="关系表软删字段" path="relation_deleted_column">
+              <n-input v-model:value="resourceForm.relation_deleted_column" placeholder="默认 deleted，可留空" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="资源类型字段" path="relation_resource_key_column">
+              <n-input v-model:value="resourceForm.relation_resource_key_column" placeholder="统一关系表可填写 resource_key" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="资源类型值" path="relation_resource_key_value">
+              <n-input v-model:value="resourceForm.relation_resource_key_value" placeholder="留空时使用资源 key" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="主体类型字段" path="relation_subject_type_column">
+              <n-input v-model:value="resourceForm.relation_subject_type_column" placeholder="例如 subject_type，可留空" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="用户主体类型值" path="relation_subject_type_user_value">
+              <n-input v-model:value="resourceForm.relation_subject_type_user_value" placeholder="例如 user" />
+            </n-form-item-gi>
+            <n-form-item-gi v-if="isRelationTableMode" label="部门主体类型值" path="relation_subject_type_department_value">
+              <n-input v-model:value="resourceForm.relation_subject_type_department_value" placeholder="例如 department" />
             </n-form-item-gi>
           </n-grid>
           <n-form-item label="资源描述" path="description">
@@ -153,6 +198,19 @@
     creator_column?: string;
     owner_user_column?: string;
     owner_department_column?: string;
+    resource_id_column?: string;
+    access_mode?: AccessMode;
+    relation_table?: string;
+    relation_resource_id_column?: string;
+    relation_user_column?: string;
+    relation_department_column?: string;
+    relation_tenant_column?: string;
+    relation_deleted_column?: string;
+    relation_resource_key_column?: string;
+    relation_resource_key_value?: string;
+    relation_subject_type_column?: string;
+    relation_subject_type_user_value?: string;
+    relation_subject_type_department_value?: string;
     supported_scopes?: string[];
     requires_data_scope?: boolean;
   }
@@ -176,6 +234,7 @@
   }
 
   type SubjectType = 'department' | 'user';
+  type AccessMode = 'owner_columns' | 'relation_table';
 
   const message = useMessage();
   const { hasPermission } = usePermission();
@@ -206,10 +265,23 @@
     resource_key: '',
     name: '',
     description: '',
+    access_mode: 'owner_columns',
     tenant_column: 'tenant_id',
     creator_column: 'creator_id',
     owner_user_column: 'owner_user_id',
     owner_department_column: 'owner_department_id',
+    resource_id_column: 'id',
+    relation_table: '',
+    relation_resource_id_column: '',
+    relation_user_column: 'user_id',
+    relation_department_column: 'department_id',
+    relation_tenant_column: 'tenant_id',
+    relation_deleted_column: 'deleted',
+    relation_resource_key_column: '',
+    relation_resource_key_value: '',
+    relation_subject_type_column: '',
+    relation_subject_type_user_value: 'user',
+    relation_subject_type_department_value: 'department',
     supported_scopes: [],
     requires_data_scope: false,
   });
@@ -234,6 +306,11 @@
     { label: '可管理', value: 'manage' },
   ];
 
+  const accessModeOptions: SelectOption[] = [
+    { label: '单字段归属', value: 'owner_columns' },
+    { label: '关系表归属', value: 'relation_table' },
+  ];
+
   const rules: FormRules = {
     subject_type: [{ required: true, message: '请选择主体类型', trigger: ['blur', 'change'] }],
     subject_id: [{ required: true, type: 'number', message: '请选择业务主体', trigger: ['blur', 'change'] }],
@@ -244,10 +321,92 @@
   const resourceRules: FormRules = {
     resource_key: [{ required: true, message: '请选择数据资源', trigger: ['blur', 'change'] }],
     name: [{ required: true, message: '请输入资源名称', trigger: ['blur', 'input'] }],
+    access_mode: [{ required: true, message: '请选择归属模式', trigger: ['blur', 'change'] }],
+    tenant_column: [{ required: true, message: '请输入租户字段', trigger: ['blur', 'input'] }],
+    resource_id_column: [
+      {
+        required: true,
+        message: '关系表归属模式必须填写资源主键字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return isOwnerColumnsMode.value || Boolean(String(resourceForm.resource_id_column || '').trim());
+        },
+      },
+    ],
+    owner_user_column: [
+      {
+        required: true,
+        message: '请输入负责人字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return isRelationTableMode.value || Boolean(String(resourceForm.owner_user_column || '').trim());
+        },
+      },
+    ],
+    owner_department_column: [
+      {
+        required: true,
+        message: '请输入归属部门字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return isRelationTableMode.value || Boolean(String(resourceForm.owner_department_column || '').trim());
+        },
+      },
+    ],
+    relation_table: [
+      {
+        required: true,
+        message: '关系表归属模式必须填写关系表',
+        trigger: ['blur', 'input'],
+        validator() {
+          return isOwnerColumnsMode.value || Boolean(String(resourceForm.relation_table || '').trim());
+        },
+      },
+    ],
+    relation_resource_id_column: [
+      {
+        required: true,
+        message: '关系表归属模式必须填写关系表资源字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return isOwnerColumnsMode.value || Boolean(String(resourceForm.relation_resource_id_column || '').trim());
+        },
+      },
+    ],
+    relation_user_column: [
+      {
+        required: true,
+        message: '本人或本人及下属范围必须填写用户外键字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return (
+            isOwnerColumnsMode.value ||
+            !hasUserRelationScope(resourceForm.supported_scopes || []) ||
+            Boolean(String(resourceForm.relation_user_column || '').trim())
+          );
+        },
+      },
+    ],
+    relation_department_column: [
+      {
+        required: true,
+        message: '部门范围必须填写部门外键字段',
+        trigger: ['blur', 'input'],
+        validator() {
+          return (
+            isOwnerColumnsMode.value ||
+            !hasDepartmentRelationScope(resourceForm.supported_scopes || []) ||
+            Boolean(String(resourceForm.relation_department_column || '').trim())
+          );
+        },
+      },
+    ],
     supported_scopes: [{ required: true, type: 'array', message: '请选择支持的权限范围', trigger: ['blur', 'change'] }],
   };
 
   const canManageResource = computed(() => hasPermission(['authorization:data-resource:manage']));
+  const isOwnerColumnsMode = computed(() => resourceForm.access_mode !== 'relation_table');
+  const isRelationTableMode = computed(() => resourceForm.access_mode === 'relation_table');
   const resourceOptions = computed<SelectOption[]>(() =>
     resources.value.map((resource) => ({ label: `${resource.name || resource.resource_key} (${resource.resource_key})`, value: resource.resource_key }))
   );
@@ -375,10 +534,23 @@
       resource_key: resource?.resource_key || '',
       name: resource?.name || '',
       description: resource?.description || '',
+      access_mode: normalizeAccessMode(resource?.access_mode),
       tenant_column: resource?.tenant_column || 'tenant_id',
       creator_column: resource?.creator_column || 'creator_id',
       owner_user_column: resource?.owner_user_column || 'owner_user_id',
       owner_department_column: resource?.owner_department_column || 'owner_department_id',
+      resource_id_column: resource?.resource_id_column || 'id',
+      relation_table: resource?.relation_table || '',
+      relation_resource_id_column: resource?.relation_resource_id_column || '',
+      relation_user_column: resource?.relation_user_column || 'user_id',
+      relation_department_column: resource?.relation_department_column || 'department_id',
+      relation_tenant_column: resource?.relation_tenant_column || 'tenant_id',
+      relation_deleted_column: resource?.relation_deleted_column || 'deleted',
+      relation_resource_key_column: resource?.relation_resource_key_column || '',
+      relation_resource_key_value: resource?.relation_resource_key_value || '',
+      relation_subject_type_column: resource?.relation_subject_type_column || '',
+      relation_subject_type_user_value: resource?.relation_subject_type_user_value || 'user',
+      relation_subject_type_department_value: resource?.relation_subject_type_department_value || 'department',
       supported_scopes: [...(resource?.supported_scopes || [])],
       requires_data_scope: Boolean(resource?.requires_data_scope),
     });
@@ -422,8 +594,7 @@
     resourceSaving.value = true;
     try {
       await saveAuthorizationResource(resourceForm.resource_key, {
-        ...resourceForm,
-        supported_scopes: [...(resourceForm.supported_scopes || [])],
+        ...resourcePayload(),
       });
       message.success('数据资源已保存');
       resourceDrawerVisible.value = false;
@@ -441,6 +612,50 @@
 
   function defaultSubjectId(subjectType: SubjectType) {
     return subjectType === 'user' ? users.value[0]?.id : departments.value[0]?.id;
+  }
+
+  function resourcePayload(): DataResourcePayload {
+    const supportedScopes = [...(resourceForm.supported_scopes || [])];
+    const payload: DataResourcePayload = {
+      resource_key: String(resourceForm.resource_key || '').trim(),
+      name: String(resourceForm.name || '').trim(),
+      description: String(resourceForm.description || '').trim(),
+      access_mode: normalizeAccessMode(resourceForm.access_mode),
+      tenant_column: String(resourceForm.tenant_column || 'tenant_id').trim(),
+      supported_scopes: supportedScopes,
+      requires_data_scope: Boolean(resourceForm.requires_data_scope),
+    };
+    if (payload.access_mode === 'relation_table') {
+      payload.resource_id_column = String(resourceForm.resource_id_column || 'id').trim();
+      payload.relation_table = String(resourceForm.relation_table || '').trim();
+      payload.relation_resource_id_column = String(resourceForm.relation_resource_id_column || '').trim();
+      payload.relation_user_column = String(resourceForm.relation_user_column || '').trim();
+      payload.relation_department_column = String(resourceForm.relation_department_column || '').trim();
+      payload.relation_tenant_column = String(resourceForm.relation_tenant_column || payload.tenant_column || 'tenant_id').trim();
+      payload.relation_deleted_column = String(resourceForm.relation_deleted_column || '').trim();
+      payload.relation_resource_key_column = String(resourceForm.relation_resource_key_column || '').trim();
+      payload.relation_resource_key_value = String(resourceForm.relation_resource_key_value || '').trim();
+      payload.relation_subject_type_column = String(resourceForm.relation_subject_type_column || '').trim();
+      payload.relation_subject_type_user_value = String(resourceForm.relation_subject_type_user_value || '').trim();
+      payload.relation_subject_type_department_value = String(resourceForm.relation_subject_type_department_value || '').trim();
+      return payload;
+    }
+    payload.creator_column = String(resourceForm.creator_column || 'creator_id').trim();
+    payload.owner_user_column = String(resourceForm.owner_user_column || 'owner_user_id').trim();
+    payload.owner_department_column = String(resourceForm.owner_department_column || 'owner_department_id').trim();
+    return payload;
+  }
+
+  function normalizeAccessMode(value?: string): AccessMode {
+    return value === 'relation_table' ? 'relation_table' : 'owner_columns';
+  }
+
+  function hasUserRelationScope(scopes: string[]) {
+    return scopes.some((scope) => scope === 'self' || scope === 'self_and_subordinates');
+  }
+
+  function hasDepartmentRelationScope(scopes: string[]) {
+    return scopes.some((scope) => scope === 'department' || scope === 'department_and_children' || scope === 'custom_departments');
   }
 
   function scopeLabel(value: string) {

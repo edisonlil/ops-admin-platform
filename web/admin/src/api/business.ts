@@ -110,10 +110,23 @@ export interface DataResourcePayload {
   resource_key: string;
   name: string;
   description?: string;
+  access_mode?: 'owner_columns' | 'relation_table' | string;
   tenant_column?: string;
   creator_column?: string;
   owner_user_column?: string;
   owner_department_column?: string;
+  relation_table?: string;
+  resource_id_column?: string;
+  relation_resource_id_column?: string;
+  relation_user_column?: string;
+  relation_department_column?: string;
+  relation_tenant_column?: string;
+  relation_deleted_column?: string;
+  relation_resource_key_column?: string;
+  relation_resource_key_value?: string;
+  relation_subject_type_column?: string;
+  relation_subject_type_user_value?: string;
+  relation_subject_type_department_value?: string;
   supported_scopes?: string[];
   requires_data_scope?: boolean;
 }

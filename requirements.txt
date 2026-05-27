@@ -4,6 +4,7 @@ pydantic
 psycopg[binary]
 PyMySQL
 SQLAlchemy
+sqlglot
 fastapi-login
 pwdlib[argon2]
 python-multipart
