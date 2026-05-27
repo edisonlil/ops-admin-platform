@@ -36,13 +36,13 @@
           <n-button text size="tiny" :loading="schemaLoading" @click="loadSourceSchema">刷新</n-button>
         </div>
         <n-input v-model:value="schemaKeyword" clearable size="small" placeholder="搜索表或字段" class="dataset-query-workbench__schema-search" />
-        <n-spin :show="schemaLoading">
+        <n-spin :show="schemaLoading" class="dataset-query-workbench__schema-body">
           <n-empty v-if="!filteredSourceTables.length" size="small" :description="schemaEmptyText" />
           <div v-else class="dataset-query-workbench__tables">
             <section v-for="table in filteredSourceTables" :key="tableKey(table)" class="dataset-query-workbench__table">
               <button type="button" class="dataset-query-workbench__table-name" @click="toggleSourceTable(table)">
                 <span>{{ expandedTableKeys.includes(tableKey(table)) ? '−' : '+' }}</span>
-                <strong :title="qualifiedTableName(table)">{{ qualifiedTableName(table) }}</strong>
+                <strong :title="qualifiedTableName(table)">{{ displayTableName(table) }}</strong>
                 <small>{{ table.columns.length }}</small>
               </button>
               <div v-if="expandedTableKeys.includes(tableKey(table))" class="dataset-query-workbench__columns">
@@ -355,6 +355,10 @@
     return table.schema ? `${table.schema}.${table.name}` : table.name;
   }
 
+  function displayTableName(table: DatasetSourceTable) {
+    return table.name;
+  }
+
   function toggleSourceTable(table: DatasetSourceTable) {
     const key = tableKey(table);
     if (expandedTableKeys.value.includes(key)) {
@@ -389,7 +393,8 @@
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
-    min-height: calc(100vh - 116px);
+    height: calc(100vh - 116px);
+    min-height: 0;
     background: var(--app-body-bg);
   }
 
@@ -482,6 +487,16 @@
   .dataset-query-workbench__schema-search {
     width: calc(100% - 24px);
     margin: 10px 12px;
+  }
+
+  .dataset-query-workbench__schema-body {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dataset-query-workbench__schema-body :deep(.n-spin-content) {
+    height: 100%;
+    min-height: 0;
   }
 
   .dataset-query-workbench__tables {
@@ -641,6 +656,7 @@
 
   @media (max-width: 980px) {
     .dataset-query-page {
+      height: auto;
       min-height: 0;
     }
 
