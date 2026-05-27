@@ -127,10 +127,23 @@ def inspect_mysql_tables(conn: Any) -> list[dict[str, Any]]:
 def inspect_information_schema_columns(conn: Any, *, schema: str, table: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns
-        WHERE table_schema = ? AND table_name = ?
-        ORDER BY ordinal_position
+        SELECT
+            c.column_name,
+            c.data_type,
+            c.is_nullable,
+            CASE WHEN kcu.column_name IS NULL THEN 0 ELSE 1 END AS primary_key
+        FROM information_schema.columns c
+        LEFT JOIN information_schema.table_constraints tc
+          ON tc.table_schema = c.table_schema
+         AND tc.table_name = c.table_name
+         AND tc.constraint_type = 'PRIMARY KEY'
+        LEFT JOIN information_schema.key_column_usage kcu
+          ON kcu.table_schema = tc.table_schema
+         AND kcu.table_name = tc.table_name
+         AND kcu.constraint_name = tc.constraint_name
+         AND kcu.column_name = c.column_name
+        WHERE c.table_schema = ? AND c.table_name = ?
+        ORDER BY c.ordinal_position
         LIMIT ?
         """,
         (schema, table, MAX_COLUMNS_PER_TABLE),
@@ -140,7 +153,7 @@ def inspect_information_schema_columns(conn: Any, *, schema: str, table: str) ->
             "name": str(read_value(row, "column_name") or ""),
             "data_type": str(read_value(row, "data_type") or ""),
             "nullable": str(read_value(row, "is_nullable") or "").upper() != "NO",
-            "primary_key": False,
+            "primary_key": bool(read_value(row, "primary_key")),
         }
         for row in rows
     ]

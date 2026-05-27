@@ -79,89 +79,12 @@
       </div>
     </n-modal>
 
-    <n-modal v-model:show="queryModalVisible" preset="card" :title="queryWorkbenchTitle" class="dataset-page__query">
-      <div class="dataset-query-workbench">
-        <aside class="dataset-query-workbench__sidebar">
-          <div class="dataset-query-workbench__sidebar-head">
-            <span>表结构</span>
-            <n-button text size="tiny" :loading="schemaLoading" @click="loadSourceSchema">刷新</n-button>
-          </div>
-          <n-spin :show="schemaLoading">
-            <n-empty v-if="!sourceTables.length" size="small" description="暂无表结构" />
-            <div v-else class="dataset-query-workbench__tables">
-              <div v-for="table in sourceTables" :key="tableKey(table)" class="dataset-query-workbench__table">
-                <button type="button" class="dataset-query-workbench__table-name" @click="toggleSourceTable(table)">
-                  <span>{{ expandedTableKeys.includes(tableKey(table)) ? '−' : '+' }}</span>
-                  <strong>{{ table.name }}</strong>
-                </button>
-                <div v-if="expandedTableKeys.includes(tableKey(table))" class="dataset-query-workbench__columns">
-                  <button
-                    v-for="column in table.columns"
-                    :key="column.name"
-                    type="button"
-                    class="dataset-query-workbench__column"
-                    @click="appendColumnToSql(column.name)"
-                  >
-                    <span>{{ column.name }}</span>
-                    <small>{{ column.data_type || '-' }}</small>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </n-spin>
-        </aside>
-        <section class="dataset-query-workbench__main">
-          <div class="dataset-query-workbench__toolbar">
-            <n-space :size="6">
-              <n-button quaternary size="small" type="primary" :loading="queryLoading" @click="runQuery">运行</n-button>
-              <n-button quaternary size="small" :disabled="!queryLoading" @click="queryLoading = false">停止</n-button>
-              <n-button quaternary size="small" @click="formatQuerySql">格式化</n-button>
-            </n-space>
-          </div>
-          <div class="dataset-query-workbench__editor">
-            <CodePreview v-model:value="querySql" language="sql" :read-only="false" :height="280" :auto-height="false" />
-          </div>
-          <div class="dataset-query-workbench__panel">
-            <n-tabs v-model:value="queryResultTab" type="line" size="small" animated>
-              <n-tab-pane name="info" tab="信息">
-                <n-result
-                  v-if="queryExecuted"
-                  status="success"
-                  title="执行成功"
-                  :description="`返回 ${queryRows.length} 行，匹配 ${queryTotal} 行`"
-                />
-                <n-empty v-else description="执行后在这里查看运行信息" />
-              </n-tab-pane>
-              <n-tab-pane name="result" tab="结果">
-                <n-data-table
-                  class="dataset-query-workbench__result"
-                  :columns="queryResultColumns"
-                  :data="queryRows"
-                  :loading="queryLoading"
-                  :pagination="false"
-                  size="small"
-                />
-                <div v-if="queryExecuted" class="dataset-page__preview-footer">
-                  <span>共 {{ queryTotal }} 行</span>
-                  <n-pagination v-model:page="queryPage" :page-size="queryPageSize" :item-count="queryTotal" @update:page="executeQuery" />
-                </div>
-              </n-tab-pane>
-            </n-tabs>
-          </div>
-        </section>
-      </div>
-      <template #footer>
-        <div class="dataset-query-workbench__footer">
-          <span>{{ sourceSchemaBackend ? `数据源：${sourceSchemaBackend}` : '' }}</span>
-          <n-button @click="queryModalVisible = false">关闭</n-button>
-        </div>
-      </template>
-    </n-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
+  import { useRouter } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
@@ -172,8 +95,6 @@
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     deleteDataset,
-    executeDatasetQuery,
-    getDatasetSourceSchema,
     getDataset,
     listDatasets,
     previewDataset,
@@ -183,11 +104,10 @@
     saveDatasetRows,
     type Dataset,
     type DatasetField,
-    type DatasetSourceColumn,
-    type DatasetSourceTable,
   } from '@/api/datasets';
 
   const message = useMessage();
+  const router = useRouter();
   const { hasPermission } = usePermission();
   const loading = ref(false);
   const saving = ref(false);
@@ -195,12 +115,7 @@
   const schemaModalVisible = ref(false);
   const rowsModalVisible = ref(false);
   const previewModalVisible = ref(false);
-  const queryModalVisible = ref(false);
   const previewLoading = ref(false);
-  const queryLoading = ref(false);
-  const schemaLoading = ref(false);
-  const queryExecuted = ref(false);
-  const queryResultTab = ref<'info' | 'result'>('info');
   const formRef = ref<FormInst | null>(null);
   const rows = ref<Dataset[]>([]);
   const paginationTotal = ref(0);
@@ -217,14 +132,6 @@
   const previewFields = ref<DatasetField[]>([]);
   const previewTotal = ref(0);
   const previewPage = ref(1);
-  const queryRows = ref<Record<string, unknown>[]>([]);
-  const queryFields = ref<DatasetField[]>([]);
-  const queryTotal = ref(0);
-  const queryPage = ref(1);
-  const queryPageSize = 20;
-  const sourceTables = ref<DatasetSourceTable[]>([]);
-  const sourceSchemaBackend = ref('');
-  const expandedTableKeys = ref<string[]>([]);
 
   const form = reactive<Partial<Dataset>>({
     key: '',
@@ -333,22 +240,6 @@
       render: (row) => String(row[field.field_key] ?? ''),
     }))
   );
-
-  const queryResultColumns = computed<DataTableColumns<Record<string, unknown>>>(() => {
-    const columnsFromFields = queryFields.value
-      .filter((field) => field.visible !== false)
-      .map((field) => ({
-        title: field.label || field.field_key,
-        key: field.field_key,
-        minWidth: 120,
-        ellipsis: { tooltip: true },
-        render: (row: Record<string, unknown>) => formatCellValue(row[field.field_key]),
-      }));
-    if (columnsFromFields.length) return columnsFromFields;
-    return inferColumnsFromRows(queryRows.value);
-  });
-
-  const queryWorkbenchTitle = computed(() => (activeDataset.value ? `SQL 工作台 - ${activeDataset.value.name}` : 'SQL 工作台'));
 
   function resetForm() {
     Object.assign(form, {
@@ -466,22 +357,7 @@
   }
 
   function openQuery(row: Dataset) {
-    activeDataset.value = row;
-    const config = row.query_config || {};
-    querySql.value = String(config.sql || '');
-    queryParamsJson.value = JSON.stringify(config.params || [], null, 2);
-    queryDataAccessJson.value = JSON.stringify(config.data_access || defaultDataAccess(), null, 2);
-    queryRows.value = [];
-    queryFields.value = [];
-    queryTotal.value = 0;
-    queryPage.value = 1;
-    queryExecuted.value = false;
-    queryResultTab.value = 'info';
-    sourceTables.value = [];
-    sourceSchemaBackend.value = '';
-    expandedTableKeys.value = [];
-    queryModalVisible.value = true;
-    void loadSourceSchema();
+    router.push({ name: 'dataset-management-query', params: { id: row.id } });
   }
 
   async function loadPreview() {
@@ -494,62 +370,6 @@
       previewTotal.value = payload.pagination?.total || previewRows.value.length;
     } finally {
       previewLoading.value = false;
-    }
-  }
-
-  async function executeQuery() {
-    if (!activeDataset.value) return;
-    const sql = querySql.value.trim();
-    if (!sql) {
-      message.error('请输入查询 SQL');
-      return;
-    }
-    const params = parseJsonValue(queryParamsJson.value, '查询参数');
-    if (!params || (!Array.isArray(params) && typeof params !== 'object')) {
-      message.error('查询参数必须是 JSON 数组或对象');
-      return;
-    }
-    const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
-    if (!dataAccess) return;
-    queryLoading.value = true;
-    try {
-      const payload = await executeDatasetQuery(
-        activeDataset.value.id,
-        {
-          query_config: {
-            sql,
-            params,
-            data_access: dataAccess,
-            max_rows: 1000,
-          },
-        },
-        { page: queryPage.value, page_size: queryPageSize }
-      );
-      queryFields.value = payload.fields || [];
-      queryRows.value = payload.items || [];
-      queryTotal.value = payload.pagination?.total || queryRows.value.length;
-      queryExecuted.value = true;
-      queryResultTab.value = 'result';
-    } finally {
-      queryLoading.value = false;
-    }
-  }
-
-  async function runQuery() {
-    queryPage.value = 1;
-    await executeQuery();
-  }
-
-  async function loadSourceSchema() {
-    if (!activeDataset.value) return;
-    schemaLoading.value = true;
-    try {
-      const payload = await getDatasetSourceSchema(activeDataset.value.id);
-      sourceTables.value = payload.tables || [];
-      sourceSchemaBackend.value = payload.backend || '';
-      expandedTableKeys.value = sourceTables.value.slice(0, 2).map(tableKey);
-    } finally {
-      schemaLoading.value = false;
     }
   }
 
@@ -667,48 +487,6 @@
     return String(statusOptions.find((item) => item.value === value)?.label || value || '-');
   }
 
-  function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {
-    const keys = Array.from(new Set(items.flatMap((item) => Object.keys(item)))).slice(0, 40);
-    return keys.map((key) => ({
-      title: key,
-      key,
-      minWidth: 120,
-      ellipsis: { tooltip: true },
-      render: (row) => formatCellValue(row[key]),
-    }));
-  }
-
-  function formatCellValue(value: unknown) {
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-  }
-
-  function tableKey(table: DatasetSourceTable) {
-    return `${table.schema || 'default'}.${table.name}`;
-  }
-
-  function toggleSourceTable(table: DatasetSourceTable) {
-    const key = tableKey(table);
-    if (expandedTableKeys.value.includes(key)) {
-      expandedTableKeys.value = expandedTableKeys.value.filter((item) => item !== key);
-      return;
-    }
-    expandedTableKeys.value = [...expandedTableKeys.value, key];
-  }
-
-  function appendColumnToSql(columnName: DatasetSourceColumn['name']) {
-    const current = querySql.value.trimEnd();
-    querySql.value = `${current}${current ? ' ' : ''}${columnName}`;
-  }
-
-  function formatQuerySql() {
-    querySql.value = querySql.value
-      .replace(/\s+(from|where|group by|order by|limit)\s+/gi, '\n$1 ')
-      .replace(/\s*,\s*/g, ', ')
-      .trim();
-  }
-
   reload();
 </script>
 
@@ -745,161 +523,9 @@
     width: min(960px, calc(100vw - 32px));
   }
 
-  :global(.dataset-page__query) {
-    width: min(1180px, calc(100vw - 32px));
-  }
-
-  :global(.dataset-page__query .n-card__content) {
-    padding: 0;
-  }
-
-  .dataset-query-workbench {
-    display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
-    min-height: 620px;
-    overflow: hidden;
-    border-top: 1px solid var(--app-border-color);
-    border-bottom: 1px solid var(--app-border-color);
-  }
-
-  .dataset-query-workbench__sidebar {
-    min-width: 0;
-    overflow: auto;
-    background: var(--app-surface-bg);
-    border-right: 1px solid var(--app-border-color);
-  }
-
-  .dataset-query-workbench__sidebar-head,
-  .dataset-query-workbench__toolbar,
-  .dataset-query-workbench__footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 42px;
-    padding: 0 14px;
-    background: var(--app-surface-bg);
-  }
-
-  .dataset-query-workbench__sidebar-head,
-  .dataset-query-workbench__toolbar {
-    border-bottom: 1px solid var(--app-border-color);
-  }
-
-  .dataset-query-workbench__sidebar-head {
-    font-weight: 600;
-  }
-
-  .dataset-query-workbench__tables {
-    padding: 8px;
-  }
-
-  .dataset-query-workbench__table {
-    border-radius: 6px;
-  }
-
-  .dataset-query-workbench__table-name,
-  .dataset-query-workbench__column {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .dataset-query-workbench__table-name {
-    gap: 8px;
-    height: 32px;
-    padding: 0 8px;
-    border-radius: 6px;
-  }
-
-  .dataset-query-workbench__table-name:hover,
-  .dataset-query-workbench__column:hover {
-    background: var(--app-hover-color);
-  }
-
-  .dataset-query-workbench__table-name span {
-    width: 16px;
-    color: var(--app-text-color-3);
-    text-align: center;
-  }
-
-  .dataset-query-workbench__table-name strong {
-    overflow: hidden;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dataset-query-workbench__columns {
-    padding: 2px 0 8px 30px;
-  }
-
-  .dataset-query-workbench__column {
-    justify-content: space-between;
-    gap: 8px;
-    min-height: 28px;
-    padding: 0 8px;
-    border-radius: 5px;
-  }
-
-  .dataset-query-workbench__column span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dataset-query-workbench__column small {
-    flex: none;
-    color: var(--app-text-color-3);
-  }
-
-  .dataset-query-workbench__main {
-    display: grid;
-    grid-template-rows: auto 280px minmax(240px, 1fr);
-    min-width: 0;
-    min-height: 0;
-  }
-
-  .dataset-query-workbench__editor,
-  .dataset-query-workbench__panel,
-  .dataset-query-workbench__result {
-    min-width: 0;
-  }
-
-  .dataset-query-workbench__panel {
-    overflow: auto;
-    border-top: 1px solid var(--app-border-color);
-    background: var(--app-body-bg);
-  }
-
-  .dataset-query-workbench__panel :deep(.n-tabs-nav) {
-    padding: 0 16px;
-    background: var(--app-surface-bg);
-  }
-
-  .dataset-query-workbench__panel :deep(.n-tab-pane) {
-    padding: 14px 16px 16px;
-  }
-
-  .dataset-query-workbench__footer {
-    color: var(--app-text-color-3);
-  }
-
   @media (max-width: 820px) {
-    .dataset-query-workbench {
-      grid-template-columns: 1fr;
-      min-height: 0;
-    }
-
-    .dataset-query-workbench__sidebar {
-      max-height: 220px;
-      border-right: 0;
-      border-bottom: 1px solid var(--app-border-color);
+    .dataset-page__select {
+      width: min(160px, 100%);
     }
   }
 </style>

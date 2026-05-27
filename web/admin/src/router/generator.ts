@@ -153,6 +153,21 @@ function hiddenSiblingRoutes(menu: BackendMenu, routePath: string): BackendRoute
       },
     ];
   }
+  if (key === 'dataset-management') {
+    return [
+      {
+        path: `${stripLeadingSlash(routePath)}/:id/query`,
+        name: 'dataset-management-query',
+        component: '/datasets/manage/query',
+        meta: {
+          title: 'SQL 工作台',
+          permissions: ['datasets:dataset:manage'],
+          activeMenu: routeName(menu) || key,
+          hidden: true,
+        },
+      },
+    ];
+  }
   if (!isAiStudioMenuKey(key)) {
     return [];
   }
