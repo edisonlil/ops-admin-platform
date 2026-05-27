@@ -4,7 +4,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from authorization.domain.models import ACCESS_MODE_OWNER_COLUMNS, ACCESS_MODE_RELATION_TABLE, VALID_ACCESS_MODES, VALID_DATA_SCOPES
+from authorization.domain.models import (
+    ACCESS_MODE_OWNER_COLUMNS,
+    ACCESS_MODE_RELATION_TABLE,
+    POLICY_SUBJECT_ALL_USERS_ID,
+    POLICY_SUBJECT_DEPARTMENT,
+    POLICY_SUBJECT_USER,
+    VALID_ACCESS_MODES,
+    VALID_DATA_SCOPES,
+)
 
 
 class ResourceDescriptorRequest(BaseModel):
@@ -87,7 +95,7 @@ class ResourceDescriptorRequest(BaseModel):
 class DataAccessPolicyRequest(BaseModel):
     tenant_id: int | None = Field(default=None, ge=1)
     subject_type: str = Field(min_length=1, max_length=40)
-    subject_id: int = Field(ge=1)
+    subject_id: int = Field(ge=0)
     resource_key: str = Field(min_length=1, max_length=160)
     action: str = Field(default="read", max_length=80)
     scope: str = Field(min_length=1, max_length=80)
@@ -98,3 +106,11 @@ class DataAccessPolicyRequest(BaseModel):
     @classmethod
     def normalize_text(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def validate_subject_id(self) -> "DataAccessPolicyRequest":
+        if self.subject_type == POLICY_SUBJECT_DEPARTMENT and self.subject_id <= POLICY_SUBJECT_ALL_USERS_ID:
+            raise ValueError("部门主体必须选择具体部门")
+        if self.subject_type == POLICY_SUBJECT_USER and self.subject_id < POLICY_SUBJECT_ALL_USERS_ID:
+            raise ValueError("用户主体必须选择具体用户或所有用户")
+        return self

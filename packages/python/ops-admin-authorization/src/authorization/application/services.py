@@ -12,6 +12,7 @@ from authorization.domain.models import (
     DATA_SCOPE_SELF_AND_SUBORDINATES,
     DATA_SCOPE_TENANT,
     POLICY_SUBJECT_DEPARTMENT,
+    POLICY_SUBJECT_ALL_USERS_ID,
     POLICY_SUBJECT_USER,
     DataAccessPolicy,
     ResourceDescriptorRecord,
@@ -40,6 +41,11 @@ SCOPE_RANK = {
     DATA_SCOPE_CUSTOM_DEPARTMENTS: 25,
     DATA_SCOPE_DEPARTMENT_AND_CHILDREN: 30,
     DATA_SCOPE_TENANT: 40,
+}
+ACTION_RANK = {
+    "read": 10,
+    "write": 20,
+    "manage": 30,
 }
 RESOURCE_SORT_COLUMNS = {
     "id": "id",
@@ -126,10 +132,15 @@ def save_data_access_policy(payload: dict[str, Any], current_user: dict[str, Any
     subject_type = str(payload.get("subject_type") or "").strip()
     if subject_type not in VALID_POLICY_SUBJECT_TYPES:
         raise AuthorizationDomainError("数据权限主体只能是用户或部门")
+    subject_id = int(payload.get("subject_id") or 0)
+    if subject_type == POLICY_SUBJECT_DEPARTMENT and subject_id <= POLICY_SUBJECT_ALL_USERS_ID:
+        raise AuthorizationDomainError("部门主体必须选择具体部门")
+    if subject_type == POLICY_SUBJECT_USER and subject_id < POLICY_SUBJECT_ALL_USERS_ID:
+        raise AuthorizationDomainError("用户主体必须选择具体用户或所有用户")
     item = repo().save_data_access_policy(
         tenant_id=tenant_id,
         subject_type=subject_type,
-        subject_id=int(payload.get("subject_id") or 0),
+        subject_id=subject_id,
         resource_key=str(payload.get("resource_key") or ""),
         action=str(payload.get("action") or "read"),
         scope=str(payload.get("scope") or DATA_SCOPE_SELF),
@@ -165,22 +176,26 @@ class BuiltinDataAccessFilterProvider:
             departments = organization_services.user_departments(tenant_id=tenant_id, user_id=user_id)
         except Exception:
             departments = []
+        if not departments and isinstance(current_user.get("departments"), list):
+            departments = current_user.get("departments") or []
         department_ids = tuple(int(item.get("department_id") or item.get("id") or 0) for item in departments if int(item.get("department_id") or item.get("id") or 0))
         try:
             all_policies = repo().list_data_access_policies(tenant_id=tenant_id, resource_key=resource.resource_key)
-            policies = [
+            subject_policies = [
                 item
                 for item in all_policies
-                if item.action == action
-                and (
-                    (item.subject_type == POLICY_SUBJECT_USER and item.subject_id == user_id)
+                if (
+                    (item.subject_type == POLICY_SUBJECT_USER and item.subject_id in {POLICY_SUBJECT_ALL_USERS_ID, user_id})
                     or (item.subject_type == POLICY_SUBJECT_DEPARTMENT and item.subject_id in department_ids)
                 )
             ]
+            policies = [item for item in subject_policies if data_action_applies(item.action, action)]
         except Exception:
+            subject_policies = []
             policies = []
         if not policies:
-            return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_TENANT, user_id=user_id)
+            fallback_scope = "deny" if subject_policies else SCOPE_TENANT
+            return DataAccessPredicate(tenant_id=tenant_id, scope=fallback_scope, user_id=user_id)
         policy = max(policies, key=lambda item: (int(item.priority), SCOPE_RANK.get(item.scope, 0)))
         primary = next((item for item in departments if bool(item.get("is_primary"))), departments[0] if departments else None)
         if policy.scope == DATA_SCOPE_TENANT:
@@ -220,6 +235,16 @@ class BuiltinDataAccessFilterProvider:
                 department_ids=policy.department_ids,
             )
         return DataAccessPredicate(tenant_id=tenant_id, scope=SCOPE_SELF, user_id=user_id)
+
+
+def data_action_applies(policy_action: str, requested_action: str) -> bool:
+    policy = str(policy_action or "read").strip() or "read"
+    requested = str(requested_action or "read").strip() or "read"
+    if policy == requested:
+        return True
+    policy_rank = ACTION_RANK.get(policy)
+    requested_rank = ACTION_RANK.get(requested)
+    return policy_rank is not None and requested_rank is not None and policy_rank >= requested_rank
 
 
 def current_tenant_id(current_user: dict[str, Any]) -> int:

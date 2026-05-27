@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 import httpx
+from authorization.domain.models import DataAccessPolicy
 
 from system.application.data_access import (
     DataAccessPredicate,
@@ -27,6 +28,18 @@ class SelfOnlyProvider:
 class EmptyAuthorizationRepository:
     def list_data_access_policies(self, **_kwargs: object) -> list[object]:
         return []
+
+
+class StaticAuthorizationRepository:
+    def __init__(self, policies: list[DataAccessPolicy]) -> None:
+        self.policies = policies
+
+    def list_data_access_policies(self, *, tenant_id: int, resource_key: str | None = None, **_kwargs: object) -> list[DataAccessPolicy]:
+        return [
+            item
+            for item in self.policies
+            if item.tenant_id == tenant_id and (resource_key is None or item.resource_key == resource_key)
+        ]
 
 
 class BasicDataTests(unittest.TestCase):
@@ -256,6 +269,46 @@ class BasicDataTests(unittest.TestCase):
 
             self.assertEqual(type_page["pagination"]["total"], 1)
             self.assertEqual(item_page["pagination"]["total"], 1)
+        finally:
+            authorization_services.repository = previous_authorization_repository
+
+    def test_dictionary_service_with_self_data_policy_filters_owner(self) -> None:
+        from authorization.application import services as authorization_services
+        from basic_data.application import services
+        from system.application.data_access import configure_data_access_filter_provider
+
+        previous_authorization_repository = authorization_services.repository
+        try:
+            authorization_services.configure_repository(
+                StaticAuthorizationRepository(
+                    [
+                        DataAccessPolicy(
+                            id=1,
+                            tenant_id=1,
+                            subject_type="user",
+                            subject_id=8,
+                            resource_key="basic-data.dictionary",
+                            action="read",
+                            scope="self",
+                            department_ids=(),
+                            priority=100,
+                            create_time="",
+                            update_time="",
+                        )
+                    ]
+                )
+            )
+            configure_data_access_filter_provider(authorization_services.BuiltinDataAccessFilterProvider())
+            owner = {**self.current_user, "id": 7, "is_platform_admin": False, "is_tenant_admin": False}
+            other = {**self.current_user, "id": 8, "is_platform_admin": False, "is_tenant_admin": False}
+            saved_type = services.save_dictionary_type({"code": "ticket_priority", "name": "工单优先级"}, owner)["item"]
+            services.save_dictionary_item(int(saved_type["id"]), {"code": "high", "value": "高"}, owner)
+
+            type_page = services.list_dictionary_types(page=1, page_size=20, keyword="", status=None, category="", current_user=other)
+            item_page = services.list_dictionary_items(type_id=int(saved_type["id"]), page=1, page_size=20, keyword="", status=None, current_user=other)
+
+            self.assertEqual(type_page["pagination"]["total"], 0)
+            self.assertEqual(item_page["pagination"]["total"], 0)
         finally:
             authorization_services.repository = previous_authorization_repository
 

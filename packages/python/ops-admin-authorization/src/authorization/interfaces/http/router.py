@@ -39,7 +39,7 @@ def data_access_policies(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     subject_type: str | None = Query(default=None),
-    subject_id: int | None = Query(default=None, ge=1),
+    subject_id: int | None = Query(default=None, ge=0),
     resource_key: str | None = Query(default=None),
     tenant_id: int | None = Query(default=None, ge=1),
     sort_by: str | None = Query(default=None),

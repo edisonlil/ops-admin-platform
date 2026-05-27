@@ -11,6 +11,9 @@ from authorization.domain.models import (
     ACCESS_MODE_OWNER_COLUMNS,
     ACCESS_MODE_RELATION_TABLE,
     DataAccessPolicy,
+    POLICY_SUBJECT_ALL_USERS_ID,
+    POLICY_SUBJECT_DEPARTMENT,
+    POLICY_SUBJECT_USER,
     ResourceDescriptorRecord,
     VALID_ACCESS_MODES,
     VALID_DATA_SCOPES,
@@ -161,7 +164,7 @@ def list_data_access_policies(
     if subject_type:
         where.append("subject_type = ?")
         params.append(subject_type.strip())
-    if subject_id:
+    if subject_id is not None:
         where.append("subject_id = ?")
         params.append(int(subject_id))
     if resource_key:
@@ -204,7 +207,9 @@ def save_data_access_policy(
         raise AuthorizationDomainError("tenant id is required")
     if normalized_subject_type not in VALID_POLICY_SUBJECT_TYPES:
         raise AuthorizationDomainError("unknown data policy subject")
-    if not normalized_subject_id:
+    if normalized_subject_type == POLICY_SUBJECT_DEPARTMENT and normalized_subject_id <= POLICY_SUBJECT_ALL_USERS_ID:
+        raise AuthorizationDomainError("data policy subject id is required")
+    if normalized_subject_type == POLICY_SUBJECT_USER and normalized_subject_id < POLICY_SUBJECT_ALL_USERS_ID:
         raise AuthorizationDomainError("data policy subject id is required")
     if normalized_scope not in VALID_DATA_SCOPES:
         raise AuthorizationDomainError("unknown data scope")

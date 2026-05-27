@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from typing import Any
 from unittest import mock
 
 from authorization.application import services
@@ -83,6 +82,100 @@ class BuiltinDataAccessFilterProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(predicate.scope, SCOPE_SELF)
+
+    def test_all_users_policy_applies_to_any_user_subject(self) -> None:
+        services.configure_repository(
+            FakeAuthorizationRepository(
+                [
+                    DataAccessPolicy(
+                        id=1,
+                        tenant_id=3,
+                        subject_type="user",
+                        subject_id=0,
+                        resource_key="basic-data.dictionary",
+                        action="read",
+                        scope=DATA_SCOPE_SELF,
+                        department_ids=(),
+                        priority=100,
+                        create_time="",
+                        update_time="",
+                    )
+                ]
+            )
+        )
+        provider = services.BuiltinDataAccessFilterProvider()
+
+        with mock.patch.object(services.organization_services, "user_departments", return_value=[]):
+            predicate = provider.resolve_filter(
+                current_user={"id": 42, "current_tenant": {"id": 3}, "is_tenant_admin": False},
+                resource=ResourceDescriptor(resource_key="basic-data.dictionary"),
+                action="read",
+            )
+
+        self.assertEqual(predicate.scope, SCOPE_SELF)
+        self.assertEqual(predicate.user_id, 42)
+
+    def test_manage_policy_applies_to_read_requests(self) -> None:
+        services.configure_repository(
+            FakeAuthorizationRepository(
+                [
+                    DataAccessPolicy(
+                        id=1,
+                        tenant_id=3,
+                        subject_type="user",
+                        subject_id=7,
+                        resource_key="basic-data.dictionary",
+                        action="manage",
+                        scope=DATA_SCOPE_SELF,
+                        department_ids=(),
+                        priority=100,
+                        create_time="",
+                        update_time="",
+                    )
+                ]
+            )
+        )
+        provider = services.BuiltinDataAccessFilterProvider()
+
+        with mock.patch.object(services.organization_services, "user_departments", return_value=[]):
+            predicate = provider.resolve_filter(
+                current_user={"id": 7, "current_tenant": {"id": 3}, "is_tenant_admin": False},
+                resource=ResourceDescriptor(resource_key="basic-data.dictionary"),
+                action="read",
+            )
+
+        self.assertEqual(predicate.scope, SCOPE_SELF)
+
+    def test_configured_policy_for_uncovered_action_denies_access(self) -> None:
+        services.configure_repository(
+            FakeAuthorizationRepository(
+                [
+                    DataAccessPolicy(
+                        id=1,
+                        tenant_id=3,
+                        subject_type="user",
+                        subject_id=7,
+                        resource_key="basic-data.dictionary",
+                        action="read",
+                        scope=DATA_SCOPE_SELF,
+                        department_ids=(),
+                        priority=100,
+                        create_time="",
+                        update_time="",
+                    )
+                ]
+            )
+        )
+        provider = services.BuiltinDataAccessFilterProvider()
+
+        with mock.patch.object(services.organization_services, "user_departments", return_value=[]):
+            predicate = provider.resolve_filter(
+                current_user={"id": 7, "current_tenant": {"id": 3}, "is_tenant_admin": False},
+                resource=ResourceDescriptor(resource_key="basic-data.dictionary"),
+                action="manage",
+            )
+
+        self.assertEqual(predicate.scope, "deny")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@
                 default-expand-all
                 :options="departmentTreeOptions"
               />
-              <n-select v-else v-model:value="form.subject_id" filterable :options="userOptions" />
+              <n-select v-else v-model:value="form.subject_id" filterable :options="userSubjectOptions" />
             </n-form-item-gi>
             <n-form-item-gi label="数据资源" path="resource_key">
               <n-select v-model:value="form.resource_key" filterable :options="resourceOptions" />
@@ -313,7 +313,17 @@
 
   const rules: FormRules = {
     subject_type: [{ required: true, message: '请选择主体类型', trigger: ['blur', 'change'] }],
-    subject_id: [{ required: true, type: 'number', message: '请选择业务主体', trigger: ['blur', 'change'] }],
+    subject_id: [
+      {
+        required: true,
+        type: 'number',
+        message: '请选择业务主体',
+        trigger: ['blur', 'change'],
+        validator() {
+          return form.subject_type === 'user' ? Number(form.subject_id ?? -1) >= 0 : Number(form.subject_id || 0) > 0;
+        },
+      },
+    ],
     resource_key: [{ required: true, message: '请选择数据资源', trigger: ['blur', 'change'] }],
     action: [{ required: true, message: '请选择动作', trigger: ['blur', 'change'] }],
     scope: [{ required: true, message: '请选择权限范围', trigger: ['blur', 'change'] }],
@@ -415,6 +425,7 @@
   );
   const departmentTreeOptions = computed<TreeSelectOption[]>(() => buildDepartmentTreeOptions());
   const userOptions = computed<SelectOption[]>(() => users.value.map((user) => ({ label: `${user.username} (#${user.id})`, value: user.id })));
+  const userSubjectOptions = computed<SelectOption[]>(() => [{ label: '所有用户', value: 0 }, ...userOptions.value]);
   const columns: DataTableColumns<PolicyRow> = [
     { title: '主体类型', key: 'subject_type', width: 110, render: (row) => subjectTypeLabel(String(row.subject_type)) },
     { title: '业务主体', key: 'subject_id', minWidth: 220, render: (row) => subjectLabel(row) },
@@ -611,7 +622,7 @@
   }
 
   function defaultSubjectId(subjectType: SubjectType) {
-    return subjectType === 'user' ? users.value[0]?.id : departments.value[0]?.id;
+    return subjectType === 'user' ? 0 : departments.value[0]?.id;
   }
 
   function resourcePayload(): DataResourcePayload {
@@ -680,6 +691,7 @@
 
   function subjectLabel(row: Pick<PolicyRow, 'subject_type' | 'subject_id'>) {
     if (row.subject_type === 'user') {
+      if (Number(row.subject_id) === 0) return '所有用户';
       const user = users.value.find((item) => item.id === Number(row.subject_id));
       return user ? `${user.username} (#${user.id})` : `用户 #${row.subject_id}`;
     }
