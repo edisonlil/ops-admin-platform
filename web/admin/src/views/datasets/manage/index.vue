@@ -78,6 +78,29 @@
         <n-pagination v-model:page="previewPage" :page-size="10" :item-count="previewTotal" @update:page="loadPreview" />
       </div>
     </n-modal>
+
+    <n-modal v-model:show="queryModalVisible" preset="card" title="执行数据集查询" class="dataset-page__query">
+      <div class="dataset-query">
+        <div class="dataset-query__editor">
+          <CodePreview v-model:value="querySql" language="sql" :read-only="false" :min-height="220" :max-height="360" />
+        </div>
+        <n-space justify="end">
+          <n-button type="primary" :loading="queryLoading" @click="runQuery">执行</n-button>
+        </n-space>
+        <n-data-table
+          class="dataset-query__result"
+          :columns="queryResultColumns"
+          :data="queryRows"
+          :loading="queryLoading"
+          :pagination="false"
+          size="small"
+        />
+        <div v-if="queryExecuted" class="dataset-page__preview-footer">
+          <span>共 {{ queryTotal }} 行</span>
+          <n-pagination v-model:page="queryPage" :page-size="queryPageSize" :item-count="queryTotal" @update:page="executeQuery" />
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -93,6 +116,7 @@
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     deleteDataset,
+    executeDatasetQuery,
     getDataset,
     listDatasets,
     previewDataset,
@@ -112,7 +136,10 @@
   const schemaModalVisible = ref(false);
   const rowsModalVisible = ref(false);
   const previewModalVisible = ref(false);
+  const queryModalVisible = ref(false);
   const previewLoading = ref(false);
+  const queryLoading = ref(false);
+  const queryExecuted = ref(false);
   const formRef = ref<FormInst | null>(null);
   const rows = ref<Dataset[]>([]);
   const paginationTotal = ref(0);
@@ -129,6 +156,11 @@
   const previewFields = ref<DatasetField[]>([]);
   const previewTotal = ref(0);
   const previewPage = ref(1);
+  const queryRows = ref<Record<string, unknown>[]>([]);
+  const queryFields = ref<DatasetField[]>([]);
+  const queryTotal = ref(0);
+  const queryPage = ref(1);
+  const queryPageSize = 20;
 
   const form = reactive<Partial<Dataset>>({
     key: '',
@@ -188,7 +220,7 @@
             { label: '预览', show: hasPermission(['datasets:dataset:preview']), onClick: () => openPreview(row) },
             { label: '字段', show: hasPermission(['datasets:dataset:manage']), onClick: () => openFields(row) },
             { label: '数据', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'manual', onClick: () => openRows(row) },
-            { label: '查询', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'source_query', onClick: () => openEdit(row) },
+            { label: '查询', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'source_query', onClick: () => openQuery(row) },
             { label: '发布', tone: 'primary', show: hasPermission(['datasets:dataset:publish']), onClick: () => publish(row) },
             {
               label: '删除',
@@ -237,6 +269,20 @@
       render: (row) => String(row[field.field_key] ?? ''),
     }))
   );
+
+  const queryResultColumns = computed<DataTableColumns<Record<string, unknown>>>(() => {
+    const columnsFromFields = queryFields.value
+      .filter((field) => field.visible !== false)
+      .map((field) => ({
+        title: field.label || field.field_key,
+        key: field.field_key,
+        minWidth: 120,
+        ellipsis: { tooltip: true },
+        render: (row: Record<string, unknown>) => formatCellValue(row[field.field_key]),
+      }));
+    if (columnsFromFields.length) return columnsFromFields;
+    return inferColumnsFromRows(queryRows.value);
+  });
 
   function resetForm() {
     Object.assign(form, {
@@ -353,6 +399,20 @@
     await loadPreview();
   }
 
+  function openQuery(row: Dataset) {
+    activeDataset.value = row;
+    const config = row.query_config || {};
+    querySql.value = String(config.sql || '');
+    queryParamsJson.value = JSON.stringify(config.params || [], null, 2);
+    queryDataAccessJson.value = JSON.stringify(config.data_access || defaultDataAccess(), null, 2);
+    queryRows.value = [];
+    queryFields.value = [];
+    queryTotal.value = 0;
+    queryPage.value = 1;
+    queryExecuted.value = false;
+    queryModalVisible.value = true;
+  }
+
   async function loadPreview() {
     if (!activeDataset.value) return;
     previewLoading.value = true;
@@ -364,6 +424,48 @@
     } finally {
       previewLoading.value = false;
     }
+  }
+
+  async function executeQuery() {
+    if (!activeDataset.value) return;
+    const sql = querySql.value.trim();
+    if (!sql) {
+      message.error('请输入查询 SQL');
+      return;
+    }
+    const params = parseJsonValue(queryParamsJson.value, '查询参数');
+    if (!params || (!Array.isArray(params) && typeof params !== 'object')) {
+      message.error('查询参数必须是 JSON 数组或对象');
+      return;
+    }
+    const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
+    if (!dataAccess) return;
+    queryLoading.value = true;
+    try {
+      const payload = await executeDatasetQuery(
+        activeDataset.value.id,
+        {
+          query_config: {
+            sql,
+            params,
+            data_access: dataAccess,
+            max_rows: 1000,
+          },
+        },
+        { page: queryPage.value, page_size: queryPageSize }
+      );
+      queryFields.value = payload.fields || [];
+      queryRows.value = payload.items || [];
+      queryTotal.value = payload.pagination?.total || queryRows.value.length;
+      queryExecuted.value = true;
+    } finally {
+      queryLoading.value = false;
+    }
+  }
+
+  async function runQuery() {
+    queryPage.value = 1;
+    await executeQuery();
   }
 
   async function reload(state?: ListRuntimeState) {
@@ -480,6 +582,23 @@
     return String(statusOptions.find((item) => item.value === value)?.label || value || '-');
   }
 
+  function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {
+    const keys = Array.from(new Set(items.flatMap((item) => Object.keys(item)))).slice(0, 40);
+    return keys.map((key) => ({
+      title: key,
+      key,
+      minWidth: 120,
+      ellipsis: { tooltip: true },
+      render: (row) => formatCellValue(row[key]),
+    }));
+  }
+
+  function formatCellValue(value: unknown) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  }
+
   reload();
 </script>
 
@@ -514,5 +633,20 @@
 
   :global(.dataset-page__preview) {
     width: min(960px, calc(100vw - 32px));
+  }
+
+  :global(.dataset-page__query) {
+    width: min(1100px, calc(100vw - 32px));
+  }
+
+  .dataset-query {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .dataset-query__editor,
+  .dataset-query__result {
+    min-width: 0;
   }
 </style>

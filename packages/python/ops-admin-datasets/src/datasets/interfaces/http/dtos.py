@@ -39,3 +39,8 @@ class DatasetRowsRequest(BaseModel):
 
 class DatasetPreviewRequest(BaseModel):
     variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class DatasetQueryExecuteRequest(BaseModel):
+    query_config: dict[str, Any] = Field(default_factory=dict)
+    variables: dict[str, Any] = Field(default_factory=dict)

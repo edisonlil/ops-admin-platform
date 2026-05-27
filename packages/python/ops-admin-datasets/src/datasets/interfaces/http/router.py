@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from datasets.application import services
 from datasets.domain.exceptions import DatasetDomainError, DatasetNotFoundError, DatasetRuntimeUnavailableError, DatasetStorageNotReadyError
-from datasets.interfaces.http.dtos import DatasetFieldsRequest, DatasetPreviewRequest, DatasetRequest, DatasetRowsRequest
+from datasets.interfaces.http.dtos import DatasetFieldsRequest, DatasetPreviewRequest, DatasetQueryExecuteRequest, DatasetRequest, DatasetRowsRequest
 from identity_access.interfaces.http import dependencies as auth
 from system.interfaces.http import error_response, ok
 
@@ -122,6 +122,26 @@ def runtime_preview(
             page=page,
             page_size=page_size,
             variables=payload.variables,
+            current_user=current_user,
+        )
+    )
+
+
+@router.post("/{dataset_id}/query/execute")
+def execute_query(
+    dataset_id: int,
+    payload: DatasetQueryExecuteRequest,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
+) -> dict[str, Any]:
+    return ok_or_error(
+        lambda: services.preview_dataset(
+            dataset_id=dataset_id,
+            page=page,
+            page_size=page_size,
+            variables=payload.variables,
+            query_config=payload.query_config,
             current_user=current_user,
         )
     )

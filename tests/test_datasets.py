@@ -156,6 +156,27 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(preview["pagination"]["total"], 1)
         self.assertEqual(preview["items"][0]["name"], "自己的订单")
 
+    def test_source_query_preview_can_use_temporary_query_config_without_saving(self) -> None:
+        self.seed_orders()
+        created = self.create_source_query_dataset()
+
+        preview = services.preview_dataset(
+            dataset_id=int(created["id"]),
+            page=1,
+            page_size=20,
+            query_config={
+                "sql": "SELECT tenant_id, owner_user_id, owner_department_id, name, amount FROM business_orders WHERE amount > ?",
+                "params": [150],
+                "data_access": {"resource_key": "business.orders"},
+            },
+            current_user=self.user,
+        )
+        detail = services.dataset_detail(int(created["id"]), self.user)
+
+        self.assertEqual(preview["pagination"]["total"], 1)
+        self.assertEqual(preview["items"][0]["name"], "同租户订单")
+        self.assertEqual(detail["item"]["query_config"]["sql"], "SELECT tenant_id, owner_user_id, owner_department_id, name, amount FROM business_orders")
+
     def test_source_query_dataset_rejects_non_select_sql(self) -> None:
         with self.assertRaises(Exception) as caught:
             services.save_dataset(

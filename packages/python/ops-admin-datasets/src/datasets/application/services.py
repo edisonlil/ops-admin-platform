@@ -193,10 +193,15 @@ def preview_dataset(
     page: int,
     page_size: int,
     variables: dict[str, Any] | None = None,
+    query_config: dict[str, Any] | None = None,
     current_user: dict[str, Any],
 ) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
     fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
+    if query_config is not None:
+        if dataset.dataset_type != DATASET_TYPE_SOURCE_QUERY:
+            raise DatasetDomainError("temporary query_config is only supported for source query datasets")
+        dataset = clone_dataset_with_query_config(dataset, normalize_query_config(query_config))
     if dataset.dataset_type == DATASET_TYPE_MANUAL:
         rows, total = repo().list_manual_rows(
             tenant_id=platform_dataset_tenant_id(current_user),
@@ -218,6 +223,27 @@ def preview_dataset(
         current_user=current_user,
     )
     return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
+
+
+def clone_dataset_with_query_config(dataset: Dataset, query_config: dict[str, Any]) -> Dataset:
+    return Dataset(
+        id=dataset.id,
+        tenant_id=dataset.tenant_id,
+        key=dataset.key,
+        name=dataset.name,
+        description=dataset.description,
+        dataset_type=dataset.dataset_type,
+        status=dataset.status,
+        visibility=dataset.visibility,
+        query_config=query_config,
+        owner_user_id=dataset.owner_user_id,
+        owner_department_id=dataset.owner_department_id,
+        published_version_id=dataset.published_version_id,
+        field_count=dataset.field_count,
+        row_count=dataset.row_count,
+        create_time=dataset.create_time,
+        update_time=dataset.update_time,
+    )
 
 
 def runtime_payload(

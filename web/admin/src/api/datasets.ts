@@ -64,6 +64,11 @@ export interface DatasetRuntimePayload {
   meta: Record<string, unknown>;
 }
 
+export interface DatasetQueryExecutePayload {
+  query_config: Record<string, unknown>;
+  variables?: Record<string, unknown>;
+}
+
 export interface PageParams {
   page?: number;
   page_size?: number;
@@ -133,6 +138,12 @@ export function previewDataset(datasetId: number, params: PageParams = {}) {
 
 export function previewDatasetRuntime(datasetId: number, payload: { variables?: Record<string, unknown> } = {}, params: PageParams = {}) {
   return Alova.Post<DatasetRuntimePayload>(`/datasets/${datasetId}/runtime/preview`, payload, {
+    params: withNoCacheParams(params),
+  });
+}
+
+export function executeDatasetQuery(datasetId: number, payload: DatasetQueryExecutePayload, params: PageParams = {}) {
+  return Alova.Post<DatasetRuntimePayload>(`/datasets/${datasetId}/query/execute`, payload, {
     params: withNoCacheParams(params),
   });
 }
