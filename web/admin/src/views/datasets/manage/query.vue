@@ -9,7 +9,6 @@
           平台数据集
         </n-button>
         <div class="dataset-query-page__title">
-          <span>SQL 工作台</span>
           <strong>{{ dataset?.name || '数据源查询' }}</strong>
         </div>
         <n-tag size="small" :bordered="false">{{ sourceSchemaBackend || '数据源' }}</n-tag>
@@ -35,7 +34,9 @@
           </div>
           <n-button text size="tiny" :loading="schemaLoading" @click="loadSourceSchema">刷新</n-button>
         </div>
-        <n-input v-model:value="schemaKeyword" clearable size="small" placeholder="搜索表或字段" class="dataset-query-workbench__schema-search" />
+        <div class="dataset-query-workbench__schema-search">
+          <n-input v-model:value="schemaKeyword" clearable size="small" placeholder="搜索表或字段" />
+        </div>
         <n-spin :show="schemaLoading" class="dataset-query-workbench__schema-body">
           <n-empty v-if="!filteredSourceTables.length" size="small" :description="schemaEmptyText" />
           <div v-else class="dataset-query-workbench__tables">
@@ -80,27 +81,20 @@
           <CodePreview v-model:value="querySql" language="sql" :read-only="false" height="360px" :auto-height="false" />
         </div>
 
-        <div class="dataset-query-workbench__runtime">
-          <n-tabs v-model:value="configTab" type="line" size="small" animated>
-            <n-tab-pane name="params" tab="查询参数">
-              <CodePreview v-model:value="queryParamsJson" language="json" :read-only="false" height="180px" :auto-height="false" />
-            </n-tab-pane>
-            <n-tab-pane name="dataAccess" tab="数据权限">
-              <CodePreview v-model:value="queryDataAccessJson" language="json" :read-only="false" height="180px" :auto-height="false" />
-            </n-tab-pane>
-          </n-tabs>
-        </div>
-
         <div class="dataset-query-workbench__result">
           <div class="dataset-query-workbench__result-head">
             <n-tabs v-model:value="queryResultTab" type="line" size="small" animated>
               <n-tab-pane name="result" tab="结果" />
               <n-tab-pane name="info" tab="信息" />
             </n-tabs>
-            <span v-if="queryExecuted">返回 {{ queryRows.length }} 行 / 共 {{ queryTotal }} 行</span>
+            <span v-if="queryError">执行失败</span>
+            <span v-else-if="queryExecuted">返回 {{ queryRows.length }} 行 / 共 {{ queryTotal }} 行</span>
           </div>
           <div v-if="queryResultTab === 'result'" class="dataset-query-workbench__result-body">
+            <n-result v-if="queryError" status="error" title="执行失败" :description="queryError" />
+            <n-empty v-else-if="queryExecuted && !queryRows.length" description="执行完成，未返回数据" />
             <n-data-table
+              v-else
               class="dataset-query-workbench__result-table"
               :columns="queryResultColumns"
               :data="queryRows"
@@ -154,7 +148,7 @@
   const queryLoading = ref(false);
   const schemaLoading = ref(false);
   const queryExecuted = ref(false);
-  const configTab = ref<'params' | 'dataAccess'>('params');
+  const queryError = ref('');
   const queryResultTab = ref<'info' | 'result'>('result');
   const dataset = ref<Dataset | null>(null);
   const datasetFields = ref<DatasetField[]>([]);
@@ -191,6 +185,8 @@
   const querySqlLineCount = computed(() => Math.max(1, querySql.value.split(/\r?\n/).length));
 
   const queryResultColumns = computed<DataTableColumns<Record<string, unknown>>>(() => {
+    const columnsFromRows = inferColumnsFromRows(queryRows.value);
+    if (columnsFromRows.length) return columnsFromRows;
     const fields = queryFields.value.length ? queryFields.value : datasetFields.value;
     const columnsFromFields = fields
       .filter((field) => field.visible !== false)
@@ -246,6 +242,7 @@
     queryTotal.value = 0;
     queryPage.value = 1;
     queryExecuted.value = false;
+    queryError.value = '';
   }
 
   async function executeQuery() {
@@ -263,6 +260,7 @@
     const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
     if (!dataAccess) return;
     queryLoading.value = true;
+    queryError.value = '';
     try {
       const payload = await executeDatasetQuery(
         dataset.value.id,
@@ -281,6 +279,14 @@
       queryTotal.value = payload.pagination?.total || queryRows.value.length;
       queryExecuted.value = true;
       queryResultTab.value = 'result';
+      message.success(`执行完成，返回 ${queryRows.value.length} 行`);
+    } catch (error) {
+      queryRows.value = [];
+      queryFields.value = [];
+      queryTotal.value = 0;
+      queryExecuted.value = false;
+      queryResultTab.value = 'result';
+      queryError.value = error instanceof Error ? error.message : 'SQL 执行失败';
     } finally {
       queryLoading.value = false;
     }
@@ -485,8 +491,13 @@
   }
 
   .dataset-query-workbench__schema-search {
-    width: calc(100% - 24px);
-    margin: 10px 12px;
+    min-width: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--app-border-color);
+  }
+
+  .dataset-query-workbench__schema-search :deep(.n-input) {
+    width: 100%;
   }
 
   .dataset-query-workbench__schema-body {
@@ -575,7 +586,7 @@
 
   .dataset-query-workbench__main {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
     min-width: 0;
     min-height: 0;
@@ -584,7 +595,6 @@
   }
 
   .dataset-query-workbench__editor-card,
-  .dataset-query-workbench__runtime,
   .dataset-query-workbench__result {
     min-width: 0;
     overflow: hidden;
@@ -602,14 +612,6 @@
     min-height: 40px;
     padding: 0 12px;
     border-bottom: 1px solid var(--app-border-color);
-  }
-
-  .dataset-query-workbench__runtime :deep(.n-tabs-nav) {
-    padding: 0 12px;
-  }
-
-  .dataset-query-workbench__runtime :deep(.n-tab-pane) {
-    padding: 0 12px 12px;
   }
 
   .dataset-query-workbench__result {
