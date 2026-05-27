@@ -201,6 +201,7 @@ def preview_dataset(
     variables: dict[str, Any] | None = None,
     query_config: dict[str, Any] | None = None,
     current_user: dict[str, Any],
+    apply_data_access: bool = True,
 ) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
     fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
@@ -227,6 +228,7 @@ def preview_dataset(
         page_size=page_size,
         variables=variables or {},
         current_user=current_user,
+        apply_data_access=apply_data_access,
     )
     return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
 

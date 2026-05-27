@@ -27,6 +27,14 @@
           <n-form-item label="说明">
             <n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
           </n-form-item>
+          <n-form-item label="模板变量">
+            <VariableSchemaEditor
+              v-model="templateVariablesSchema"
+              title="模板变量"
+              description="根据标题和内容中的 {{变量}} 自动同步，也可以手动补充变量说明。"
+              :template-text="templateText"
+            />
+          </n-form-item>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -40,11 +48,12 @@
 </template>
 
 <script lang="ts" setup>
-  import { h, reactive, ref } from 'vue';
+  import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
+  import VariableSchemaEditor from '@/components/VariableSchemaEditor/index.vue';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -64,6 +73,7 @@
   const formRef = ref<FormInst | null>(null);
   const rows = ref<MessageTemplate[]>([]);
   const paginationTotal = ref(0);
+  const templateVariablesSchema = ref<Record<string, unknown>>({});
 
   const form = reactive<Partial<MessageTemplate>>({
     id: undefined,
@@ -95,6 +105,7 @@
     title_template: [{ required: true, message: '请输入标题模板', trigger: ['blur', 'input'] }],
     content_template: [{ required: true, message: '请输入内容模板', trigger: ['blur', 'input'] }],
   };
+  const templateText = computed(() => `${form.title_template || ''}\n${form.content_template || ''}`);
 
   const columns: DataTableColumns<MessageTemplate> = [
     { title: '模板名称', key: 'name', minWidth: 180 },
@@ -165,6 +176,7 @@
     form.title_template = '';
     form.content_template = '';
     form.variables_schema = {};
+    templateVariablesSchema.value = {};
     form.status = 'draft';
     formRef.value?.restoreValidation();
   }
@@ -176,6 +188,7 @@
 
   function openEdit(row: MessageTemplate) {
     Object.assign(form, { ...row, channels: [...row.channels] });
+    templateVariablesSchema.value = normalizeSchemaObject(row.variables_schema);
     drawerVisible.value = true;
   }
 
@@ -187,6 +200,7 @@
     }
     saving.value = true;
     try {
+      form.variables_schema = templateVariablesSchema.value;
       await saveMessageTemplate(form);
       message.success('模板已保存');
       drawerVisible.value = false;
@@ -194,6 +208,10 @@
     } finally {
       saving.value = false;
     }
+  }
+
+  function normalizeSchemaObject(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 
   async function toggleStatus(row: MessageTemplate) {

@@ -105,7 +105,15 @@ def preview_dataset(
     page_size: int = Query(default=20, ge=1, le=100),
     current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:preview")),
 ) -> dict[str, Any]:
-    return ok_or_error(lambda: services.preview_dataset(dataset_id=dataset_id, page=page, page_size=page_size, current_user=current_user))
+    return ok_or_error(
+        lambda: services.preview_dataset(
+            dataset_id=dataset_id,
+            page=page,
+            page_size=page_size,
+            current_user=current_user,
+            apply_data_access=False,
+        )
+    )
 
 
 @router.post("/{dataset_id}/runtime/preview")
@@ -143,6 +151,7 @@ def execute_query(
             variables=payload.variables,
             query_config=payload.query_config,
             current_user=current_user,
+            apply_data_access=False,
         )
     )
 

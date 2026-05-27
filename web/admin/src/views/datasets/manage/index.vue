@@ -32,11 +32,13 @@
             <n-form-item label="查询 SQL">
               <CodePreview v-model:value="querySql" language="sql" :read-only="false" :min-height="180" :max-height="360" />
             </n-form-item>
-            <n-form-item label="查询参数 JSON">
-              <CodePreview v-model:value="queryParamsJson" language="json" :read-only="false" :min-height="120" :max-height="260" />
-            </n-form-item>
-            <n-form-item label="数据权限 JSON">
-              <CodePreview v-model:value="queryDataAccessJson" language="json" :read-only="false" :min-height="140" :max-height="300" />
+            <n-form-item label="查询变量">
+              <VariableSchemaEditor
+                v-model="queryVariablesSchema"
+                title="查询变量"
+                description="用于 SQL 模板和控制台调试的变量定义。"
+                :template-text="querySql"
+              />
             </n-form-item>
           </template>
         </n-form>
@@ -90,6 +92,7 @@
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import CodePreview from '@/components/CodePreview/index.vue';
+  import VariableSchemaEditor from '@/components/VariableSchemaEditor/index.vue';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
@@ -126,8 +129,9 @@
   const fieldJson = ref('');
   const rowsJson = ref('');
   const querySql = ref('');
-  const queryParamsJson = ref('[]');
-  const queryDataAccessJson = ref('');
+  const queryParams = ref<unknown[] | Record<string, unknown>>([]);
+  const queryDataAccess = ref<Record<string, unknown>>({});
+  const queryVariablesSchema = ref<Record<string, unknown>>({});
   const previewRows = ref<Record<string, unknown>[]>([]);
   const previewFields = ref<DatasetField[]>([]);
   const previewTotal = ref(0);
@@ -253,8 +257,9 @@
       query_config: {},
     });
     querySql.value = '';
-    queryParamsJson.value = '[]';
-    queryDataAccessJson.value = defaultDataAccessJson();
+    queryParams.value = [];
+    queryDataAccess.value = {};
+    queryVariablesSchema.value = {};
     formRef.value?.restoreValidation();
   }
 
@@ -267,8 +272,9 @@
     Object.assign(form, row, { visibility: row.visibility || 'platform' });
     const config = row.query_config || {};
     querySql.value = String(config.sql || '');
-    queryParamsJson.value = JSON.stringify(config.params || [], null, 2);
-    queryDataAccessJson.value = JSON.stringify(config.data_access || defaultDataAccess(), null, 2);
+    queryParams.value = normalizeQueryParams(config.params);
+    queryDataAccess.value = normalizeSchemaObject(config.data_access);
+    queryVariablesSchema.value = normalizeSchemaObject(config.variables_schema);
     datasetDrawerVisible.value = true;
   }
 
@@ -403,57 +409,47 @@
     }
   }
 
-  function parseJsonObject(value: string, label: string) {
-    try {
-      const parsed = JSON.parse(value || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-        message.error(`${label}必须是 JSON 对象`);
-        return null;
-      }
-      return parsed as Record<string, unknown>;
-    } catch {
-      message.error(`${label}不是有效 JSON`);
-      return null;
-    }
-  }
-
   function buildQueryConfig() {
     if (form.dataset_type !== 'source_query') return {};
-    const params = parseJsonValue(queryParamsJson.value, '查询参数');
-    if (!params || (!Array.isArray(params) && typeof params !== 'object')) {
-      message.error('查询参数必须是 JSON 数组或对象');
-      return null;
-    }
-    const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
-    if (!dataAccess) return null;
-    return {
+    const config: Record<string, unknown> = {
       sql: querySql.value.trim(),
-      params,
-      data_access: dataAccess,
+      variables_schema: queryVariablesSchema.value,
       max_rows: 1000,
     };
-  }
-
-  function parseJsonValue(value: string, label: string) {
-    try {
-      return JSON.parse(value || '[]');
-    } catch {
-      message.error(`${label}不是有效 JSON`);
-      return null;
+    config.params = buildQueryParams(config.sql as string, queryVariablesSchema.value, queryParams.value);
+    if (Object.keys(queryDataAccess.value).length) {
+      config.data_access = queryDataAccess.value;
     }
+    return config;
   }
 
-  function defaultDataAccess() {
-    return {
-      resource_key: 'dataset.source_query',
-      tenant_column: 'tenant_id',
-      owner_user_column: 'owner_user_id',
-      owner_department_column: 'owner_department_id',
-    };
+  function buildQueryParams(sql: string, schema: Record<string, unknown>, fallback: unknown[] | Record<string, unknown>) {
+    if (!sql.includes('?')) return fallback;
+    const keys = schemaVariableKeys(schema);
+    return keys.length ? keys.map((key) => `{{${key}}}`) : fallback;
   }
 
-  function defaultDataAccessJson() {
-    return JSON.stringify(defaultDataAccess(), null, 2);
+  function schemaVariableKeys(schema: Record<string, unknown>): string[] {
+    const properties = normalizeSchemaObject(schema.properties);
+    if (Object.keys(properties).length) return Object.keys(properties);
+    const variables = Array.isArray(schema.variables) ? schema.variables : [];
+    return variables
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        const record = normalizeSchemaObject(item);
+        return typeof record.key === 'string' ? record.key : typeof record.name === 'string' ? record.name : '';
+      })
+      .filter(Boolean);
+  }
+
+  function normalizeQueryParams(value: unknown): unknown[] | Record<string, unknown> {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') return value as Record<string, unknown>;
+    return [];
+  }
+
+  function normalizeSchemaObject(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 
   function defaultFields(): DatasetField[] {

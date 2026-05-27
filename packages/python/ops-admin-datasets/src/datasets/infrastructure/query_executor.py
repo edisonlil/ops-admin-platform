@@ -22,6 +22,7 @@ class SqlDatasetExecutor:
         page_size: int,
         variables: dict[str, Any],
         current_user: dict[str, Any],
+        apply_data_access: bool = True,
     ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         _ = fields
         config = dataset.query_config if isinstance(dataset.query_config, dict) else {}
@@ -29,20 +30,23 @@ class SqlDatasetExecutor:
         ensure_select_sql(sql)
         params = resolve_params(config.get("params"), variables)
         descriptor = resource_descriptor(config)
-        predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read")
         data_access = data_access_config(config)
+        predicate = resolve_data_access_filter(current_user=current_user, resource=descriptor, action="read") if apply_data_access else None
         try:
-            guarded_sql, guarded_params = inject_data_access_into_select(
-                SQLDataAccessInjectionRequest(
-                    sql=sql,
-                    params=tuple(params),
-                    resource=descriptor,
-                    predicate=predicate,
-                    dialect=str(data_access.get("dialect") or data_access.get("sql_dialect") or "sqlite"),
-                    source_table=str(data_access.get("source_table") or ""),
-                    source_alias=str(data_access.get("source_alias") or ""),
+            if predicate is None:
+                guarded_sql, guarded_params = sql, tuple(params)
+            else:
+                guarded_sql, guarded_params = inject_data_access_into_select(
+                    SQLDataAccessInjectionRequest(
+                        sql=sql,
+                        params=tuple(params),
+                        resource=descriptor,
+                        predicate=predicate,
+                        dialect=str(data_access.get("dialect") or data_access.get("sql_dialect") or "sqlite"),
+                        source_table=str(data_access.get("source_table") or ""),
+                        source_alias=str(data_access.get("source_alias") or ""),
+                    )
                 )
-            )
         except SQLDataAccessInjectionError as exc:
             raise DatasetDomainError(f"数据集 SQL 数据权限注入失败: {exc}") from exc
         base_sql = f"FROM ({guarded_sql}) AS dataset_sql_source"
@@ -59,7 +63,7 @@ class SqlDatasetExecutor:
         except Exception as exc:
             raise DatasetDomainError(f"dataset source query failed: {exc}") from exc
         total = min(int(read_row_value(total_row, "total") or 0), max_rows)
-        return [normalize_row(row) for row in rows], total, {"runtime": "source_query", "data_scope": predicate.scope}
+        return [normalize_row(row) for row in rows], total, {"runtime": "source_query", "data_scope": predicate.scope if predicate else "disabled"}
 
 
 def database_target() -> str | Path:

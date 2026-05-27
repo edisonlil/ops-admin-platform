@@ -81,6 +81,15 @@
           <CodePreview v-model:value="querySql" language="sql" :read-only="false" height="360px" :auto-height="false" />
         </div>
 
+        <VariableSchemaEditor
+          v-model="queryVariablesSchema"
+          v-model:values="queryVariables"
+          title="查询变量"
+          description="运行 SQL 时传入的变量，数据权限由系统按当前租户和用户自动过滤。"
+          :template-text="querySql"
+          show-values
+        />
+
         <div class="dataset-query-workbench__result">
           <div class="dataset-query-workbench__result-head">
             <n-tabs v-model:value="queryResultTab" type="line" size="small" animated>
@@ -130,6 +139,7 @@
   import type { DataTableColumns } from 'naive-ui';
   import { ArrowLeftOutlined, PlayCircleOutlined } from '@vicons/antd';
   import CodePreview from '@/components/CodePreview/index.vue';
+  import VariableSchemaEditor from '@/components/VariableSchemaEditor/index.vue';
   import {
     executeDatasetQuery,
     getDataset,
@@ -153,8 +163,10 @@
   const dataset = ref<Dataset | null>(null);
   const datasetFields = ref<DatasetField[]>([]);
   const querySql = ref('');
-  const queryParamsJson = ref('[]');
-  const queryDataAccessJson = ref('');
+  const queryParams = ref<unknown[] | Record<string, unknown>>([]);
+  const queryDataAccess = ref<Record<string, unknown>>({});
+  const queryVariablesSchema = ref<Record<string, unknown>>({});
+  const queryVariables = ref<Record<string, unknown>>({});
   const queryRows = ref<Record<string, unknown>[]>([]);
   const queryFields = ref<DatasetField[]>([]);
   const queryTotal = ref(0);
@@ -235,8 +247,10 @@
   function resetQueryFromDataset() {
     const config = dataset.value?.query_config || {};
     querySql.value = String(config.sql || '');
-    queryParamsJson.value = JSON.stringify(config.params || [], null, 2);
-    queryDataAccessJson.value = JSON.stringify(config.data_access || defaultDataAccess(), null, 2);
+    queryParams.value = normalizeQueryParams(config.params);
+    queryDataAccess.value = normalizeSchemaObject(config.data_access);
+    queryVariablesSchema.value = normalizeSchemaObject(config.variables_schema);
+    queryVariables.value = {};
     queryRows.value = [];
     queryFields.value = [];
     queryTotal.value = 0;
@@ -252,25 +266,23 @@
       message.error('请输入查询 SQL');
       return;
     }
-    const params = parseJsonValue(queryParamsJson.value, '查询参数');
-    if (!params || (!Array.isArray(params) && typeof params !== 'object')) {
-      message.error('查询参数必须是 JSON 数组或对象');
-      return;
-    }
-    const dataAccess = parseJsonObject(queryDataAccessJson.value, '数据权限');
-    if (!dataAccess) return;
     queryLoading.value = true;
     queryError.value = '';
     try {
+      const queryConfig: Record<string, unknown> = {
+        sql,
+        variables_schema: queryVariablesSchema.value,
+        max_rows: 1000,
+      };
+      queryConfig.params = buildQueryParams(sql, queryVariablesSchema.value, queryParams.value);
+      if (Object.keys(queryDataAccess.value).length) {
+        queryConfig.data_access = queryDataAccess.value;
+      }
       const payload = await executeDatasetQuery(
         dataset.value.id,
         {
-          query_config: {
-            sql,
-            params,
-            data_access: dataAccess,
-            max_rows: 1000,
-          },
+          query_config: queryConfig,
+          variables: queryVariables.value,
         },
         { page: queryPage.value, page_size: queryPageSize }
       );
@@ -297,36 +309,33 @@
     await executeQuery();
   }
 
-  function parseJsonObject(value: string, label: string) {
-    try {
-      const parsed = JSON.parse(value || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-        message.error(`${label}必须是 JSON 对象`);
-        return null;
-      }
-      return parsed as Record<string, unknown>;
-    } catch {
-      message.error(`${label}不是有效 JSON`);
-      return null;
-    }
+  function normalizeQueryParams(value: unknown): unknown[] | Record<string, unknown> {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') return value as Record<string, unknown>;
+    return [];
   }
 
-  function parseJsonValue(value: string, label: string) {
-    try {
-      return JSON.parse(value || '[]');
-    } catch {
-      message.error(`${label}不是有效 JSON`);
-      return null;
-    }
+  function normalizeSchemaObject(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 
-  function defaultDataAccess() {
-    return {
-      resource_key: 'dataset.source_query',
-      tenant_column: 'tenant_id',
-      owner_user_column: 'owner_user_id',
-      owner_department_column: 'owner_department_id',
-    };
+  function buildQueryParams(sql: string, schema: Record<string, unknown>, fallback: unknown[] | Record<string, unknown>) {
+    if (!sql.includes('?')) return fallback;
+    const keys = schemaVariableKeys(schema);
+    return keys.length ? keys.map((key) => `{{${key}}}`) : fallback;
+  }
+
+  function schemaVariableKeys(schema: Record<string, unknown>): string[] {
+    const properties = normalizeSchemaObject(schema.properties);
+    if (Object.keys(properties).length) return Object.keys(properties);
+    const variables = Array.isArray(schema.variables) ? schema.variables : [];
+    return variables
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        const record = normalizeSchemaObject(item);
+        return typeof record.key === 'string' ? record.key : typeof record.name === 'string' ? record.name : '';
+      })
+      .filter(Boolean);
   }
 
   function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {
@@ -586,7 +595,7 @@
 
   .dataset-query-workbench__main {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 12px;
     min-width: 0;
     min-height: 0;
@@ -595,7 +604,8 @@
   }
 
   .dataset-query-workbench__editor-card,
-  .dataset-query-workbench__result {
+  .dataset-query-workbench__result,
+  .dataset-query-workbench__main :deep(.variable-schema-editor) {
     min-width: 0;
     overflow: hidden;
     background: var(--app-surface-bg);

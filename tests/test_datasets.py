@@ -158,6 +158,23 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(preview["pagination"]["total"], 1)
         self.assertEqual(preview["items"][0]["name"], "自己的订单")
 
+    def test_platform_source_query_preview_can_disable_data_access_scope(self) -> None:
+        self.seed_orders()
+        created = self.create_source_query_dataset()
+        configure_data_access_filter_provider(SelfOnlyProvider())
+
+        preview = services.preview_dataset(
+            dataset_id=int(created["id"]),
+            page=1,
+            page_size=20,
+            current_user=self.user,
+            apply_data_access=False,
+        )
+
+        self.assertEqual(preview["pagination"]["total"], 3)
+        self.assertEqual({row["name"] for row in preview["items"]}, {"自己的订单", "同租户订单", "其他租户订单"})
+        self.assertEqual(preview["meta"]["data_scope"], "disabled")
+
     def test_source_query_dataset_applies_scope_without_projecting_owner_columns(self) -> None:
         self.seed_orders()
         created = services.save_dataset(

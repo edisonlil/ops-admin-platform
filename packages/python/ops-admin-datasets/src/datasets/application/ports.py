@@ -73,6 +73,7 @@ class ExternalDatasetExecutorPort(Protocol):
         page_size: int,
         variables: dict[str, Any],
         current_user: dict[str, Any],
+        apply_data_access: bool = True,
     ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         ...
 
