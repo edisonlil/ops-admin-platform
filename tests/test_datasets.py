@@ -48,9 +48,11 @@ class DatasetTests(unittest.TestCase):
         self.env_patch.start()
         from datasets.infrastructure.persistence import repositories
         from datasets.infrastructure.query_executor import SqlDatasetExecutor
+        from datasets.infrastructure.schema_introspection import DatabaseSourceSchemaInspector
 
         services.configure_repository(repositories)
         services.configure_external_executor(SqlDatasetExecutor())
+        services.configure_source_schema_inspector(DatabaseSourceSchemaInspector())
         self.user = {
             "id": 10,
             "username": "owner",
@@ -176,6 +178,17 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(preview["pagination"]["total"], 1)
         self.assertEqual(preview["items"][0]["name"], "同租户订单")
         self.assertEqual(detail["item"]["query_config"]["sql"], "SELECT tenant_id, owner_user_id, owner_department_id, name, amount FROM business_orders")
+
+    def test_source_query_schema_lists_source_tables_and_columns(self) -> None:
+        self.seed_orders()
+        created = self.create_source_query_dataset()
+
+        schema = services.source_schema(int(created["id"]), self.user)
+        orders = next(item for item in schema["tables"] if item["name"] == "business_orders")
+
+        self.assertEqual(schema["backend"], "sqlite")
+        self.assertIn("amount", {column["name"] for column in orders["columns"]})
+        self.assertIn("tenant_id", {column["name"] for column in orders["columns"]})
 
     def test_source_query_dataset_rejects_non_select_sql(self) -> None:
         with self.assertRaises(Exception) as caught:

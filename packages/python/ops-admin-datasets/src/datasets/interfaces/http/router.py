@@ -147,6 +147,14 @@ def execute_query(
     )
 
 
+@router.get("/{dataset_id}/source-schema")
+def source_schema(
+    dataset_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("datasets:dataset:manage")),
+) -> dict[str, Any]:
+    return ok_or_error(lambda: services.source_schema(dataset_id, current_user))
+
+
 def ok_or_error(action: Any) -> dict[str, Any]:
     try:
         return ok(action())

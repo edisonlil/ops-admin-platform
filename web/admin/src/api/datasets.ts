@@ -69,6 +69,24 @@ export interface DatasetQueryExecutePayload {
   variables?: Record<string, unknown>;
 }
 
+export interface DatasetSourceColumn {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+  primary_key: boolean;
+}
+
+export interface DatasetSourceTable {
+  name: string;
+  schema: string;
+  columns: DatasetSourceColumn[];
+}
+
+export interface DatasetSourceSchema {
+  backend: string;
+  tables: DatasetSourceTable[];
+}
+
 export interface PageParams {
   page?: number;
   page_size?: number;
@@ -145,5 +163,11 @@ export function previewDatasetRuntime(datasetId: number, payload: { variables?: 
 export function executeDatasetQuery(datasetId: number, payload: DatasetQueryExecutePayload, params: PageParams = {}) {
   return Alova.Post<DatasetRuntimePayload>(`/datasets/${datasetId}/query/execute`, payload, {
     params: withNoCacheParams(params),
+  });
+}
+
+export function getDatasetSourceSchema(datasetId: number) {
+  return Alova.Get<DatasetSourceSchema>(`/datasets/${datasetId}/source-schema`, {
+    params: withNoCacheParams(),
   });
 }

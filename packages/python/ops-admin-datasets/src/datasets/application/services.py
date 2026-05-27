@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from datasets.application.ports import DatasetRepository, ExternalDatasetExecutorPort
+from datasets.application.ports import DatasetRepository, ExternalDatasetExecutorPort, SourceSchemaInspectorPort
 from datasets.domain.exceptions import DatasetDomainError, DatasetNotFoundError, DatasetRuntimeUnavailableError, DatasetStorageNotReadyError
 from datasets.domain.models import (
     DATASET_TYPE_MANUAL,
@@ -22,6 +22,7 @@ from system.application.sorting import InvalidSortError
 
 repository: DatasetRepository | None = None
 external_executor: ExternalDatasetExecutorPort | None = None
+source_schema_inspector: SourceSchemaInspectorPort | None = None
 PLATFORM_DATASET_TENANT_ID = 1
 
 
@@ -33,6 +34,11 @@ def configure_repository(dataset_repository: DatasetRepository) -> None:
 def configure_external_executor(executor: ExternalDatasetExecutorPort | None) -> None:
     global external_executor
     external_executor = executor
+
+
+def configure_source_schema_inspector(inspector: SourceSchemaInspectorPort | None) -> None:
+    global source_schema_inspector
+    source_schema_inspector = inspector
 
 
 def repo() -> DatasetRepository:
@@ -223,6 +229,15 @@ def preview_dataset(
         current_user=current_user,
     )
     return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
+
+
+def source_schema(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+    dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
+    if dataset.dataset_type != DATASET_TYPE_SOURCE_QUERY:
+        raise DatasetDomainError("source schema is only supported for source query datasets")
+    if source_schema_inspector is None:
+        raise DatasetRuntimeUnavailableError("dataset source schema inspector is unavailable")
+    return source_schema_inspector.inspect_source_schema()
 
 
 def clone_dataset_with_query_config(dataset: Dataset, query_config: dict[str, Any]) -> Dataset:

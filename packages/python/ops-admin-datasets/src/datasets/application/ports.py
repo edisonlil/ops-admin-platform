@@ -75,3 +75,8 @@ class ExternalDatasetExecutorPort(Protocol):
         current_user: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         ...
+
+
+class SourceSchemaInspectorPort(Protocol):
+    def inspect_source_schema(self) -> dict[str, Any]:
+        ...
