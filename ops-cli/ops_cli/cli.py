@@ -257,6 +257,11 @@ Examples:
         help="Target server name",
     )
     deploy_parser.add_argument(
+        "target_to",
+        nargs="?",
+        help="Destination target server name for environment copy",
+    )
+    deploy_parser.add_argument(
         "--lines", "-n",
         type=int,
         default=100,
@@ -295,6 +300,8 @@ Examples:
     deploy_parser.add_argument("--user", help="SSH user")
     deploy_parser.add_argument("--ssh-key", dest="ssh_key", help="SSH key path")
     deploy_parser.add_argument("--password", dest="password", help="SSH password")
+    deploy_parser.add_argument("--remote-path", dest="remote_path", help="Remote deployment path")
+    deploy_parser.add_argument("--container-port", dest="container_port", type=int, help="Host port exposed by the deployed container")
     deploy_parser.add_argument("--yes", "-y", dest="yes", action="store_true", help="Skip confirmation")
 
     # sync command
@@ -365,6 +372,12 @@ def main() -> int:
             if args.subcommand in container_commands:
                 # Container management command (logs, status, etc.)
                 run_container_cmd(args)
+            elif args.subcommand == "copy-env":
+                from .commands.deploy import run_deploy_copy_env
+                run_deploy_copy_env(args)
+            elif args.subcommand in {"set-env", "update-env"}:
+                from .commands.deploy import run_deploy_set_env
+                run_deploy_set_env(args)
             elif args.rollback:
                 if args.subcommand and not args.target:
                     args.target = args.subcommand

@@ -16,6 +16,12 @@
       <n-space :size="8" align="center" class="dataset-query-page__actions">
         <n-button :loading="datasetLoading" @click="loadDataset">刷新数据集</n-button>
         <n-button :loading="schemaLoading" @click="loadSourceSchema">刷新表结构</n-button>
+        <n-button type="primary" secondary :loading="savingQuery" @click="saveQueryConfig">
+          <template #icon>
+            <n-icon><SaveOutlined /></n-icon>
+          </template>
+          保存 SQL
+        </n-button>
         <n-button type="primary" secondary :loading="queryLoading" @click="runQuery">
           <template #icon>
             <n-icon><PlayCircleOutlined /></n-icon>
@@ -72,6 +78,12 @@
                   <n-icon><PlayCircleOutlined /></n-icon>
                 </template>
                 运行
+              </n-button>
+              <n-button quaternary size="small" :loading="savingQuery" @click="saveQueryConfig">
+                <template #icon>
+                  <n-icon><SaveOutlined /></n-icon>
+                </template>
+                保存
               </n-button>
               <n-button quaternary size="small" @click="formatQuerySql">格式化</n-button>
               <n-button quaternary size="small" @click="resetQueryFromDataset">还原</n-button>
@@ -138,13 +150,14 @@
   import { useRoute, useRouter } from 'vue-router';
   import { NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns } from 'naive-ui';
-  import { ArrowLeftOutlined, PlayCircleOutlined } from '@vicons/antd';
+  import { ArrowLeftOutlined, PlayCircleOutlined, SaveOutlined } from '@vicons/antd';
   import CodePreview from '@/components/CodePreview/index.vue';
   import VariableSchemaEditor from '@/components/VariableSchemaEditor/index.vue';
   import {
     executeDatasetQuery,
     getDataset,
     getDatasetSourceSchema,
+    saveDataset,
     type Dataset,
     type DatasetField,
     type DatasetSourceColumn,
@@ -157,6 +170,7 @@
   const datasetId = computed(() => Number(route.params.id || 0));
   const datasetLoading = ref(false);
   const queryLoading = ref(false);
+  const savingQuery = ref(false);
   const schemaLoading = ref(false);
   const queryExecuted = ref(false);
   const queryError = ref('');
@@ -263,23 +277,11 @@
 
   async function executeQuery() {
     if (!dataset.value) return;
-    const sql = querySql.value.trim();
-    if (!sql) {
-      message.error('请输入查询 SQL');
-      return;
-    }
+    const queryConfig = buildCurrentQueryConfig();
+    if (!queryConfig) return;
     queryLoading.value = true;
     queryError.value = '';
     try {
-      const queryConfig: Record<string, unknown> = {
-        sql,
-        variables_schema: queryVariablesSchema.value,
-        max_rows: 1000,
-      };
-      queryConfig.params = buildQueryParams(sql, queryVariablesSchema.value, queryParams.value);
-      if (Object.keys(queryDataAccess.value).length) {
-        queryConfig.data_access = queryDataAccess.value;
-      }
       const payload = await executeDatasetQuery(
         dataset.value.id,
         {
@@ -309,6 +311,43 @@
   async function runQuery() {
     queryPage.value = 1;
     await executeQuery();
+  }
+
+  async function saveQueryConfig() {
+    if (!dataset.value) return;
+    const queryConfig = buildCurrentQueryConfig();
+    if (!queryConfig) return;
+    savingQuery.value = true;
+    try {
+      const payload = await saveDataset({
+        ...dataset.value,
+        dataset_type: 'source_query',
+        query_config: queryConfig,
+      });
+      dataset.value = payload.item;
+      resetQueryFromDataset();
+      message.success('SQL 配置已保存，数据预览将使用当前配置');
+    } finally {
+      savingQuery.value = false;
+    }
+  }
+
+  function buildCurrentQueryConfig() {
+    const sql = querySql.value.trim();
+    if (!sql) {
+      message.error('请输入查询 SQL');
+      return null;
+    }
+    const queryConfig: Record<string, unknown> = {
+      sql,
+      variables_schema: queryVariablesSchema.value,
+      max_rows: 1000,
+    };
+    queryConfig.params = buildQueryParams(sql, queryVariablesSchema.value, queryParams.value);
+    if (Object.keys(queryDataAccess.value).length) {
+      queryConfig.data_access = queryDataAccess.value;
+    }
+    return queryConfig;
   }
 
   function normalizeQueryParams(value: unknown): unknown[] | Record<string, unknown> {

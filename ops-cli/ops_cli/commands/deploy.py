@@ -23,6 +23,7 @@ from paramiko import SSHClient, AutoAddPolicy
 from ..config import get_config
 from ..interactive.prompts import ask_confirmation, ask_with_choices
 from ..project_config import (
+    application_config_path,
     read_application_config,
     read_database_config,
     write_database_config as write_application_database_config,
@@ -190,7 +191,7 @@ def _has_database_connection_info(db_config: dict) -> bool:
 def _database_config_summary(db_config: dict) -> str:
     database_url = str(db_config.get("database_url", "")).strip()
     if database_url:
-        return database_url
+        return _mask_secret_in_url(database_url)
 
     backend = str(db_config.get("backend", "")).strip().lower()
     sqlite_path = str(db_config.get("sqlite_path", "")).strip()
@@ -198,6 +199,125 @@ def _database_config_summary(db_config: dict) -> str:
         return f"sqlite:{sqlite_path or 'ops_admin.db'}"
 
     return "(missing)"
+
+
+def _mask_secret_in_url(value: str) -> str:
+    """Mask the password part of a URL-like secret while preserving host details."""
+    if "@" not in value:
+        return value
+
+    left, right = value.rsplit("@", 1)
+    if ":" not in left:
+        return value
+
+    user_part, _password = left.rsplit(":", 1)
+    return f"{user_part}:***@{right}"
+
+
+def _format_deploy_environment_preview(
+    target_name: str,
+    target: dict,
+    db_config: dict,
+    db_config_source: str,
+) -> str:
+    """Build a deployment preview summary."""
+    remote_path = target.get("remote_path") or "/opt/ops-admin"
+    container_port = target.get("container_port", 8000)
+    container_name = _make_container_name(
+        target_name,
+        fallback=target.get("name", target.get("host", "default")),
+    )
+    ssh_port = target.get("port", 22)
+    ssh_user = target.get("user") or ""
+    ssh_host = target.get("host") or ""
+    ssh_key = target.get("ssh_key") or ""
+
+    lines = [
+        f"Target: {target_name}",
+        f"Host: {ssh_host}",
+        f"SSH: {ssh_user}@{ssh_host}:{ssh_port}",
+        f"SSH key: {ssh_key or '(password/agent)'}",
+        f"Remote path: {remote_path}",
+        f"Container name: {container_name}",
+        f"Container port: {container_port}",
+        f"Service URL: http://{ssh_host}:{container_port}",
+        f"Database config source: {db_config_source}",
+        f"Database: {_database_config_summary(db_config)}",
+    ]
+    return "\n".join(lines)
+
+
+def _clone_json_value(value):
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def copy_deploy_environment(
+    project_path: Path,
+    source_name: str,
+    dest_name: str,
+    overrides: Optional[dict] = None,
+) -> tuple[bool, str]:
+    """Copy deploy target and application environment config from one target to another."""
+    source_name = (source_name or "").strip()
+    dest_name = (dest_name or "").strip()
+    if not source_name or not dest_name:
+        return False, "Source and destination target names are required."
+    if source_name == dest_name:
+        return False, "Source and destination target names must be different."
+
+    targets = get_deploy_targets(project_path)
+    if source_name not in targets:
+        return False, f"Source target '{source_name}' not found."
+    if dest_name in targets:
+        return False, f"Destination target '{dest_name}' already exists."
+
+    copied_target = _clone_json_value(targets[source_name])
+    for key, value in (overrides or {}).items():
+        if value is not None and value != "":
+            copied_target[key] = value
+    targets[dest_name] = copied_target
+    save_deploy_targets(targets, project_path)
+
+    source_app_config, source_app_path = read_application_config(project_path, source_name)
+    if source_app_path and source_app_config:
+        dest_app_path = application_config_path(project_path, dest_name)
+        dest_app_path.parent.mkdir(exist_ok=True)
+        with open(dest_app_path, "w", encoding="utf-8") as f:
+            json.dump(source_app_config, f, indent=2, ensure_ascii=False)
+        return True, f"Copied deploy target and {source_app_path.name} to {dest_app_path.name}."
+
+    db_config, db_source = read_database_config(project_path, source_name)
+    if db_config:
+        dest_path = write_application_database_config(project_path, db_config, env=dest_name)
+        return True, f"Copied deploy target and database config from {Path(db_source).name} to {dest_path.name}."
+
+    return True, "Copied deploy target. No source application config was found to copy."
+
+
+def update_deploy_environment(project_path: Path, target_name: str, updates: dict) -> tuple[bool, str]:
+    """Update saved deploy target environment fields."""
+    target_name = (target_name or "").strip()
+    if not target_name:
+        return False, "Target name is required."
+
+    allowed_fields = {"remote_path", "container_port", "host", "port", "user", "ssh_key"}
+    clean_updates = {
+        key: value
+        for key, value in (updates or {}).items()
+        if key in allowed_fields and value is not None and value != ""
+    }
+    if not clean_updates:
+        return False, "No environment updates provided."
+
+    targets = get_deploy_targets(project_path)
+    if target_name not in targets:
+        return False, f"Target '{target_name}' not found."
+
+    targets[target_name].update(clean_updates)
+    save_deploy_targets(targets, project_path)
+
+    changed = ", ".join(f"{key}={value}" for key, value in clean_updates.items())
+    return True, f"Updated target '{target_name}': {changed}."
 
 
 def _existing_database_config_for_new_target(project_path: Path, target_name: str) -> tuple[dict, str] | None:
@@ -913,8 +1033,8 @@ def run_deploy(args) -> None:
                     print("Password required.")
                     return
             
-            remote_path = input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
-            container_port = input("Container port [8000]: ").strip() or "8000"
+            remote_path = getattr(args, "remote_path", None) or input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+            container_port = getattr(args, "container_port", None) or input("Container port [8000]: ").strip() or "8000"
 
             target = {
                 "host": host,
@@ -1005,18 +1125,15 @@ def run_deploy(args) -> None:
         print('  {"backend": "sqlite", "sqlite_path": "data/ops_admin.db"}')
         return
 
+    environment_preview = _format_deploy_environment_preview(target_name, target, db_config, db_config_source)
+
     # Dry-run mode
     if getattr(args, 'dry_run', False):
         print("\n" + "=" * 50)
         print("DRY RUN - Deployment Preview")
         print("=" * 50)
-        print(f"\nTarget: {target_name}")
-        print(f"Host: {target.get('host')}:{target.get('port', 22)}")
-        print(f"User: {target.get('user')}")
-        print(f"Remote path: {target.get('remote_path')}")
-        print(f"Container port: {target.get('container_port', 8000)}")
-        print(f"\nDatabase config source: {db_config_source}")
-        print(f"Database: {_database_config_summary(db_config)}")
+        print()
+        print(environment_preview)
         print(f"\nWill do:")
         print("  1. Build frontend (pnpm build)")
         print("  2. Create deployment package (tar.gz)")
@@ -1122,7 +1239,8 @@ def run_deploy_add(args) -> None:
             print("Password required.")
             return
     
-    remote_path = input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+    remote_path = getattr(args, "remote_path", None) or input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+    container_port = getattr(args, "container_port", None) or input(f"Container port [8000]: ").strip() or "8000"
     
     # Database URL
     print("\nDatabase configuration:")
@@ -1138,7 +1256,7 @@ def run_deploy_add(args) -> None:
         "user": user,
         "remote_path": remote_path,
         "database_url": db_url,
-        "container_port": int(input(f"Container port [8000]: ").strip() or "8000"),
+        "container_port": int(container_port),
     }
     
     # Add auth method
@@ -1171,6 +1289,71 @@ def run_deploy_add(args) -> None:
         with open(backup_path, "w", encoding="utf-8") as f:
             json.dump(backup_payload, f, indent=2, ensure_ascii=False)
         print("Application config backup saved to application.json")
+
+
+def run_deploy_copy_env(args) -> None:
+    """Copy one deploy environment to another target name."""
+    config = get_config()
+    project_info = config.get_current_project()
+
+    if not project_info:
+        print("\nNo current project selected.")
+        print("Use 'ops-cli switch <name>' to switch to a project first.")
+        return
+
+    source_name = args.target
+    dest_name = getattr(args, "target_to", None)
+    if not source_name or not dest_name:
+        print("\nUsage: ops-cli deploy copy-env <source> <destination>")
+        print("Example: ops-cli deploy copy-env dev prod")
+        return
+
+    project_path = Path(project_info["path"])
+    overrides = {
+        "remote_path": getattr(args, "remote_path", None),
+        "container_port": getattr(args, "container_port", None),
+    }
+    ok, message = copy_deploy_environment(project_path, source_name, dest_name, overrides=overrides)
+    if not ok:
+        print(f"\nCopy failed: {message}")
+        return
+
+    print(f"\n{message}")
+    print(f"Next: ops-cli deploy {dest_name}")
+
+
+def run_deploy_set_env(args) -> None:
+    """Update saved deploy environment settings for a target."""
+    config = get_config()
+    project_info = config.get_current_project()
+
+    if not project_info:
+        print("\nNo current project selected.")
+        print("Use 'ops-cli switch <name>' to switch to a project first.")
+        return
+
+    target_name = args.target
+    if not target_name:
+        print("\nUsage: ops-cli deploy set-env <target> [--container-port PORT] [--remote-path PATH]")
+        print("Example: ops-cli deploy set-env prod --container-port 9002")
+        return
+
+    updates = {
+        "remote_path": getattr(args, "remote_path", None),
+        "container_port": getattr(args, "container_port", None),
+        "host": getattr(args, "host", None),
+        "port": int(args.port) if getattr(args, "port", None) else None,
+        "user": getattr(args, "user", None),
+        "ssh_key": os.path.expanduser(args.ssh_key) if getattr(args, "ssh_key", None) else None,
+    }
+    project_path = Path(project_info["path"])
+    ok, message = update_deploy_environment(project_path, target_name, updates)
+    if not ok:
+        print(f"\nUpdate failed: {message}")
+        return
+
+    print(f"\n{message}")
+    print(f"Next: ops-cli deploy {target_name}")
 
 
 def run_deploy_list(args) -> None:

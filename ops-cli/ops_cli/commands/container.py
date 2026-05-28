@@ -33,9 +33,32 @@ def _get_target_container_name(target_name: str, target: dict) -> str:
     return _make_container_name(target_name, fallback=target.get("name", target.get("host", target.get("user", "default"))))
 
 
+def _remote_shell_prefix() -> str:
+    return (
+        "if [ \"$(id -u)\" -eq 0 ]; then SUDO=\"\"; else SUDO=\"sudo\"; fi; "
+        "if command -v docker-compose >/dev/null 2>&1; then COMPOSE=\"$SUDO docker-compose\"; "
+        "else COMPOSE=\"$SUDO docker compose\"; fi; "
+        "DOCKER=\"$SUDO docker\"; "
+    )
+
+
+def _docker_command(command: str) -> str:
+    return f"{_remote_shell_prefix()}$DOCKER {command}"
+
+
+def _compose_command(remote_path: str, action: str) -> str:
+    return f"{_remote_shell_prefix()}$COMPOSE -f {remote_path}/docker-compose.yml {action}"
+
+
 def get_deploy_targets() -> dict:
-    """Get all configured deploy targets."""
+    """Get deploy targets for the active project."""
     config = get_config()
+    project_info = config.get_current_project()
+    if project_info:
+        from .deploy import get_deploy_targets as get_project_deploy_targets
+
+        return get_project_deploy_targets(Path(project_info.get("path", "")))
+
     data = config.load()
     return data.get("deploy_targets", {})
 
@@ -124,7 +147,7 @@ def run_container_command(args) -> None:
         print("-" * 40)
         container_name = _get_target_container_name(target_name, target)
         stdin, stdout, stderr = client.exec_command(
-            f"docker ps -a --filter name=^{container_name}$ --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
+            _docker_command(f"ps -a --filter name=^{container_name}$ --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'")
         )
         stdout.channel.recv_exit_status()
         output = stdout.read().decode()
@@ -136,16 +159,20 @@ def run_container_command(args) -> None:
         # Show image
         print("\nImage:")
         print("-" * 40)
-        stdin, stdout, stderr = client.exec_command("docker images ops-admin:latest --format '{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}'")
+        stdin, stdout, stderr = client.exec_command(
+            _docker_command("images ops-admin:latest --format '{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}'")
+        )
         stdout.channel.recv_exit_status()
         print(stdout.read().decode() or "No image found.")
     
     elif command in ("start", "stop", "restart"):
         # Start/stop/restart container
-        action = "start" if command == "start" else "stop"
-        print(f"\n{action.title()}ing container...")
-        
-        stdin, stdout, stderr = client.exec_command(f"docker-compose -f /opt/ops-admin/docker-compose.yml {action}")
+        action = command
+        action_label = {"start": "Starting", "stop": "Stopping", "restart": "Restarting"}[action]
+        print(f"\n{action_label} container...")
+        remote_path = target.get("remote_path", "/opt/ops-admin")
+
+        stdin, stdout, stderr = client.exec_command(_compose_command(remote_path, action))
         
         # Show output
         while True:
@@ -163,7 +190,7 @@ def run_container_command(args) -> None:
         
         exit_status = stdout.channel.recv_exit_status()
         if exit_status == 0:
-            print(f"\nContainer {action}ed successfully.")
+            print(f"\nContainer {action} completed successfully.")
         else:
             print(f"\nFailed to {action} container.")
     
@@ -178,7 +205,7 @@ def run_container_command(args) -> None:
             print("-" * 40)
             
             # Use docker logs -f for real-time
-            channel = client.exec_command(f"docker logs -f --tail {lines} {container_name} 2>&1")
+            channel = client.exec_command(_docker_command(f"logs -f --tail {lines} {container_name}") + " 2>&1")
             
             stdout = channel[1]
             stderr = channel[2]
@@ -203,7 +230,7 @@ def run_container_command(args) -> None:
             print(f"\nContainer logs (last {lines} lines):")
             print("-" * 40)
             
-            stdin, stdout, stderr = client.exec_command(f"docker logs --tail {lines} {container_name} 2>&1")
+            stdin, stdout, stderr = client.exec_command(_docker_command(f"logs --tail {lines} {container_name}") + " 2>&1")
             
             while True:
                 readable, _, _ = select.select([stdout.channel, stderr.channel], [], [])
