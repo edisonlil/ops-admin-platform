@@ -135,6 +135,113 @@
                       @focus="loadDatasets"
                     />
                   </n-form-item>
+                  <template v-if="isSelectedCartesianChart && selectedDataSource.type === 'dataset'">
+                    <n-form-item label="横轴字段">
+                      <n-select
+                        v-model:value="selectedDatasetConfig.xAxisField"
+                        filterable
+                        clearable
+                        :options="selectedDatasetFieldOptions"
+                        placeholder="选择分类、日期或时间字段"
+                        @focus="loadSelectedDatasetFields"
+                      />
+                    </n-form-item>
+                    <n-form-item label="纵轴字段">
+                      <n-select
+                        v-model:value="selectedDatasetConfig.yAxisFields"
+                        multiple
+                        filterable
+                        clearable
+                        :options="selectedNumericFieldOptions"
+                        placeholder="选择一个或多个数值字段"
+                        @focus="loadSelectedDatasetFields"
+                      />
+                    </n-form-item>
+                    <n-form-item label="筛选条件">
+                      <div class="page-designer-config__filters">
+                        <div
+                          v-for="(filter, index) in selectedDatasetConfig.filters"
+                          :key="index"
+                          class="page-designer-config__filter-row"
+                        >
+                          <n-select
+                            v-model:value="filter.field"
+                            filterable
+                            clearable
+                            :options="selectedDatasetFieldOptions"
+                            placeholder="字段"
+                            @focus="loadSelectedDatasetFields"
+                          />
+                          <n-select v-model:value="filter.operator" :options="filterOperatorOptions" placeholder="条件" />
+                          <n-input v-model:value="filter.value" placeholder="筛选值" />
+                          <n-button tertiary type="error" @click="removeSelectedDatasetFilter(index)">删除</n-button>
+                        </div>
+                        <n-button dashed block @click="addSelectedDatasetFilter">添加筛选条件</n-button>
+                      </div>
+                    </n-form-item>
+                  </template>
+                  <template v-if="selectedComponent.type === 'pie_chart' && selectedDataSource.type === 'dataset'">
+                    <n-form-item label="扇区分组">
+                      <n-select
+                        v-model:value="selectedDatasetConfig.xAxisField"
+                        filterable
+                        clearable
+                        :options="selectedDatasetFieldOptions"
+                        placeholder="选择分组字段"
+                        @focus="loadSelectedDatasetFields"
+                      />
+                    </n-form-item>
+                    <n-form-item label="扇区数值">
+                      <n-radio-group v-model:value="selectedDatasetConfig.pieValueMode">
+                        <n-radio-button value="count">统计记录总数</n-radio-button>
+                        <n-radio-button value="field">统计指定字段</n-radio-button>
+                      </n-radio-group>
+                    </n-form-item>
+                    <n-form-item v-if="selectedDatasetConfig.pieValueMode === 'field'" label="数值字段">
+                      <n-select
+                        v-model:value="selectedDatasetConfig.pieValueField"
+                        filterable
+                        clearable
+                        :options="selectedNumericFieldOptions"
+                        placeholder="选择数值字段"
+                        @focus="loadSelectedDatasetFields"
+                      />
+                    </n-form-item>
+                    <n-form-item label="排序依据">
+                      <n-radio-group v-model:value="selectedDatasetConfig.pieSortBy">
+                        <n-radio-button value="name">按扇区名称</n-radio-button>
+                        <n-radio-button value="value">按扇区数值</n-radio-button>
+                      </n-radio-group>
+                    </n-form-item>
+                    <n-form-item label="排序方式">
+                      <n-radio-group v-model:value="selectedDatasetConfig.pieSortDirection">
+                        <n-radio-button value="asc">正序</n-radio-button>
+                        <n-radio-button value="desc">倒序</n-radio-button>
+                      </n-radio-group>
+                    </n-form-item>
+                    <n-form-item label="筛选条件">
+                      <div class="page-designer-config__filters">
+                        <div
+                          v-for="(filter, index) in selectedDatasetConfig.filters"
+                          :key="index"
+                          class="page-designer-config__filter-row"
+                        >
+                          <n-select
+                            v-model:value="filter.field"
+                            filterable
+                            clearable
+                            :options="selectedDatasetFieldOptions"
+                            placeholder="字段"
+                            @focus="loadSelectedDatasetFields"
+                          />
+                          <n-select v-model:value="filter.operator" :options="filterOperatorOptions" placeholder="条件" />
+                          <n-input v-model:value="filter.value" placeholder="筛选值" />
+                          <n-button tertiary type="error" @click="removeSelectedDatasetFilter(index)">删除</n-button>
+                        </div>
+                        <n-button dashed block @click="addSelectedDatasetFilter">添加筛选条件</n-button>
+                      </div>
+                    </n-form-item>
+                  </template>
                 </template>
                 <n-form-item v-if="selectedComponent.type === 'metric_card'" label="指标值">
                   <n-input v-model:value="selectedComponent.props.value" placeholder="例如 128.6万" />
@@ -207,15 +314,17 @@
   } from '@vicons/antd';
   import CodePreview from '@/components/CodePreview/index.vue';
   import DashboardGridCanvas from '@/components/PageDesigner/DashboardGridCanvas.vue';
-  import { listDatasets, type Dataset } from '@/api/datasets';
+  import { getDataset, listDatasets, type Dataset, type DatasetField } from '@/api/datasets';
   import {
     chartWidgetTypes,
     defaultDataSourceForWidget,
     isDataDrivenWidget,
+    normalizeDatasetConfig,
     sampleDataJsonForWidget,
     widgetDefinition,
     widgetDefinitions,
     withDefaultDataSource,
+    type WidgetDatasetConfig,
     type WidgetDataSourceConfig,
     type WidgetDefinition,
   } from '@/components/PageDesigner/widgets';
@@ -240,6 +349,7 @@
   const publishing = ref(false);
   const previewing = ref(false);
   const datasetsLoading = ref(false);
+  const datasetFieldsLoading = ref(false);
   const previewVisible = ref(false);
   const widgetPickerVisible = ref(false);
   const configVisible = ref(false);
@@ -251,10 +361,15 @@
   const selectedLayoutItem = reactive<DashboardLayoutItem>({ id: '', type: '', x: 0, y: 0, w: 6, h: 3, props: {} });
   const components = ref<PageComponentConfig[]>([]);
   const datasets = ref<Dataset[]>([]);
+  const datasetFieldsById = reactive<Record<string, DatasetField[]>>({});
 
   const selectedComponent = computed(() => components.value.find((component) => component.id === selectedId.value));
   const selectedDefinition = computed(() => widgetDefinition(selectedComponent.value?.type || 'metric_card'));
   const isSelectedDataDriven = computed(() => Boolean(selectedComponent.value && isDataDrivenWidget(selectedComponent.value.type)));
+  const isSelectedCartesianChart = computed(() => ['line_chart', 'bar_chart', 'stacked_area_chart'].includes(selectedComponent.value?.type || ''));
+  const isSelectedMappedDatasetChart = computed(() =>
+    ['line_chart', 'bar_chart', 'stacked_area_chart', 'pie_chart'].includes(selectedComponent.value?.type || '')
+  );
   const selectedDataSource = computed<WidgetDataSourceConfig>({
     get() {
       if (!selectedComponent.value) return defaultDataSourceForWidget('metric_card');
@@ -263,6 +378,19 @@
     set(value) {
       if (!selectedComponent.value) return;
       selectedComponent.value.props.dataSource = value;
+    },
+  });
+  const selectedDatasetConfig = computed<WidgetDatasetConfig>({
+    get() {
+      if (!selectedComponent.value) return normalizeDatasetConfig();
+      const dataSource = ensureComponentDataSource(selectedComponent.value);
+      dataSource.datasetConfig = normalizeDatasetConfig(dataSource.datasetConfig);
+      return dataSource.datasetConfig;
+    },
+    set(value) {
+      if (!selectedComponent.value) return;
+      const dataSource = ensureComponentDataSource(selectedComponent.value);
+      dataSource.datasetConfig = normalizeDatasetConfig(value);
     },
   });
   const selectedPreviewLayout = computed<DashboardLayout>(() => ({
@@ -279,11 +407,35 @@
     { label: '静态 JSON', value: 'static_json' },
     { label: '数据集', value: 'dataset' },
   ];
+  const filterOperatorOptions = [
+    { label: '等于', value: 'eq' },
+    { label: '不等于', value: 'neq' },
+    { label: '包含', value: 'contains' },
+    { label: '大于', value: 'gt' },
+    { label: '大于等于', value: 'gte' },
+    { label: '小于', value: 'lt' },
+    { label: '小于等于', value: 'lte' },
+  ];
   const datasetOptions = computed<SelectOption[]>(() =>
     datasets.value.map((dataset) => ({
       label: `${dataset.name}（${dataset.key}）`,
       value: String(dataset.id),
     }))
+  );
+  const selectedDatasetId = computed(() => {
+    const datasetId = selectedDataSource.value.datasetId;
+    return datasetId === null || datasetId === undefined || datasetId === '' ? '' : String(datasetId);
+  });
+  const selectedDatasetFields = computed(() => (selectedDatasetId.value ? datasetFieldsById[selectedDatasetId.value] || [] : []));
+  const selectedDatasetFieldOptions = computed<SelectOption[]>(() =>
+    selectedDatasetFields.value
+      .filter((field) => field.visible !== false)
+      .map((field) => ({ label: `${field.label || field.field_key}（${field.field_key}）`, value: field.field_key }))
+  );
+  const selectedNumericFieldOptions = computed<SelectOption[]>(() =>
+    selectedDatasetFields.value
+      .filter((field) => field.visible !== false && ['number', 'integer'].includes(field.data_type))
+      .map((field) => ({ label: `${field.label || field.field_key}（${field.field_key}）`, value: field.field_key }))
   );
 
   function assignLayout(nextLayout: DashboardLayout) {
@@ -362,6 +514,9 @@
     selectedId.value = id;
     syncSelectedLayoutState();
     configVisible.value = true;
+    if (isSelectedMappedDatasetChart.value && selectedDataSource.value.type === 'dataset') {
+      void loadSelectedDatasetFields();
+    }
   }
 
   function syncSelectedLayoutState() {
@@ -402,6 +557,9 @@
     };
     if (value === 'dataset') {
       void loadDatasets();
+      if (isSelectedMappedDatasetChart.value) {
+        void loadSelectedDatasetFields();
+      }
     }
   }
 
@@ -414,6 +572,34 @@
     } finally {
       datasetsLoading.value = false;
     }
+  }
+
+  async function loadSelectedDatasetFields() {
+    const datasetId = selectedDatasetId.value;
+    if (!datasetId || datasetFieldsById[datasetId] || datasetFieldsLoading.value) return;
+    datasetFieldsLoading.value = true;
+    try {
+      const payload = await getDataset(Number(datasetId));
+      datasetFieldsById[datasetId] = payload.fields || [];
+    } finally {
+      datasetFieldsLoading.value = false;
+    }
+  }
+
+  function addSelectedDatasetFilter() {
+    selectedDatasetConfig.value.filters = [
+      ...(selectedDatasetConfig.value.filters || []),
+      {
+        field: '',
+        operator: 'eq',
+        value: '',
+        enabled: true,
+      },
+    ];
+  }
+
+  function removeSelectedDatasetFilter(index: number) {
+    selectedDatasetConfig.value.filters = (selectedDatasetConfig.value.filters || []).filter((_, filterIndex) => filterIndex !== index);
   }
 
   function fillSelectedSampleData() {
@@ -885,6 +1071,20 @@
     border-radius: 6px;
   }
 
+  .page-designer-config__filters {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .page-designer-config__filter-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1.1fr) minmax(92px, 0.8fr) minmax(120px, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+  }
+
   .page-designer-detail__preview {
     width: min(1200px, 92vw);
   }
@@ -910,6 +1110,10 @@
     .page-designer-config__panel {
       padding-left: 0;
       border-left: 0;
+    }
+
+    .page-designer-config__filter-row {
+      grid-template-columns: 1fr;
     }
   }
 </style>

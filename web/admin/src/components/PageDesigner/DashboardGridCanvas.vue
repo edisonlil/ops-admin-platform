@@ -48,7 +48,7 @@
   import { MoreOutlined } from '@vicons/antd';
   import { previewDatasetRuntime, type DatasetRuntimePayload } from '@/api/datasets';
   import type { DashboardLayout, PageComponentConfig } from '@/api/pageDesigner';
-  import { datasetIdForComponent } from './widgets';
+  import { datasetIdForComponent, datasetPayloadKey, datasetVariablesForComponent } from './widgets';
   import WidgetRenderer from './WidgetRenderer.vue';
 
   interface GridCanvasItem {
@@ -82,7 +82,17 @@
 
   const innerLayout = ref<GridCanvasItem[]>(toGridItems(props.layout));
   const datasetPayloads = reactive<Record<string, DatasetRuntimePayload | null | undefined>>({});
-  const datasetIds = computed(() => Array.from(new Set(props.components.map(datasetIdForComponent).filter(Boolean))));
+  const datasetRequests = computed(() => {
+    const requests = new Map<string, { datasetId: string; variables: Record<string, unknown> }>();
+    props.components.forEach((component) => {
+      const datasetId = datasetIdForComponent(component);
+      if (!datasetId) return;
+      const variables = datasetVariablesForComponent(component);
+      const key = datasetPayloadKey(datasetId, variables);
+      requests.set(key, { datasetId, variables });
+    });
+    return Array.from(requests.entries()).map(([key, request]) => ({ key, ...request }));
+  });
   const componentActionOptions = [
     { label: '配置', key: 'configure' },
     { label: '复制', key: 'duplicate' },
@@ -102,12 +112,12 @@
   );
 
   watch(
-    datasetIds,
-    (ids) => {
-      ids.forEach((id) => {
-        if (datasetPayloads[id] !== undefined) return;
-        datasetPayloads[id] = null;
-        void loadDatasetPreview(id);
+    datasetRequests,
+    (requests) => {
+      requests.forEach((request) => {
+        if (datasetPayloads[request.key] !== undefined) return;
+        datasetPayloads[request.key] = null;
+        void loadDatasetPreview(request.key, request.datasetId, request.variables);
       });
     },
     { immediate: true }
@@ -117,13 +127,13 @@
     return props.components.find((component) => component.id === id) || { id, type: 'text_block', title: '未知组件', props: {} };
   }
 
-  async function loadDatasetPreview(id: string) {
+  async function loadDatasetPreview(payloadKey: string, id: string, variables: Record<string, unknown>) {
     const datasetId = Number(id);
     if (!Number.isFinite(datasetId) || datasetId <= 0) return;
     try {
-      datasetPayloads[id] = await previewDatasetRuntime(datasetId, {}, { page: 1, page_size: 100 });
+      datasetPayloads[payloadKey] = await previewDatasetRuntime(datasetId, { variables }, { page: 1, page_size: 100 });
     } catch {
-      datasetPayloads[id] = null;
+      datasetPayloads[payloadKey] = null;
     }
   }
 
