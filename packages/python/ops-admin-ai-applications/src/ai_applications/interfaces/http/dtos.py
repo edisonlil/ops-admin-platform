@@ -12,7 +12,7 @@ class AIApplicationRequest(BaseModel):
     app_type: str = Field(default="single_turn_generation", max_length=80)
     status: str = Field(default="draft", max_length=40)
     endpoint_slug: str = Field(default="", max_length=160)
-    system_prompt: str = Field(default="", max_length=20000)
+    system_prompt: str = ""
     developer_prompt: str = Field(default="", max_length=20000)
     user_prompt_template: str = Field(default="", max_length=20000)
     variables_schema: dict[str, Any] = Field(default_factory=dict)

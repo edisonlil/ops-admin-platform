@@ -13,7 +13,7 @@ class AICapabilityRequest(BaseModel):
     binding_type: str = Field(default="prompt_runtime", max_length=80)
     binding_key: str = Field(default="", max_length=160)
     call_method: str = Field(default="aiService.execute", max_length=200)
-    system_prompt: str = Field(default="", max_length=20000)
+    system_prompt: str = ""
     developer_prompt: str = Field(default="", max_length=20000)
     user_prompt_template: str = Field(default="", max_length=20000)
     input_schema: dict[str, Any] = Field(default_factory=dict)
