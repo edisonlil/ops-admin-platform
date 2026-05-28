@@ -153,9 +153,7 @@ def save_manual_rows(dataset_id: int, payload: dict[str, Any], current_user: dic
     rows = payload.get("rows")
     if not isinstance(rows, list):
         raise DatasetDomainError("rows must be an array")
-    normalized = [item for item in rows if isinstance(item, dict)]
-    if len(normalized) != len(rows):
-        raise DatasetDomainError("each row must be an object")
+    normalized = normalize_manual_rows(rows)
     try:
         count = repo().replace_manual_rows(
             tenant_id=platform_dataset_tenant_id(current_user),
@@ -171,12 +169,15 @@ def save_manual_rows(dataset_id: int, payload: dict[str, Any], current_user: dic
 
 def publish_dataset(dataset_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="manage")
-    fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
-    if not fields:
-        raise DatasetDomainError("dataset fields are required before publishing")
-    rows: list[dict[str, Any]] = []
-    if dataset.dataset_type == DATASET_TYPE_MANUAL:
-        rows, _ = repo().list_manual_rows(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id, page=1, page_size=20)
+    preview = preview_dataset(
+        dataset_id=dataset.id,
+        page=1,
+        page_size=20,
+        current_user=current_user,
+        apply_data_access=False,
+    )
+    rows = preview.get("items") if isinstance(preview.get("items"), list) else []
+    fields = fields_from_dicts(preview.get("fields"))
     schema = {"fields": [field.to_dict() for field in fields]}
     try:
         version = repo().publish_dataset(
@@ -204,7 +205,7 @@ def preview_dataset(
     apply_data_access: bool = True,
 ) -> dict[str, Any]:
     dataset = ensure_dataset_access(dataset_id, current_user=current_user, action="read")
-    fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
+    configured_fields = repo().list_fields(tenant_id=platform_dataset_tenant_id(current_user), dataset_id=dataset.id)
     if query_config is not None:
         if dataset.dataset_type != DATASET_TYPE_SOURCE_QUERY:
             raise DatasetDomainError("temporary query_config is only supported for source query datasets")
@@ -216,6 +217,7 @@ def preview_dataset(
             page=page,
             page_size=page_size,
         )
+        fields = infer_result_fields(rows, fallback_fields=configured_fields)
         return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "manual"})
     if dataset.dataset_type == DATASET_TYPE_SOURCE_QUERY:
         validate_source_query_ready(dataset)
@@ -223,13 +225,14 @@ def preview_dataset(
         raise DatasetRuntimeUnavailableError("dataset runtime executor is unavailable")
     rows, total, meta = external_executor.execute_preview(
         dataset=dataset,
-        fields=fields,
+        fields=configured_fields,
         page=page,
         page_size=page_size,
         variables=variables or {},
         current_user=current_user,
         apply_data_access=apply_data_access,
     )
+    fields = infer_result_fields(rows, fallback_fields=configured_fields)
     return runtime_payload(dataset, fields, rows, total, page, page_size, {"runtime": "external", **meta})
 
 
@@ -360,6 +363,101 @@ def normalize_fields(raw_fields: list[Any]) -> list[dict[str, Any]]:
         }
         DatasetField(id=0, tenant_id=0, dataset_id=0, create_time="", update_time="", **item).validate()
         fields.append(item)
+    return fields
+
+
+def normalize_manual_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in rows:
+        if isinstance(item, dict):
+            normalized.append(item)
+        elif isinstance(item, (str, int, float, bool)) or item is None:
+            normalized.append({"value": item})
+        else:
+            raise DatasetDomainError("manual data rows must be objects or scalar values")
+    return normalized
+
+
+def infer_result_fields(rows: list[dict[str, Any]], fallback_fields: list[DatasetField] | None = None) -> list[DatasetField]:
+    field_keys: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in field_keys:
+                field_keys.append(key)
+    if not field_keys and fallback_fields:
+        return fallback_fields
+    configured = {field.field_key: field for field in fallback_fields or []}
+    return [
+        inferred_field(key, index, rows, configured.get(key))
+        for index, key in enumerate(field_keys)
+    ]
+
+
+def inferred_field(field_key: str, index: int, rows: list[dict[str, Any]], configured: DatasetField | None = None) -> DatasetField:
+    values = [row.get(field_key) for row in rows]
+    return DatasetField(
+        id=configured.id if configured else 0,
+        tenant_id=configured.tenant_id if configured else 0,
+        dataset_id=configured.dataset_id if configured else 0,
+        field_key=field_key,
+        label=configured.label if configured else inferred_field_label(field_key),
+        data_type=configured.data_type if configured else infer_result_field_type(values),
+        semantic_type=configured.semantic_type if configured else "",
+        unit=configured.unit if configured else "",
+        precision=configured.precision if configured else None,
+        nullable=any(value is None for value in values),
+        visible=configured.visible if configured else True,
+        sort_order=configured.sort_order if configured else index,
+        expression=configured.expression if configured else "",
+        config=configured.config if configured else {},
+        create_time=configured.create_time if configured else "",
+        update_time=configured.update_time if configured else "",
+    )
+
+
+def inferred_field_label(field_key: str) -> str:
+    return "值" if field_key == "value" else field_key
+
+
+def infer_result_field_type(values: list[Any]) -> str:
+    present = [value for value in values if value is not None]
+    if present and all(isinstance(value, bool) for value in present):
+        return "boolean"
+    if present and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in present):
+        return "number"
+    return FIELD_TYPE_TEXT
+
+
+def fields_from_dicts(value: Any) -> list[DatasetField]:
+    if not isinstance(value, list):
+        return []
+    fields: list[DatasetField] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        field_key = str(item.get("field_key") or "").strip()
+        if not field_key:
+            continue
+        fields.append(
+            DatasetField(
+                id=int(item.get("id") or 0),
+                tenant_id=int(item.get("tenant_id") or 0),
+                dataset_id=int(item.get("dataset_id") or 0),
+                field_key=field_key,
+                label=str(item.get("label") or inferred_field_label(field_key)),
+                data_type=str(item.get("data_type") or FIELD_TYPE_TEXT),
+                semantic_type=str(item.get("semantic_type") or ""),
+                unit=str(item.get("unit") or ""),
+                precision=item.get("precision") if isinstance(item.get("precision"), int) else None,
+                nullable=bool(item.get("nullable", True)),
+                visible=bool(item.get("visible", True)),
+                sort_order=int(item.get("sort_order") if item.get("sort_order") is not None else index),
+                expression=str(item.get("expression") or ""),
+                config=item.get("config") if isinstance(item.get("config"), dict) else {},
+                create_time=str(item.get("create_time") or ""),
+                update_time=str(item.get("update_time") or ""),
+            )
+        )
     return fields
 
 

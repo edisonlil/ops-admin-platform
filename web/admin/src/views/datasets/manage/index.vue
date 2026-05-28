@@ -28,19 +28,6 @@
           <n-form-item label="说明">
             <n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
           </n-form-item>
-          <template v-if="form.dataset_type === 'source_query'">
-            <n-form-item label="查询 SQL">
-              <CodePreview v-model:value="querySql" language="sql" :read-only="false" :min-height="180" :max-height="360" />
-            </n-form-item>
-            <n-form-item label="查询变量">
-              <VariableSchemaEditor
-                v-model="queryVariablesSchema"
-                title="查询变量"
-                description="用于 SQL 模板和控制台调试的变量定义。"
-                :template-text="querySql"
-              />
-            </n-form-item>
-          </template>
         </n-form>
         <template #footer>
           <n-space justify="end">
@@ -51,19 +38,8 @@
       </n-drawer-content>
     </n-drawer>
 
-    <n-modal v-model:show="schemaModalVisible" preset="card" title="字段配置" class="dataset-page__modal">
-      <n-alert type="info" :bordered="false" class="dataset-page__alert">每行一个字段对象，字段编码会作为预览数据中的列键。</n-alert>
-      <CodePreview v-model:value="fieldJson" language="json" :read-only="false" :min-height="260" :max-height="520" />
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="schemaModalVisible = false">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="submitFields">保存字段</n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
     <n-modal v-model:show="rowsModalVisible" preset="card" title="手工数据" class="dataset-page__modal">
-      <n-alert type="info" :bordered="false" class="dataset-page__alert">请输入 JSON 数组。首期手工数据用于页面设计图表联调和静态数据集预览。</n-alert>
+      <n-alert type="info" :bordered="false" class="dataset-page__alert">请输入 JSON 数组，可使用对象数组或数值、文本等标量数组。标量会保存为 value 列。</n-alert>
       <CodePreview v-model:value="rowsJson" language="json" :read-only="false" :min-height="260" :max-height="520" />
       <template #footer>
         <n-space justify="end">
@@ -74,7 +50,14 @@
     </n-modal>
 
     <n-modal v-model:show="previewModalVisible" preset="card" title="数据预览" class="dataset-page__preview">
-      <n-data-table :columns="previewColumns" :data="previewRows" :loading="previewLoading" :pagination="false" size="small" />
+      <n-data-table
+        :columns="previewColumns"
+        :data="previewRows"
+        :loading="previewLoading"
+        :pagination="false"
+        :scroll-x="previewScrollX"
+        size="small"
+      />
       <div class="dataset-page__preview-footer">
         <span>共 {{ previewTotal }} 行</span>
         <n-pagination v-model:page="previewPage" :page-size="10" :item-count="previewTotal" @update:page="loadPreview" />
@@ -87,23 +70,20 @@
 <script lang="ts" setup>
   import { computed, h, reactive, ref } from 'vue';
   import { useRouter } from 'vue-router';
-  import { useMessage } from 'naive-ui';
+  import { NTag, useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import CodePreview from '@/components/CodePreview/index.vue';
-  import VariableSchemaEditor from '@/components/VariableSchemaEditor/index.vue';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
   import { formatToDateTime } from '@/utils/dateUtil';
   import {
     deleteDataset,
-    getDataset,
     listDatasets,
     previewDataset,
     publishDataset,
     saveDataset,
-    saveDatasetFields,
     saveDatasetRows,
     type Dataset,
     type DatasetField,
@@ -115,7 +95,6 @@
   const loading = ref(false);
   const saving = ref(false);
   const datasetDrawerVisible = ref(false);
-  const schemaModalVisible = ref(false);
   const rowsModalVisible = ref(false);
   const previewModalVisible = ref(false);
   const previewLoading = ref(false);
@@ -126,12 +105,7 @@
   const typeFilter = ref<string | null>(null);
   const statusFilter = ref<string | null>(null);
   const activeDataset = ref<Dataset | null>(null);
-  const fieldJson = ref('');
   const rowsJson = ref('');
-  const querySql = ref('');
-  const queryParams = ref<unknown[] | Record<string, unknown>>([]);
-  const queryDataAccess = ref<Record<string, unknown>>({});
-  const queryVariablesSchema = ref<Record<string, unknown>>({});
   const previewRows = ref<Record<string, unknown>[]>([]);
   const previewFields = ref<DatasetField[]>([]);
   const previewTotal = ref(0);
@@ -179,7 +153,6 @@
         });
       },
     },
-    { title: '字段数', key: 'field_count', width: 90 },
     { title: '行数', key: 'row_count', width: 90 },
     { title: '更新时间', key: 'update_time', width: 180, render: (row) => formatToDateTime(row.update_time || '') },
     {
@@ -193,7 +166,6 @@
           actions: [
             { label: '编辑', show: hasPermission(['datasets:dataset:manage']), onClick: () => openEdit(row) },
             { label: '预览', show: hasPermission(['datasets:dataset:preview']), onClick: () => openPreview(row) },
-            { label: '字段', show: hasPermission(['datasets:dataset:manage']), onClick: () => openFields(row) },
             { label: '数据', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'manual', onClick: () => openRows(row) },
             { label: '查询', show: hasPermission(['datasets:dataset:manage']) && row.dataset_type === 'source_query', onClick: () => openQuery(row) },
             { label: '发布', tone: 'primary', show: hasPermission(['datasets:dataset:publish']), onClick: () => publish(row) },
@@ -215,7 +187,7 @@
   const datasetPage = defineListPage<Dataset>({
     id: 'datasets.manage',
     title: '平台数据集',
-    description: '维护页面设计图表使用的数据集定义、字段和预览数据。',
+    description: '维护页面设计图表使用的数据集定义和预览数据。',
     variant: 'dense-data',
     density: 'compact',
     view: {
@@ -235,15 +207,20 @@
     pagination: { pageSize: 20 },
   });
 
-  const previewColumns = computed<DataTableColumns<Record<string, unknown>>>(() =>
-    previewFields.value.map((field) => ({
-      title: field.label || field.field_key,
-      key: field.field_key,
-      minWidth: 120,
-      ellipsis: { tooltip: true },
-      render: (row) => String(row[field.field_key] ?? ''),
-    }))
-  );
+  const previewColumns = computed<DataTableColumns<Record<string, unknown>>>(() => {
+    const columnsFromRows = inferColumnsFromRows(previewRows.value);
+    if (columnsFromRows.length) return columnsFromRows;
+    return previewFields.value
+      .filter((field) => field.visible !== false)
+      .map((field) => ({
+        title: field.label || field.field_key,
+        key: field.field_key,
+        minWidth: 120,
+        ellipsis: { tooltip: true },
+        render: (row) => formatCellValue(row[field.field_key]),
+      }));
+  });
+  const previewScrollX = computed(() => Math.max(previewColumns.value.length * 140, 720));
 
   function resetForm() {
     Object.assign(form, {
@@ -256,10 +233,6 @@
       visibility: 'platform',
       query_config: {},
     });
-    querySql.value = '';
-    queryParams.value = [];
-    queryDataAccess.value = {};
-    queryVariablesSchema.value = {};
     formRef.value?.restoreValidation();
   }
 
@@ -270,11 +243,6 @@
 
   function openEdit(row: Dataset) {
     Object.assign(form, row, { visibility: row.visibility || 'platform' });
-    const config = row.query_config || {};
-    querySql.value = String(config.sql || '');
-    queryParams.value = normalizeQueryParams(config.params);
-    queryDataAccess.value = normalizeSchemaObject(config.data_access);
-    queryVariablesSchema.value = normalizeSchemaObject(config.variables_schema);
     datasetDrawerVisible.value = true;
   }
 
@@ -286,34 +254,10 @@
     }
     saving.value = true;
     try {
-      const payload = { ...(form as Dataset), query_config: buildQueryConfig() };
-      if (!payload.query_config) return;
+      const payload = { ...(form as Dataset), query_config: form.query_config || {} };
       await saveDataset(payload);
       message.success('平台数据集已保存');
       datasetDrawerVisible.value = false;
-      await reload();
-    } finally {
-      saving.value = false;
-    }
-  }
-
-  async function openFields(row: Dataset) {
-    activeDataset.value = row;
-    const detail = await getDataset(row.id);
-    const fields = detail.fields?.length ? detail.fields : defaultFields();
-    fieldJson.value = JSON.stringify(fields.map(normalizeFieldForEdit), null, 2);
-    schemaModalVisible.value = true;
-  }
-
-  async function submitFields() {
-    if (!activeDataset.value) return;
-    const fields = parseJsonArray(fieldJson.value, '字段配置');
-    if (!fields) return;
-    saving.value = true;
-    try {
-      await saveDatasetFields(activeDataset.value.id, fields as DatasetField[]);
-      message.success('字段配置已保存');
-      schemaModalVisible.value = false;
       await reload();
     } finally {
       saving.value = false;
@@ -332,7 +276,7 @@
     if (!items) return;
     saving.value = true;
     try {
-      await saveDatasetRows(activeDataset.value.id, items as Record<string, unknown>[]);
+      await saveDatasetRows(activeDataset.value.id, items);
       message.success('手工数据已保存');
       rowsModalVisible.value = false;
       await reload();
@@ -409,78 +353,36 @@
     }
   }
 
-  function buildQueryConfig() {
-    if (form.dataset_type !== 'source_query') return {};
-    const config: Record<string, unknown> = {
-      sql: querySql.value.trim(),
-      variables_schema: queryVariablesSchema.value,
-      max_rows: 1000,
-    };
-    config.params = buildQueryParams(config.sql as string, queryVariablesSchema.value, queryParams.value);
-    if (Object.keys(queryDataAccess.value).length) {
-      config.data_access = queryDataAccess.value;
-    }
-    return config;
-  }
-
-  function buildQueryParams(sql: string, schema: Record<string, unknown>, fallback: unknown[] | Record<string, unknown>) {
-    if (!sql.includes('?')) return fallback;
-    const keys = schemaVariableKeys(schema);
-    return keys.length ? keys.map((key) => `{{${key}}}`) : fallback;
-  }
-
-  function schemaVariableKeys(schema: Record<string, unknown>): string[] {
-    const properties = normalizeSchemaObject(schema.properties);
-    if (Object.keys(properties).length) return Object.keys(properties);
-    const variables = Array.isArray(schema.variables) ? schema.variables : [];
-    return variables
-      .map((item) => {
-        if (typeof item === 'string') return item;
-        const record = normalizeSchemaObject(item);
-        return typeof record.key === 'string' ? record.key : typeof record.name === 'string' ? record.name : '';
-      })
-      .filter(Boolean);
-  }
-
-  function normalizeQueryParams(value: unknown): unknown[] | Record<string, unknown> {
-    if (Array.isArray(value)) return value;
-    if (value && typeof value === 'object') return value as Record<string, unknown>;
-    return [];
-  }
-
-  function normalizeSchemaObject(value: unknown): Record<string, unknown> {
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-  }
-
-  function defaultFields(): DatasetField[] {
-    return [
-      { field_key: 'name', label: '名称', data_type: 'text', nullable: false, visible: true, sort_order: 1 },
-      { field_key: 'value', label: '数值', data_type: 'number', nullable: true, visible: true, sort_order: 2 },
-    ];
-  }
-
-  function normalizeFieldForEdit(field: DatasetField) {
-    return {
-      field_key: field.field_key,
-      label: field.label,
-      data_type: field.data_type || 'text',
-      semantic_type: field.semantic_type || '',
-      unit: field.unit || '',
-      precision: field.precision ?? null,
-      nullable: field.nullable !== false,
-      visible: field.visible !== false,
-      sort_order: field.sort_order || 0,
-      expression: field.expression || '',
-      config: field.config || {},
-    };
-  }
-
   function typeLabel(value: string) {
     return String(typeOptions.find((item) => item.value === value)?.label || value || '-');
   }
 
   function statusLabel(value: string) {
     return String(statusOptions.find((item) => item.value === value)?.label || value || '-');
+  }
+
+  function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {
+    const keys = Array.from(new Set(items.flatMap((item) => Object.keys(item)))).slice(0, 40);
+    return keys.map((key) => ({
+      title: key,
+      key,
+      minWidth: 120,
+      ellipsis: { tooltip: true },
+      render: (row) => formatCellValue(row[key]),
+    }));
+  }
+
+  function formatCellValue(value: unknown) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'boolean') {
+      return h(
+        NTag,
+        { size: 'small', bordered: false, type: value ? 'success' : 'default' },
+        { default: () => (value ? '是' : '否') }
+      );
+    }
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
   }
 
   reload();

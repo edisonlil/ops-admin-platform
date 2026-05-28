@@ -34,7 +34,7 @@ class DatasetFieldsRequest(BaseModel):
 
 
 class DatasetRowsRequest(BaseModel):
-    rows: list[dict[str, Any]] = Field(default_factory=list)
+    rows: list[Any] = Field(default_factory=list)
 
 
 class DatasetPreviewRequest(BaseModel):

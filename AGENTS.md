@@ -58,6 +58,8 @@
 - API wrapper functions should return unwrapped business data.
 - Components should not know the envelope format; only the request layer should.
 - Product-facing labels, model display names, menus, permissions, page titles, page descriptions, form labels, table columns, seed display names, and data-resource names must be written in Chinese by default. If existing text is garbled, fix the encoding or restore the intended Chinese text first; do not avoid the problem by replacing user-facing content with English.
+- JSON, SQL, prompt templates, scripts, and other code-like multi-line inputs should use the shared Monaco-based code editor component instead of plain textarea inputs. Prefer `web/admin/src/components/CodePreview/index.vue` with the correct language and editable mode for these fields.
+- Dashboard and page-designer chart widgets must be implemented with ECharts through `web/admin/src/components/PageDesigner/WidgetEChart.vue`. Do not hand-build chart visuals with SVG, canvas, or CSS in business/page-designer renderers unless explicitly creating a non-chart visual primitive.
 - Keep backend module capabilities aligned with default frontend module pages where practical.
 - List pages, table pages, and data-view pages must be modeled through `web/admin/src/page-runtime`.
 - New list/data-view shapes such as tabbed lists, split master-detail views, kanban, tree, calendar, timeline, gallery, or map views should be added as Page Runtime view types/adapters instead of hand-building equivalent page structure inside business pages.

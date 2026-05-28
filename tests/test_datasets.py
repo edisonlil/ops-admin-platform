@@ -94,16 +94,6 @@ class DatasetTests(unittest.TestCase):
             self.user,
         )["item"]
 
-        services.save_fields(
-            int(created["id"]),
-            {
-                "fields": [
-                    {"field_key": "date", "label": "日期", "data_type": "date", "sort_order": 1},
-                    {"field_key": "amount", "label": "销售额", "data_type": "number", "sort_order": 2},
-                ]
-            },
-            self.user,
-        )
         services.save_manual_rows(
             int(created["id"]),
             {
@@ -121,13 +111,36 @@ class DatasetTests(unittest.TestCase):
         preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=1, current_user=self.user)
         self.assertEqual(preview["pagination"]["total"], 2)
         self.assertEqual(len(preview["items"]), 1)
-        self.assertEqual(preview["fields"][0]["label"], "日期")
+        self.assertEqual([field["field_key"] for field in preview["fields"]], ["date", "amount"])
+        self.assertEqual(preview["fields"][1]["data_type"], "number")
         self.assertEqual(preview["meta"]["runtime"], "manual")
 
         listed = services.list_datasets(page=1, page_size=20, current_user=self.user)
         self.assertEqual(listed["pagination"]["total"], 1)
-        self.assertEqual(listed["items"][0]["field_count"], 2)
         self.assertEqual(listed["items"][0]["row_count"], 2)
+
+    def test_manual_dataset_accepts_scalar_rows(self) -> None:
+        from datasets.interfaces.http.dtos import DatasetRowsRequest
+
+        created = services.save_dataset(
+            {
+                "key": "scalar_values",
+                "name": "标量数据",
+                "dataset_type": "manual",
+            },
+            self.user,
+        )["item"]
+
+        self.assertEqual(DatasetRowsRequest(rows=[1, 2, 3]).rows, [1, 2, 3])
+        saved = services.save_manual_rows(int(created["id"]), {"rows": [1, 2, 3]}, self.user)
+
+        self.assertEqual(saved["count"], 3)
+        preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=20, current_user=self.user)
+        self.assertEqual(preview["pagination"]["total"], 3)
+        self.assertEqual(preview["items"], [{"value": 1}, {"value": 2}, {"value": 3}])
+        self.assertEqual(preview["fields"][0]["field_key"], "value")
+        self.assertEqual(preview["fields"][0]["label"], "值")
+        self.assertEqual(preview["fields"][0]["data_type"], "number")
 
     def test_dataset_is_platform_scoped(self) -> None:
         created = services.save_dataset({"key": "platform_only", "name": "平台数据集"}, self.user)["item"]
@@ -146,6 +159,11 @@ class DatasetTests(unittest.TestCase):
 
         self.assertEqual(preview["pagination"]["total"], 2)
         self.assertEqual({row["name"] for row in preview["items"]}, {"自己的订单", "同租户订单"})
+        self.assertEqual(
+            [field["field_key"] for field in preview["fields"]],
+            ["tenant_id", "owner_user_id", "owner_department_id", "name", "amount"],
+        )
+        self.assertEqual(preview["fields"][4]["data_type"], "number")
         self.assertEqual(preview["meta"]["runtime"], "source_query")
 
     def test_source_query_dataset_applies_data_permission_scope(self) -> None:
@@ -195,6 +213,7 @@ class DatasetTests(unittest.TestCase):
 
         self.assertEqual(preview["pagination"]["total"], 1)
         self.assertEqual(preview["items"][0]["name"], "自己的订单")
+        self.assertEqual([field["field_key"] for field in preview["fields"]], ["name", "amount"])
 
     def test_source_query_preview_can_use_temporary_query_config_without_saving(self) -> None:
         self.seed_orders()
@@ -345,16 +364,6 @@ class DatasetTests(unittest.TestCase):
             },
             self.user,
         )["item"]
-        services.save_fields(
-            int(created["id"]),
-            {
-                "fields": [
-                    {"field_key": "name", "label": "订单名称", "data_type": "text", "sort_order": 1},
-                    {"field_key": "amount", "label": "金额", "data_type": "number", "sort_order": 2},
-                ]
-            },
-            self.user,
-        )
         return created
 
 

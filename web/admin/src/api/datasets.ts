@@ -140,7 +140,7 @@ export function saveDatasetFields(datasetId: number, fields: DatasetField[]) {
   return Alova.Put<{ items: DatasetField[] }>(`/datasets/${datasetId}/fields`, { fields });
 }
 
-export function saveDatasetRows(datasetId: number, rows: Record<string, unknown>[]) {
+export function saveDatasetRows(datasetId: number, rows: unknown[]) {
   return Alova.Put<{ count: number }>(`/datasets/${datasetId}/manual-rows`, { rows });
 }
 
