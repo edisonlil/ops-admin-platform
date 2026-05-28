@@ -43,7 +43,7 @@
   import type { DatasetRuntimePayload } from '@/api/datasets';
   import type { PageComponentConfig } from '@/api/pageDesigner';
   import WidgetEChart from './WidgetEChart.vue';
-  import { chartWidgetTypes, componentTitle, datasetPayloadKeyForComponent, parseWidgetData, widgetDefinition } from './widgets';
+  import { chartWidgetTypes, componentTitle, datasetIdForComponent, parseWidgetData, widgetDefinition } from './widgets';
 
   const props = defineProps<{
     component: PageComponentConfig;
@@ -53,8 +53,8 @@
   const echartWidgetTypes = chartWidgetTypes.filter((type) => type !== 'metric_card');
   const definition = computed(() => widgetDefinition(props.component.type));
   const title = computed(() => componentTitle(props.component));
-  const datasetPayloadKey = computed(() => datasetPayloadKeyForComponent(props.component));
-  const datasetPayload = computed(() => (datasetPayloadKey.value ? props.datasetPayloads?.[datasetPayloadKey.value] || null : null));
+  const datasetId = computed(() => datasetIdForComponent(props.component));
+  const datasetPayload = computed(() => (datasetId.value ? props.datasetPayloads?.[datasetId.value] || null : null));
   const staticData = computed(() => parseWidgetData(props.component, datasetPayload.value) as Record<string, unknown>);
   const metricData = computed(() => staticData.value || {});
   const isEChartWidget = computed(() => echartWidgetTypes.includes(props.component.type));

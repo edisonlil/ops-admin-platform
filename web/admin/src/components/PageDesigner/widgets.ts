@@ -14,30 +14,10 @@ export interface WidgetDefinition {
 
 export type WidgetDataSourceType = 'static_json' | 'dataset';
 
-export type WidgetDatasetFilterOperator = 'eq' | 'neq' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte';
-
-export interface WidgetDatasetFilterConfig {
-  field?: string;
-  operator?: WidgetDatasetFilterOperator;
-  value?: unknown;
-  enabled?: boolean;
-}
-
-export interface WidgetDatasetConfig {
-  xAxisField?: string;
-  yAxisFields?: string[];
-  pieValueMode?: 'count' | 'field';
-  pieValueField?: string;
-  pieSortBy?: 'name' | 'value';
-  pieSortDirection?: 'asc' | 'desc';
-  filters?: WidgetDatasetFilterConfig[];
-}
-
 export interface WidgetDataSourceConfig {
   type: WidgetDataSourceType;
   staticJson?: string;
   datasetId?: string | number | null;
-  datasetConfig?: WidgetDatasetConfig;
 }
 
 export const chartWidgetTypes = [
@@ -190,29 +170,8 @@ export function withDefaultDataSource(type: string, props: Record<string, unknow
             type: dataSource.type || 'static_json',
             staticJson: dataSource.staticJson || sampleDataJsonForWidget(type),
             datasetId: dataSource.datasetId,
-            datasetConfig: normalizeDatasetConfig(dataSource.datasetConfig),
           }
         : defaultDataSourceForWidget(type),
-  };
-}
-
-export function normalizeDatasetConfig(config?: WidgetDatasetConfig): WidgetDatasetConfig {
-  const filters = Array.isArray(config?.filters)
-    ? config.filters.map((filter) => ({
-        field: String(filter?.field || ''),
-        operator: filter?.operator || 'eq',
-        value: filter?.value ?? '',
-        enabled: filter?.enabled !== false,
-      }))
-    : [];
-  return {
-    xAxisField: String(config?.xAxisField || ''),
-    yAxisFields: Array.isArray(config?.yAxisFields) ? config.yAxisFields.map((field) => String(field || '')).filter(Boolean) : [],
-    pieValueMode: config?.pieValueMode === 'field' ? 'field' : 'count',
-    pieValueField: String(config?.pieValueField || ''),
-    pieSortBy: config?.pieSortBy === 'value' ? 'value' : 'name',
-    pieSortDirection: config?.pieSortDirection === 'desc' ? 'desc' : 'asc',
-    filters,
   };
 }
 
@@ -234,7 +193,7 @@ export function parseWidgetData(component?: PageComponentConfig, datasetPayload?
   if (!component) return sampleDataForWidget('metric_card');
   const dataSource = component.props?.dataSource as WidgetDataSourceConfig | undefined;
   if (dataSource?.type === 'dataset' && datasetPayload) {
-    return datasetPayloadToWidgetData(component, datasetPayload);
+    return datasetPayloadToWidgetData(component.type, datasetPayload);
   }
   return parseStaticWidgetData(component);
 }
@@ -247,40 +206,9 @@ export function datasetIdForComponent(component?: PageComponentConfig) {
   return String(dataSource.datasetId);
 }
 
-export function datasetPayloadKeyForComponent(component?: PageComponentConfig) {
-  const datasetId = datasetIdForComponent(component);
-  if (!datasetId) return '';
-  return datasetPayloadKey(datasetId, datasetVariablesForComponent(component));
-}
-
-export function datasetVariablesForComponent(component?: PageComponentConfig) {
-  const dataSource = component?.props?.dataSource as WidgetDataSourceConfig | undefined;
-  const config = normalizeDatasetConfig(dataSource?.datasetConfig);
-  return (config.filters || []).reduce<Record<string, unknown>>((variables, filter) => {
-    const field = String(filter.field || '').trim();
-    if (!field || filter.enabled === false || filter.value === null || filter.value === undefined || filter.value === '') {
-      return variables;
-    }
-    variables[field] = filter.value;
-    return variables;
-  }, {});
-}
-
-export function datasetPayloadKey(datasetId: string, variables: Record<string, unknown>) {
-  const sortedVariables = Object.keys(variables)
-    .sort()
-    .reduce<Record<string, unknown>>((result, key) => {
-      result[key] = variables[key];
-      return result;
-    }, {});
-  return `${datasetId}:${JSON.stringify(sortedVariables)}`;
-}
-
-function datasetPayloadToWidgetData(component: PageComponentConfig, payload: DatasetRuntimePayload) {
-  const type = component.type;
-  const config = normalizeDatasetConfig((component.props?.dataSource as WidgetDataSourceConfig | undefined)?.datasetConfig);
+function datasetPayloadToWidgetData(type: string, payload: DatasetRuntimePayload) {
   const fields = (payload.fields || []).filter((field) => field.visible !== false);
-  const rows = applyDatasetFilters(payload.items || [], config.filters || []);
+  const rows = payload.items || [];
 
   if (type === 'data_table') {
     return {
@@ -327,35 +255,9 @@ function datasetPayloadToWidgetData(component: PageComponentConfig, payload: Dat
     };
   }
 
-  if (type === 'pie_chart') {
-    const categoryField = fieldByKey(fields, config.xAxisField) || labelField(fields);
-    const valueField = fieldByKey(fields, config.pieValueField) || fieldByKey(fields, config.yAxisFields?.[0] || '');
-    const grouped = new Map<string, number>();
-    rows.forEach((row, index) => {
-      const category = String(row[categoryField?.field_key || ''] ?? `项目 ${index + 1}`);
-      const value = config.pieValueMode === 'field' && valueField ? toNumber(row[valueField.field_key]) : 1;
-      grouped.set(category, (grouped.get(category) || 0) + value);
-    });
-    const entries = Array.from(grouped.entries()).sort((left, right) => {
-      const direction = config.pieSortDirection === 'desc' ? -1 : 1;
-      if (config.pieSortBy === 'value') return (left[1] - right[1]) * direction;
-      return left[0].localeCompare(right[0], 'zh-CN') * direction;
-    });
-    return {
-      categories: entries.map(([category]) => category),
-      series: [
-        {
-          name: valueField?.label || payload.dataset?.name || '占比',
-          data: entries.map(([, value]) => value),
-        },
-      ],
-    };
-  }
-
-  const categoryField = fieldByKey(fields, config.xAxisField) || labelField(fields);
+  const categoryField = labelField(fields);
   const valueFields = fields.filter(isNumberField);
-  const configuredValueFields = (config.yAxisFields || []).map((field) => fieldByKey(fields, field)).filter(Boolean) as DatasetField[];
-  const values = configuredValueFields.length ? configuredValueFields : valueFields.length ? valueFields : fields.slice(0, 1);
+  const values = valueFields.length ? valueFields : fields.slice(0, 1);
   return {
     categories: rows.map((row, index) => String(row[categoryField?.field_key || ''] ?? `项目 ${index + 1}`)),
     series: values.map((field) => ({
@@ -363,30 +265,6 @@ function datasetPayloadToWidgetData(component: PageComponentConfig, payload: Dat
       data: rows.map((row) => toNumber(row[field.field_key])),
     })),
   };
-}
-
-function applyDatasetFilters(rows: Record<string, unknown>[], filters: WidgetDatasetFilterConfig[]) {
-  const activeFilters = filters.filter((filter) => filter.enabled !== false && filter.field && filter.value !== null && filter.value !== undefined && filter.value !== '');
-  if (!activeFilters.length) return rows;
-  return rows.filter((row) =>
-    activeFilters.every((filter) => {
-      const actual = row[String(filter.field || '')];
-      const expected = filter.value;
-      const operator = filter.operator || 'eq';
-      if (operator === 'contains') return String(actual ?? '').includes(String(expected ?? ''));
-      if (operator === 'neq') return String(actual ?? '') !== String(expected ?? '');
-      if (operator === 'gt') return toNumber(actual) > toNumber(expected);
-      if (operator === 'gte') return toNumber(actual) >= toNumber(expected);
-      if (operator === 'lt') return toNumber(actual) < toNumber(expected);
-      if (operator === 'lte') return toNumber(actual) <= toNumber(expected);
-      return String(actual ?? '') === String(expected ?? '');
-    })
-  );
-}
-
-function fieldByKey(fields: DatasetField[], key?: string) {
-  if (!key) return undefined;
-  return fields.find((field) => field.field_key === key);
 }
 
 function preferredField(fields: DatasetField[], semanticTypes: string[]) {
