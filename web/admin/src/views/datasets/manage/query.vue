@@ -109,8 +109,8 @@
               <n-tab-pane name="result" tab="结果" />
               <n-tab-pane name="info" tab="信息" />
             </n-tabs>
-            <span v-if="queryError">执行失败</span>
-            <span v-else-if="queryExecuted">返回 {{ queryRows.length }} 行 / 共 {{ queryTotal }} 行</span>
+            <span v-if="queryError" class="dataset-query-workbench__result-status">执行失败</span>
+            <span v-else-if="queryExecuted" class="dataset-query-workbench__result-status">返回 {{ queryRows.length }} 行 / 共 {{ queryTotal }} 行</span>
           </div>
           <div v-if="queryResultTab === 'result'" class="dataset-query-workbench__result-body">
             <n-result v-if="queryError" status="error" title="执行失败" :description="queryError" />
@@ -457,8 +457,7 @@
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
-    height: calc(100vh - 116px);
-    min-height: 0;
+    min-height: calc(100vh - 116px);
     background: var(--app-body-bg);
   }
 
@@ -508,7 +507,7 @@
     grid-template-columns: 300px minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .dataset-query-workbench__schema {
@@ -644,12 +643,12 @@
 
   .dataset-query-workbench__main {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
     gap: 12px;
     min-width: 0;
     min-height: 0;
     padding: 12px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .dataset-query-workbench__editor-card,
@@ -675,8 +674,13 @@
 
   .dataset-query-workbench__result {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
     min-height: 0;
+  }
+
+  .dataset-query-workbench__result-status {
+    flex: none;
+    white-space: nowrap;
   }
 
   .dataset-query-workbench__result-head :deep(.n-tabs-nav) {
@@ -685,10 +689,10 @@
 
   .dataset-query-workbench__result-body {
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
     min-height: 0;
     padding: 12px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .dataset-query-workbench__result-table {
