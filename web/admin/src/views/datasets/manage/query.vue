@@ -82,6 +82,7 @@
         </div>
 
         <VariableSchemaEditor
+          v-if="hasQueryVariables"
           v-model="queryVariablesSchema"
           v-model:values="queryVariables"
           title="查询变量"
@@ -195,6 +196,7 @@
   });
 
   const querySqlLineCount = computed(() => Math.max(1, querySql.value.split(/\r?\n/).length));
+  const hasQueryVariables = computed(() => extractTemplateVariableKeys(querySql.value).length > 0 || schemaVariableKeys(queryVariablesSchema.value).length > 0);
 
   const queryResultColumns = computed<DataTableColumns<Record<string, unknown>>>(() => {
     const columnsFromRows = inferColumnsFromRows(queryRows.value);
@@ -336,6 +338,14 @@
         return typeof record.key === 'string' ? record.key : typeof record.name === 'string' ? record.name : '';
       })
       .filter(Boolean);
+  }
+
+  function extractTemplateVariableKeys(template: string): string[] {
+    const keys = new Set<string>();
+    for (const match of template.matchAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g)) {
+      keys.add(match[1]);
+    }
+    return [...keys];
   }
 
   function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {

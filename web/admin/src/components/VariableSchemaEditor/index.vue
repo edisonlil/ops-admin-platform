@@ -427,40 +427,48 @@
 <style lang="less" scoped>
   .variable-schema-editor {
     display: grid;
-    gap: 10px;
+    gap: 0;
     min-width: 0;
   }
 
   .variable-schema-editor__head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
     min-width: 0;
+    padding: 14px 16px 12px;
   }
 
   .variable-schema-editor__head > div {
     display: grid;
-    gap: 2px;
+    gap: 4px;
     min-width: 0;
   }
 
   .variable-schema-editor__head strong {
+    color: var(--app-text-color-1);
+    font-size: 15px;
     font-weight: 650;
+    line-height: 1.35;
   }
 
   .variable-schema-editor__head span {
     color: var(--app-text-color-3);
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1.45;
+  }
+
+  .variable-schema-editor__head :deep(.n-space) {
+    flex: none;
   }
 
   .variable-schema-editor__table {
     display: grid;
     min-width: 0;
     overflow-x: auto;
-    border: 1px solid var(--app-border-color);
-    border-radius: 6px;
+    border-top: 1px solid var(--app-border-color);
+    border-radius: 0 0 6px 6px;
   }
 
   .variable-schema-editor__row {
@@ -494,6 +502,7 @@
     .variable-schema-editor__head {
       align-items: stretch;
       flex-direction: column;
+      padding: 12px;
     }
   }
 </style>

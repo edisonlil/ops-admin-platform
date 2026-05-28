@@ -27,7 +27,7 @@
           <n-form-item label="说明">
             <n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
           </n-form-item>
-          <n-form-item label="模板变量">
+          <n-form-item v-if="hasTemplateVariables" :show-label="false">
             <VariableSchemaEditor
               v-model="templateVariablesSchema"
               title="模板变量"
@@ -106,6 +106,7 @@
     content_template: [{ required: true, message: '请输入内容模板', trigger: ['blur', 'input'] }],
   };
   const templateText = computed(() => `${form.title_template || ''}\n${form.content_template || ''}`);
+  const hasTemplateVariables = computed(() => extractTemplateVariableKeys(templateText.value).length > 0 || schemaVariableKeys(templateVariablesSchema.value).length > 0);
 
   const columns: DataTableColumns<MessageTemplate> = [
     { title: '模板名称', key: 'name', minWidth: 180 },
@@ -200,7 +201,7 @@
     }
     saving.value = true;
     try {
-      form.variables_schema = templateVariablesSchema.value;
+      form.variables_schema = hasTemplateVariables.value ? templateVariablesSchema.value : {};
       await saveMessageTemplate(form);
       message.success('模板已保存');
       drawerVisible.value = false;
@@ -212,6 +213,27 @@
 
   function normalizeSchemaObject(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  function schemaVariableKeys(schema: Record<string, unknown>): string[] {
+    const properties = normalizeSchemaObject(schema.properties);
+    if (Object.keys(properties).length) return Object.keys(properties);
+    const variables = Array.isArray(schema.variables) ? schema.variables : [];
+    return variables
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        const record = normalizeSchemaObject(item);
+        return typeof record.key === 'string' ? record.key : typeof record.name === 'string' ? record.name : '';
+      })
+      .filter(Boolean);
+  }
+
+  function extractTemplateVariableKeys(template: string): string[] {
+    const keys = new Set<string>();
+    for (const match of template.matchAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g)) {
+      keys.add(match[1]);
+    }
+    return [...keys];
   }
 
   async function toggleStatus(row: MessageTemplate) {
