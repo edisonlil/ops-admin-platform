@@ -51,11 +51,11 @@ def parse_json_object(value: Any) -> dict[str, Any]:
 
 
 def json_text(value: Any) -> str:
-    return json.dumps(sanitize_trace_value(value) if isinstance(value, dict) else {}, ensure_ascii=False)
+    return json.dumps(value if isinstance(value, dict) else {}, ensure_ascii=False)
 
 
 def json_list_text(value: Any) -> str:
-    return json.dumps(sanitize_trace_value(value) if isinstance(value, list) else [], ensure_ascii=False)
+    return json.dumps(value if isinstance(value, list) else [], ensure_ascii=False)
 
 
 def json_any_text(value: Any) -> str:

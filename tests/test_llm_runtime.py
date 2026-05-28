@@ -1598,6 +1598,46 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_node_system_prompt_is_not_truncated_when_saved(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    long_system_prompt = "系统提示词" * 2400
+                    payload = self._sample_ai_application("long-workflow-prompt")
+                    payload["app_type"] = "workflow"
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "llm_1",
+                                    "type": "llm",
+                                    "data": {
+                                        "model": "dashscope.qwen-plus",
+                                        "system_prompt": long_system_prompt,
+                                        "user_prompt_template": "请处理：{{content}}",
+                                        "output_key": "summary",
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {"output": "{{summary}}" }},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "llm_1"},
+                                {"source": "llm_1", "target": "end"},
+                            ],
+                        }
+                    }
+
+                    saved = ai_applications.save_ai_application(payload)
+
+            saved_prompt = saved["runtime_config"]["workflow"]["nodes"][1]["data"]["system_prompt"]
+            self.assertEqual(saved_prompt, long_system_prompt)
+            self.assertNotIn("[truncated", saved_prompt)
+        finally:
+            self._unlink_db(db_path)
+
     def test_workflow_ignores_downstream_schema_required_variables(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
