@@ -4,6 +4,8 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from unittest import mock
 
@@ -27,6 +29,28 @@ class SelfOnlyProvider:
             scope="self",
             user_id=int(current_user.get("id") or 0),
         )
+
+
+class NativeValueExecutor:
+    def execute_preview(
+        self,
+        *,
+        dataset: object,
+        fields: list[object],
+        page: int,
+        page_size: int,
+        variables: dict[str, object],
+        current_user: dict[str, object],
+        apply_data_access: bool = True,
+    ) -> tuple[list[dict[str, object]], int, dict[str, object]]:
+        return [
+            {
+                "created_at": datetime(2026, 5, 28, 12, 30, 45),
+                "business_date": date(2026, 5, 28),
+                "run_time": time(9, 15, 30),
+                "amount": Decimal("19.99"),
+            }
+        ], 1, {"runtime": "source_query"}
 
 
 class DatasetTests(unittest.TestCase):
@@ -246,6 +270,25 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(schema["backend"], "sqlite")
         self.assertIn("amount", {column["name"] for column in orders["columns"]})
         self.assertIn("tenant_id", {column["name"] for column in orders["columns"]})
+
+    def test_publish_source_query_dataset_serializes_native_sample_values(self) -> None:
+        services.configure_external_executor(NativeValueExecutor())
+        created = services.save_dataset(
+            {
+                "key": "native_values_query",
+                "name": "原生值查询数据集",
+                "dataset_type": "source_query",
+                "query_config": {"sql": "SELECT created_at, business_date, run_time, amount FROM native_values"},
+            },
+            self.user,
+        )["item"]
+
+        version = services.publish_dataset(int(created["id"]), self.user)["item"]
+
+        self.assertEqual(version["sample_rows"][0]["created_at"], "2026-05-28T12:30:45")
+        self.assertEqual(version["sample_rows"][0]["business_date"], "2026-05-28")
+        self.assertEqual(version["sample_rows"][0]["run_time"], "09:15:30")
+        self.assertEqual(version["sample_rows"][0]["amount"], "19.99")
 
     def test_mysql_schema_introspection_handles_uppercase_information_schema_keys(self) -> None:
         from datasets.infrastructure.schema_introspection import inspect_mysql_tables

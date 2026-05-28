@@ -99,6 +99,21 @@ class SQLDataAccessInjectionTests(unittest.TestCase):
         self.assertIn("LIMIT ? OFFSET ?", sql)
         self.assertEqual(params, ("active", 7, 10, 20, 40))
 
+    def test_mysql_dialect_preserves_backtick_identifier_columns(self) -> None:
+        sql, params = inject_data_access_into_select(
+            SQLDataAccessInjectionRequest(
+                sql="SELECT id, `description` AS descr FROM workbench_function_points WHERE product_line = ?",
+                params=("文档中台",),
+                resource=ResourceDescriptor(resource_key="demo.document"),
+                predicate=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+                dialect="mysql",
+            )
+        )
+
+        self.assertIn("`description` AS descr", sql)
+        self.assertNotIn('"description" AS descr', sql)
+        self.assertEqual(params, ("文档中台", 7, 10))
+
 
 if __name__ == "__main__":
     unittest.main()

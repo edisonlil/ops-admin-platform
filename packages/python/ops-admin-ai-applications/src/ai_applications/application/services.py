@@ -23,6 +23,7 @@ from ai_runtime_core.workflow_runtime import execute_workflow
 from ai_runtime_core.workflow_runtime import normalize_workflow_definition
 from llm_runtime.application import gateway
 from system.application.database import connect
+from system.application.database import database_backend
 from system.application.sorting import sort_dict_items
 from system.interfaces.http import current_request_id
 
@@ -901,7 +902,7 @@ def execute_workflow_sql_query(
                 params=tuple(request.params),
                 resource=descriptor,
                 predicate=predicate,
-                dialect=str(config.get("dialect") or config.get("sql_dialect") or "sqlite"),
+                dialect=str(config.get("dialect") or config.get("sql_dialect") or database_backend()),
                 source_table=str(config.get("source_table") or ""),
                 source_alias=str(config.get("source_alias") or ""),
             )

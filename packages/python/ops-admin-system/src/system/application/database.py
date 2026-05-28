@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from system.infrastructure.config import (
+    database_backend,
     default_use_keywords_recall,
     resolve_database_url,
     resolve_db_path,

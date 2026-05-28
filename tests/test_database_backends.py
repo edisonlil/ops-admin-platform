@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import tempfile
+from unittest import mock
 
 from system.application.health_service import database_source_label, mask_database_url
+from system.infrastructure.config import database_backend
 from system.infrastructure.persistence.connection import database_backend_for_target, is_database_url, to_percent_sql
 from system.infrastructure.persistence.dialect import ddl_filename, mysql_index_statement
 from system.infrastructure.persistence.readiness import clear_readiness, is_ready, mark_ready
@@ -20,6 +24,25 @@ def test_database_backend_for_target_recognizes_supported_urls() -> None:
     assert database_backend_for_target("mysql://user:pass@example/db") == "mysql"
     assert database_backend_for_target("mysql+pymysql://user:pass@example/db") == "mysql"
     assert database_backend_for_target(Path("ops_admin.db")) == "sqlite"
+
+
+def test_database_backend_reads_application_backend_without_url() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = Path(temp_dir) / "application.json"
+        config_path.write_text(json.dumps({"database": {"backend": "mysql"}}), encoding="utf-8")
+
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "OPS_ADMIN_APPLICATION_CONFIG": str(config_path),
+                "FG_AGENT_DATABASE_CONFIG": "",
+                "FG_AGENT_DATABASE_URL": "",
+                "SUPABASE_DB_URL": "",
+                "DATABASE_URL": "",
+            },
+            clear=False,
+        ):
+            assert database_backend() == "mysql"
 
 
 def test_is_database_url_includes_mysql() -> None:

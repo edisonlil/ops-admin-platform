@@ -55,7 +55,12 @@ def resolve_database_url() -> str | None:
 
 def database_backend() -> str:
     database_url = resolve_database_url()
-    return database_backend_for_target(database_url) if database_url else "sqlite"
+    if database_url:
+        return database_backend_for_target(database_url)
+    configured = config_string(load_database_config(), "backend", "type", "dialect")
+    if configured:
+        return database_backend_for_target(f"{configured}://")
+    return "sqlite"
 
 
 def default_use_keywords_recall() -> bool:

@@ -90,7 +90,7 @@
             </n-space>
             <span>{{ querySqlLineCount }} 行</span>
           </div>
-          <CodePreview v-model:value="querySql" language="sql" :read-only="false" height="360px" :auto-height="false" />
+          <CodePreview v-model:value="querySql" language="sql" :read-only="false" :height="queryEditorHeight" :auto-height="false" />
         </div>
 
         <VariableSchemaEditor
@@ -123,6 +123,7 @@
               :loading="queryLoading"
               :pagination="false"
               size="small"
+              :max-height="queryResultTableMaxHeight"
               :scroll-x="queryResultScrollX"
             />
             <div v-if="queryExecuted" class="dataset-query-workbench__pagination">
@@ -187,6 +188,8 @@
   const queryTotal = ref(0);
   const queryPage = ref(1);
   const queryPageSize = 20;
+  const queryEditorHeight = 'clamp(240px, 36vh, 360px)';
+  const queryResultTableMaxHeight = 'clamp(260px, calc(100vh - 560px), 520px)';
   const sourceTables = ref<DatasetSourceTable[]>([]);
   const sourceSchemaBackend = ref('');
   const expandedTableKeys = ref<string[]>([]);
@@ -661,6 +664,10 @@
     border-radius: 6px;
   }
 
+  .dataset-query-workbench__editor-card :deep(.code-preview) {
+    max-height: 360px;
+  }
+
   .dataset-query-workbench__toolbar,
   .dataset-query-workbench__result-head {
     display: flex;
@@ -698,6 +705,10 @@
   .dataset-query-workbench__result-table {
     min-width: 0;
     min-height: 0;
+  }
+
+  .dataset-query-workbench__result-table :deep(.n-data-table-base-table-body) {
+    overflow: auto;
   }
 
   .dataset-query-workbench__pagination {
@@ -747,6 +758,10 @@
 
     .dataset-query-workbench__main {
       overflow: visible;
+    }
+
+    .dataset-query-workbench__editor-card :deep(.code-preview) {
+      max-height: 320px;
     }
   }
 </style>

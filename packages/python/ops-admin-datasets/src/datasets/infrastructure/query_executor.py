@@ -7,7 +7,7 @@ from typing import Any
 from datasets.domain.exceptions import DatasetDomainError
 from datasets.domain.models import Dataset, DatasetField
 from system.application.data_access import ResourceDescriptor, resolve_data_access_filter
-from system.application.database import connect, resolve_database_url, resolve_db_path
+from system.application.database import connect, database_backend, resolve_database_url, resolve_db_path
 from system.application.sql_data_access import SQLDataAccessInjectionError, SQLDataAccessInjectionRequest
 from system.application.sql_data_access import inject_data_access_into_select
 
@@ -42,7 +42,7 @@ class SqlDatasetExecutor:
                         params=tuple(params),
                         resource=descriptor,
                         predicate=predicate,
-                        dialect=str(data_access.get("dialect") or data_access.get("sql_dialect") or "sqlite"),
+                        dialect=str(data_access.get("dialect") or data_access.get("sql_dialect") or database_backend()),
                         source_table=str(data_access.get("source_table") or ""),
                         source_alias=str(data_access.get("source_alias") or ""),
                     )
