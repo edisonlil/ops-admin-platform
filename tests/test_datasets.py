@@ -290,6 +290,23 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(version["sample_rows"][0]["run_time"], "09:15:30")
         self.assertEqual(version["sample_rows"][0]["amount"], "19.99")
 
+    def test_source_query_decimal_columns_are_inferred_as_number(self) -> None:
+        services.configure_external_executor(NativeValueExecutor())
+        created = services.save_dataset(
+            {
+                "key": "decimal_field_type_query",
+                "name": "原生数值字段类型推断",
+                "dataset_type": "source_query",
+                "query_config": {"sql": "SELECT amount FROM native_values"},
+            },
+            self.user,
+        )["item"]
+
+        preview = services.preview_dataset(dataset_id=int(created["id"]), page=1, page_size=20, current_user=self.user)
+
+        amount_field = next(field for field in preview["fields"] if field["field_key"] == "amount")
+        self.assertEqual(amount_field["data_type"], "number")
+
     def test_mysql_schema_introspection_handles_uppercase_information_schema_keys(self) -> None:
         from datasets.infrastructure.schema_introspection import inspect_mysql_tables
 

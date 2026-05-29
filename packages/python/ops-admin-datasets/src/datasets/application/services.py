@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from numbers import Number
 from typing import Any
 
 from datasets.application.ports import DatasetRepository, ExternalDatasetExecutorPort, SourceSchemaInspectorPort
@@ -423,7 +424,7 @@ def infer_result_field_type(values: list[Any]) -> str:
     present = [value for value in values if value is not None]
     if present and all(isinstance(value, bool) for value in present):
         return "boolean"
-    if present and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in present):
+    if present and all(isinstance(value, Number) and not isinstance(value, bool) for value in present):
         return "number"
     return FIELD_TYPE_TEXT
 
