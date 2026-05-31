@@ -14,6 +14,7 @@ from ai_runtime_core.prompt_runtime import resolve_variable_value
 
 WorkflowDefinition = dict[str, Any]
 WorkflowContext = dict[str, Any]
+JSON_CODE_FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
 
 
 @dataclass(slots=True)
@@ -519,15 +520,66 @@ def maybe_decode_json_response(result: WorkflowLLMResult, node_data: dict[str, A
         return result
     if not isinstance(raw_content, str):
         return result
-    raw = raw_content.strip()
-    if not raw:
-        return result
-    try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
+    decoded = decode_json_object_response(raw_content)
+    if decoded is None:
         return result
     result.answer = decoded
     return result
+
+
+def decode_json_object_response(raw_content: str) -> Any | None:
+    candidates = [raw_content.strip()]
+    for match in JSON_CODE_FENCE_PATTERN.finditer(raw_content):
+        candidates.append(match.group(1).strip())
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            fragment = extract_json_fragment(candidate)
+            if not fragment:
+                continue
+            try:
+                return json.loads(fragment)
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def extract_json_fragment(text: str) -> str | None:
+    start_index: int | None = None
+    expected_closings: list[str] = []
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if start_index is None:
+            if char not in {"{", "["}:
+                continue
+            start_index = index
+            expected_closings.append("}" if char == "{" else "]")
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char in {"{", "["}:
+            expected_closings.append("}" if char == "{" else "]")
+            continue
+        if char in {"}", "]"}:
+            if not expected_closings or char != expected_closings[-1]:
+                return None
+            expected_closings.pop()
+            if not expected_closings and start_index is not None:
+                return text[start_index : index + 1]
+    return None
 
 
 def workflow_answer_text(value: Any) -> str:

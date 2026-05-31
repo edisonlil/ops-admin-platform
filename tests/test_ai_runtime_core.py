@@ -132,6 +132,60 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertIn("records.rows", definition["nodes"][2]["data"]["user_prompt_template"])
         self.assertIn("A", str(llm_requests[0].messages[-1]["content"]))
 
+    def test_workflow_llm_json_response_decodes_fenced_json_and_expands_sql_array_params(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "llm_1",
+                    "type": "llm",
+                    "data": {
+                        "model": "dashscope.qwen-plus",
+                        "user_prompt_template": "请输出 JSON",
+                        "response_format": {"type": "json_object"},
+                        "output_key": "output",
+                    },
+                },
+                {
+                    "id": "sql_1",
+                    "type": "sql_query",
+                    "data": {
+                        "sql": "SELECT id FROM docs WHERE primary_component IN (:selected_components)",
+                        "params": {"selected_components": "{{output.selected_components}}"},
+                        "output_key": "records",
+                    },
+                },
+                {"id": "end", "type": "end", "data": {"output": "{{records.row_count}}"}},
+            ],
+            "edges": [
+                {"source": "start", "target": "llm_1"},
+                {"source": "llm_1", "target": "sql_1"},
+                {"source": "sql_1", "target": "end"},
+            ],
+        }
+        sql_requests: list[WorkflowSQLRequest] = []
+
+        def fake_llm(request: WorkflowLLMRequest) -> WorkflowLLMResult:
+            return WorkflowLLMResult(
+                answer='```json\n{"selected_components": ["PUB", "知识库"]}\n```',
+                model=request.model,
+            )
+
+        def fake_sql(request: WorkflowSQLRequest) -> WorkflowSQLResult:
+            sql_requests.append(request)
+            return WorkflowSQLResult(rows=[], columns=["id"], row_count=0)
+
+        result = execute_workflow(
+            definition,
+            {},
+            llm_executor=fake_llm,
+            sql_executor=fake_sql,
+        )
+
+        self.assertEqual(result.context["variables"]["output"]["selected_components"], ["PUB", "知识库"])
+        self.assertEqual(sql_requests[0].sql, "SELECT id FROM docs WHERE primary_component IN (?, ?)")
+        self.assertEqual(sql_requests[0].params, ["PUB", "知识库"])
+
     def test_workflow_sql_node_rejects_write_statement(self) -> None:
         definition = {
             "nodes": [
