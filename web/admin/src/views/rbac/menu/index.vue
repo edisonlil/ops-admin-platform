@@ -118,10 +118,11 @@
                 </n-form-item>
                 <n-form-item label="父级菜单" path="parent_key">
                   <n-select
-                    v-model:value="formParams.parent_key"
+                    :value="formParams.parent_key"
                     clearable
                     :options="parentMenuOptions"
                     placeholder="选择父级菜单"
+                    @update:value="handleParentKeyChange"
                   />
                 </n-form-item>
                 <n-form-item v-if="formParams.menu_type !== 'action'" label="路径" path="path">
@@ -686,6 +687,10 @@
 
   function trimFormText(value: unknown) {
     return String(value || '').trim();
+  }
+
+  function handleParentKeyChange(value: string | null) {
+    formParams.parent_key = trimFormText(value);
   }
 
   function handleAddMenu(key: string) {
