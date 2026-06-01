@@ -893,10 +893,21 @@ def list_api_keys(
     tenant_id: int | None = None,
     current_user: dict[str, Any] | None = None,
     *,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> list[dict[str, Any]]:
-    return api_key_service.list_api_keys(tenant_id=tenant_id, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir)
+    return api_key_service.list_api_keys(
+        tenant_id=tenant_id,
+        current_user=current_user,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+        is_active=is_active,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
 
 
 def list_api_keys_page(
@@ -905,11 +916,37 @@ def list_api_keys_page(
     *,
     page: int,
     page_size: int,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
-    return page_items(
-        list_api_keys(tenant_id=tenant_id, current_user=current_user, sort_by=sort_by, sort_dir=sort_dir),
+    return api_key_service.list_api_keys_page(
+        tenant_id=tenant_id,
+        current_user=current_user,
+        page=page,
+        page_size=page_size,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+        is_active=is_active,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def api_key_filter_capabilities(
+    *,
+    tenant_id: int,
+    current_user: dict[str, Any],
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    return api_key_service.api_key_filter_capabilities(
+        tenant_id=tenant_id,
+        current_user=current_user,
+        q=q,
         page=page,
         page_size=page_size,
     )

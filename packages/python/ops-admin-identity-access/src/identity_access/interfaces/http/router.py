@@ -109,11 +109,36 @@ def update_current_profile(
 def api_keys(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    owner_user_id: int | None = Query(default=None, ge=1),
+    keyword: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_api_keys_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(
+        services.list_api_keys_page(
+            page=page,
+            page_size=page_size,
+            owner_user_id=owner_user_id,
+            keyword=keyword,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
+
+
+@router.get("/api-keys/filter-capabilities")
+def api_key_filter_capabilities(
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    current_user: dict[str, Any] = Depends(auth.require_permission("api_keys:access")),
+) -> dict[str, Any]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id") or current_user.get("tenant_id") or 0)
+    return ok(services.api_key_filter_capabilities(tenant_id=tenant_id, current_user=current_user, q=q, page=page, page_size=page_size))
 
 
 @router.post("/api-keys")
@@ -290,11 +315,39 @@ def tenant_api_keys(
     tenant_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    owner_user_id: int | None = Query(default=None, ge=1),
+    keyword: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_api_keys_page(tenant_id=tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(
+        services.list_api_keys_page(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            owner_user_id=owner_user_id,
+            keyword=keyword,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
+
+
+@router.get("/tenants/{tenant_id}/api-keys/filter-capabilities")
+def tenant_api_key_filter_capabilities(
+    tenant_id: int,
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    current_user: dict[str, Any] = Depends(auth.require_platform_permission("tenant:access")),
+) -> dict[str, Any]:
+    tenant_service.ensure_tenant_access(current_user, tenant_id)
+    scoped_user = {**current_user, "tenant_id": tenant_id, "current_tenant": {"id": tenant_id}}
+    return ok(services.api_key_filter_capabilities(tenant_id=tenant_id, current_user=scoped_user, q=q, page=page, page_size=page_size))
 
 
 @router.post("/tenants/{tenant_id}/api-keys")
@@ -456,12 +509,38 @@ def current_tenant_roles(
 def current_tenant_api_keys(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    owner_user_id: int | None = Query(default=None, ge=1),
+    keyword: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
 ) -> dict[str, Any]:
     tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
-    return ok(services.list_api_keys_page(tenant_id=tenant_id, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(
+        services.list_api_keys_page(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            owner_user_id=owner_user_id,
+            keyword=keyword,
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
+
+
+@router.get("/tenant/api-keys/filter-capabilities")
+def current_tenant_api_key_filter_capabilities(
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    current_user: dict[str, Any] = Depends(auth.require_permission("tenant:api_key:manage")),
+) -> dict[str, Any]:
+    tenant_id = int((current_user.get("current_tenant") or {}).get("id", 0) or 0)
+    return ok(services.api_key_filter_capabilities(tenant_id=tenant_id, current_user=current_user, q=q, page=page, page_size=page_size))
 
 
 @router.post("/tenant/api-keys")

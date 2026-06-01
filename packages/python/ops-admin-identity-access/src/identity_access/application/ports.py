@@ -58,9 +58,27 @@ class IdentityAccessRepository(Protocol):
         *,
         tenant_id: int | None = None,
         data_scope: Any = None,
+        owner_user_id: int | None = None,
+        keyword: str | None = None,
+        is_active: bool | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
     ) -> list[dict[str, Any]]:
+        ...
+
+    def list_api_keys_page(
+        self,
+        *,
+        tenant_id: int | None = None,
+        data_scope: Any = None,
+        owner_user_id: int | None = None,
+        keyword: str | None = None,
+        is_active: bool | None = None,
+        page: int,
+        page_size: int,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> dict[str, Any]:
         ...
 
     def get_api_key(self, key_id: int) -> dict[str, Any] | None:

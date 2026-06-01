@@ -1,6 +1,27 @@
 <template>
   <div>
-    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" />
+    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
+      <template #filters>
+        <n-input v-model:value="filters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" class="api-key-page__filter" @keyup.enter="search" />
+        <n-select
+          v-if="capabilities?.can_filter_owner"
+          v-model:value="filters.owner_user_id"
+          clearable
+          filterable
+          remote
+          placeholder="所属人员"
+          :options="ownerOptions"
+          :loading="ownerOptionsLoading"
+          class="api-key-page__filter"
+          @search="loadOwnerOptions"
+          @focus="loadOwnerOptions()"
+          @update:value="search"
+        />
+        <n-select v-model:value="filters.is_active" clearable placeholder="状态" :options="activeOptions" class="api-key-page__status" @update:value="search" />
+        <n-button @click="search">查询</n-button>
+        <n-button secondary @click="resetFilters">重置</n-button>
+      </template>
+    </ListPageRuntime>
 
     <n-modal v-model:show="showCreate" preset="dialog" title="新增 API Key" positive-text="创建" @positive-click="create">
       <n-input v-model:value="newKeyName" placeholder="API Key 名称" />
@@ -15,14 +36,16 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, ref } from 'vue';
+  import { computed, h, reactive, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns } from 'naive-ui';
   import {
     createApiKey,
     createCurrentTenantApiKey,
+    getApiKeyFilterCapabilities,
     getApiKeys,
+    getCurrentTenantApiKeyFilterCapabilities,
     getCurrentTenantApiKeys,
     revokeApiKey,
     revokeCurrentTenantApiKey,
@@ -51,10 +74,24 @@
   const createdVisible = ref(false);
   const createdKey = ref('');
   const newKeyName = ref('');
+  const runtimeState = ref<ListRuntimeState>();
+  const runtimeRevision = ref(0);
+  const capabilities = ref<Recordable | null>(null);
+  const ownerOptionsLoading = ref(false);
+  const ownerOptions = ref<{ label: string; value: number }[]>([]);
+  const filters = reactive({
+    keyword: '',
+    owner_user_id: null as number | null,
+    is_active: null as boolean | null,
+  });
   const isPlatformAdmin = computed(() => !!userStore.info?.is_platform_admin);
   const usePlatformApiKeys = computed(() => isPlatformAdmin.value && String(route.name || '') !== 'tenant-api-keys');
   const canCreate = computed(() => hasPermission([usePlatformApiKeys.value ? 'api_keys:create' : 'tenant:api_keys:create']));
   const canRevoke = computed(() => hasPermission([usePlatformApiKeys.value ? 'api_keys:revoke' : 'tenant:api_keys:revoke']));
+  const activeOptions = [
+    { label: '有效', value: true },
+    { label: '已吊销', value: false },
+  ];
 
   const columns: DataTableColumns<Recordable> = [
     { title: 'ID', key: 'id', width: 80 },
@@ -140,15 +177,67 @@
   });
 
   async function reload(state?: ListRuntimeState) {
+    runtimeState.value = state || runtimeState.value;
     loading.value = true;
     try {
-      const params = runtimeListParams(state);
+      await ensureCapabilities();
+      const params = {
+        ...runtimeListParams(runtimeState.value),
+        ...filterParams(),
+      };
       const payload = usePlatformApiKeys.value ? await getApiKeys(params) : await getCurrentTenantApiKeys(params);
       rows.value = payload.items || [];
       paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }
+  }
+
+  async function ensureCapabilities() {
+    if (capabilities.value) return;
+    const payload = usePlatformApiKeys.value ? await getApiKeyFilterCapabilities({ page: 1, page_size: 100 }) : await getCurrentTenantApiKeyFilterCapabilities({ page: 1, page_size: 100 });
+    capabilities.value = payload;
+    ownerOptions.value = (payload.owner_options || []).map((item: Recordable) => ({ label: String(item.label || item.username || item.id), value: Number(item.value || item.id) }));
+  }
+
+  async function loadOwnerOptions(query = '') {
+    if (!capabilities.value?.can_filter_owner) return;
+    ownerOptionsLoading.value = true;
+    try {
+      const payload = usePlatformApiKeys.value
+        ? await getApiKeyFilterCapabilities({ q: query || undefined, page: 1, page_size: 100 })
+        : await getCurrentTenantApiKeyFilterCapabilities({ q: query || undefined, page: 1, page_size: 100 });
+      ownerOptions.value = (payload.owner_options || []).map((item: Recordable) => ({ label: String(item.label || item.username || item.id), value: Number(item.value || item.id) }));
+      capabilities.value = payload;
+      if (!payload.can_filter_owner) filters.owner_user_id = null;
+    } finally {
+      ownerOptionsLoading.value = false;
+    }
+  }
+
+  function filterParams() {
+    const params: Record<string, string | number | boolean> = {};
+    if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+    if (capabilities.value?.can_filter_owner && filters.owner_user_id) params.owner_user_id = filters.owner_user_id;
+    if (filters.is_active !== null) params.is_active = filters.is_active;
+    return params;
+  }
+
+  async function search() {
+    runtimeRevision.value += 1;
+    runtimeState.value = {
+      ...(runtimeState.value || {}),
+      pagination: {
+        page: 1,
+        pageSize: runtimeState.value?.pagination?.pageSize || 20,
+      },
+    };
+    await reload(runtimeState.value);
+  }
+
+  async function resetFilters() {
+    Object.assign(filters, { keyword: '', owner_user_id: null, is_active: null });
+    await search();
   }
 
   async function create() {
@@ -229,5 +318,26 @@
     document.body.removeChild(input);
   }
 
+  watch(
+    () => route.name,
+    () => {
+      capabilities.value = null;
+      ownerOptions.value = [];
+      Object.assign(filters, { keyword: '', owner_user_id: null, is_active: null });
+      runtimeState.value = undefined;
+      reload();
+    }
+  );
+
   reload();
 </script>
+
+<style lang="less" scoped>
+  .api-key-page__filter {
+    width: min(240px, 100%);
+  }
+
+  .api-key-page__status {
+    width: min(160px, 100%);
+  }
+</style>

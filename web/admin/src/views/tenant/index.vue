@@ -80,7 +80,28 @@
             </ListPageRuntime>
           </n-tab-pane>
           <n-tab-pane name="keys" tab="API Key">
-            <ListPageRuntime :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys" />
+            <ListPageRuntime :key="tenantKeyRuntimeKey" :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys">
+              <template #filters>
+                <n-input v-model:value="apiKeyFilters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" class="tenant-page__key-filter" @keyup.enter="searchTenantKeys" />
+                <n-select
+                  v-if="apiKeyCapabilities?.can_filter_owner"
+                  v-model:value="apiKeyFilters.owner_user_id"
+                  clearable
+                  filterable
+                  remote
+                  placeholder="所属人员"
+                  :options="apiKeyOwnerOptions"
+                  :loading="apiKeyOwnerOptionsLoading"
+                  class="tenant-page__key-filter"
+                  @search="loadApiKeyOwnerOptions"
+                  @focus="loadApiKeyOwnerOptions()"
+                  @update:value="searchTenantKeys"
+                />
+                <n-select v-model:value="apiKeyFilters.is_active" clearable placeholder="状态" :options="apiKeyActiveOptions" class="tenant-page__key-status" @update:value="searchTenantKeys" />
+                <n-button @click="searchTenantKeys">查询</n-button>
+                <n-button secondary @click="resetTenantKeyFilters">重置</n-button>
+              </template>
+            </ListPageRuntime>
           </n-tab-pane>
           <n-tab-pane name="init" tab="初始化">
             <n-result status="success" title="租户初始化由后端受控脚本保证">
@@ -185,12 +206,14 @@
     exportCurrentTenantUsers,
     exportTenantUsers,
     getCurrentTenantApiKeys,
+    getCurrentTenantApiKeyFilterCapabilities,
     getCurrentTenantUserImportJob,
     getCurrentTenantRoles,
     getCurrentTenantUsers,
     getDepartments,
     getRbacRoles,
     getTenantApiKeys,
+    getTenantApiKeyFilterCapabilities,
     getTenantUserImportJob,
     getTenantUsers,
     getTenants,
@@ -291,12 +314,22 @@
   const memberImportMessageShownForJobId = ref('');
   const tenantUserRuntimeState = ref<ListRuntimeState>();
   const tenantUserRuntimeRevision = ref(0);
+  const tenantKeyRuntimeState = ref<ListRuntimeState>();
+  const tenantKeyRuntimeRevision = ref(0);
   const memberFilters = reactive({
     username: '',
     email: '',
     full_name: '',
     is_active: null as boolean | null,
   });
+  const apiKeyFilters = reactive({
+    keyword: '',
+    owner_user_id: null as number | null,
+    is_active: null as boolean | null,
+  });
+  const apiKeyCapabilities = ref<Recordable | null>(null);
+  const apiKeyOwnerOptions = ref<SelectOption[]>([]);
+  const apiKeyOwnerOptionsLoading = ref(false);
   const roleOptions = ref<SelectOption[]>([]);
   const themeOptions = ref<SelectOption[]>([]);
   const themesLoading = ref(false);
@@ -336,6 +369,7 @@
   const canRevokeTenantApiKey = computed(() => hasPermission(['tenant:api_keys:revoke']));
   const memberImportJobRunning = computed(() => !!memberImportJob.value?.is_active);
   const tenantUserRuntimeKey = computed(() => `tenant-users-${activeTenant.value?.id || 'current'}-${tenantUserRuntimeRevision.value}`);
+  const tenantKeyRuntimeKey = computed(() => `tenant-keys-${activeTenant.value?.id || 'current'}-${tenantKeyRuntimeRevision.value}`);
 
   const statusOptions = [
     { label: '启用', value: 'active' },
@@ -344,6 +378,10 @@
   const memberActiveOptions: SelectOption[] = [
     { label: '启用', value: true },
     { label: '停用', value: false },
+  ];
+  const apiKeyActiveOptions: SelectOption[] = [
+    { label: '有效', value: true },
+    { label: '已吊销', value: false },
   ];
 
   const tenantRules: FormRules = {
@@ -730,6 +768,47 @@
     tenantUserRuntimeRevision.value += 1;
   }
 
+  function tenantKeyFilterParams() {
+    const params: Record<string, string | number | boolean> = {};
+    if (apiKeyFilters.keyword.trim()) params.keyword = apiKeyFilters.keyword.trim();
+    if (apiKeyCapabilities.value?.can_filter_owner && apiKeyFilters.owner_user_id) params.owner_user_id = apiKeyFilters.owner_user_id;
+    if (apiKeyFilters.is_active !== null) params.is_active = apiKeyFilters.is_active;
+    return params;
+  }
+
+  function tenantKeyListParams(state?: ListRuntimeState) {
+    const runtimeState = state || tenantKeyRuntimeState.value;
+    return {
+      ...runtimeListParams(runtimeState),
+      ...tenantKeyFilterParams(),
+    };
+  }
+
+  async function searchTenantKeys() {
+    tenantKeyRuntimeRevision.value += 1;
+    tenantKeyRuntimeState.value = {
+      ...(tenantKeyRuntimeState.value || {}),
+      pagination: {
+        page: 1,
+        pageSize: tenantKeyRuntimeState.value?.pagination?.pageSize || 20,
+      },
+    };
+    await loadTenantKeys(tenantKeyRuntimeState.value);
+  }
+
+  async function resetTenantKeyFilters() {
+    Object.assign(apiKeyFilters, { keyword: '', owner_user_id: null, is_active: null });
+    await searchTenantKeys();
+  }
+
+  function clearTenantKeyFilters() {
+    Object.assign(apiKeyFilters, { keyword: '', owner_user_id: null, is_active: null });
+    tenantKeyRuntimeState.value = undefined;
+    tenantKeyRuntimeRevision.value += 1;
+    apiKeyCapabilities.value = null;
+    apiKeyOwnerOptions.value = [];
+  }
+
   async function handleMemberDownloadTemplate() {
     if (!activeTenant.value) return;
     try {
@@ -815,6 +894,7 @@
   async function openDetail(row: TenantRow) {
     if (!activeTenant.value || Number(activeTenant.value.id) !== Number(row.id)) {
       clearTenantUserFilters();
+      clearTenantKeyFilters();
     }
     activeTenant.value = row;
     detailVisible.value = true;
@@ -861,14 +941,47 @@
 
   async function loadTenantKeys(state?: ListRuntimeState) {
     if (!activeTenant.value) return;
+    tenantKeyRuntimeState.value = state || tenantKeyRuntimeState.value;
     keysLoading.value = true;
     try {
-      const params = runtimeListParams(state);
+      await ensureApiKeyCapabilities();
+      const params = tenantKeyListParams(state);
       const payload = isPlatformTenantManagement.value ? await getTenantApiKeys(activeTenant.value.id, params) : await getCurrentTenantApiKeys(params);
       tenantKeys.value = payload.items || [];
       tenantKeysPaginationTotal.value = payload.pagination?.total || tenantKeys.value.length;
     } finally {
       keysLoading.value = false;
+    }
+  }
+
+  async function ensureApiKeyCapabilities() {
+    if (!activeTenant.value || apiKeyCapabilities.value) return;
+    const payload = isPlatformTenantManagement.value
+      ? await getTenantApiKeyFilterCapabilities(activeTenant.value.id, { page: 1, page_size: 100 })
+      : await getCurrentTenantApiKeyFilterCapabilities({ page: 1, page_size: 100 });
+    apiKeyCapabilities.value = payload;
+    apiKeyOwnerOptions.value = (payload.owner_options || []).map((item: Recordable) => ({
+      label: String(item.label || item.username || item.id),
+      value: Number(item.value || item.id),
+    }));
+    if (!payload.can_filter_owner) apiKeyFilters.owner_user_id = null;
+  }
+
+  async function loadApiKeyOwnerOptions(query = '') {
+    if (!activeTenant.value || !apiKeyCapabilities.value?.can_filter_owner) return;
+    apiKeyOwnerOptionsLoading.value = true;
+    try {
+      const payload = isPlatformTenantManagement.value
+        ? await getTenantApiKeyFilterCapabilities(activeTenant.value.id, { q: query || undefined, page: 1, page_size: 100 })
+        : await getCurrentTenantApiKeyFilterCapabilities({ q: query || undefined, page: 1, page_size: 100 });
+      apiKeyCapabilities.value = payload;
+      apiKeyOwnerOptions.value = (payload.owner_options || []).map((item: Recordable) => ({
+        label: String(item.label || item.username || item.id),
+        value: Number(item.value || item.id),
+      }));
+      if (!payload.can_filter_owner) apiKeyFilters.owner_user_id = null;
+    } finally {
+      apiKeyOwnerOptionsLoading.value = false;
     }
   }
 
@@ -1100,6 +1213,7 @@
       tenantKeys.value = [];
       memberImportJob.value = null;
       clearTenantUserFilters();
+      clearTenantKeyFilters();
       stopMemberImportPolling();
       reload();
     }
@@ -1123,6 +1237,14 @@
   }
 
   .tenant-page__member-status {
+    width: 140px;
+  }
+
+  .tenant-page__key-filter {
+    width: min(220px, 100%);
+  }
+
+  .tenant-page__key-status {
     width: 140px;
   }
 

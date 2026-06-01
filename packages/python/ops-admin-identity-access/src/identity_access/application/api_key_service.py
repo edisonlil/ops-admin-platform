@@ -8,6 +8,12 @@ from fastapi import HTTPException, status
 from identity_access.application.ports import IdentityAccessRepository
 from system.application.data_access import (
     ResourceDescriptor,
+    SCOPE_CUSTOM_DEPARTMENTS,
+    SCOPE_DEPARTMENT,
+    SCOPE_DEPARTMENT_AND_CHILDREN,
+    SCOPE_SELF,
+    SCOPE_SELF_AND_SUBORDINATES,
+    SCOPE_TENANT,
     current_user_primary_department_id,
     resolve_data_access_filter,
 )
@@ -51,15 +57,168 @@ def list_api_keys(
     tenant_id: int | None = None,
     current_user: dict[str, Any] | None = None,
     *,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> list[dict[str, Any]]:
-    data_scope = (
+    data_scope = api_key_data_scope(current_user)
+    return repo().list_api_keys(
+        tenant_id=tenant_id,
+        data_scope=data_scope,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+        is_active=is_active,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def list_api_keys_page(
+    tenant_id: int | None = None,
+    current_user: dict[str, Any] | None = None,
+    *,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    data_scope = api_key_data_scope(current_user)
+    return repo().list_api_keys_page(
+        tenant_id=tenant_id,
+        data_scope=data_scope,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+def api_key_data_scope(current_user: dict[str, Any] | None) -> Any:
+    return (
         resolve_data_access_filter(current_user=current_user, resource=API_KEY_RESOURCE, action="read")
         if current_user is not None
         else None
     )
-    return repo().list_api_keys(tenant_id=tenant_id, data_scope=data_scope, sort_by=sort_by, sort_dir=sort_dir)
+
+
+def api_key_filter_capabilities(
+    *,
+    tenant_id: int,
+    current_user: dict[str, Any],
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    data_scope = api_key_data_scope(current_user)
+    owner_options = api_key_owner_options_for_scope(
+        tenant_id=tenant_id,
+        current_user=current_user,
+        data_scope=data_scope,
+        q=q,
+        page=page,
+        page_size=page_size,
+    )
+    owner_total = int(owner_options["pagination"]["total"])
+    if q:
+        unfiltered_owner_options = api_key_owner_options_for_scope(
+            tenant_id=tenant_id,
+            current_user=current_user,
+            data_scope=data_scope,
+            page=1,
+            page_size=1,
+        )
+        owner_total = int(unfiltered_owner_options["pagination"]["total"])
+    return {
+        "access_mode": "owner_columns",
+        "owner_filter_label": "所属人员",
+        "scope": getattr(data_scope, "scope", "tenant") if data_scope is not None else "tenant",
+        "can_filter_owner": owner_total > 1,
+        "owner_options": owner_options["items"],
+        "owner_options_pagination": owner_options["pagination"],
+    }
+
+
+def api_key_owner_options_for_scope(
+    *,
+    tenant_id: int,
+    current_user: dict[str, Any],
+    data_scope: Any,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    users = tenant_service.list_tenant_users(tenant_id)
+    visible_users = visible_owner_users(current_user=current_user, users=users, data_scope=data_scope)
+    keyword = (q or "").strip().lower()
+    if keyword:
+        visible_users = [
+            user
+            for user in visible_users
+            if keyword in str(user.get("username", "")).lower()
+            or keyword in str(user.get("full_name", "")).lower()
+            or keyword in str(user.get("email", "")).lower()
+        ]
+    visible_users = sorted(visible_users, key=lambda item: (str(item.get("username", "")), int(item.get("id", 0) or 0)))
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, min(100, int(page_size or 100)))
+    start = (safe_page - 1) * safe_page_size
+    page_users = visible_users[start:start + safe_page_size]
+    return {
+        "items": [owner_option(user) for user in page_users],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": len(visible_users)},
+    }
+
+
+def visible_owner_users(*, current_user: dict[str, Any], users: list[dict[str, Any]], data_scope: Any) -> list[dict[str, Any]]:
+    scope = str(getattr(data_scope, "scope", SCOPE_TENANT) or SCOPE_TENANT)
+    if scope == "deny":
+        return []
+    if scope == SCOPE_TENANT:
+        return users
+    if scope == SCOPE_SELF:
+        user_id = int(getattr(data_scope, "user_id", 0) or current_user_id_or_none(current_user) or 0)
+        return [user for user in users if int(user.get("id", 0) or 0) == user_id]
+    if scope == SCOPE_SELF_AND_SUBORDINATES:
+        user_ids = {int(value) for value in getattr(data_scope, "user_ids", ()) if int(value)}
+        if not user_ids:
+            user_id = int(getattr(data_scope, "user_id", 0) or current_user_id_or_none(current_user) or 0)
+            user_ids = {user_id} if user_id else set()
+        return [user for user in users if int(user.get("id", 0) or 0) in user_ids]
+    if scope in {SCOPE_DEPARTMENT, SCOPE_DEPARTMENT_AND_CHILDREN, SCOPE_CUSTOM_DEPARTMENTS}:
+        department_ids = {int(value) for value in getattr(data_scope, "department_ids", ()) if int(value)}
+        if not department_ids:
+            return []
+        return [user for user in users if user_in_departments(user, department_ids)]
+    return []
+
+
+def user_in_departments(user: dict[str, Any], department_ids: set[int]) -> bool:
+    for department in user.get("departments") or []:
+        if int(department.get("department_id") or department.get("id") or 0) in department_ids:
+            return True
+    return False
+
+
+def owner_option(user: dict[str, Any]) -> dict[str, Any]:
+    username = str(user.get("username", "") or "")
+    full_name = str(user.get("full_name", "") or "")
+    label = f"{full_name}（{username}）" if full_name and username else full_name or username or f"用户 #{user.get('id')}"
+    return {
+        "id": int(user.get("id", 0) or 0),
+        "username": username,
+        "full_name": full_name,
+        "email": str(user.get("email", "") or ""),
+        "label": label,
+        "value": int(user.get("id", 0) or 0),
+    }
 
 
 def get_api_key(key_id: int) -> dict[str, Any] | None:

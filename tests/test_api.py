@@ -117,6 +117,16 @@ class ApiTests(unittest.TestCase):
             self.access_token = str(response.json()["data"]["token"])
         return {"Authorization": f"Bearer {self.access_token}"}
 
+    def login_headers(self, tenant_key: str, username: str, password: str) -> dict[str, str]:
+        response = self.request(
+            "POST",
+            "/api/login",
+            json={"params": {"tenant_key": tenant_key, "username": username, "password": password}},
+            auth=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        return {"Authorization": f"Bearer {response.json()['data']['token']}"}
+
     def menu_keys(self, menus: list[dict[str, object]]) -> set[str]:
         keys: set[str] = set()
         for menu in menus:
@@ -856,6 +866,52 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(row["creator"], "copy-owner")
         self.assertEqual(int(row["owner_user_id"]), int(create_user_response.json()["data"]["item"]["id"]))
         self.assertTrue(row["prefix"].startswith("sk-"))
+
+    def test_tenant_admin_can_filter_current_tenant_api_keys_by_owner(self) -> None:
+        tenant_response = self.request("POST", "/api/tenants", json={"key": "key-owner-filter", "name": "Key Owner Filter"})
+        self.assertEqual(tenant_response.status_code, 200)
+        tenant_id = int(tenant_response.json()["data"]["item"]["id"])
+
+        first_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={"username": "key-filter-a", "password": "key-filter-a-pass", "role_keys": ["tenant-admin"], "is_active": True},
+        )
+        second_response = self.request(
+            "POST",
+            f"/api/tenants/{tenant_id}/users",
+            json={"username": "key-filter-b", "password": "key-filter-b-pass", "role_keys": ["tenant-admin"], "is_active": True},
+        )
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        first_id = int(first_response.json()["data"]["item"]["id"])
+        second_id = int(second_response.json()["data"]["item"]["id"])
+
+        first_headers = self.login_headers("key-owner-filter", "key-filter-a", "key-filter-a-pass")
+        second_headers = self.login_headers("key-owner-filter", "key-filter-b", "key-filter-b-pass")
+        first_key_response = self.request("POST", "/api/tenant/api-keys", json={"name": "first-owner-key"}, headers=first_headers, auth=False)
+        second_key_response = self.request("POST", "/api/tenant/api-keys", json={"name": "second-owner-key"}, headers=second_headers, auth=False)
+        self.assertEqual(first_key_response.status_code, 200)
+        self.assertEqual(second_key_response.status_code, 200)
+
+        capability_response = self.request("GET", "/api/tenant/api-keys/filter-capabilities", headers=first_headers, auth=False)
+        self.assertEqual(capability_response.status_code, 200)
+        capability = capability_response.json()["data"]
+        self.assertTrue(capability["can_filter_owner"])
+        self.assertGreaterEqual(capability["owner_options_pagination"]["total"], 2)
+
+        filtered_response = self.request(
+            "GET",
+            f"/api/tenant/api-keys?owner_user_id={second_id}",
+            headers=first_headers,
+            auth=False,
+        )
+        self.assertEqual(filtered_response.status_code, 200)
+        rows = filtered_response.json()["data"]["items"]
+        self.assertTrue(rows)
+        self.assertEqual({int(row["owner_user_id"]) for row in rows}, {second_id})
+        self.assertEqual(filtered_response.json()["data"]["pagination"]["total"], len(rows))
+        self.assertNotIn(first_id, {int(row["owner_user_id"]) for row in rows})
 
     def test_user_bound_api_key_principal_uses_owner_access_context(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "bound-key", "name": "Bound Key"})

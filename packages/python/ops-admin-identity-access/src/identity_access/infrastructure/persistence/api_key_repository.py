@@ -84,17 +84,21 @@ def list_api_keys(
     *,
     tenant_id: int | None = None,
     data_scope: DataAccessPredicate | None = None,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> list[dict[str, Any]]:
     with connect(auth_database_target(), readonly=False) as conn:
         require_auth_ready(conn)
-        filters = ["deleted = 0"]
-        params: list[Any] = []
-        if tenant_id is not None:
-            filters.insert(0, "tenant_id = ?")
-            params.insert(0, tenant_id)
-        append_data_scope_sql(filters, params, data_scope, API_KEY_RESOURCE)
+        filters, params = api_key_filters(
+            tenant_id=tenant_id,
+            data_scope=data_scope,
+            owner_user_id=owner_user_id,
+            keyword=keyword,
+            is_active=is_active,
+        )
         where = f"WHERE {' AND '.join(filters)}"
         order_by = build_order_by(
             parse_sort_params(sort_by, sort_dir),
@@ -112,6 +116,82 @@ def list_api_keys(
             tuple(params),
         ).fetchall()
     return [row_to_api_key(dict(row)) for row in rows]
+
+
+def list_api_keys_page(
+    *,
+    tenant_id: int | None = None,
+    data_scope: DataAccessPredicate | None = None,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
+    page: int,
+    page_size: int,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> dict[str, Any]:
+    safe_page = max(1, int(page or 1))
+    safe_page_size = max(1, int(page_size or 20))
+    offset = (safe_page - 1) * safe_page_size
+    filters, params = api_key_filters(
+        tenant_id=tenant_id,
+        data_scope=data_scope,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+        is_active=is_active,
+    )
+    where = f"WHERE {' AND '.join(filters)}"
+    order_by = build_order_by(
+        parse_sort_params(sort_by, sort_dir),
+        allowed=API_KEY_SORT_COLUMNS,
+        default="is_active DESC, create_time DESC, id DESC",
+        tie_breaker="id DESC",
+    )
+    with connect(auth_database_target(), readonly=True) as conn:
+        require_auth_ready(conn)
+        total = int(conn.execute(f"SELECT COUNT(*) AS total FROM api_keys {where}", tuple(params)).fetchone()["total"])
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM api_keys
+            {where}
+            ORDER BY {order_by}
+            LIMIT ? OFFSET ?
+            """,
+            (*params, safe_page_size, offset),
+        ).fetchall()
+    return {
+        "items": [row_to_api_key(dict(row)) for row in rows],
+        "pagination": {"page": safe_page, "page_size": safe_page_size, "total": total},
+    }
+
+
+def api_key_filters(
+    *,
+    tenant_id: int | None,
+    data_scope: DataAccessPredicate | None,
+    owner_user_id: int | None = None,
+    keyword: str | None = None,
+    is_active: bool | None = None,
+) -> tuple[list[str], list[Any]]:
+    filters = ["deleted = 0"]
+    params: list[Any] = []
+    if tenant_id is not None:
+        filters.insert(0, "tenant_id = ?")
+        params.insert(0, tenant_id)
+    append_data_scope_sql(filters, params, data_scope, API_KEY_RESOURCE)
+    if owner_user_id is not None:
+        filters.append("owner_user_id = ?")
+        params.append(int(owner_user_id))
+    keyword_text = (keyword or "").strip()
+    if keyword_text:
+        like = f"%{keyword_text}%"
+        filters.append("(name LIKE ? OR prefix LIKE ? OR creator LIKE ?)")
+        params.extend([like, like, like])
+    if is_active is not None:
+        filters.append("is_active = ?")
+        params.append(bool(is_active))
+    return filters, params
 
 
 def revoke_api_key(key_id: int) -> dict[str, Any]:

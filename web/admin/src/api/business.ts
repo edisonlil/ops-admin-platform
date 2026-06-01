@@ -18,6 +18,30 @@ export interface ApiKeyUpdatePayload {
   name: string;
 }
 
+export interface ApiKeyListParams extends PageParams, SortParams {
+  owner_user_id?: number;
+  keyword?: string;
+  is_active?: boolean;
+}
+
+export interface ApiKeyOwnerOption {
+  id: number;
+  value: number;
+  label: string;
+  username: string;
+  full_name?: string;
+  email?: string;
+}
+
+export interface ApiKeyFilterCapabilities {
+  access_mode: 'owner_columns' | 'relation_table';
+  owner_filter_label: string;
+  scope: string;
+  can_filter_owner: boolean;
+  owner_options: ApiKeyOwnerOption[];
+  owner_options_pagination: BusinessPagination;
+}
+
 export interface TenantPayload {
   key?: string;
   tenant_key?: string;
@@ -444,8 +468,12 @@ export interface BusinessListData<TItem = Recordable> {
   pagination: BusinessPagination;
 }
 
-export function getApiKeys(params: PageParams & SortParams = {}) {
+export function getApiKeys(params: ApiKeyListParams = {}) {
   return Alova.Get('/api-keys', { params: withNoCacheParams(params) });
+}
+
+export function getApiKeyFilterCapabilities(params: PageParams & { q?: string } = {}) {
+  return Alova.Get<ApiKeyFilterCapabilities>('/api-keys/filter-capabilities', { params: withNoCacheParams(params) });
 }
 
 export function createApiKey(payload: ApiKeyCreatePayload) {
@@ -564,12 +592,20 @@ export function disableCurrentTenantUser(userId: number) {
   return Alova.Post(`/tenant/users/${userId}/disable`);
 }
 
-export function getTenantApiKeys(tenantId: number, params: PageParams & SortParams = {}) {
+export function getTenantApiKeys(tenantId: number, params: ApiKeyListParams = {}) {
   return Alova.Get(`/tenants/${tenantId}/api-keys`, { params: withNoCacheParams(params) });
 }
 
-export function getCurrentTenantApiKeys(params: PageParams & SortParams = {}) {
+export function getTenantApiKeyFilterCapabilities(tenantId: number, params: PageParams & { q?: string } = {}) {
+  return Alova.Get<ApiKeyFilterCapabilities>(`/tenants/${tenantId}/api-keys/filter-capabilities`, { params: withNoCacheParams(params) });
+}
+
+export function getCurrentTenantApiKeys(params: ApiKeyListParams = {}) {
   return Alova.Get('/tenant/api-keys', { params: withNoCacheParams(params) });
+}
+
+export function getCurrentTenantApiKeyFilterCapabilities(params: PageParams & { q?: string } = {}) {
+  return Alova.Get<ApiKeyFilterCapabilities>('/tenant/api-keys/filter-capabilities', { params: withNoCacheParams(params) });
 }
 
 export function createTenantApiKey(tenantId: number, payload: ApiKeyCreatePayload) {
