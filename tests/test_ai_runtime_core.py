@@ -186,6 +186,39 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(sql_requests[0].sql, "SELECT id FROM docs WHERE primary_component IN (?, ?)")
         self.assertEqual(sql_requests[0].params, ["PUB", "知识库"])
 
+    def test_workflow_llm_json_response_prefers_fenced_json_over_inline_example_object(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "llm_1",
+                    "type": "llm",
+                    "data": {
+                        "model": "dashscope.qwen-plus",
+                        "user_prompt_template": "请输出 JSON",
+                        "response_format": {"type": "json_object"},
+                        "output_key": "output",
+                    },
+                },
+                {"id": "end", "type": "end", "data": {"output": "{{output.selected_components}}"}},
+            ],
+            "edges": [
+                {"source": "start", "target": "llm_1"},
+                {"source": "llm_1", "target": "end"},
+            ],
+        }
+
+        result = execute_workflow(
+            definition,
+            {},
+            llm_executor=lambda request: WorkflowLLMResult(
+                answer='示例：{"example": true}\n```json\n{"selected_components": ["PUB", "知识库"]}\n```',
+                model=request.model,
+            ),
+        )
+
+        self.assertEqual(result.context["variables"]["output"]["selected_components"], ["PUB", "知识库"])
+
     def test_workflow_sql_node_rejects_write_statement(self) -> None:
         definition = {
             "nodes": [

@@ -528,12 +528,12 @@ def maybe_decode_json_response(result: WorkflowLLMResult, node_data: dict[str, A
 
 
 def decode_json_object_response(raw_content: str) -> Any | None:
-    candidates = [raw_content.strip()]
-    for match in JSON_CODE_FENCE_PATTERN.finditer(raw_content):
-        candidates.append(match.group(1).strip())
+    fenced_candidates = [match.group(1).strip() for match in JSON_CODE_FENCE_PATTERN.finditer(raw_content)]
+    candidates = [candidate for candidate in fenced_candidates if candidate]
+    stripped = raw_content.strip()
+    if stripped:
+        candidates.append(stripped)
     for candidate in candidates:
-        if not candidate:
-            continue
         try:
             return json.loads(candidate)
         except json.JSONDecodeError:
