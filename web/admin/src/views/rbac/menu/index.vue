@@ -684,6 +684,10 @@
     formParams.icon = '';
   }
 
+  function trimFormText(value: unknown) {
+    return String(value || '').trim();
+  }
+
   function handleAddMenu(key: string) {
     if (key === 'root') {
       startCreate('');
@@ -711,16 +715,16 @@
     saving.value = true;
     try {
       const payload = {
-        key: formParams.key.trim(),
-        label: formParams.label.trim(),
+        key: trimFormText(formParams.key),
+        label: trimFormText(formParams.label),
         menu_scope: formParams.menu_scope,
         menu_type: formParams.menu_type,
-        path: formParams.menu_type === 'action' ? '' : formParams.path.trim(),
-        route_name: formParams.menu_type === 'action' ? '' : formParams.route_name.trim(),
-        component: formParams.menu_type === 'action' ? '' : formParams.component.trim(),
-        icon: formParams.menu_type === 'action' ? '' : formParams.icon.trim(),
-        parent_key: formParams.parent_key.trim(),
-        permission_code: formParams.permission_code.trim(),
+        path: formParams.menu_type === 'action' ? '' : trimFormText(formParams.path),
+        route_name: formParams.menu_type === 'action' ? '' : trimFormText(formParams.route_name),
+        component: formParams.menu_type === 'action' ? '' : trimFormText(formParams.component),
+        icon: formParams.menu_type === 'action' ? '' : trimFormText(formParams.icon),
+        parent_key: trimFormText(formParams.parent_key),
+        permission_code: trimFormText(formParams.permission_code),
         sort_order: Number(formParams.sort_order || 0),
         is_visible: !!formParams.is_visible,
       };
