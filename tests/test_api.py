@@ -1376,6 +1376,171 @@ class ApiTests(unittest.TestCase):
         delete_response = self.request("DELETE", f"/api/rbac/menus/{menu_id}")
         self.assertEqual(delete_response.status_code, 200)
 
+    def test_bound_menu_can_move_parent_but_keeps_bindings(self) -> None:
+        root_key = "bound-menu-root"
+        child_key = "bound-menu-child"
+        new_parent_key = "bound-menu-new-parent"
+        role_key = "bound-menu-operator"
+        permission_code = "bound-menu:access"
+
+        root_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": root_key,
+                "label": "绑定菜单根节点",
+                "menu_type": "directory",
+                "path": "",
+                "route_name": root_key,
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": "",
+                "permission_code": permission_code,
+                "sort_order": 210,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(root_response.status_code, 200)
+        root_menu_id = int(root_response.json()["data"]["item"]["id"])
+
+        child_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": child_key,
+                "label": "绑定菜单子节点",
+                "menu_type": "directory",
+                "path": "",
+                "route_name": child_key,
+                "component": "",
+                "icon": "FolderOutlined",
+                "parent_key": root_key,
+                "permission_code": "",
+                "sort_order": 211,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(child_response.status_code, 200)
+
+        new_parent_response = self.request(
+            "POST",
+            "/api/rbac/menus",
+            json={
+                "key": new_parent_key,
+                "label": "新的父节点",
+                "menu_type": "directory",
+                "path": "",
+                "route_name": new_parent_key,
+                "component": "",
+                "icon": "FolderOutlined",
+                "parent_key": "",
+                "permission_code": "",
+                "sort_order": 212,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(new_parent_response.status_code, 200)
+        new_parent_menu_id = int(new_parent_response.json()["data"]["item"]["id"])
+
+        role_response = self.request(
+            "POST",
+            "/api/rbac/roles",
+            json={
+                "key": role_key,
+                "name": "绑定菜单角色",
+                "description": "",
+                "menu_keys": [root_key],
+            },
+        )
+        self.assertEqual(role_response.status_code, 200)
+        role_item = role_response.json()["data"]["item"]
+        role_id = int(role_item["id"])
+        self.assertIn(root_key, {item["key"] for item in role_item["menus"]})
+        self.assertIn(permission_code, {item["code"] for item in role_item["permissions"]})
+
+        update_response = self.request(
+            "PUT",
+            f"/api/rbac/menus/{root_menu_id}",
+            json={
+                "key": root_key,
+                "label": "绑定菜单根节点已移动",
+                "menu_type": "directory",
+                "path": "",
+                "route_name": root_key,
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": new_parent_key,
+                "permission_code": permission_code,
+                "sort_order": 220,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+        updated_item = update_response.json()["data"]["item"]
+        self.assertEqual(updated_item["parent_key"], new_parent_key)
+        self.assertEqual(updated_item["sort_order"], 220)
+
+        db_path = os.environ["FG_AGENT_DB_PATH"]
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            root_row = conn.execute(
+                "SELECT parent_key, sort_order FROM menus WHERE id = ?",
+                (root_menu_id,),
+            ).fetchone()
+            self.assertIsNotNone(root_row)
+            self.assertEqual(root_row["parent_key"], new_parent_key)
+            self.assertEqual(int(root_row["sort_order"]), 220)
+
+            role_menu_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM role_menus WHERE role_id = ? AND menu_id = ?",
+                (role_id, root_menu_id),
+            ).fetchone()["count"]
+            self.assertEqual(role_menu_count, 1)
+
+            role_new_parent_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM role_menus WHERE role_id = ? AND menu_id = ?",
+                (role_id, new_parent_menu_id),
+            ).fetchone()["count"]
+            self.assertEqual(role_new_parent_count, 1)
+
+            role_permission_codes = {
+                row["code"]
+                for row in conn.execute(
+                    """
+                    SELECT p.code
+                    FROM role_permissions rp
+                    JOIN permissions p ON p.id = rp.permission_id
+                    WHERE rp.role_id = ?
+                    ORDER BY p.code
+                    """,
+                    (role_id,),
+                ).fetchall()
+            }
+            self.assertIn(permission_code, role_permission_codes)
+        finally:
+            conn.close()
+
+        invalid_response = self.request(
+            "PUT",
+            f"/api/rbac/menus/{root_menu_id}",
+            json={
+                "key": root_key,
+                "label": "绑定菜单根节点已移动",
+                "menu_type": "directory",
+                "path": "",
+                "route_name": root_key,
+                "component": "",
+                "icon": "DashboardOutlined",
+                "parent_key": child_key,
+                "permission_code": permission_code,
+                "sort_order": 230,
+                "is_visible": True,
+            },
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertIn("descendant", invalid_response.json()["message"])
+
     def test_tenant_menu_create_syncs_tenant_overrides(self) -> None:
         create_response = self.request(
             "POST",

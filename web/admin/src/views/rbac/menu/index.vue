@@ -81,7 +81,7 @@
               </n-alert>
 
               <n-alert v-if="menuLockedByRoles" type="warning" class="mb-4">
-                当前菜单已绑定角色：{{ currentBoundRoleNames }}。为避免权限结构漂移，暂不允许调整层级结构。
+                当前菜单已绑定角色：{{ currentBoundRoleNames }}。绑定后仍可调整父级和排序，菜单类型与路径保持只读。
               </n-alert>
 
               <n-form
@@ -122,7 +122,6 @@
                     clearable
                     :options="parentMenuOptions"
                     placeholder="选择父级菜单"
-                    :disabled="structureLockedByRoles"
                   />
                 </n-form-item>
                 <n-form-item v-if="formParams.menu_type !== 'action'" label="路径" path="path">

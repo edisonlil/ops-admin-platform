@@ -115,28 +115,72 @@ def ensure_menu_structure_not_changed_when_bound(
     conn: Any,
     *,
     current_key: str,
-    next_key: str,
     current_menu_type: str,
     next_menu_type: str,
     current_path: str,
     next_path: str,
-    current_parent_key: str,
-    next_parent_key: str,
 ) -> None:
     bound_roles = bound_roles_for_menu_keys(conn, [current_key])
     if not bound_roles:
         return
 
-    if (
-        current_menu_type != next_menu_type
-        or current_path != next_path
-        or current_parent_key != next_parent_key
-    ):
+    if current_menu_type != next_menu_type or current_path != next_path:
         role_names = ", ".join(role["name"] or role["key"] for role in bound_roles)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"menu structure is assigned to roles: {role_names}. unbind roles before changing menu type, path, or parent",
+            detail=f"menu structure is assigned to roles: {role_names}. unbind roles before changing menu type or path",
         )
+
+
+def menu_ancestor_menu_ids(conn: Any, menu_key: str) -> list[int]:
+    normalized = str(menu_key or "").strip()
+    if not normalized:
+        return []
+    rows = [dict(row) for row in conn.execute("SELECT id, menu_key, parent_key FROM menus").fetchall()]
+    by_key: dict[str, tuple[int, str]] = {}
+    for row in rows:
+        key = str(row.get("menu_key", "") or "").strip()
+        if not key:
+            continue
+        by_key[key] = (int(row["id"]), str(row.get("parent_key", "") or ""))
+    ids: list[int] = []
+    visited: set[str] = set()
+    current = normalized
+    while current and current in by_key and current not in visited:
+        visited.add(current)
+        menu_id, parent_key = by_key[current]
+        ids.append(int(menu_id))
+        current = str(parent_key or "")
+    return ids
+
+
+def ensure_role_menus_include_ancestor_chain(conn: Any, *, menu_id: int, parent_key: str) -> None:
+    ancestor_ids = menu_ancestor_menu_ids(conn, parent_key)
+    if not ancestor_ids:
+        return
+    role_rows = conn.execute(
+        """
+        SELECT DISTINCT role_id
+        FROM role_menus
+        WHERE menu_id = ?
+        """,
+        (int(menu_id),),
+    ).fetchall()
+    role_ids = [int(row["role_id"]) for row in role_rows]
+    if not role_ids:
+        return
+    for role_id in role_ids:
+        for ancestor_id in ancestor_ids:
+            conn.execute(
+                """
+                INSERT INTO role_menus (role_id, menu_id)
+                SELECT ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM role_menus WHERE role_id = ? AND menu_id = ?
+                )
+                """,
+                (int(role_id), int(ancestor_id), int(role_id), int(ancestor_id)),
+            )
 
 
 def user_access_payload(
@@ -1021,6 +1065,7 @@ def update_menu(
         ).fetchone()
         if not current:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="menu not found")
+        previous_parent_key = str(current["parent_key"] or "")
         rows = menu_tree_rows(conn)
         payload = validate_menu_payload(
             conn,
@@ -1038,13 +1083,10 @@ def update_menu(
         ensure_menu_structure_not_changed_when_bound(
             conn,
             current_key=current_key,
-            next_key=payload["menu_key"],
             current_menu_type=str(current["menu_type"] or "page"),
             next_menu_type=payload["menu_type"],
             current_path=str(current["path"] or ""),
             next_path=payload["path"],
-            current_parent_key=str(current["parent_key"] or ""),
-            next_parent_key=payload["parent_key"],
         )
         ensure_permission_definition(conn, normalized_permission)
         conn.execute(
@@ -1071,6 +1113,8 @@ def update_menu(
                 menu_id,
             ),
         )
+        if payload["parent_key"] != previous_parent_key:
+            ensure_role_menus_include_ancestor_chain(conn, menu_id=menu_id, parent_key=payload["parent_key"])
         if payload["menu_key"] != current_key:
             conn.execute(
                 """

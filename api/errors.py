@@ -83,7 +83,7 @@ def translate_detail_text(message: str) -> str:
         return f"menu is assigned to roles; unbind it before deleting: {suffix}"
     if stripped.startswith("menu structure is assigned to roles:"):
         suffix = stripped.removeprefix("menu structure is assigned to roles:").strip()
-        return f"menu is assigned to roles; unbind it before changing structure: {suffix}"
+        return f"menu is assigned to roles; unbind it before changing menu type or path: {suffix}"
     return stripped or "request failed"
 
 
