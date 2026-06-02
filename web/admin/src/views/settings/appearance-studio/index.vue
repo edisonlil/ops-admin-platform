@@ -1,26 +1,14 @@
 <template>
   <div v-if="!isEditorMode" class="appearance-theme-page">
-    <ListPageRuntime :schema="themeListPage" :rows="themes" :loading="themesLoading" :pagination-total="themePaginationTotal" @refresh="loadThemes">
-      <template #filters>
+    <ListPageRuntime :schema="themeListPage" :rows="themes" :loading="themesLoading" :pagination-total="themePaginationTotal" @refresh="loadThemes" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
         <n-input
           v-model:value="themeSearch"
           clearable
-          class="theme-filter-search"
           placeholder="搜索主题名称、状态或预设"
+          @keyup.enter="submit"
         />
-        <div class="theme-status-filter" role="group" aria-label="主题状态筛选">
-          <button
-            v-for="option in statusFilterOptions"
-            :key="option.value"
-            type="button"
-            class="theme-status-filter__item"
-            :class="{ 'theme-status-filter__item--active': statusFilter === option.value }"
-            @click="statusFilter = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-        <span class="theme-filter-summary">共 {{ themePaginationTotal }} 个</span>
+        <n-select v-model:value="statusFilter" :options="statusFilterOptions" placeholder="状态" @update:value="submit" />
       </template>
 
       <template #item="{ row: theme }">
@@ -173,7 +161,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, nextTick, onMounted, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, ref } from 'vue';
   import { useAppearanceStore } from '@/store/modules/appearance';
   import {
     createAppearanceTheme,
@@ -281,6 +269,7 @@
         : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 12, pageSizes: [12, 24, 48], showSizePicker: true },
   });
 
@@ -511,9 +500,10 @@
     await loadThemes();
   }
 
-  watch([themeSearch, statusFilter], () => {
-    loadThemes();
-  });
+  function resetFilters() {
+    themeSearch.value = '';
+    statusFilter.value = 'all';
+  }
 
   onMounted(loadThemes);
 </script>
@@ -531,56 +521,6 @@
     padding: var(--app-content-padding);
     font-family: var(--app-font-family-base);
     font-size: var(--app-font-size-base, 14px);
-  }
-
-  .theme-filter-search {
-    flex: 0 1 360px;
-    min-width: 220px;
-  }
-
-  .theme-status-filter {
-    display: inline-flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    padding: 2px;
-    background: var(--app-page-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: 8px;
-  }
-
-  .theme-status-filter__item {
-    min-height: 28px;
-    padding: 0 12px;
-    color: var(--app-icon-color);
-    font: inherit;
-    font-size: var(--app-font-size-sm, 13px);
-    white-space: nowrap;
-    cursor: pointer;
-    background: transparent;
-    border: 0;
-    border-radius: 6px;
-    transition:
-      color 0.16s ease,
-      background 0.16s ease,
-      box-shadow 0.16s ease;
-
-    &:hover {
-      color: var(--app-text-color);
-      background: var(--app-hover-color);
-    }
-  }
-
-  .theme-status-filter__item--active {
-    color: var(--app-primary-color);
-    background: var(--app-surface-bg);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-  }
-
-  .theme-filter-summary {
-    margin-left: auto;
-    color: var(--app-icon-color);
-    font-size: var(--app-font-size-sm, 13px);
-    white-space: nowrap;
   }
 
   .theme-resource-card {
@@ -1049,21 +989,6 @@
   @media (max-width: 920px) {
     .studio-topbar {
       flex-direction: column;
-    }
-
-    .theme-filter-search {
-      flex-basis: auto;
-      width: 100%;
-      min-width: 0;
-    }
-
-    .theme-filter-summary {
-      margin-left: 0;
-      white-space: normal;
-    }
-
-    .theme-status-filter {
-      overflow-x: auto;
     }
 
     .studio-editor__header {

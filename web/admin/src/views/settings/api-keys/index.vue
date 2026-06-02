@@ -1,8 +1,15 @@
 <template>
   <div>
-    <ListPageRuntime :schema="apiKeyListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="filters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" class="api-key-page__filter" @keyup.enter="search" />
+    <ListPageRuntime
+      :schema="apiKeyListPage"
+      :rows="rows"
+      :loading="loading"
+      :pagination-total="paginationTotal"
+      @refresh="reload"
+      @filter-reset="resetFilters"
+    >
+      <template #filters="{ submit }">
+        <n-input v-model:value="filters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" @keyup.enter="submit" />
         <n-select
           v-if="capabilities?.can_filter_owner"
           v-model:value="filters.owner_user_id"
@@ -12,14 +19,11 @@
           placeholder="所属人员"
           :options="ownerOptions"
           :loading="ownerOptionsLoading"
-          class="api-key-page__filter"
           @search="loadOwnerOptions"
           @focus="loadOwnerOptions()"
-          @update:value="search"
+          @update:value="submit"
         />
-        <n-select v-model:value="filters.is_active" clearable placeholder="状态" :options="activeOptions" class="api-key-page__status" @update:value="search" />
-        <n-button @click="search">查询</n-button>
-        <n-button secondary @click="resetFilters">重置</n-button>
+        <n-select v-model:value="filters.is_active" clearable placeholder="状态" :options="activeOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
 
@@ -75,7 +79,6 @@
   const createdKey = ref('');
   const newKeyName = ref('');
   const runtimeState = ref<ListRuntimeState>();
-  const runtimeRevision = ref(0);
   const capabilities = ref<Recordable | null>(null);
   const ownerOptionsLoading = ref(false);
   const ownerOptions = ref<{ label: string; value: number }[]>([]);
@@ -173,6 +176,10 @@
         : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: {
+      showSubmit: true,
+      showReset: true,
+    },
     pagination: { pageSize: 20 },
   });
 
@@ -223,21 +230,8 @@
     return params;
   }
 
-  async function search() {
-    runtimeRevision.value += 1;
-    runtimeState.value = {
-      ...(runtimeState.value || {}),
-      pagination: {
-        page: 1,
-        pageSize: runtimeState.value?.pagination?.pageSize || 20,
-      },
-    };
-    await reload(runtimeState.value);
-  }
-
-  async function resetFilters() {
+  function resetFilters() {
     Object.assign(filters, { keyword: '', owner_user_id: null, is_active: null });
-    await search();
   }
 
   async function create() {
@@ -331,13 +325,3 @@
 
   reload();
 </script>
-
-<style lang="less" scoped>
-  .api-key-page__filter {
-    width: min(240px, 100%);
-  }
-
-  .api-key-page__status {
-    width: min(160px, 100%);
-  }
-</style>

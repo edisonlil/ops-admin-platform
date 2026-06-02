@@ -690,7 +690,7 @@ export function deleteRbacRole(roleId: number) {
   return Alova.Delete(`/rbac/roles/${roleId}`);
 }
 
-export function getRbacUsers(params: PageParams & SortParams = {}) {
+export function getRbacUsers(params: PageParams & SortParams & { keyword?: string; status?: string } = {}) {
   return Alova.Get('/rbac/users', { params: withNoCacheParams(params) });
 }
 

@@ -50,8 +50,20 @@
       </div>
     </div>
 
-    <AppFilterBar v-if="$slots.filters || hasDeclaredFilters">
-      <slot name="filters"></slot>
+    <AppFilterBar
+      v-if="$slots.filters || hasDeclaredFilters"
+      :field-size="filterBarSchema.fieldSize"
+      :show-submit="filterBarSchema.showSubmit"
+      :show-reset="filterBarSchema.showReset"
+      :submit-label="filterBarSchema.submitLabel"
+      :reset-label="filterBarSchema.resetLabel"
+      :submit-disabled="filterBarSchema.submitDisabled"
+      :reset-disabled="filterBarSchema.resetDisabled"
+      :loading="loading"
+      @submit="handleFilterSubmit"
+      @reset="handleFilterReset"
+    >
+      <slot name="filters" :submit="handleFilterSubmit" :reset="handleFilterReset"></slot>
     </AppFilterBar>
 
     <AppPageToolbar v-if="hasPageToolbar">
@@ -406,6 +418,7 @@
 
   const emit = defineEmits<{
     refresh: [state?: ListRuntimeState];
+    filterReset: [];
     sortChange: [state: TableSortState];
     runtimeChange: [state: ListRuntimeState];
   }>();
@@ -490,6 +503,15 @@
     pageId: props.schema.id,
     density: props.schema.density || 'comfortable',
     variant: props.schema.variant || 'enterprise',
+  }));
+  const filterBarSchema = computed(() => ({
+    fieldSize: props.schema.filterBar?.fieldSize || 'default',
+    showSubmit: props.schema.filterBar?.showSubmit || false,
+    showReset: props.schema.filterBar?.showReset || false,
+    submitLabel: props.schema.filterBar?.submitLabel || '查询',
+    resetLabel: props.schema.filterBar?.resetLabel || '重置',
+    submitDisabled: props.schema.filterBar?.submitDisabled || false,
+    resetDisabled: props.schema.filterBar?.resetDisabled || false,
   }));
   const resolvedPagination = computed(() => {
     return resolvePagination(
@@ -890,6 +912,24 @@
 
   function handleRefresh() {
     emit('refresh', currentRuntimeState());
+  }
+
+  function refreshFromFirstPage() {
+    paginationState.value = {
+      ...paginationState.value,
+      page: DEFAULT_PAGE,
+    };
+    emitRuntimeChange();
+    handleRefresh();
+  }
+
+  function handleFilterSubmit() {
+    refreshFromFirstPage();
+  }
+
+  function handleFilterReset() {
+    emit('filterReset');
+    refreshFromFirstPage();
   }
 
   function getRuntimeColumns(view: CollectionViewSchema<Row>): TableColumnPreferenceSchema<Row>[] {

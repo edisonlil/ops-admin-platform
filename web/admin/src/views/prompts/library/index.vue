@@ -1,8 +1,8 @@
 <template>
   <div class="prompt-library-page">
-    <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索标题、说明、标签" class="prompt-library-page__keyword" />
+    <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable placeholder="搜索标题、说明、标签" @keyup.enter="submit" />
         <n-select
           v-model:value="tagFilters"
           multiple
@@ -10,21 +10,9 @@
           placeholder="标签"
           :options="tagOptions"
           max-tag-count="responsive"
-          class="prompt-library-page__tag-select"
+          @update:value="submit"
         />
-        <div class="prompt-status-filter" role="group" aria-label="提示词状态筛选">
-          <button
-            v-for="option in assetStatusOptions"
-            :key="option.value"
-            type="button"
-            class="prompt-status-filter__item"
-            :class="{ 'prompt-status-filter__item--active': statusFilter === option.value }"
-            @click="statusFilter = option.value"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-        <span class="prompt-filter-summary">共 {{ paginationTotal }} 个</span>
+        <n-select v-model:value="statusFilter" :options="assetStatusOptions" placeholder="状态" @update:value="submit" />
       </template>
 
       <template #item="{ row }">
@@ -317,6 +305,7 @@
         : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 12, pageSizes: [6, 12, 24], showSizePicker: true },
   }));
 
@@ -558,12 +547,19 @@
         ...runtimeListParams(state, { pageSize: 12 }),
         keyword: keyword.value.trim() || undefined,
         status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+        tags: tagFilters.value.length ? tagFilters.value : undefined,
       });
       rows.value = payload.items || [];
       paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }
+  }
+
+  function resetFilters() {
+    keyword.value = '';
+    tagFilters.value = [];
+    statusFilter.value = 'all';
   }
 
   function assetStatusLabel(status: string) {
@@ -592,61 +588,6 @@
 <style lang="less" scoped>
   .prompt-library-page {
     min-width: 0;
-  }
-
-  .prompt-library-page__keyword {
-    flex: 0 1 320px;
-    min-width: 220px;
-  }
-
-  .prompt-library-page__tag-select {
-    flex: 0 1 260px;
-    min-width: 200px;
-  }
-
-  .prompt-status-filter {
-    display: inline-flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    padding: 2px;
-    background: var(--app-page-bg);
-    border: 1px solid var(--app-border-color);
-    border-radius: 8px;
-  }
-
-  .prompt-status-filter__item {
-    min-height: 28px;
-    padding: 0 12px;
-    color: var(--app-icon-color);
-    font: inherit;
-    font-size: var(--app-font-size-sm, 13px);
-    white-space: nowrap;
-    cursor: pointer;
-    background: transparent;
-    border: 0;
-    border-radius: 6px;
-    transition:
-      color 0.16s ease,
-      background 0.16s ease,
-      box-shadow 0.16s ease;
-
-    &:hover {
-      color: var(--app-text-color);
-      background: var(--app-hover-color);
-    }
-  }
-
-  .prompt-status-filter__item--active {
-    color: var(--app-primary-color);
-    background: var(--app-surface-bg);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-  }
-
-  .prompt-filter-summary {
-    margin-left: auto;
-    color: var(--app-icon-color);
-    font-size: var(--app-font-size-sm, 13px);
-    white-space: nowrap;
   }
 
   .prompt-form {
@@ -865,20 +806,5 @@
       grid-template-columns: 1fr;
     }
 
-    .prompt-library-page__keyword,
-    .prompt-library-page__tag-select {
-      flex-basis: auto;
-      width: 100%;
-      min-width: 0;
-    }
-
-    .prompt-status-filter {
-      overflow-x: auto;
-    }
-
-    .prompt-filter-summary {
-      margin-left: 0;
-      white-space: normal;
-    }
   }
 </style>

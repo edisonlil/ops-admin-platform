@@ -213,6 +213,8 @@ def list_libraries(
     page: int,
     page_size: int,
     current_user: dict[str, Any],
+    keyword: str = "",
+    status_filter: str = "",
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -222,6 +224,8 @@ def list_libraries(
             tenant_id=tenant_id,
             page=page,
             page_size=page_size,
+            keyword=keyword,
+            status_filter=status_filter,
             sort_by=sort_by,
             sort_dir=sort_dir,
         )

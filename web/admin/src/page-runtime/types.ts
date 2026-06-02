@@ -84,6 +84,18 @@ export interface FilterField<T = Record<string, unknown>> {
   options?: SelectOption[] | (() => SelectOption[]);
 }
 
+export type FilterBarFieldSize = 'default' | 'small' | 'large';
+
+export interface ListFilterBarSchema {
+  fieldSize?: FilterBarFieldSize;
+  showSubmit?: boolean;
+  showReset?: boolean;
+  submitLabel?: string;
+  resetLabel?: string;
+  submitDisabled?: boolean;
+  resetDisabled?: boolean;
+}
+
 export interface TableColumnRuntimeSchema<Row = Record<string, unknown>> {
   defaultResizable?: boolean;
   freeze?: {
@@ -208,6 +220,7 @@ export interface ListPageSchema<Row = Record<string, unknown>, Query = Record<st
   density?: PageDensity;
   embedded?: boolean;
   filters?: FilterField<Query>[];
+  filterBar?: ListFilterBarSchema;
   toolbar?: ListToolbarSchema;
   view: CollectionViewSchema<Row>;
   pagination?: false | RuntimePaginationProps;

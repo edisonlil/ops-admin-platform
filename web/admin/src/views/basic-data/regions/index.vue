@@ -1,9 +1,9 @@
 <template>
   <div class="basic-data-region-page">
-    <ListPageRuntime :schema="regionPage" :rows="regionRows" :loading="loadingTree" @refresh="reloadAll">
-      <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索区域名称、简称或编码" class="basic-data-region-page__filter" @keyup.enter="reloadAll" />
-        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="basic-data-region-page__status" />
+    <ListPageRuntime :schema="regionPage" :rows="regionRows" :loading="loadingTree" @refresh="reloadAll" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable placeholder="搜索区域名称、简称或编码" @keyup.enter="submit" />
+        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
 
@@ -85,7 +85,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, h, reactive, ref, watch } from 'vue';
+  import { computed, h, reactive, ref } from 'vue';
   import { useMessage } from 'naive-ui';
   import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption, UploadFileInfo } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
@@ -274,11 +274,10 @@
         },
       },
       toolbar: { rightTools: ['refresh'] },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: false,
     })
   );
-
-  watch([statusFilter], () => reloadAll());
 
   function resetForm() {
     Object.assign(regionForm, {
@@ -393,6 +392,11 @@
     }
   }
 
+  function resetFilters() {
+    keyword.value = '';
+    statusFilter.value = null;
+  }
+
   function syncActive(preferredId?: number) {
     const flat = flattenRegions(regionRows.value);
     const preferred = preferredId ? flat.find((item) => item.id === preferredId) : null;
@@ -454,14 +458,6 @@
 <style lang="less" scoped>
   .basic-data-region-page {
     min-width: 0;
-  }
-
-  .basic-data-region-page__filter {
-    width: min(320px, 100%);
-  }
-
-  .basic-data-region-page__status {
-    width: 160px;
   }
 
   .basic-data-region-page__number {

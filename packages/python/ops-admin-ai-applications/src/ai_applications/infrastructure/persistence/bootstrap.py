@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from system.infrastructure.persistence.dialect import apply_sql_script, ddl_filename, table_exists
+from system.infrastructure.persistence.dialect import add_column_if_missing, apply_sql_script, bigint_type, ddl_filename, table_exists
 
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent
@@ -11,6 +11,7 @@ PERSISTENCE_DIR = Path(__file__).resolve().parent
 
 def ensure_ai_applications_schema(conn: Any) -> None:
     apply_sql_script(conn, PERSISTENCE_DIR / ddl_filename(conn))
+    add_column_if_missing(conn, "ai_applications", "owner_department_id", f"{bigint_type(conn)} DEFAULT NULL")
 
 
 def require_ai_applications_schema(conn: Any) -> None:

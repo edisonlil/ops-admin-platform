@@ -9,6 +9,9 @@ from typing import Any
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_agent_schema
 from ai_applications.infrastructure.persistence.bootstrap import require_ai_applications_schema
 from ai_applications.infrastructure.persistence.bootstrap import require_prompt_runtime_trace_detail_schema
+from system.application.data_access import DataAccessPredicate
+from system.application.data_access import ResourceDescriptor
+from system.application.data_access import append_data_scope_sql
 from system.application.tenancy import current_tenant_scope
 from system.application.sorting import build_order_by
 from system.application.sorting import parse_sort_params
@@ -32,6 +35,11 @@ TRACE_LIST_COLUMNS = """
     error_message, request_id, correlation_id, create_time
 """
 TRACE_DEFAULT_ORDER_BY = "create_time DESC, id DESC"
+AI_APPLICATION_RESOURCE = ResourceDescriptor(
+    resource_key="ai.application",
+    owner_user_column="creator_id",
+    owner_department_column="owner_department_id",
+)
 
 
 def now_text() -> str:
@@ -86,27 +94,33 @@ def normalize_key(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "-")
 
 
-def list_ai_applications(conn: Any) -> list[dict[str, Any]]:
+def list_ai_applications(conn: Any, data_scope: DataAccessPredicate | None = None) -> list[dict[str, Any]]:
+    where = ["tenant_id = ?", "deleted = 0"]
+    params: list[Any] = [current_tenant_id()]
+    append_data_scope_sql(where, params, data_scope, AI_APPLICATION_RESOURCE)
     rows = conn.execute(
-        """
+        f"""
         SELECT *
         FROM ai_applications
-        WHERE tenant_id = ? AND deleted = 0
+        WHERE {" AND ".join(where)}
         ORDER BY update_time DESC, id DESC
         """,
-        (current_tenant_id(),),
+        tuple(params),
     ).fetchall()
     return [ai_application_from_row(dict(row)) for row in rows]
 
 
-def get_ai_application(conn: Any, app_key: str) -> dict[str, Any] | None:
+def get_ai_application(conn: Any, app_key: str, data_scope: DataAccessPredicate | None = None) -> dict[str, Any] | None:
+    where = ["tenant_id = ?", "app_key = ?", "deleted = 0"]
+    params: list[Any] = [current_tenant_id(), normalize_key(app_key)]
+    append_data_scope_sql(where, params, data_scope, AI_APPLICATION_RESOURCE)
     row = conn.execute(
-        """
+        f"""
         SELECT *
         FROM ai_applications
-        WHERE tenant_id = ? AND app_key = ? AND deleted = 0
+        WHERE {" AND ".join(where)}
         """,
-        (current_tenant_id(), normalize_key(app_key)),
+        tuple(params),
     ).fetchone()
     return ai_application_from_row(dict(row)) if row else None
 
@@ -154,6 +168,9 @@ def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         (tenant_id, app_key),
     ).fetchone()
     timestamp = now_text()
+    actor = str(payload.get("actor") or "").strip() or None
+    actor_id = int(payload.get("actor_id") or 0) or None
+    owner_department_id = int(payload.get("owner_department_id") or 0) or None
     values = (
         name,
         str(payload.get("description") or "").strip(),
@@ -171,6 +188,9 @@ def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
         json_text(payload.get("trace_policy")),
         json_text(payload.get("runtime_config")),
         timestamp,
+        actor,
+        actor_id,
+        owner_department_id,
     )
     if existing:
         conn.execute(
@@ -192,6 +212,9 @@ def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 trace_policy_json = ?,
                 runtime_config_json = ?,
                 update_time = ?,
+                editor = ?,
+                editor_id = ?,
+                owner_department_id = COALESCE(owner_department_id, ?),
                 lock_version = lock_version + 1
             WHERE tenant_id = ? AND app_key = ?
             """,
@@ -204,11 +227,12 @@ def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
                 tenant_id, app_key, name, description, app_type, status, endpoint_slug,
                 system_prompt, developer_prompt, user_prompt_template, variables_schema_json,
                 output_schema_json, model_preferences_json, auth_policy_json, quota_policy_json,
-                trace_policy_json, runtime_config_json, create_time, update_time
+                trace_policy_json, runtime_config_json, create_time, creator, creator_id,
+                owner_department_id, update_time, editor, editor_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tenant_id, app_key, *values[:-1], timestamp, timestamp),
+            (tenant_id, app_key, *values[:-3], actor, actor_id, owner_department_id, timestamp, actor, actor_id),
         )
     return get_ai_application(conn, app_key) or {}
 
@@ -457,6 +481,11 @@ def ai_application_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "trace_policy": parse_json_object(row.get("trace_policy_json")),
         "runtime_config": parse_json_object(row.get("runtime_config_json")),
         "lock_version": int(row.get("lock_version") or 0),
+        "creator": str(row.get("creator") or ""),
+        "creator_id": int(row.get("creator_id") or 0) or None,
+        "owner_department_id": int(row.get("owner_department_id") or 0) or None,
+        "editor": str(row.get("editor") or ""),
+        "editor_id": int(row.get("editor_id") or 0) or None,
         "published_time": str(row["published_time"]) if row.get("published_time") is not None else None,
         "create_time": str(row.get("create_time") or ""),
         "update_time": str(row.get("update_time") or ""),

@@ -435,6 +435,30 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn(tenant_user_id, {int(item["id"]) for item in users})
         self.assertNotIn(tenant_id, {int(item["tenant_id"]) for item in users})
 
+    def test_platform_user_management_supports_keyword_and_status_filters(self) -> None:
+        create_response = self.request(
+            "POST",
+            "/api/rbac/users",
+            json={
+                "username": "filter-target",
+                "full_name": "筛选目标",
+                "email": "filter-target@example.com",
+                "password": "filter-target-pass",
+                "role_keys": [],
+                "is_active": False,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(create_response.status_code, 200)
+
+        keyword_response = self.request("GET", "/api/rbac/users", params={"keyword": "筛选"})
+        status_response = self.request("GET", "/api/rbac/users", params={"status": "disabled"})
+
+        self.assertEqual(keyword_response.status_code, 200)
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual([item["username"] for item in keyword_response.json()["data"]["items"]], ["filter-target"])
+        self.assertIn("filter-target", {item["username"] for item in status_response.json()["data"]["items"]})
+
     def test_user_email_binding_and_email_login(self) -> None:
         tenant_response = self.request("POST", "/api/tenants", json={"key": "email-login", "name": "Email Login"})
         self.assertEqual(tenant_response.status_code, 200)
@@ -2028,6 +2052,34 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(uninitialized_response.status_code, 503)
         self.assertIn("file management storage is not initialized", uninitialized_response.json()["message"])
+
+    def test_file_libraries_support_keyword_and_status_filters(self) -> None:
+        self.initialize_file_management_db()
+
+        active_response = self.request(
+            "POST",
+            "/api/files/libraries",
+            json={"name": "合同归档", "description": "客户合同", "status": "active"},
+        )
+        self.assertEqual(active_response.status_code, 200)
+        disabled_response = self.request(
+            "POST",
+            "/api/files/libraries",
+            json={"name": "临时资料", "description": "测试文件", "status": "disabled"},
+        )
+        self.assertEqual(disabled_response.status_code, 200)
+
+        keyword_response = self.request("GET", "/api/files/libraries?keyword=合同")
+        self.assertEqual(keyword_response.status_code, 200)
+        keyword_payload = keyword_response.json()["data"]
+        self.assertEqual(keyword_payload["pagination"]["total"], 1)
+        self.assertEqual(keyword_payload["items"][0]["name"], "合同归档")
+
+        status_response = self.request("GET", "/api/files/libraries?status=disabled")
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()["data"]
+        self.assertEqual(status_payload["pagination"]["total"], 1)
+        self.assertEqual(status_payload["items"][0]["name"], "临时资料")
 
     def test_admin_can_configure_minio_profile_and_user_can_upload_download_file(self) -> None:
         self.initialize_file_management_db()

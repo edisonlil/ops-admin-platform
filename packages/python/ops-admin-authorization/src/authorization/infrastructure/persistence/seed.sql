@@ -95,6 +95,17 @@ FROM (
         FALSE
     UNION ALL
     SELECT
+        'ai.application',
+        'AI 应用',
+        '租户 AI Studio 应用',
+        'tenant_id',
+        'creator_id',
+        'creator_id',
+        'owner_department_id',
+        '["self","self_and_subordinates","department","department_and_children","custom_departments","tenant"]',
+        FALSE
+    UNION ALL
+    SELECT
         'identity.api-key',
         'API 密钥',
         '租户 API 密钥',

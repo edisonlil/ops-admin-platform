@@ -9,6 +9,7 @@ from unittest import mock
 
 from ai_service_api import AIExecuteResult, register_ai_service, reset_ai_service
 from ai_assets.application import services
+from ai_assets.infrastructure.persistence import repositories
 from ai_assets.infrastructure.persistence.bootstrap import ensure_ai_assets_schema
 from system.application.data_access import (
     DataAccessPredicate,
@@ -57,6 +58,7 @@ class AIAssetsTests(unittest.TestCase):
             "current_tenant": {"id": 7, "tenant_key": "tenant-a", "name": "Tenant A"},
             "tenant_id": 7,
         }
+        services.configure_repository(repositories)
         self.initialize_db()
 
     def tearDown(self) -> None:
@@ -313,6 +315,30 @@ class AIAssetsTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(caught.exception, "status_code", None), 409)
+
+    def test_prompt_and_skill_assets_filter_by_tags_before_pagination(self) -> None:
+        self.create_prompt(prompt_key="meeting.summary", tags=["会议", "总结"])
+        self.create_prompt(prompt_key="contract.summary", tags=["合同"])
+        self.create_skill(skill_key="contract.review", tags=["合同", "审阅"])
+        self.create_skill(skill_key="meeting.review", tags=["会议"])
+
+        prompt_payload = services.list_prompt_assets(
+            page=1,
+            page_size=20,
+            current_user=self.current_user,
+            tags=["合同"],
+        )
+        skill_payload = services.list_skill_assets(
+            page=1,
+            page_size=20,
+            current_user=self.current_user,
+            tags="合同,审阅",
+        )
+
+        self.assertEqual([item["prompt_key"] for item in prompt_payload["items"]], ["contract.summary"])
+        self.assertEqual(prompt_payload["pagination"]["total"], 1)
+        self.assertEqual([item["skill_key"] for item in skill_payload["items"]], ["contract.review"])
+        self.assertEqual(skill_payload["pagination"]["total"], 1)
 
     def test_copy_prompt_asset_creates_draft_with_unique_name_and_versions(self) -> None:
         prompt = self.create_prompt(prompt_key="meeting.summary", tags=["chatbot"])

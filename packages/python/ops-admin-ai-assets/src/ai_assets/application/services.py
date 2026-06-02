@@ -76,6 +76,7 @@ def list_prompt_assets(
     current_user: dict[str, Any],
     keyword: str = "",
     status_filter: str = "",
+    tags: list[str] | str | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -87,6 +88,7 @@ def list_prompt_assets(
             page_size=page_size,
             keyword=keyword.strip(),
             status=status_filter.strip(),
+            tags=normalize_filter_tags(tags),
             data_scope=data_access_for(current_user, PROMPT_ASSET_RESOURCE).read(),
             sort_by=sort_by,
             sort_dir=sort_dir,
@@ -273,7 +275,7 @@ def copy_prompt_asset(prompt_id: int, current_user: dict[str, Any]) -> dict[str,
 
 
 def next_copy_prompt_name(*, tenant_id: int, source_name: str) -> str:
-    base = f"{source_name} 鍓湰"
+    base = f"{source_name} 副本"
     if not repo().prompt_name_exists(tenant_id=tenant_id, name=base):
         return base
     for index in range(2, 1000):
@@ -445,6 +447,7 @@ def list_skill_assets(
     current_user: dict[str, Any],
     keyword: str = "",
     status_filter: str = "",
+    tags: list[str] | str | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -456,6 +459,7 @@ def list_skill_assets(
             page_size=page_size,
             keyword=keyword.strip(),
             status=status_filter.strip(),
+            tags=normalize_filter_tags(tags),
             data_scope=data_access_for(current_user, SKILL_ASSET_RESOURCE).read(),
             sort_by=sort_by,
             sort_dir=sort_dir,
@@ -901,6 +905,17 @@ def normalize_string_list(value: Any) -> list[str]:
         text = str(item or "").strip()
         if text and text not in normalized:
             normalized.append(text)
+    return normalized
+
+
+def normalize_filter_tags(value: list[str] | str | None) -> list[str]:
+    raw_items = value if isinstance(value, list) else [value] if value else []
+    normalized: list[str] = []
+    for item in raw_items:
+        for tag in str(item or "").split(","):
+            text = tag.strip()
+            if text and text not in normalized:
+                normalized.append(text)
     return normalized
 
 

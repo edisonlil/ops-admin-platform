@@ -22,8 +22,10 @@ router = APIRouter()
 
 
 @router.get("/ai-studio/overview", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
-def ai_studio_overview() -> dict[str, Any]:
-    return ok(services.studio_overview())
+def ai_studio_overview(
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_studio:access")),
+) -> dict[str, Any]:
+    return ok(services.studio_overview(current_user=current_user))
 
 
 @router.get("/ai-studio/items", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
@@ -34,8 +36,19 @@ def ai_studio_items(
     status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_applications(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_ai_applications(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
 
 
 @router.get("/ai-studio/traces", dependencies=[Depends(auth.require_permission("ai_studio:access"))])
@@ -56,13 +69,27 @@ def ai_applications(
     status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_applications(page=page, page_size=page_size, keyword=keyword, status=status, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_ai_applications(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
 
 
 @router.get("/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def ai_application(app_key: str) -> dict[str, Any]:
-    return ok(services.get_ai_application(app_key))
+def ai_application(
+    app_key: str,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:read")),
+) -> dict[str, Any]:
+    return ok(services.get_ai_application(app_key, current_user=current_user))
 
 
 @router.get("/ai-studio/applications/{app_key}/run-logs", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
@@ -72,35 +99,62 @@ def ai_application_run_logs(
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_ai_application_run_logs(app_key, page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_ai_application_run_logs(
+            app_key,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
 
 
 @router.post("/ai-applications", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
-def save_ai_application(payload: AIApplicationRequest) -> dict[str, Any]:
-    return ok(services.save_ai_application(payload.model_dump()))
+def save_ai_application(
+    payload: AIApplicationRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:manage")),
+) -> dict[str, Any]:
+    return ok(services.save_ai_application(payload.model_dump(), current_user=current_user))
 
 
 @router.put("/ai-applications/{app_key}", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
-def update_ai_application(app_key: str, payload: AIApplicationRequest) -> dict[str, Any]:
+def update_ai_application(
+    app_key: str,
+    payload: AIApplicationRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:manage")),
+) -> dict[str, Any]:
     data = payload.model_dump()
     data["app_key"] = app_key
-    return ok(services.save_ai_application(data))
+    return ok(services.save_ai_application(data, current_user=current_user))
 
 
 @router.post("/ai-applications/{app_key}/publish", dependencies=[Depends(auth.require_permission("ai_applications:publish"))])
-def publish_ai_application(app_key: str) -> dict[str, Any]:
-    return ok(services.publish_ai_application(app_key))
+def publish_ai_application(
+    app_key: str,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:publish")),
+) -> dict[str, Any]:
+    return ok(services.publish_ai_application(app_key, current_user=current_user))
 
 
 @router.get("/ai-applications/{app_key}/workflow/export", dependencies=[Depends(auth.require_permission("ai_applications:read"))])
-def export_ai_application_workflow(app_key: str) -> dict[str, Any]:
-    return ok(services.export_ai_application_workflow(app_key))
+def export_ai_application_workflow(
+    app_key: str,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:read")),
+) -> dict[str, Any]:
+    return ok(services.export_ai_application_workflow(app_key, current_user=current_user))
 
 
 @router.post("/ai-applications/{app_key}/workflow/import", dependencies=[Depends(auth.require_permission("ai_applications:manage"))])
-def import_ai_application_workflow(app_key: str, payload: AIApplicationWorkflowImportRequest) -> dict[str, Any]:
-    return ok(services.import_ai_application_workflow(app_key, payload.model_dump()))
+def import_ai_application_workflow(
+    app_key: str,
+    payload: AIApplicationWorkflowImportRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:manage")),
+) -> dict[str, Any]:
+    return ok(services.import_ai_application_workflow(app_key, payload.model_dump(), current_user=current_user))
 
 
 @router.post("/ai-applications/{app_key}/run-draft", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
@@ -132,6 +186,7 @@ def ai_application_agent_conversations(
     keyword: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
 ) -> dict[str, Any]:
     return ok(
         services.list_agent_conversations(
@@ -141,13 +196,18 @@ def ai_application_agent_conversations(
             keyword=keyword,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            current_user=current_user,
         )
     )
 
 
 @router.post("/ai-applications/{app_key}/agent/conversations", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
-def create_ai_application_agent_conversation(app_key: str, payload: AIAgentConversationRequest) -> dict[str, Any]:
-    return ok(services.create_agent_conversation(app_key, payload.model_dump()))
+def create_ai_application_agent_conversation(
+    app_key: str,
+    payload: AIAgentConversationRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> dict[str, Any]:
+    return ok(services.create_agent_conversation(app_key, payload.model_dump(), current_user=current_user))
 
 
 @router.get(
@@ -159,25 +219,36 @@ def ai_application_agent_messages(
     conversation_key: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
 ) -> dict[str, Any]:
-    return ok(services.list_agent_messages(app_key, conversation_key, page=page, page_size=page_size))
+    return ok(services.list_agent_messages(app_key, conversation_key, page=page, page_size=page_size, current_user=current_user))
 
 
 @router.post(
     "/ai-applications/{app_key}/agent/conversations/{conversation_key}/messages",
     dependencies=[Depends(auth.require_permission("ai_applications:run"))],
 )
-def send_ai_application_agent_message(app_key: str, conversation_key: str, payload: AIAgentMessageRequest) -> dict[str, Any]:
-    return ok(services.send_agent_message(app_key, conversation_key, payload.model_dump()))
+def send_ai_application_agent_message(
+    app_key: str,
+    conversation_key: str,
+    payload: AIAgentMessageRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> dict[str, Any]:
+    return ok(services.send_agent_message(app_key, conversation_key, payload.model_dump(), current_user=current_user))
 
 
 @router.post(
     "/ai-applications/{app_key}/agent/conversations/{conversation_key}/messages/stream",
     dependencies=[Depends(auth.require_permission("ai_applications:run"))],
 )
-def stream_ai_application_agent_message(app_key: str, conversation_key: str, payload: AIAgentMessageRequest) -> StreamingResponse:
+def stream_ai_application_agent_message(
+    app_key: str,
+    conversation_key: str,
+    payload: AIAgentMessageRequest,
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> StreamingResponse:
     return StreamingResponse(
-        services.stream_agent_message(app_key, conversation_key, payload.model_dump()),
+        services.stream_agent_message(app_key, conversation_key, payload.model_dump(), current_user=current_user),
         media_type="text/event-stream",
     )
 

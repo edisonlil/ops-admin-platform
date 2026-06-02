@@ -1,10 +1,10 @@
 <template>
   <div class="dataset-page">
-    <ListPageRuntime :schema="datasetPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索平台数据集名称或编码" class="dataset-page__filter" @keyup.enter="reload()" />
-        <n-select v-model:value="typeFilter" clearable placeholder="数据集类型" :options="typeOptions" class="dataset-page__select" @update:value="reload()" />
-        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="dataset-page__select" @update:value="reload()" />
+    <ListPageRuntime :schema="datasetPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable placeholder="搜索平台数据集名称或编码" @keyup.enter="submit" />
+        <n-select v-model:value="typeFilter" clearable placeholder="数据集类型" :options="typeOptions" @update:value="submit" />
+        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
 
@@ -204,6 +204,7 @@
         : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 20 },
   });
 
@@ -339,6 +340,12 @@
     }
   }
 
+  function resetFilters() {
+    keyword.value = '';
+    typeFilter.value = null;
+    statusFilter.value = null;
+  }
+
   function parseJsonArray(value: string, label: string) {
     try {
       const parsed = JSON.parse(value || '[]');
@@ -393,14 +400,6 @@
     min-width: 0;
   }
 
-  .dataset-page__filter {
-    width: min(320px, 100%);
-  }
-
-  .dataset-page__select {
-    width: 160px;
-  }
-
   .dataset-page__alert {
     margin-bottom: 12px;
   }
@@ -421,9 +420,4 @@
     width: min(960px, calc(100vw - 32px));
   }
 
-  @media (max-width: 820px) {
-    .dataset-page__select {
-      width: min(160px, 100%);
-    }
-  }
 </style>

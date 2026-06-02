@@ -105,6 +105,7 @@ def list_prompt_assets(
     page_size: int,
     keyword: str = "",
     status: str = "",
+    tags: list[str] | None = None,
     data_scope: DataAccessPredicate | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
@@ -117,6 +118,9 @@ def list_prompt_assets(
         filters.append("(pa.prompt_key LIKE ? OR pa.name LIKE ? OR pa.description LIKE ? OR pa.tags_json LIKE ?)")
         like = f"%{keyword}%"
         params.extend([like, like, like, like])
+    for tag in tags or []:
+        filters.append("pa.tags_json LIKE ?")
+        params.append(f"%{tag}%")
     if status == PROMPT_ASSET_STATUS_PUBLISHED:
         filters.append(f"pa.status <> ? AND EXISTS ({published_version_exists_sql()})")
         params.append(PROMPT_ASSET_STATUS_ARCHIVED)
@@ -573,6 +577,7 @@ def list_skill_assets(
     page_size: int,
     keyword: str = "",
     status: str = "",
+    tags: list[str] | None = None,
     data_scope: DataAccessPredicate | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
@@ -585,6 +590,9 @@ def list_skill_assets(
         filters.append("(sa.skill_key LIKE ? OR sa.name LIKE ? OR sa.description LIKE ? OR sa.tags_json LIKE ?)")
         like = f"%{keyword}%"
         params.extend([like, like, like, like])
+    for tag in tags or []:
+        filters.append("sa.tags_json LIKE ?")
+        params.append(f"%{tag}%")
     if status == SKILL_ASSET_STATUS_PUBLISHED:
         filters.append(f"sa.status <> ? AND EXISTS ({published_skill_version_exists_sql()})")
         params.append(SKILL_ASSET_STATUS_ARCHIVED)

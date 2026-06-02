@@ -1,9 +1,22 @@
 <template>
   <div class="file-library-page">
-    <ListPageRuntime :schema="libraryPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索文件库名称" class="file-library-page__filter" @keyup.enter="reload" />
-        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="file-library-page__status" />
+    <ListPageRuntime
+      :schema="libraryPage"
+      :rows="rows"
+      :loading="loading"
+      :pagination-total="paginationTotal"
+      @refresh="reload"
+      @filter-reset="resetFilters"
+    >
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable placeholder="搜索文件库名称" @keyup.enter="submit" />
+        <n-select
+          v-model:value="statusFilter"
+          clearable
+          placeholder="状态"
+          :options="statusOptions"
+          @update:value="submit"
+        />
       </template>
     </ListPageRuntime>
 
@@ -60,6 +73,7 @@
   const formRef = ref<FormInst | null>(null);
   const rows = ref<FileLibrary[]>([]);
   const paginationTotal = ref(0);
+  const runtimeState = ref<ListRuntimeState>();
   const keyword = ref('');
   const statusFilter = ref<string | null>(null);
 
@@ -132,6 +146,10 @@
         : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: {
+      showSubmit: true,
+      showReset: true,
+    },
     pagination: { pageSize: 20 },
   });
 
@@ -181,14 +199,30 @@
   }
 
   async function reload(state?: ListRuntimeState) {
+    runtimeState.value = state || runtimeState.value;
     loading.value = true;
     try {
-      const payload = await getFileLibraries(runtimeListParams(state));
+      const payload = await getFileLibraries({
+        ...runtimeListParams(runtimeState.value),
+        ...filterParams(),
+      });
       rows.value = payload.items || [];
       paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
       loading.value = false;
     }
+  }
+
+  function filterParams() {
+    const params: { keyword?: string; status?: string } = {};
+    if (keyword.value.trim()) params.keyword = keyword.value.trim();
+    if (statusFilter.value) params.status = statusFilter.value;
+    return params;
+  }
+
+  function resetFilters() {
+    keyword.value = '';
+    statusFilter.value = null;
   }
 
   reload();
@@ -197,13 +231,5 @@
 <style lang="less" scoped>
   .file-library-page {
     min-width: 0;
-  }
-
-  .file-library-page__filter {
-    width: min(320px, 100%);
-  }
-
-  .file-library-page__status {
-    width: 160px;
   }
 </style>

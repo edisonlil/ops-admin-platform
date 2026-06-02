@@ -164,6 +164,14 @@ function withNoCacheParams<T extends Record<string, unknown>>(params: T = {} as 
   };
 }
 
+function normalizeAssetListParams<T extends { tags?: string[] } & Record<string, unknown>>(params: T) {
+  const { tags, ...rest } = params;
+  return {
+    ...rest,
+    tags: tags?.filter((tag) => tag.trim()).join(',') || undefined,
+  };
+}
+
 export interface SortParams {
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
@@ -174,9 +182,10 @@ export function getPromptAssets(params: {
   page_size?: number;
   keyword?: string;
   status?: string;
+  tags?: string[];
 } & SortParams = {}) {
   return Alova.Get<PromptListData<PromptAsset>>('/prompts', {
-    params: withNoCacheParams(params),
+    params: withNoCacheParams(normalizeAssetListParams(params)),
   });
 }
 
@@ -273,9 +282,10 @@ export function getSkillAssets(params: {
   page_size?: number;
   keyword?: string;
   status?: string;
+  tags?: string[];
 } & SortParams = {}) {
   return Alova.Get<PromptListData<SkillAsset>>('/skills', {
-    params: withNoCacheParams(params),
+    params: withNoCacheParams(normalizeAssetListParams(params)),
   });
 }
 

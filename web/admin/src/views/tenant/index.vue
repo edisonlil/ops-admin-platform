@@ -1,20 +1,17 @@
 <template>
   <div class="tenant-page">
-    <ListPageRuntime v-if="isPlatformTenantManagement" :schema="tenantListPage" :rows="tenants" :loading="loading" :pagination-total="tenantPaginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" class="tenant-page__search" @keyup.enter="reload" />
-        <n-button @click="reload">查询</n-button>
+    <ListPageRuntime v-if="isPlatformTenantManagement" :schema="tenantListPage" :rows="tenants" :loading="loading" :pagination-total="tenantPaginationTotal" @refresh="reload" @filter-reset="resetTenantFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="query" clearable placeholder="搜索租户 Key / 名称" @keyup.enter="submit" />
       </template>
     </ListPageRuntime>
 
-    <ListPageRuntime v-else :key="tenantUserRuntimeKey" :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers">
-      <template #filters>
-        <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-        <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-        <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-        <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" class="tenant-page__member-status" @update:value="searchTenantUsers" />
-        <n-button @click="searchTenantUsers">查询</n-button>
-        <n-button secondary @click="resetTenantUserFilters">重置</n-button>
+    <ListPageRuntime v-else :key="tenantUserRuntimeKey" :schema="memberListPage" :rows="tenantUsers" :loading="usersLoading || loading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" @filter-reset="resetTenantUserFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" @keyup.enter="submit" />
+        <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" @keyup.enter="submit" />
+        <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" @keyup.enter="submit" />
+        <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
     <input ref="memberImportInputRef" type="file" accept=".xlsx" style="display: none" @change="handleMemberImportFileChange" />
@@ -68,21 +65,19 @@
             </n-descriptions>
           </n-tab-pane>
           <n-tab-pane name="users" tab="成员">
-            <ListPageRuntime :key="tenantUserRuntimeKey" :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers">
-              <template #filters>
-                <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-                <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-                <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" class="tenant-page__member-filter" @keyup.enter="searchTenantUsers" />
-                <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" class="tenant-page__member-status" @update:value="searchTenantUsers" />
-                <n-button @click="searchTenantUsers">查询</n-button>
-                <n-button secondary @click="resetTenantUserFilters">重置</n-button>
+            <ListPageRuntime :key="tenantUserRuntimeKey" :schema="drawerUserListPage" :rows="tenantUsers" :loading="usersLoading" :pagination-total="tenantUsersPaginationTotal" @refresh="loadTenantUsers" @filter-reset="resetTenantUserFilters">
+              <template #filters="{ submit }">
+                <n-input v-model:value="memberFilters.username" clearable placeholder="用户名" @keyup.enter="submit" />
+                <n-input v-model:value="memberFilters.email" clearable placeholder="邮箱" @keyup.enter="submit" />
+                <n-input v-model:value="memberFilters.full_name" clearable placeholder="姓名" @keyup.enter="submit" />
+                <n-select v-model:value="memberFilters.is_active" clearable placeholder="是否启用" :options="memberActiveOptions" @update:value="submit" />
               </template>
             </ListPageRuntime>
           </n-tab-pane>
           <n-tab-pane name="keys" tab="API Key">
-            <ListPageRuntime :key="tenantKeyRuntimeKey" :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys">
-              <template #filters>
-                <n-input v-model:value="apiKeyFilters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" class="tenant-page__key-filter" @keyup.enter="searchTenantKeys" />
+            <ListPageRuntime :key="tenantKeyRuntimeKey" :schema="drawerKeyListPage" :rows="tenantKeys" :loading="keysLoading" :pagination-total="tenantKeysPaginationTotal" @refresh="loadTenantKeys" @filter-reset="resetTenantKeyFilters">
+              <template #filters="{ submit }">
+                <n-input v-model:value="apiKeyFilters.keyword" clearable placeholder="密钥名称 / 前缀 / 创建人" @keyup.enter="submit" />
                 <n-select
                   v-if="apiKeyCapabilities?.can_filter_owner"
                   v-model:value="apiKeyFilters.owner_user_id"
@@ -92,14 +87,11 @@
                   placeholder="所属人员"
                   :options="apiKeyOwnerOptions"
                   :loading="apiKeyOwnerOptionsLoading"
-                  class="tenant-page__key-filter"
                   @search="loadApiKeyOwnerOptions"
                   @focus="loadApiKeyOwnerOptions()"
-                  @update:value="searchTenantKeys"
+                  @update:value="submit"
                 />
-                <n-select v-model:value="apiKeyFilters.is_active" clearable placeholder="状态" :options="apiKeyActiveOptions" class="tenant-page__key-status" @update:value="searchTenantKeys" />
-                <n-button @click="searchTenantKeys">查询</n-button>
-                <n-button secondary @click="resetTenantKeyFilters">重置</n-button>
+                <n-select v-model:value="apiKeyFilters.is_active" clearable placeholder="状态" :options="apiKeyActiveOptions" @update:value="submit" />
               </template>
             </ListPageRuntime>
           </n-tab-pane>
@@ -550,6 +542,7 @@
         primaryAction: canCreateTenant.value ? { key: 'create', label: '新增租户', type: 'primary', onClick: () => openCreate() } : undefined,
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: { pageSize: 20 },
     })
   );
@@ -577,6 +570,7 @@
         ],
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: { pageSize: 20 },
     })
   );
@@ -605,6 +599,7 @@
         ],
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: { pageSize: 20 },
     })
   );
@@ -622,6 +617,7 @@
         primaryAction: canCreateTenantApiKey.value ? { key: 'create', label: '新增 Key', type: 'primary', onClick: () => (keyCreateVisible.value = true) } : undefined,
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: { pageSize: 20 },
     })
   );
@@ -745,21 +741,12 @@
     };
   }
 
-  async function searchTenantUsers() {
-    tenantUserRuntimeRevision.value += 1;
-    tenantUserRuntimeState.value = {
-      ...(tenantUserRuntimeState.value || {}),
-      pagination: {
-        page: 1,
-        pageSize: tenantUserRuntimeState.value?.pagination?.pageSize || 20,
-      },
-    };
-    await loadTenantUsers(tenantUserRuntimeState.value);
+  function resetTenantFilters() {
+    query.value = '';
   }
 
-  async function resetTenantUserFilters() {
+  function resetTenantUserFilters() {
     Object.assign(memberFilters, { username: '', email: '', full_name: '', is_active: null });
-    await searchTenantUsers();
   }
 
   function clearTenantUserFilters() {
@@ -784,21 +771,8 @@
     };
   }
 
-  async function searchTenantKeys() {
-    tenantKeyRuntimeRevision.value += 1;
-    tenantKeyRuntimeState.value = {
-      ...(tenantKeyRuntimeState.value || {}),
-      pagination: {
-        page: 1,
-        pageSize: tenantKeyRuntimeState.value?.pagination?.pageSize || 20,
-      },
-    };
-    await loadTenantKeys(tenantKeyRuntimeState.value);
-  }
-
-  async function resetTenantKeyFilters() {
+  function resetTenantKeyFilters() {
     Object.assign(apiKeyFilters, { keyword: '', owner_user_id: null, is_active: null });
-    await searchTenantKeys();
   }
 
   function clearTenantKeyFilters() {
@@ -1226,26 +1200,6 @@
 <style lang="less" scoped>
   .tenant-page {
     min-width: 0;
-  }
-
-  .tenant-page__search {
-    width: min(320px, 100%);
-  }
-
-  .tenant-page__member-filter {
-    width: min(220px, 100%);
-  }
-
-  .tenant-page__member-status {
-    width: 140px;
-  }
-
-  .tenant-page__key-filter {
-    width: min(220px, 100%);
-  }
-
-  .tenant-page__key-status {
-    width: 140px;
   }
 
   .tenant-detail-drawer {

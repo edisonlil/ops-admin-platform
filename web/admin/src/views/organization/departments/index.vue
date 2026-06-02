@@ -1,7 +1,7 @@
 <template>
   <div class="department-page">
-    <ListPageRuntime :schema="departmentPage" :rows="treeRows" :loading="loading" @refresh="reload">
-      <template #filters>
+    <ListPageRuntime :schema="departmentPage" :rows="treeRows" :loading="loading" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
         <n-select
           v-if="isPlatformAdmin"
           v-model:value="selectedTenantId"
@@ -9,11 +9,10 @@
           placeholder="选择租户"
           :loading="tenantLoading"
           :options="tenantOptions"
-          class="department-page__tenant"
-          @update:value="reload"
+          @update:value="submit"
         />
-        <n-input v-model:value="keyword" clearable placeholder="搜索部门编码、名称或所在地" class="department-page__filter" />
-        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="department-page__status" />
+        <n-input v-model:value="keyword" clearable placeholder="搜索部门编码、名称或所在地" @keyup.enter="submit" />
+        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
 
@@ -206,6 +205,7 @@
           : undefined,
         rightTools: ['refresh'],
       },
+      filterBar: { fieldSize: 'large', showSubmit: true, showReset: true },
       pagination: false,
     })
   );
@@ -342,6 +342,11 @@
     }
   }
 
+  function resetFilters() {
+    keyword.value = '';
+    statusFilter.value = null;
+  }
+
   async function ensureTenantOptions() {
     if (!isPlatformAdmin.value || tenantOptions.value.length) return;
     tenantLoading.value = true;
@@ -368,18 +373,6 @@
 <style lang="less" scoped>
   .department-page {
     min-width: 0;
-  }
-
-  .department-page__filter {
-    width: min(340px, 100%);
-  }
-
-  .department-page__tenant {
-    width: min(280px, 100%);
-  }
-
-  .department-page__status {
-    width: 150px;
   }
 
   .department-page__number {

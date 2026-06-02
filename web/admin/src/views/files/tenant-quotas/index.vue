@@ -1,15 +1,13 @@
 <template>
   <div class="tenant-quota-page">
-    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
+    <ListPageRuntime :schema="quotaPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
         <n-input
           v-model:value="query"
           clearable
           placeholder="搜索租户 Key / 名称"
-          class="tenant-quota-page__search"
-          @keyup.enter="reload"
+          @keyup.enter="submit"
         />
-        <n-button type="primary" @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
 
@@ -173,6 +171,7 @@
       tableProps: { size: 'small' },
     },
     toolbar: { rightTools: ['refresh'] },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 20 },
   });
 
@@ -219,6 +218,10 @@
     } finally {
       loading.value = false;
     }
+  }
+
+  function resetFilters() {
+    query.value = '';
   }
 
   async function refreshTenantQuota(tenantId: number) {
@@ -281,10 +284,6 @@
 <style lang="less" scoped>
   .tenant-quota-page {
     min-width: 0;
-  }
-
-  .tenant-quota-page__search {
-    width: 260px;
   }
 
   .tenant-quota-page__number {

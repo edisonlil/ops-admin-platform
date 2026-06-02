@@ -476,8 +476,27 @@ def list_users() -> list[dict[str, Any]]:
     return [enrich_user_with_reporting_manager(enrich_user_with_departments(item)) for item in rbac_service.list_users()]
 
 
-def list_platform_users(*, sort_by: str | None = None, sort_dir: str | None = None) -> list[dict[str, Any]]:
+def list_platform_users(
+    *,
+    keyword: str = "",
+    status_filter: str = "",
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+) -> list[dict[str, Any]]:
     items = [enrich_user_with_reporting_manager(enrich_user_with_departments(item)) for item in rbac_service.list_platform_users()]
+    keyword_text = keyword.strip().lower()
+    if keyword_text:
+        items = [
+            item
+            for item in items
+            if keyword_text in str(item.get("username", "")).lower()
+            or keyword_text in str(item.get("full_name", "")).lower()
+            or keyword_text in str(item.get("email", "")).lower()
+        ]
+    if status_filter == "active":
+        items = [item for item in items if bool(item.get("is_active"))]
+    elif status_filter == "disabled":
+        items = [item for item in items if not bool(item.get("is_active"))]
     return sort_dict_items(items, sort_by, sort_dir, allowed=USER_SORT_COLUMNS)
 
 
@@ -485,10 +504,16 @@ def list_platform_users_page(
     *,
     page: int,
     page_size: int,
+    keyword: str = "",
+    status_filter: str = "",
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> dict[str, Any]:
-    return page_items(list_platform_users(sort_by=sort_by, sort_dir=sort_dir), page=page, page_size=page_size)
+    return page_items(
+        list_platform_users(keyword=keyword, status_filter=status_filter, sort_by=sort_by, sort_dir=sort_dir),
+        page=page,
+        page_size=page_size,
+    )
 
 
 def export_platform_users() -> Any:

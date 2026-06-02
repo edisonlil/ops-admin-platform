@@ -63,6 +63,52 @@ Runtime 负责保持这些跨页面能力一致：
 
 业务页可以提供业务动作、字段列定义、卡片 item slot 或详情抽屉，但不能复制 Runtime 的结构性职责。需要新增结构性能力时，扩展 Runtime，而不是在单个页面做局部实现。
 
+## Filter Bar
+
+列表筛选区由 `ListPageRuntime` 和 `AppFilterBar` 统一渲染。业务页只在 `#filters` slot 内放筛选字段，不应手写筛选区外壳、边框、背景、页面级 padding、按钮顺序或字段宽度 CSS。
+
+常规筛选页在 schema 中声明统一动作：
+
+```ts
+const listPage = defineListPage<Row>({
+  id: 'module.resource',
+  title: '资源',
+  view: { type: 'table', columns },
+  filterBar: {
+    showSubmit: true,
+    showReset: true,
+  },
+});
+```
+
+业务字段通过 slot 提供，查询和重置动作由 Runtime 负责：
+
+```vue
+<ListPageRuntime
+  :schema="listPage"
+  :rows="rows"
+  :loading="loading"
+  :pagination-total="paginationTotal"
+  @refresh="reload"
+  @filter-reset="resetFilters"
+>
+  <template #filters="{ submit }">
+    <n-input v-model:value="filters.keyword" clearable placeholder="搜索名称" @keyup.enter="submit" />
+    <n-select v-model:value="filters.status" clearable placeholder="状态" :options="statusOptions" @update:value="submit" />
+  </template>
+</ListPageRuntime>
+```
+
+筛选区规范：
+
+- 查询按钮始终在重置按钮之前，由 `filterBar.showSubmit` / `filterBar.showReset` 控制，不在业务页直接写按钮。
+- 查询和重置都会回到第一页，并继续通过 `runtimeListParams(state)` 把 `page`、`page_size` 和排序状态传给后端。
+- 业务页的 `@filter-reset` 只负责清空筛选状态，不负责再次调用接口；Runtime 会在清空后统一刷新。
+- 输入框的回车查询、选择器的自动查询应调用 slot 暴露的 `submit`，不要直接调用 `reload()` 绕过 Runtime。
+- 字段宽度默认使用 Runtime token；需要较宽字段时使用 `filterBar.fieldSize: 'large'`，不要在页面里写 `.xxx__filter { width: ... }`。
+- 业务列表筛选必须后端生效。不要先拉取当前页或全量数据再在前端本地过滤来模拟业务筛选。
+- 产品可见 placeholder、按钮、字段、状态等文案必须使用中文；遇到乱码先恢复中文。
+
 ## Table Protocol
 
 所有表格列表默认由 `ListPageRuntime` 注入统一能力：
@@ -232,6 +278,7 @@ pagination: {
 ## Constraints
 
 - 页面必须使用 Runtime 提供的 header、filter、toolbar、collection 和 pagination 结构；
+- 筛选区字段、查询、重置必须通过 `filterBar` 和 `#filters` slot 接入，业务页不得复制筛选容器样式、按钮顺序或字段宽度；
 - 新的列表、表格和数据视图形态必须扩展 Page Runtime 协议，不能在业务页绕过 Runtime 手写同类结构；
 - 表格列表默认具备多选列，除非业务明确禁用；
 - 普通列冻结由表头锁交互完成，不在业务页写死左侧冻结；

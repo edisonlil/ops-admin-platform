@@ -54,6 +54,17 @@ class DataAccessHelperTests(unittest.TestCase):
         self.assertEqual(where, ["o.tenant_id = ?", "o.deleted = 0", "o.owner_user_id = ?"])
         self.assertEqual(params, [3, 7])
 
+    def test_apply_ai_application_self_scope_uses_creator_column(self) -> None:
+        resource = ResourceDescriptor(resource_key="ai.application", owner_user_column="creator_id")
+        where = ["tenant_id = ?", "deleted = 0"]
+        params: list[object] = [3]
+        predicate = DataAccessPredicate(tenant_id=3, scope=SCOPE_SELF, user_id=7)
+
+        apply_data_access(where, params, data_scope=predicate, resource=resource)
+
+        self.assertEqual(where, ["tenant_id = ?", "deleted = 0", "creator_id = ?"])
+        self.assertEqual(params, [3, 7])
+
     def test_apply_self_and_subordinates_uses_owner_user_set(self) -> None:
         resource = ResourceDescriptor(resource_key="demo.document")
         where = ["o.tenant_id = ?", "o.deleted = 0"]

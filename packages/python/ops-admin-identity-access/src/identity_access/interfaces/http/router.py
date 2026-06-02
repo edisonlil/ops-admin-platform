@@ -580,11 +580,22 @@ def revoke_current_tenant_api_key(
 def rbac_users(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str = "",
+    status: str = "",
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     _: dict[str, Any] = Depends(auth.require_platform_permission("system:user:access")),
 ) -> dict[str, Any]:
-    return ok(services.list_platform_users_page(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir))
+    return ok(
+        services.list_platform_users_page(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status_filter=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    )
 
 
 @router.get("/rbac/users/export")

@@ -6,10 +6,10 @@
       :loading="loading"
       :pagination-total="paginationTotal"
       @refresh="reload"
+      @filter-reset="resetFilters"
     >
-      <template #filters>
-        <n-input v-model:value="query" clearable placeholder="搜索租户名称或 Key" class="tenant-menu-assignment__search" @keyup.enter="reload" />
-        <n-button @click="reload">查询</n-button>
+      <template #filters="{ submit }">
+        <n-input v-model:value="query" clearable placeholder="搜索租户名称或 Key" @keyup.enter="submit" />
       </template>
     </ListPageRuntime>
 
@@ -215,6 +215,7 @@
     toolbar: {
       rightTools: ['refresh'],
     },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 20 },
   });
 
@@ -336,6 +337,10 @@
     }
   }
 
+  function resetFilters() {
+    query.value = '';
+  }
+
   async function openTenantMenus(row: TenantRow) {
     currentTenant.value = row;
     menuModalVisible.value = true;
@@ -402,10 +407,6 @@
 <style scoped>
   .tenant-menu-assignment {
     width: 100%;
-  }
-
-  .tenant-menu-assignment__search {
-    width: min(360px, 100%);
   }
 
   .tenant-menu-tree {

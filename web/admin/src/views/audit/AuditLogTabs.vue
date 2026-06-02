@@ -1,6 +1,6 @@
 <template>
-  <ListPageRuntime :schema="pageSchema" :rows="[]" :loading="loading" @refresh="reloadVisible">
-    <template #filters>
+  <ListPageRuntime :schema="pageSchema" :rows="[]" :loading="loading" @refresh="reloadVisible" @filter-reset="resetFilters">
+    <template #filters="{ submit }">
       <n-select
         v-if="isPlatformAdmin"
         v-model:value="selectedTenantId"
@@ -9,13 +9,11 @@
         placeholder="选择租户"
         :loading="tenantLoading"
         :options="tenantOptions"
-        class="audit-log-tabs__tenant"
-        @update:value="reloadVisible"
+        @update:value="submit"
       />
-      <n-input v-model:value="keyword" clearable placeholder="搜索动作、请求 ID、操作人" class="audit-log-tabs__search" @keyup.enter="reloadVisible" />
-      <n-select v-model:value="outcome" clearable placeholder="执行结果" :options="outcomeOptions" class="audit-log-tabs__select" />
-      <n-select v-model:value="severity" clearable placeholder="日志级别" :options="severityOptions" class="audit-log-tabs__select" />
-      <n-button type="primary" @click="reloadVisible">查询</n-button>
+      <n-input v-model:value="keyword" clearable placeholder="搜索动作、请求 ID、操作人" @keyup.enter="submit" />
+      <n-select v-model:value="outcome" clearable placeholder="执行结果" :options="outcomeOptions" @update:value="submit" />
+      <n-select v-model:value="severity" clearable placeholder="日志级别" :options="severityOptions" @update:value="submit" />
     </template>
   </ListPageRuntime>
 </template>
@@ -263,6 +261,7 @@
         })),
       },
       toolbar: { rightTools: ['refresh'] },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: false,
     })
   );
@@ -326,21 +325,17 @@
     return isPlatformAdmin.value ? selectedTenantId.value || undefined : undefined;
   }
 
+  function resetFilters() {
+    selectedTenantId.value = null;
+    keyword.value = '';
+    outcome.value = null;
+    severity.value = null;
+  }
+
   onMounted(() => {
     reloadVisible();
   });
 </script>
 
 <style lang="less" scoped>
-  .audit-log-tabs__search {
-    width: 280px;
-  }
-
-  .audit-log-tabs__tenant {
-    width: min(280px, 100%);
-  }
-
-  .audit-log-tabs__select {
-    width: 150px;
-  }
 </style>

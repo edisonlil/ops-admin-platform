@@ -52,6 +52,20 @@ class BuiltinDataAccessFilterProviderTests(unittest.TestCase):
         self.assertEqual(predicate.scope, SCOPE_TENANT)
         self.assertEqual(predicate.user_id, 7)
 
+    def test_ai_application_without_policy_falls_back_to_tenant_scope(self) -> None:
+        services.configure_repository(FakeAuthorizationRepository([]))
+        provider = services.BuiltinDataAccessFilterProvider()
+
+        with mock.patch.object(services.organization_services, "user_departments", return_value=[]):
+            predicate = provider.resolve_filter(
+                current_user={"id": 7, "current_tenant": {"id": 3}, "is_tenant_admin": False},
+                resource=ResourceDescriptor(resource_key="ai.application", owner_user_column="creator_id"),
+                action="read",
+            )
+
+        self.assertEqual(predicate.tenant_id, 3)
+        self.assertEqual(predicate.scope, SCOPE_TENANT)
+
     def test_matching_policy_still_applies_resource_scope(self) -> None:
         services.configure_repository(
             FakeAuthorizationRepository(

@@ -1,17 +1,15 @@
 <template>
   <div>
-    <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名、姓名或邮箱" @keyup.enter="reload" />
+    <ListPageRuntime :schema="userListPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetQuery">
+      <template #filters="{ submit }">
+        <n-input v-model:value="query.keyword" clearable placeholder="搜索用户名、姓名或邮箱" @keyup.enter="submit" />
         <n-select
           v-model:value="query.status"
           clearable
           placeholder="用户状态"
           :options="statusOptions"
-          @update:value="reload"
+          @update:value="submit"
         />
-        <n-button secondary @click="resetQuery">重置</n-button>
-        <n-button type="primary" @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
     <input ref="importInputRef" type="file" accept=".xlsx" style="display: none" @change="handleImportFileChange" />
@@ -303,10 +301,7 @@
         size: 'small',
       },
     },
-    filters: [
-      { key: 'keyword', type: 'keyword', placeholder: '搜索用户名、姓名或邮箱' },
-      { key: 'status', type: 'select', placeholder: '用户状态', options: statusOptions },
-    ],
+    filterBar: { showSubmit: true, showReset: true },
     toolbar: {
       primaryAction: hasPermission(['system:users:create'])
         ? { key: 'create', label: '新增用户', type: 'primary', onClick: () => handleCreate() }
@@ -515,7 +510,11 @@
   async function reload(state?: ListRuntimeState) {
     loading.value = true;
     try {
-      const payload = await getRbacUsers(runtimeListParams(state));
+      const payload = await getRbacUsers({
+        ...runtimeListParams(state),
+        keyword: query.keyword.trim() || undefined,
+        status: query.status || undefined,
+      });
       rows.value = payload.items || [];
       paginationTotal.value = payload.pagination?.total || rows.value.length;
     } finally {
@@ -526,7 +525,6 @@
   function resetQuery() {
     query.keyword = '';
     query.status = null;
-    reload();
   }
 
   reload();

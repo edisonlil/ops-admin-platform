@@ -141,6 +141,8 @@ class FileManagementRepository(Protocol):
         tenant_id: int,
         page: int,
         page_size: int,
+        keyword: str = "",
+        status_filter: str = "",
         sort_by: str | None = None,
         sort_dir: str | None = None,
     ) -> tuple[list[FileLibrary], int]:

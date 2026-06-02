@@ -29,6 +29,8 @@ from system.interfaces.http import current_request_id
 
 from llm_runtime.application.services import require_database
 from system.application.data_access import ResourceDescriptor
+from system.application.data_access import current_user_id_or_none
+from system.application.data_access import current_user_primary_department_id
 from system.application.data_access import resolve_data_access_filter
 from system.application.sql_data_access import SQLDataAccessInjectionError
 from system.application.sql_data_access import SQLDataAccessInjectionRequest
@@ -62,6 +64,11 @@ AGENT_CONVERSATION_SORT_COLUMNS = {
 }
 WORKFLOW_EXPORT_KIND = "ops_admin.ai_application.workflow"
 WORKFLOW_EXPORT_SCHEMA_VERSION = 1
+AI_APPLICATION_RESOURCE = ResourceDescriptor(
+    resource_key="ai.application",
+    owner_user_column="creator_id",
+    owner_department_column="owner_department_id",
+)
 
 repository: AIApplicationsRepository | None = None
 
@@ -77,12 +84,13 @@ def repo() -> AIApplicationsRepository:
     return repository
 
 
-def studio_overview() -> dict[str, Any]:
+def studio_overview(current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=True) as conn:
             repo().require_ai_applications_schema(conn)
-            apps = repo().list_ai_applications(conn)
+            data_scope = ai_application_data_scope(current_user, action="read")
+            apps = repo().list_ai_applications(conn, data_scope=data_scope)
             quota = repo().get_tenant_ai_quota(conn)
             traces, _ = repo().list_prompt_runtime_traces(conn, page=1, page_size=10)
     except (RuntimeError, ValueError) as exc:
@@ -112,9 +120,11 @@ def list_ai_applications(
     status: str | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    data_scope = ai_application_data_scope(current_user, action="read")
     return read_list(
-        lambda conn: repo().list_ai_applications(conn),
+        lambda conn: repo().list_ai_applications(conn, data_scope=data_scope),
         page=page,
         page_size=page_size,
         filterer=lambda items: filter_ai_applications(items, keyword=keyword, status=status),
@@ -141,14 +151,45 @@ def filter_ai_applications(items: list[dict[str, Any]], *, keyword: str | None, 
     ]
 
 
-def get_ai_application(app_key: str) -> dict[str, Any]:
-    app = read_one(lambda conn: repo().get_ai_application(conn, app_key))
+def ai_application_data_scope(current_user: dict[str, Any] | None, *, action: str) -> Any:
+    if current_user is None:
+        return None
+    return resolve_data_access_filter(current_user=current_user, resource=AI_APPLICATION_RESOURCE, action=action)
+
+
+def ensure_ai_application_access(
+    app: dict[str, Any],
+    *,
+    current_user: dict[str, Any] | None,
+    action: str,
+) -> None:
+    if current_user is None:
+        return
+    predicate = ai_application_data_scope(current_user, action=action)
+    if predicate is None or predicate.allows_record(app, AI_APPLICATION_RESOURCE):
+        return
+    raise HTTPException(status_code=404, detail="AI application not found")
+
+
+def actor_payload(current_user: dict[str, Any] | None) -> dict[str, Any]:
+    if current_user is None:
+        return {}
+    return {
+        "actor": str(current_user.get("nickname") or current_user.get("name") or current_user.get("username") or "").strip(),
+        "actor_id": current_user_id_or_none(current_user),
+        "owner_department_id": current_user_primary_department_id(current_user),
+    }
+
+
+def get_ai_application(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    data_scope = ai_application_data_scope(current_user, action="read")
+    app = read_one(lambda conn: repo().get_ai_application(conn, app_key, data_scope=data_scope))
     if not app:
         raise HTTPException(status_code=404, detail="AI application not found")
     return app
 
 
-def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
+def save_ai_application(payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
@@ -156,7 +197,10 @@ def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
             existing = repo().get_ai_application(conn, str(payload.get("app_key") or ""))
             if not existing:
                 enforce_application_quota(conn)
+            else:
+                ensure_ai_application_access(existing, current_user=current_user, action="write")
             normalize_application_payload(payload)
+            payload.update(actor_payload(current_user))
             return repo().upsert_ai_application(conn, payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -164,7 +208,7 @@ def save_ai_application(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
-def publish_ai_application(app_key: str) -> dict[str, Any]:
+def publish_ai_application(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
@@ -172,6 +216,7 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
             app = repo().get_ai_application(conn, app_key)
             if not app:
                 raise HTTPException(status_code=404, detail="AI application not found")
+            ensure_ai_application_access(app, current_user=current_user, action="write")
             validate_publishable(app)
             return repo().publish_ai_application(conn, app_key)
     except HTTPException:
@@ -180,8 +225,8 @@ def publish_ai_application(app_key: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
-def export_ai_application_workflow(app_key: str) -> dict[str, Any]:
-    app = require_workflow_application(app_key)
+def export_ai_application_workflow(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = require_workflow_application(app_key, current_user=current_user)
     workflow = copy.deepcopy(workflow_definition_from_app(app))
     validate_workflow_definition_payload(workflow)
     return {
@@ -195,7 +240,7 @@ def export_ai_application_workflow(app_key: str) -> dict[str, Any]:
     }
 
 
-def import_ai_application_workflow(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+def import_ai_application_workflow(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
     workflow = workflow_definition_from_import_payload(payload)
     validate_workflow_definition_payload(workflow)
     database_target = require_database()
@@ -205,6 +250,7 @@ def import_ai_application_workflow(app_key: str, payload: dict[str, Any]) -> dic
             app = repo().get_ai_application(conn, app_key)
             if not app:
                 raise HTTPException(status_code=404, detail="AI application not found")
+            ensure_ai_application_access(app, current_user=current_user, action="write")
             if app.get("app_type") != "workflow":
                 raise HTTPException(status_code=422, detail="Only workflow applications support workflow import")
             updated = dict(app)
@@ -212,6 +258,7 @@ def import_ai_application_workflow(app_key: str, payload: dict[str, Any]) -> dic
             runtime_config["workflow"] = workflow
             updated["runtime_config"] = runtime_config
             normalize_application_payload(updated)
+            updated.update(actor_payload(current_user))
             imported = repo().upsert_ai_application(conn, updated)
     except HTTPException:
         raise
@@ -223,12 +270,12 @@ def import_ai_application_workflow(app_key: str, payload: dict[str, Any]) -> dic
 
 
 def run_draft_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    app = get_ai_application(app_key)
+    app = get_ai_application(app_key, current_user=current_user)
     return execute_application(app, payload, caller_type="studio_draft", require_published=False, current_user=current_user)
 
 
 def stream_draft_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> Any:
-    app = get_ai_application(app_key)
+    app = get_ai_application(app_key, current_user=current_user)
     if app.get("app_type") == "workflow":
         return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False, current_user=current_user)
     if app.get("app_type") == "agent":
@@ -238,7 +285,7 @@ def stream_draft_application(app_key: str, payload: dict[str, Any], current_user
 
 
 def run_published_application(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    app = get_ai_application(app_key)
+    app = get_ai_application(app_key, current_user=current_user)
     return execute_application(app, payload, caller_type="application_api", require_published=True, current_user=current_user)
 
 
@@ -250,8 +297,9 @@ def list_agent_conversations(
     keyword: str | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    app = require_agent_application(app_key)
+    app = require_agent_application(app_key, current_user=current_user)
     return read_list(
         lambda conn: (
             repo().require_ai_agent_schema(conn)
@@ -278,8 +326,8 @@ def filter_agent_conversations(items: list[dict[str, Any]], *, keyword: str | No
     ]
 
 
-def create_agent_conversation(app_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    app = require_agent_application(app_key)
+def create_agent_conversation(app_key: str, payload: dict[str, Any], current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = require_agent_application(app_key, current_user=current_user)
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
@@ -296,8 +344,9 @@ def list_agent_messages(
     *,
     page: int = 1,
     page_size: int = 50,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    app = require_agent_application(app_key)
+    app = require_agent_application(app_key, current_user=current_user)
     conversation = get_agent_conversation_or_404(app, conversation_key)
     return read_list(
         lambda conn: (
@@ -314,8 +363,13 @@ def list_agent_messages(
     )
 
 
-def send_agent_message(app_key: str, conversation_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    prepared = prepare_agent_run(app_key, conversation_key, payload)
+def send_agent_message(
+    app_key: str,
+    conversation_key: str,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     answer = ""
@@ -392,8 +446,13 @@ def send_agent_message(app_key: str, conversation_key: str, payload: dict[str, A
         ) from exc
 
 
-def stream_agent_message(app_key: str, conversation_key: str, payload: dict[str, Any]) -> Any:
-    prepared = prepare_agent_run(app_key, conversation_key, payload)
+def stream_agent_message(
+    app_key: str,
+    conversation_key: str,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] | None = None,
+) -> Any:
+    prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     assistant_message = persist_agent_assistant_message(
@@ -528,9 +587,15 @@ def list_prompt_runtime_traces(
 
 
 def list_ai_application_run_logs(
-    app_key: str, *, page: int = 1, page_size: int = 20, sort_by: str | None = None, sort_dir: str | None = None
+    app_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    app = get_ai_application(app_key)
+    app = get_ai_application(app_key, current_user=current_user)
     return read_trace_page(
         lambda conn, safe_page, safe_page_size: repo().list_ai_application_run_logs(
             conn,
@@ -1097,15 +1162,15 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
     return events()
 
 
-def require_agent_application(app_key: str) -> dict[str, Any]:
-    app = get_ai_application(app_key)
+def require_agent_application(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = get_ai_application(app_key, current_user=current_user)
     if app.get("app_type") != "agent":
         raise HTTPException(status_code=422, detail="Only Agent applications support agent conversations")
     return app
 
 
-def require_workflow_application(app_key: str) -> dict[str, Any]:
-    app = get_ai_application(app_key)
+def require_workflow_application(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = get_ai_application(app_key, current_user=current_user)
     if app.get("app_type") != "workflow":
         raise HTTPException(status_code=422, detail="Only workflow applications support workflow export/import")
     return app
@@ -1137,8 +1202,13 @@ def get_agent_conversation_or_404(app: dict[str, Any], conversation_key: str) ->
     return conversation
 
 
-def prepare_agent_run(app_key: str, conversation_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    app = require_agent_application(app_key)
+def prepare_agent_run(
+    app_key: str,
+    conversation_key: str,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    app = require_agent_application(app_key, current_user=current_user)
     conversation = get_agent_conversation_or_404(app, conversation_key)
     content = str(payload.get("content") or "").strip()
     if not content:

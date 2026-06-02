@@ -126,10 +126,24 @@ def list_libraries(
     tenant_id: int,
     page: int,
     page_size: int,
+    keyword: str = "",
+    status_filter: str = "",
     sort_by: str | None = None,
     sort_dir: str | None = None,
 ) -> tuple[list[FileLibrary], int]:
     offset = (page - 1) * page_size
+    filters = ["tenant_id = ?", "deleted = 0"]
+    params: list[Any] = [tenant_id]
+    text = str(keyword or "").strip()
+    if text:
+        like = f"%{text}%"
+        filters.append("(name LIKE ? OR description LIKE ? OR library_type LIKE ?)")
+        params.extend([like, like, like])
+    status_value = str(status_filter or "").strip()
+    if status_value:
+        filters.append("status = ?")
+        params.append(status_value)
+    where_sql = " AND ".join(filters)
     order_by = build_order_by(
         parse_sort_params(sort_by, sort_dir),
         allowed=LIBRARY_SORT_COLUMNS,
@@ -140,19 +154,19 @@ def list_libraries(
         require_file_management_schema(conn)
         total = count_row(
             conn.execute(
-                "SELECT COUNT(*) AS total FROM file_libraries WHERE tenant_id = ? AND deleted = 0",
-                (tenant_id,),
+                f"SELECT COUNT(*) AS total FROM file_libraries WHERE {where_sql}",
+                params,
             )
         )
         rows = conn.execute(
             f"""
             SELECT *
             FROM file_libraries
-            WHERE tenant_id = ? AND deleted = 0
+            WHERE {where_sql}
             ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
-            (tenant_id, page_size, offset),
+            (*params, page_size, offset),
         ).fetchall()
     return [row_to_library(dict(row)) for row in rows], total
 

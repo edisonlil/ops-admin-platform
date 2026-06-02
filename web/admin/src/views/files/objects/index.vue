@@ -1,24 +1,28 @@
 <template>
   <div class="file-object-page">
-    <ListPageRuntime :schema="filePage" :rows="workspaceRows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
+    <ListPageRuntime
+      :schema="filePage"
+      :rows="workspaceRows"
+      :loading="loading"
+      :pagination-total="paginationTotal"
+      @refresh="reload"
+      @filter-reset="resetFilters"
+    >
+      <template #filters="{ submit }">
         <n-select
           v-model:value="selectedLibraryId"
           clearable
           placeholder="选择文件库"
           :options="libraryOptions"
-          class="file-object-page__library"
           @update:value="handleLibraryChange"
         />
         <n-input
           v-model:value="keyword"
           clearable
           placeholder="搜索当前租户文件"
-          class="file-object-page__keyword"
-          @keyup.enter="reload"
-          @clear="reload"
+          @keyup.enter="submit"
+          @clear="submit"
         />
-        <n-button @click="reload">查询</n-button>
       </template>
 
       <template #toolbar-left>
@@ -624,27 +628,32 @@
     toolbar: {
       rightTools: ['refresh'],
     },
+    filterBar: {
+      fieldSize: 'large',
+      showSubmit: true,
+      showReset: true,
+    },
     pagination: { pageSize: 20 },
   });
 
   function handleLibraryChange(value: number | null) {
     selectedLibraryId.value = value;
     selectedFolderId.value = null;
-    reload();
+    reloadFromFirstPage();
   }
 
   function openLibraryRoot(libraryId: number) {
     selectedLibraryId.value = libraryId;
     selectedFolderId.value = null;
     keyword.value = '';
-    reload();
+    reloadFromFirstPage();
   }
 
   function openFolder(folder: FileFolder) {
     selectedLibraryId.value = folder.library_id;
     selectedFolderId.value = folder.id;
     keyword.value = '';
-    reload();
+    reloadFromFirstPage();
   }
 
   function openItem(item: WorkspaceItem) {
@@ -765,7 +774,7 @@
     const parent = breadcrumbs.value[breadcrumbs.value.length - 2];
     selectedFolderId.value = parent?.id || null;
     keyword.value = '';
-    reload();
+    reloadFromFirstPage();
   }
 
   function openFolderDrawer() {
@@ -979,6 +988,23 @@
     }
   }
 
+  function reloadFromFirstPage() {
+    const pageSize = listSortState.value.pagination?.pageSize || 20;
+    return reload({
+      ...listSortState.value,
+      pagination: {
+        page: 1,
+        pageSize,
+      },
+    });
+  }
+
+  function resetFilters() {
+    keyword.value = '';
+    selectedFolderId.value = null;
+    selectedLibraryId.value = null;
+  }
+
   function formatBytes(value: number) {
     if (value < 1024) return `${value} B`;
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
@@ -1050,14 +1076,6 @@
 <style lang="less" scoped>
   .file-object-page {
     min-width: 0;
-  }
-
-  .file-object-page__library {
-    width: 220px;
-  }
-
-  .file-object-page__keyword {
-    width: min(320px, 100%);
   }
 
   .file-object-page__upload-text {

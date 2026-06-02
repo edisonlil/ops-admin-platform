@@ -1,18 +1,18 @@
 <template>
   <div class="data-scope-page">
-    <ListPageRuntime :schema="scopePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
+    <ListPageRuntime :schema="scopePage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
       <template v-if="canManageResource" #header-actions>
         <n-button secondary @click="openResourceConfig">资源配置</n-button>
       </template>
-      <template #filters>
-        <n-select v-model:value="subjectTypeFilter" clearable placeholder="主体类型" :options="subjectTypeOptions" class="data-scope-page__filter" />
+      <template #filters="{ submit }">
+        <n-select v-model:value="subjectTypeFilter" clearable placeholder="主体类型" :options="subjectTypeOptions" @update:value="submit" />
         <n-select
           v-model:value="resourceFilter"
           clearable
           filterable
           placeholder="数据资源"
           :options="resourceOptions"
-          class="data-scope-page__filter"
+          @update:value="submit"
         />
       </template>
     </ListPageRuntime>
@@ -500,6 +500,7 @@
           : undefined,
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: { pageSize: 20 },
     })
   );
@@ -771,16 +772,17 @@
     }
   }
 
+  function resetFilters() {
+    subjectTypeFilter.value = null;
+    resourceFilter.value = null;
+  }
+
   reload();
 </script>
 
 <style lang="less" scoped>
   .data-scope-page {
     min-width: 0;
-  }
-
-  .data-scope-page__filter {
-    width: min(280px, 100%);
   }
 
   .data-scope-page__number {

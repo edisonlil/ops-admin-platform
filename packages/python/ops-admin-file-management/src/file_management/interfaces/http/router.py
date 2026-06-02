@@ -27,11 +27,23 @@ router = APIRouter(prefix="/files")
 def libraries(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str = "",
+    status: str = "",
     sort_by: str | None = Query(default=None),
     sort_dir: str | None = Query(default=None),
     current_user: dict[str, Any] = Depends(auth.require_permission("file:object:read")),
 ) -> dict[str, Any]:
-    return ok(services.list_libraries(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, current_user=current_user))
+    return ok(
+        services.list_libraries(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status_filter=status,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            current_user=current_user,
+        )
+    )
 
 
 @router.post("/libraries")

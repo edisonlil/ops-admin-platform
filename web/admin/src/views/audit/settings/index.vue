@@ -3,16 +3,14 @@
     <n-alert v-if="loadError" type="error" class="audit-settings-page__error" closable @close="loadError = ''">
       {{ loadError }}
     </n-alert>
-    <ListPageRuntime :schema="settingsPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
+    <ListPageRuntime :schema="settingsPage" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
         <n-input
           v-model:value="query"
           clearable
           placeholder="搜索租户 Key / 名称"
-          class="audit-settings-page__search"
-          @keyup.enter="reload"
+          @keyup.enter="submit"
         />
-        <n-button type="primary" @click="reload">查询</n-button>
       </template>
     </ListPageRuntime>
 
@@ -190,6 +188,7 @@
       tableProps: { size: 'small' },
     },
     toolbar: { rightTools: ['refresh'] },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 20 },
   });
 
@@ -265,6 +264,10 @@
     activeRow.value = updated;
   }
 
+  function resetFilters() {
+    query.value = '';
+  }
+
   async function loadTenantSettingsRow(tenant: TenantRow): Promise<SettingsRow> {
     const payload = await getEffectiveAuditLoggingSettings(tenant.id);
     const settings = payload.item;
@@ -299,10 +302,6 @@
 
   .audit-settings-page__error {
     min-width: 0;
-  }
-
-  .audit-settings-page__search {
-    width: 260px;
   }
 
   .audit-settings-page__number {

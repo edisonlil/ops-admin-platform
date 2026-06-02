@@ -1,20 +1,19 @@
 <template>
   <div class="basic-data-dictionary-page">
-    <ListPageRuntime :schema="dictionaryPage" :rows="typeRows" :loading="loadingTypes" @refresh="reloadAll">
-      <template #filters>
+    <ListPageRuntime :schema="dictionaryPage" :rows="typeRows" :loading="loadingTypes" @refresh="reloadAll" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
         <n-input
           v-model:value="typeKeyword"
           clearable
           placeholder="搜索字典编码、名称或说明"
-          class="basic-data-dictionary-page__filter"
-          @keyup.enter="reloadTypes"
+          @keyup.enter="submit"
         />
         <n-select
           v-model:value="typeStatus"
           clearable
           placeholder="状态"
           :options="statusOptions"
-          class="basic-data-dictionary-page__status"
+          @update:value="submit"
         />
       </template>
     </ListPageRuntime>
@@ -347,6 +346,7 @@
         },
       },
       toolbar: { rightTools: ['refresh'] },
+      filterBar: { showSubmit: true, showReset: true },
       pagination: false,
     })
   );
@@ -476,6 +476,11 @@
     if (activeType.value) await reloadItems();
   }
 
+  function resetFilters() {
+    typeKeyword.value = '';
+    typeStatus.value = null;
+  }
+
   async function reloadTypes(preferredTypeId?: number) {
     loadingTypes.value = true;
     try {
@@ -597,14 +602,6 @@
 <style lang="less" scoped>
   .basic-data-dictionary-page {
     min-width: 0;
-  }
-
-  .basic-data-dictionary-page__filter {
-    width: min(320px, 100%);
-  }
-
-  .basic-data-dictionary-page__status {
-    width: 160px;
   }
 
   .basic-data-dictionary-page__number {

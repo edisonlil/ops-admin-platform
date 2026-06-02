@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS ai_applications (
     create_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     creator TEXT DEFAULT NULL,
     creator_id BIGINT DEFAULT NULL,
+    owner_department_id BIGINT DEFAULT NULL,
     update_time DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     editor TEXT DEFAULT NULL,
     editor_id BIGINT DEFAULT NULL,

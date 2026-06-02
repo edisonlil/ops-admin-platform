@@ -1,6 +1,6 @@
 <template>
   <div class="ai-studio-page">
-    <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
+    <ListPageRuntime :schema="studioPage" :rows="activeRows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
       <template v-if="showViewSwitch" #toolbar-left>
         <n-radio-group v-model:value="activeView" size="small" class="ai-studio-page__views">
           <n-radio-button v-if="canReadApplications" value="applications">AI 应用</n-radio-button>
@@ -8,19 +8,19 @@
         </n-radio-group>
       </template>
 
-      <template #filters>
-        <n-input v-model:value="keyword" clearable :placeholder="searchPlaceholder" class="ai-studio-page__search" />
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable :placeholder="searchPlaceholder" @keyup.enter="submit" />
         <n-select
           v-if="currentView === 'applications'"
           v-model:value="statusFilter"
           :options="statusOptions"
-          class="ai-studio-page__status"
+          @update:value="submit"
         />
         <n-select
           v-else
           v-model:value="capabilityStatusFilter"
           :options="capabilityStatusOptions"
-          class="ai-studio-page__status"
+          @update:value="submit"
         />
       </template>
 
@@ -371,6 +371,7 @@
         batchActions: [],
         rightTools: ['refresh'],
       },
+      filterBar: { showSubmit: true, showReset: true },
       view:
         currentView.value === 'applications'
           ? {
@@ -576,6 +577,12 @@
     }
   }
 
+  function resetFilters() {
+    keyword.value = '';
+    statusFilter.value = 'all';
+    capabilityStatusFilter.value = 'all';
+  }
+
   function appIcon(app: AiApplication) {
     const key = String(app.runtime_config?.icon || 'robot') as keyof typeof iconMap;
     return iconMap[key] || RobotOutlined;
@@ -652,7 +659,7 @@
     { immediate: true }
   );
 
-  watch([currentView, keyword, statusFilter, capabilityStatusFilter], () => {
+  watch([currentView], () => {
     reload();
   });
 
@@ -664,16 +671,8 @@
     min-width: 0;
   }
 
-  .ai-studio-page__search {
-    width: 280px;
-  }
-
   .ai-studio-page__views {
     min-width: 220px;
-  }
-
-  .ai-studio-page__status {
-    width: 140px;
   }
 
   .ai-app-card {
@@ -782,9 +781,5 @@
   }
 
   @media (max-width: 900px) {
-    .ai-studio-page__search,
-    .ai-studio-page__status {
-      width: 100%;
-    }
   }
 </style>

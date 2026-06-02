@@ -1,9 +1,9 @@
 <template>
   <div class="page-designer-list">
-    <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload">
-      <template #filters>
-        <n-input v-model:value="keyword" clearable placeholder="搜索页面名称或标识" class="page-designer-list__keyword" @keyup.enter="reload" />
-        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" class="page-designer-list__status" @update:value="reload()" />
+    <ListPageRuntime :schema="pageSchema" :rows="rows" :loading="loading" :pagination-total="paginationTotal" @refresh="reload" @filter-reset="resetFilters">
+      <template #filters="{ submit }">
+        <n-input v-model:value="keyword" clearable placeholder="搜索页面名称或标识" @keyup.enter="submit" />
+        <n-select v-model:value="statusFilter" clearable placeholder="状态" :options="statusOptions" @update:value="submit" />
       </template>
     </ListPageRuntime>
 
@@ -208,6 +208,7 @@
       primaryAction: canManage() ? { key: 'create', label: '新建页面', type: 'primary', onClick: () => openCreate() } : undefined,
       rightTools: ['refresh'],
     },
+    filterBar: { showSubmit: true, showReset: true },
     pagination: { pageSize: 20 },
   });
 
@@ -368,20 +369,17 @@
     }
   }
 
+  function resetFilters() {
+    keyword.value = '';
+    statusFilter.value = null;
+  }
+
   reload();
 </script>
 
 <style lang="less" scoped>
   .page-designer-list {
     min-width: 0;
-  }
-
-  .page-designer-list__keyword {
-    width: min(320px, 100%);
-  }
-
-  .page-designer-list__status {
-    width: 160px;
   }
 
   .page-designer-mount-modal {

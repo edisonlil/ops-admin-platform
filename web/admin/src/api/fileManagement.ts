@@ -253,7 +253,12 @@ export interface PageParams {
   page_size?: number;
 }
 
-export function getFileLibraries(params: PageParams & SortParams = {}) {
+export interface FileLibraryListParams extends PageParams, SortParams {
+  keyword?: string;
+  status?: string;
+}
+
+export function getFileLibraries(params: FileLibraryListParams = {}) {
   return Alova.Get<FileListData<FileLibrary>>('/files/libraries', {
     params: withNoCacheParams(params),
   });
