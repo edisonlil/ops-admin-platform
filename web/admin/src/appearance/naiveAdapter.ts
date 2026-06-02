@@ -1,10 +1,32 @@
 import type { GlobalThemeOverrides } from 'naive-ui';
 import type { AppearanceTokens } from './types';
 
+function isDarkColor(color: string): boolean {
+  const hex = color.trim();
+  const normalized =
+    /^#[0-9a-f]{3}$/i.test(hex)
+      ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+      : hex;
+
+  if (!/^#[0-9a-f]{6}$/i.test(normalized)) return false;
+
+  const red = Number.parseInt(normalized.slice(1, 3), 16) / 255;
+  const green = Number.parseInt(normalized.slice(3, 5), 16) / 255;
+  const blue = Number.parseInt(normalized.slice(5, 7), 16) / 255;
+  const toLinear = (channel: number) =>
+    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  const luminance = 0.2126 * toLinear(red) + 0.7152 * toLinear(green) + 0.0722 * toLinear(blue);
+
+  return luminance < 0.45;
+}
+
 export function createNaiveThemeOverrides(tokens: AppearanceTokens): GlobalThemeOverrides {
   const { semantic, component } = tokens;
   const primary = semantic.primaryColor;
   const radius = semantic.borderRadiusBase;
+  const isDarkSurface = isDarkColor(semantic.surfaceColor) || isDarkColor(semantic.pageBgColor);
+  const tabActiveTextColor = isDarkSurface ? semantic.textColorBase : semantic.primaryColor;
+  const tabIndicatorColor = isDarkSurface ? semantic.textColorBase : semantic.primaryColor;
 
   return {
     common: {
@@ -249,6 +271,29 @@ export function createNaiveThemeOverrides(tokens: AppearanceTokens): GlobalTheme
       buttonBoxShadow: `inset 0 0 0 1px ${semantic.borderColorBase}`,
       buttonBoxShadowHover: `inset 0 0 0 1px ${semantic.primaryColor}`,
       buttonBoxShadowFocus: `inset 0 0 0 1px ${semantic.primaryColor}`,
+    },
+    Tabs: {
+      tabTextColorLine: semantic.textColorSecondary,
+      tabTextColorActiveLine: tabActiveTextColor,
+      tabTextColorHoverLine: tabActiveTextColor,
+      tabTextColorDisabledLine: semantic.textColorMuted,
+      tabTextColorBar: semantic.textColorSecondary,
+      tabTextColorActiveBar: tabActiveTextColor,
+      tabTextColorHoverBar: tabActiveTextColor,
+      tabTextColorDisabledBar: semantic.textColorMuted,
+      tabTextColorCard: semantic.textColorSecondary,
+      tabTextColorHoverCard: tabActiveTextColor,
+      tabTextColorActiveCard: tabActiveTextColor,
+      tabTextColorDisabledCard: semantic.textColorMuted,
+      tabTextColorSegment: semantic.textColorSecondary,
+      tabTextColorActiveSegment: tabActiveTextColor,
+      tabTextColorHoverSegment: tabActiveTextColor,
+      tabTextColorDisabledSegment: semantic.textColorMuted,
+      barColor: tabIndicatorColor,
+      paneTextColor: semantic.textColorBase,
+      tabBorderColor: semantic.borderColorBase,
+      tabColor: semantic.surfaceColor,
+      tabColorSegment: semantic.surfaceMutedColor,
     },
     DataTable: {
       tdColor: component.DataTable.bodyBg,

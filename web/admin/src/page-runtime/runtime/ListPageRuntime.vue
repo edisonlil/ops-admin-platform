@@ -1606,7 +1606,27 @@
   }
 
   .app-list-page__tabs :deep(.n-tabs-nav) {
+    --n-bar-color: var(--app-page-tabs-indicator-color, var(--app-text-color));
+    --n-pane-text-color: var(--app-text-color);
+    --n-tab-border-color: var(--app-page-tabs-border-color, var(--app-border-color));
+    --n-tab-text-color: var(--app-page-tabs-text-color, var(--app-text-color-2));
+    --n-tab-text-color-active: var(--app-page-tabs-active-text-color, var(--app-text-color));
+    --n-tab-text-color-hover: var(--app-page-tabs-active-text-color, var(--app-text-color));
+    --n-tab-text-color-disabled: var(--app-text-color-3);
     padding: 0 4px;
+  }
+
+  .app-list-page__tabs :deep(.n-tabs-tab) {
+    color: var(--app-page-tabs-text-color, var(--app-text-color-2));
+  }
+
+  .app-list-page__tabs :deep(.n-tabs-tab:hover),
+  .app-list-page__tabs :deep(.n-tabs-tab--active) {
+    color: var(--app-page-tabs-active-text-color, var(--app-text-color));
+  }
+
+  .app-list-page__tabs :deep(.n-tabs-bar) {
+    background-color: var(--app-page-tabs-indicator-color, var(--app-text-color));
   }
 
   .app-list-page__pane {

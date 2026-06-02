@@ -4228,6 +4228,11 @@ WHERE product_line = :product_line
   }
 
   .workflow-canvas-panel {
+    --workflow-edge-color: color-mix(in srgb, var(--app-primary-color) 58%, var(--app-text-color) 42%);
+    --workflow-edge-selected-color: color-mix(in srgb, var(--app-primary-color) 72%, var(--app-text-color) 28%);
+    --workflow-edge-executed-color: color-mix(in srgb, var(--app-success-color, #18a058) 80%, var(--app-text-color) 20%);
+    --workflow-edge-label-bg: color-mix(in srgb, var(--app-surface-bg) 94%, transparent);
+    --workflow-edge-label-text: var(--app-text-color-1);
     position: relative;
     min-height: 0;
     padding: 0;
@@ -4547,19 +4552,50 @@ WHERE product_line = :product_line
   }
 
   :deep(.vue-flow__edge-path) {
-    stroke: color-mix(in srgb, var(--app-primary-color) 72%, #64748b);
-    stroke-width: 2;
+    stroke: var(--workflow-edge-color) !important;
+    stroke-width: 2.75;
+    stroke-opacity: 0.98;
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--workflow-edge-color) 35%, transparent));
+  }
+
+  :deep(.vue-flow__connection-path) {
+    stroke: var(--workflow-edge-selected-color) !important;
+    stroke-width: 3;
+    stroke-opacity: 1;
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--workflow-edge-selected-color) 40%, transparent));
+  }
+
+  :deep(.vue-flow__edge-interaction) {
+    stroke-width: 18;
   }
 
   :deep(.vue-flow__edge.selected .vue-flow__edge-path) {
-    stroke: var(--app-primary-color);
-    stroke-width: 3;
+    stroke: var(--workflow-edge-selected-color) !important;
+    stroke-width: 3.5;
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--workflow-edge-selected-color) 45%, transparent));
   }
 
   :deep(.vue-flow__edge.is-workflow-executed-edge .vue-flow__edge-path) {
-    stroke: var(--app-success-color, #18a058);
+    stroke: var(--workflow-edge-executed-color) !important;
     stroke-width: 3;
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--app-success-color, #18a058) 32%, transparent));
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--workflow-edge-executed-color) 40%, transparent));
+  }
+
+  :deep(.vue-flow__edge-textbg) {
+    fill: var(--workflow-edge-label-bg);
+    stroke: color-mix(in srgb, var(--workflow-edge-color) 34%, var(--app-border-color));
+    stroke-width: 1;
+  }
+
+  :deep(.vue-flow__edge-text) {
+    fill: var(--workflow-edge-label-text);
+    font-weight: 700;
+  }
+
+  :deep(.vue-flow__marker path),
+  :deep(.vue-flow__arrowhead path) {
+    stroke: var(--workflow-edge-color) !important;
+    fill: var(--workflow-edge-color) !important;
   }
 
   .workflow-run-panel {

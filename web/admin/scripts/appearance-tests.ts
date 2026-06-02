@@ -111,6 +111,10 @@ function testAdapters() {
   assert.equal(cssVars['--app-menu-bg-inverted'], '#0f172a');
   assert.equal(cssVars['--app-text-color-2'], '#334155');
   assert.equal(cssVars['--app-text-color-3'], '#64748b');
+  assert.equal(cssVars['--app-success-color'], '#18a058');
+  assert.equal(cssVars['--app-error-color'], '#d03050');
+  assert.equal(cssVars['--app-page-tabs-active-text-color'], '#0f172a');
+  assert.equal(cssVars['--app-page-tabs-text-color'], '#334155');
   assert.equal(cssVars['--app-table-radius'], '6px');
   assert.equal(cssVars['--app-table-action-button-height'], '32px');
   assert.equal(cssVars['--app-status-success-bg'], '#ecfdf5');
@@ -136,6 +140,25 @@ function testDarkSemanticMerge() {
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemTextColorActiveInverted, '#ffffff');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActiveInverted, '#1e3a8a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHoverInverted, '#1e293b');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Popup.optionActiveTextColor, '#ffffff');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Popup.optionActiveBg, '#172554');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Popup.optionTextColor, '#f8fafc');
+  assert.equal(createNaiveThemeOverrides(resolveAppearanceTokens(darkTokens).tokens).Tabs?.tabTextColorLine, '#cbd5e1');
+  assert.equal(
+    createNaiveThemeOverrides(resolveAppearanceTokens(darkTokens).tokens).Tabs?.tabTextColorActiveLine,
+    '#f8fafc'
+  );
+  assert.equal(createNaiveThemeOverrides(resolveAppearanceTokens(darkTokens).tokens).Tabs?.barColor, '#f8fafc');
+  assert.equal(
+    createNaiveThemeOverrides(resolveAppearanceTokens(darkTokens).tokens).Select?.peers?.InternalSelectMenu
+      ?.optionTextColorActive,
+    '#ffffff'
+  );
+  assert.equal(
+    createNaiveThemeOverrides(resolveAppearanceTokens(darkTokens).tokens).Select?.peers?.InternalSelectMenu
+      ?.optionCheckColor,
+    '#ffffff'
+  );
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.TableAction.disabledTextColor, '#94a3b8');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.TableAction.disabledBgColor, '#0f172a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.bodyBg, '#111827');

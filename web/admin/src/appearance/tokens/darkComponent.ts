@@ -43,6 +43,16 @@ export const defaultDarkComponentTokens: Partial<
     itemBgActiveInverted: '#1e3a8a',
     itemBgHoverInverted: '#1e293b',
   },
+  Popup: {
+    bgColor: '#111827',
+    borderColor: '#334155',
+    optionTextColor: '#f8fafc',
+    optionHoverBg: '#1f2937',
+    optionActiveBg: '#172554',
+    optionActiveTextColor: '#ffffff',
+    optionDisabledTextColor: '#64748b',
+    dividerColor: '#334155',
+  },
   Alert: {
     infoBg: '{primaryColorSoft}',
     infoText: '{textColorBase}',
