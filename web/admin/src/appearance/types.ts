@@ -473,6 +473,7 @@ export interface AppearancePreset {
   skinClass?: string;
   tokens: AppearanceTokens;
   darkSemantic?: Partial<SemanticTokens>;
+  darkComponent?: Partial<Record<keyof ComponentTokens, Record<string, string>>>;
 }
 
 export interface TokenValidationError {

@@ -145,4 +145,10 @@ export const compactEnterprisePreset: AppearancePreset = {
       },
     },
   },
+  darkSemantic: {
+    ...primevueLikePreset.darkSemantic,
+  },
+  darkComponent: {
+    ...primevueLikePreset.darkComponent,
+  },
 };

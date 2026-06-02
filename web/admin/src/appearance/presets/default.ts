@@ -2,6 +2,7 @@ import type { AppearancePreset } from '../types';
 import { defaultPrimitiveTokens } from '../tokens/primitive';
 import { defaultSemanticTokens } from '../tokens/semantic';
 import { defaultDarkSemanticTokens } from '../tokens/darkSemantic';
+import { defaultDarkComponentTokens } from '../tokens/darkComponent';
 import { defaultComponentTokens } from '../tokens/component';
 import { defaultLayoutTokens } from '../tokens/layout';
 import { defaultPageTokens } from '../tokens/page';
@@ -19,4 +20,5 @@ export const defaultPreset: AppearancePreset = {
     page: defaultPageTokens,
   },
   darkSemantic: defaultDarkSemanticTokens,
+  darkComponent: defaultDarkComponentTokens,
 };

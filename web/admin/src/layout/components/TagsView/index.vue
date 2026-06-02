@@ -4,8 +4,7 @@
     :class="{
       'tabs-view-fix': multiTabsSetting.fixed,
       'tabs-view-fixed-header': isMultiHeaderFixed,
-      'tabs-view-default-background': getDarkTheme === false,
-      'tabs-view-dark-background': getDarkTheme === true,
+      'tabs-view-default-background': true,
     }"
     :style="getChangeStyle"
   >
@@ -16,7 +15,7 @@
           :class="{ 'tabs-card-prev-hide': !scrollable }"
           @click="scrollPrev"
         >
-          <n-icon size="16" color="#515a6e">
+          <n-icon size="16">
             <LeftOutlined />
           </n-icon>
         </span>
@@ -25,7 +24,7 @@
           :class="{ 'tabs-card-next-hide': !scrollable }"
           @click="scrollNext"
         >
-          <n-icon size="16" color="#515a6e">
+          <n-icon size="16">
             <RightOutlined />
           </n-icon>
         </span>
@@ -93,9 +92,7 @@
   } from '@vicons/antd';
   import { renderIcon } from '@/utils';
   import elementResizeDetectorMaker from 'element-resize-detector';
-  import { useDesignSetting } from '@/hooks/setting/useDesignSetting';
   import { useAppearanceStore } from '@/store/modules/appearance';
-  import { useThemeVars } from 'naive-ui';
   import { useGo } from '@/hooks/web/usePage';
 
   export default defineComponent({
@@ -112,7 +109,6 @@
       },
     },
     setup(props) {
-      const { getDarkTheme, getAppTheme } = useDesignSetting();
       const { navMode, headerSetting, menuSetting, multiTabsSetting, isMobile } =
         useProjectSetting();
       const appearanceStore = useAppearanceStore();
@@ -126,16 +122,6 @@
       const navWrap: any = ref(null);
       const isCurrent = ref(false);
       const go = useGo();
-
-      const themeVars = useThemeVars();
-
-      const getCardColor = computed(() => {
-        return themeVars.value.cardColor;
-      });
-
-      const getBaseColor = computed(() => {
-        return themeVars.value.textColor1;
-      });
 
       const state = reactive({
         activeKey: route.fullPath,
@@ -497,10 +483,6 @@
         scrollPrev,
         handleContextMenu,
         onClickOutside,
-        getDarkTheme,
-        getAppTheme,
-        getCardColor,
-        getBaseColor,
       };
     },
   });
@@ -561,11 +543,12 @@
           overflow: hidden;
 
           &-item {
-            background: v-bind(getCardColor);
-            color: v-bind(getBaseColor);
+            background: var(--app-surface-bg);
+            color: var(--app-text-color);
             height: 32px;
             padding: 6px 16px 4px;
             border-radius: var(--app-card-radius);
+            border: 1px solid var(--app-border-color);
             margin-right: 6px;
             cursor: pointer;
             display: inline-block;
@@ -588,7 +571,7 @@
               position: relative;
               vertical-align: middle;
               text-align: center;
-              color: #808695;
+              color: var(--app-icon-color);
 
               &:hover {
                 color: var(--app-primary-color) !important;
@@ -635,10 +618,6 @@
 
   .tabs-view-default-background {
     background: var(--app-page-bg);
-  }
-
-  .tabs-view-dark-background {
-    background: #101014;
   }
 
   .tabs-view-fix {

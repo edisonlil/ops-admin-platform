@@ -149,4 +149,7 @@ export const primevueLikePreset: AppearancePreset = {
     borderColorStrong: '#475569',
     shadowBase: '0 10px 24px rgb(0 0 0 / 24%)',
   },
+  darkComponent: {
+    ...defaultPreset.darkComponent,
+  },
 };

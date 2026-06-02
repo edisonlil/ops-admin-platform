@@ -96,6 +96,10 @@ function testAdapters() {
   assert.equal(themeOverrides.LoadingBar?.colorLoading, '#2563eb');
   assert.equal(themeOverrides.Tag?.color, '#f1f5f9');
   assert.equal(themeOverrides.Tag?.textColor, '#334155');
+  assert.equal(themeOverrides.Tag?.colorSuccess, '#ecfdf5');
+  assert.equal(themeOverrides.Tag?.textColorSuccess, '#047857');
+  assert.equal(themeOverrides.Tag?.colorError, '#fff1f2');
+  assert.equal(themeOverrides.Tag?.textColorError, '#be123c');
   assert.equal(cssVars['--app-page-bg'], '#f8fafc');
   assert.equal(cssVars['--app-primary-pressed-color'], '#1d4ed8');
   assert.equal(cssVars['--app-menu-width'], `${tokens.layout.menuWidth}px`);
@@ -124,6 +128,10 @@ function testDarkSemanticMerge() {
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.bodyBg, '#111827');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.headerBg, '#1e293b');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.rowHoverBg, '#172554');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.StatusTag.successBg, '#052e1a');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.StatusTag.successText, '#86efac');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.StatusTag.errorBg, '#3f111f');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Alert.successBg, '#052e1a');
   assert.equal(resolveAppearanceTokens(overriddenDarkTokens).tokens.semantic.pageBgColor, '#020617');
 }
 

@@ -22,6 +22,11 @@ export function mergeAppearanceTokens(
       cloneDeep(preset.darkSemantic || {}),
       cloneDeep(tokenOverrides.darkSemantic || {})
     );
+    tokens.component = merge(
+      cloneDeep(tokens.component),
+      cloneDeep(preset.darkComponent || {}),
+      cloneDeep(tokenOverrides.component || {})
+    );
   }
 
   return tokens;

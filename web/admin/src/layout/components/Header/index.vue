@@ -461,7 +461,7 @@
       }
 
       ::v-deep(.ant-breadcrumb span:last-child .link-text) {
-        color: #515a6e;
+        color: var(--app-text-color);
       }
 
       .n-breadcrumb {
@@ -571,7 +571,7 @@
 
       .anticon {
         font-size: 16px;
-        color: #515a6e;
+        color: var(--app-icon-color);
       }
     }
 
@@ -582,16 +582,16 @@
   }
 
   .layout-header-light {
-    background: #fff;
-    color: #515a6e;
+    background: var(--app-surface-bg);
+    color: var(--app-icon-color);
 
     .n-icon {
-      color: #515a6e;
+      color: var(--app-icon-color);
     }
 
     .layout-header-left {
       ::v-deep(.n-breadcrumb .n-breadcrumb-item:last-child .n-breadcrumb-item__link) {
-        color: #515a6e;
+        color: var(--app-text-color);
       }
     }
 
