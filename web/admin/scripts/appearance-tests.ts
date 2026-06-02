@@ -102,11 +102,15 @@ function testAdapters() {
   assert.equal(themeOverrides.Tag?.textColorSuccess, '#047857');
   assert.equal(themeOverrides.Tag?.colorError, '#fff1f2');
   assert.equal(themeOverrides.Tag?.textColorError, '#be123c');
+  assert.equal(themeOverrides.Radio?.buttonColorActive, '#eff6ff');
+  assert.equal(themeOverrides.Radio?.buttonTextColorActive, '#0f172a');
   assert.equal(cssVars['--app-page-bg'], '#f8fafc');
   assert.equal(cssVars['--app-primary-pressed-color'], '#1d4ed8');
   assert.equal(cssVars['--app-menu-width'], `${tokens.layout.menuWidth}px`);
   assert.equal(cssVars['--app-menu-bg'], '#ffffff');
   assert.equal(cssVars['--app-menu-bg-inverted'], '#0f172a');
+  assert.equal(cssVars['--app-text-color-2'], '#334155');
+  assert.equal(cssVars['--app-text-color-3'], '#64748b');
   assert.equal(cssVars['--app-table-radius'], '6px');
   assert.equal(cssVars['--app-table-action-button-height'], '32px');
   assert.equal(cssVars['--app-status-success-bg'], '#ecfdf5');

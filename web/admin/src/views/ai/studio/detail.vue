@@ -4102,7 +4102,7 @@ WHERE product_line = :product_line
     gap: 1px;
     min-width: 92px;
     padding: 7px 12px;
-    color: var(--app-text-color-2);
+    color: var(--app-text-color-2, var(--app-icon-color));
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
@@ -4118,16 +4118,24 @@ WHERE product_line = :product_line
   }
 
   .studio-workspace-nav__item small {
-    color: var(--app-text-color-3);
+    color: var(--app-text-color-3, var(--app-icon-color));
     font-size: 11px;
     line-height: 1.35;
   }
 
-  .studio-workspace-nav__item:hover,
-  .studio-workspace-nav__item.is-active {
+  .studio-workspace-nav__item:hover {
     color: var(--app-primary-color);
-    background: var(--app-surface-bg);
-    box-shadow: 0 1px 3px color-mix(in srgb, #000 8%, transparent);
+    background: color-mix(in srgb, var(--app-primary-color) 10%, var(--app-surface-bg));
+  }
+
+  .studio-workspace-nav__item.is-active {
+    color: var(--app-text-color);
+    background: var(--app-primary-soft-bg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-primary-color) 42%, var(--app-border-color));
+  }
+
+  .studio-workspace-nav__item.is-active small {
+    color: var(--app-text-color-2, var(--app-icon-color));
   }
 
   .studio-workspace-panel {

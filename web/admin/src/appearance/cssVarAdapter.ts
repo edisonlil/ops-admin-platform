@@ -229,5 +229,8 @@ export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCss
     '--app-primary-pressed-color': semantic.primaryColorPressed,
     '--app-primary-soft-bg': semantic.primaryColorSoft,
     '--app-text-color': semantic.textColorBase,
+    '--app-text-color-1': semantic.textColorBase,
+    '--app-text-color-2': semantic.textColorSecondary,
+    '--app-text-color-3': semantic.textColorMuted,
   };
 }
