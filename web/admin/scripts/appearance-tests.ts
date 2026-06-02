@@ -90,6 +90,7 @@ function testAdapters() {
   assert.equal(themeOverrides.Menu?.itemColorActive, '#eff6ff');
   assert.equal(themeOverrides.Menu?.itemColorHover, '#f1f5f9');
   assert.equal(themeOverrides.Menu?.color, '#ffffff');
+  assert.equal(themeOverrides.Menu?.colorInverted, '#0f172a');
   assert.equal(themeOverrides.Menu?.itemColorActiveInverted, '#2563eb');
   assert.equal(themeOverrides.Menu?.itemColorHoverInverted, '#0000');
   assert.equal(themeOverrides.Menu?.itemTextColorActive, '#2563eb');
@@ -105,6 +106,7 @@ function testAdapters() {
   assert.equal(cssVars['--app-primary-pressed-color'], '#1d4ed8');
   assert.equal(cssVars['--app-menu-width'], `${tokens.layout.menuWidth}px`);
   assert.equal(cssVars['--app-menu-bg'], '#ffffff');
+  assert.equal(cssVars['--app-menu-bg-inverted'], '#0f172a');
   assert.equal(cssVars['--app-table-radius'], '6px');
   assert.equal(cssVars['--app-table-action-button-height'], '32px');
   assert.equal(cssVars['--app-status-success-bg'], '#ecfdf5');
@@ -126,6 +128,7 @@ function testDarkSemanticMerge() {
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActive, '#172554');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHover, '#1e293b');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.bgColor, '#0f172a');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.bgColorInverted, '#0f172a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemTextColorActiveInverted, '#ffffff');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActiveInverted, '#1e3a8a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHoverInverted, '#1e293b');

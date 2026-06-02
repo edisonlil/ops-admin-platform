@@ -91,6 +91,7 @@ export const primevueLikePreset: AppearancePreset = {
       Menu: {
         ...defaultPreset.tokens.component.Menu,
         bgColor: '{surfaceColor}',
+        bgColorInverted: '#0f172a',
         itemHeight: '42px',
         itemBgActive: '{primaryColorSoft}',
         itemBgHover: '{surfaceMutedColor}',

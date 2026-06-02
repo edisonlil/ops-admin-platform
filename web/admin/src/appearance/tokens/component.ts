@@ -200,6 +200,7 @@ export const defaultComponentTokens: ComponentTokens = {
   },
   Menu: {
     bgColor: '{surfaceColor}',
+    bgColorInverted: '#0f172a',
     itemHeight: '40px',
     itemTextColor: '{textColorSecondary}',
     itemTextColorActive: '{primaryColor}',

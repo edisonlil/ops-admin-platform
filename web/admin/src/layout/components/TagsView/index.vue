@@ -586,12 +586,12 @@
           }
 
           .active-item {
-            color: var(--app-primary-color);
+            color: var(--app-text-color);
             background: var(--app-primary-soft-bg);
             border-color: color-mix(in srgb, var(--app-primary-color) 45%, var(--app-border-color));
 
             .n-icon {
-              color: var(--app-primary-color);
+              color: var(--app-text-color);
             }
           }
         }

@@ -33,6 +33,7 @@ export const defaultDarkComponentTokens: Partial<
   },
   Menu: {
     bgColor: '#0f172a',
+    bgColorInverted: '#0f172a',
     itemTextColor: '#cbd5e1',
     itemTextColorActive: '#93c5fd',
     itemBgActive: '#172554',

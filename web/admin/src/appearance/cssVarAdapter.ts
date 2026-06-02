@@ -114,6 +114,7 @@ export function createAppearanceCssVars(tokens: AppearanceTokens): AppearanceCss
     '--app-status-neutral-bg': component.StatusTag.neutralBg,
     '--app-status-neutral-border': component.StatusTag.neutralBorder,
     '--app-menu-bg': component.Menu.bgColor,
+    '--app-menu-bg-inverted': component.Menu.bgColorInverted,
     '--app-menu-item-text-color': component.Menu.itemTextColor,
     '--app-menu-item-active-text-color': component.Menu.itemTextColorActive,
     '--app-menu-item-bg-active': component.Menu.itemBgActive,
