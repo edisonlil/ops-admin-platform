@@ -89,6 +89,7 @@ function testAdapters() {
   assert.equal(themeOverrides.DataTable?.tdPaddingMedium, '8px 12px');
   assert.equal(themeOverrides.Menu?.itemColorActive, '#eff6ff');
   assert.equal(themeOverrides.Menu?.itemColorHover, '#f1f5f9');
+  assert.equal(themeOverrides.Menu?.color, '#ffffff');
   assert.equal(themeOverrides.Menu?.itemColorActiveInverted, '#2563eb');
   assert.equal(themeOverrides.Menu?.itemColorHoverInverted, '#0000');
   assert.equal(themeOverrides.Menu?.itemTextColorActive, '#2563eb');
@@ -103,6 +104,7 @@ function testAdapters() {
   assert.equal(cssVars['--app-page-bg'], '#f8fafc');
   assert.equal(cssVars['--app-primary-pressed-color'], '#1d4ed8');
   assert.equal(cssVars['--app-menu-width'], `${tokens.layout.menuWidth}px`);
+  assert.equal(cssVars['--app-menu-bg'], '#ffffff');
   assert.equal(cssVars['--app-table-radius'], '6px');
   assert.equal(cssVars['--app-table-action-button-height'], '32px');
   assert.equal(cssVars['--app-status-success-bg'], '#ecfdf5');
@@ -123,8 +125,12 @@ function testDarkSemanticMerge() {
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.semantic.pageBgColor, '#0f172a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActive, '#172554');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHover, '#1e293b');
-  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActiveInverted, '#2563eb');
-  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHoverInverted, '#0000');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.bgColor, '#0f172a');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemTextColorActiveInverted, '#ffffff');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgActiveInverted, '#1e3a8a');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.Menu.itemBgHoverInverted, '#1e293b');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.TableAction.disabledTextColor, '#94a3b8');
+  assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.TableAction.disabledBgColor, '#0f172a');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.bodyBg, '#111827');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.headerBg, '#1e293b');
   assert.equal(resolveAppearanceTokens(darkTokens).tokens.component.DataTable.rowHoverBg, '#172554');

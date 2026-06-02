@@ -191,7 +191,7 @@
 
 <style lang="less">
   .layout-side-drawer {
-    background-color: rgb(0, 20, 40);
+    background-color: var(--app-menu-bg);
 
     .layout-sider {
       min-height: 100vh;
@@ -199,6 +199,7 @@
       position: relative;
       z-index: 13;
       transition: all 0.2s ease-in-out;
+      background: var(--app-menu-bg);
     }
   }
 </style>
@@ -214,10 +215,34 @@
 
     .layout-sider {
       min-height: 100vh;
+      background: var(--app-menu-bg);
       box-shadow: var(--app-shadow-sm);
       position: relative;
       z-index: 13;
       transition: all 0.2s ease-in-out;
+
+      :deep(.n-layout-sider-scroll-container) {
+        background: var(--app-menu-bg);
+      }
+
+      :deep(.n-menu) {
+        background: var(--app-menu-bg);
+      }
+
+      :deep(.n-menu .n-menu-item-content--selected),
+      :deep(.n-menu .n-menu-item-content--child-active) {
+        color: var(--app-menu-item-active-text-color-inverted);
+        background-color: var(--app-menu-item-bg-active-inverted);
+      }
+
+      :deep(.n-menu .n-menu-item-content--selected .n-menu-item-content-header),
+      :deep(.n-menu .n-menu-item-content--selected .n-menu-item-content__icon),
+      :deep(.n-menu .n-menu-item-content--selected .n-menu-item-content__arrow),
+      :deep(.n-menu .n-menu-item-content--child-active .n-menu-item-content-header),
+      :deep(.n-menu .n-menu-item-content--child-active .n-menu-item-content__icon),
+      :deep(.n-menu .n-menu-item-content--child-active .n-menu-item-content__arrow) {
+        color: var(--app-menu-item-active-text-color-inverted);
+      }
     }
 
     .layout-sider-fix {

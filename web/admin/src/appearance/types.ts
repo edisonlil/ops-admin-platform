@@ -243,6 +243,7 @@ export interface PopoverTokens extends SurfaceTokens {
 }
 
 export interface MenuTokens {
+  bgColor: string;
   itemHeight: string;
   itemTextColor: string;
   itemTextColorActive: string;

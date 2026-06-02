@@ -146,7 +146,7 @@
       cursor: not-allowed;
       background: var(--app-table-action-disabled-bg, #f8fafc);
       border-color: var(--app-table-action-disabled-border, #d9e1ec);
-      opacity: 0.78;
+      opacity: 1;
     }
 
     &--menu-item {

@@ -549,6 +549,7 @@
             padding: 6px 16px 4px;
             border-radius: var(--app-card-radius);
             border: 1px solid var(--app-border-color);
+            box-sizing: border-box;
             margin-right: 6px;
             cursor: pointer;
             display: inline-block;
@@ -586,6 +587,12 @@
 
           .active-item {
             color: var(--app-primary-color);
+            background: var(--app-primary-soft-bg);
+            border-color: color-mix(in srgb, var(--app-primary-color) 45%, var(--app-border-color));
+
+            .n-icon {
+              color: var(--app-primary-color);
+            }
           }
         }
       }

@@ -199,6 +199,7 @@ export const defaultComponentTokens: ComponentTokens = {
     shadow: '{shadowMd}',
   },
   Menu: {
+    bgColor: '{surfaceColor}',
     itemHeight: '40px',
     itemTextColor: '{textColorSecondary}',
     itemTextColorActive: '{primaryColor}',
