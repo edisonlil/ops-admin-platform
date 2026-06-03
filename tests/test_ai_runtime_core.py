@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 import unittest
+import zipfile
 
 from ai_runtime_core.workflow_runtime import WorkflowFileExtractRequest
 from ai_runtime_core.workflow_runtime import WorkflowFileExtractResult
@@ -381,6 +383,48 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(requests[0].value["file_ref"], "file_1")
         self.assertEqual(result.context["variables"]["file_content"]["text"], "外部提取结果")
 
+    def test_workflow_file_extract_node_parses_pdf_data_url(self) -> None:
+        definition = file_extract_definition()
+        pdf_data_url = "data:application/pdf;base64," + base64.b64encode(minimal_pdf_bytes("PDF 内容")).decode("ascii")
+
+        result = execute_workflow(
+            definition,
+            {"document": {"type": "file", "name": "sample.pdf", "mime_type": "application/pdf", "data_url": pdf_data_url}},
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+        )
+
+        self.assertIn("PDF", result.context["variables"]["file_content"]["text"])
+
+    def test_workflow_file_extract_node_parses_docx_data_url(self) -> None:
+        definition = file_extract_definition()
+        docx_data_url = "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64," + base64.b64encode(
+            minimal_docx_bytes(["第一段", "第二段"])
+        ).decode("ascii")
+
+        result = execute_workflow(
+            definition,
+            {"document": {"type": "file", "name": "sample.docx", "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "data_url": docx_data_url}},
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+        )
+
+        self.assertEqual(result.context["variables"]["file_content"]["text"], "第一段\n第二段")
+
+    def test_workflow_file_extract_node_parses_xlsx_data_url(self) -> None:
+        definition = file_extract_definition()
+        xlsx_data_url = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + base64.b64encode(
+            minimal_xlsx_bytes([["姓名", "金额"], ["张三", 12]])
+        ).decode("ascii")
+
+        result = execute_workflow(
+            definition,
+            {"document": {"type": "file", "name": "sample.xlsx", "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "data_url": xlsx_data_url}},
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+        )
+
+        self.assertIn("## Sheet", result.context["variables"]["file_content"]["text"])
+        self.assertIn("姓名\t金额", result.context["variables"]["file_content"]["text"])
+        self.assertIn("张三\t12", result.context["variables"]["file_content"]["text"])
+
     def test_workflow_llm_json_response_decodes_fenced_json_and_expands_sql_array_params(self) -> None:
         definition = {
             "nodes": [
@@ -542,6 +586,77 @@ class AIRuntimeCoreTests(unittest.TestCase):
 
         with self.assertRaises(WorkflowRuntimeError):
             execute_workflow(definition, {}, llm_executor=lambda request: WorkflowLLMResult(answer=""))
+
+
+def file_extract_definition() -> dict[str, object]:
+    return {
+        "nodes": [
+            {"id": "start", "type": "start", "data": {}},
+            {
+                "id": "file_extract_1",
+                "type": "file_extract",
+                "data": {"input": "{{document}}", "output_key": "file_content", "max_chars": 2000},
+            },
+            {"id": "end", "type": "end", "data": {"output": "{{file_content.text}}" }},
+        ],
+        "edges": [
+            {"source": "start", "target": "file_extract_1"},
+            {"source": "file_extract_1", "target": "end"},
+        ],
+    }
+
+
+def minimal_docx_bytes(paragraphs: list[str]) -> bytes:
+    document_body = "".join(
+        f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>"
+        for paragraph in paragraphs
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{document_body}</w:body>"
+        "</w:document>"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+    return buffer.getvalue()
+
+
+def minimal_xlsx_bytes(rows: list[list[object]]) -> bytes:
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    for row in rows:
+        worksheet.append(row)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    return buffer.getvalue()
+
+
+def minimal_pdf_bytes(text: str) -> bytes:
+    safe_text = text.encode("latin-1", errors="ignore").decode("latin-1")
+    stream = f"BT /F1 24 Tf 72 720 Td ({safe_text}) Tj ET"
+    objects = [
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
+        "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
+        f"5 0 obj << /Length {len(stream.encode('latin-1'))} >> stream\n{stream}\nendstream endobj",
+    ]
+    content = "%PDF-1.4\n"
+    offsets = [0]
+    for item in objects:
+        offsets.append(len(content.encode("latin-1")))
+        content += item + "\n"
+    xref_offset = len(content.encode("latin-1"))
+    content += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        content += f"{offset:010d} 00000 n \n"
+    content += f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n"
+    return content.encode("latin-1")
 
 
 if __name__ == "__main__":

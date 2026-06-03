@@ -4131,6 +4131,7 @@ result = [
     if (field.type === 'image') return 'image/png,image/jpeg,image/webp,image/gif';
     if (field.type === 'audio') return 'audio/*';
     if (field.type === 'video') return 'video/*';
+    if (field.type === 'file') return '.txt,.md,.json,.csv,.xml,.yaml,.yml,.log,.pdf,.docx,.xlsx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     return '';
   }
 
@@ -4152,7 +4153,7 @@ result = [
     if (field.type === 'image') return '支持图片理解模型分析图片内容';
     if (field.type === 'audio') return '支持音频理解模型分析或转写音频';
     if (field.type === 'video') return '支持视频理解模型分析视频内容';
-    return '文本类文件会作为内容传入，其他文件会作为附件传入';
+    return '支持文本、PDF、DOCX、XLSX 提取内容后传入 Workflow';
   }
 
   function maxMediaVariableBytes(field: RuntimeVariableField) {
@@ -4163,7 +4164,7 @@ result = [
   }
 
   function isBinaryRuntimeMediaField(field: RuntimeVariableField) {
-    return ['image', 'audio', 'video'].includes(field.type);
+    return ['image', 'file', 'audio', 'video'].includes(field.type);
   }
 
   function isSupportedRuntimeImageFile(file: File) {
@@ -4685,12 +4686,9 @@ result = [
     width: 286px;
   }
 
-  .workflow-node-card--script .workflow-node-card__icon {
-    background: color-mix(in srgb, var(--app-success-color, #18a058) 72%, var(--app-primary-color));
-  }
-
+  .workflow-node-card--script .workflow-node-card__icon,
   .workflow-node-card--file-extract .workflow-node-card__icon {
-    background: color-mix(in srgb, var(--app-info-color, #2080f0) 70%, var(--app-success-color, #18a058));
+    background: color-mix(in srgb, var(--app-success-color, #18a058) 72%, var(--app-primary-color));
   }
 
   .workflow-node-card__head {
