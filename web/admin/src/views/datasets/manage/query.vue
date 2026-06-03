@@ -93,6 +93,42 @@
           <CodePreview v-model:value="querySql" language="sql" :read-only="false" :height="queryEditorHeight" :auto-height="false" />
         </div>
 
+        <div class="dataset-query-workbench__access-card">
+          <div class="dataset-query-workbench__access-head">
+            <div>
+              <strong>数据权限</strong>
+              <span>选择要追加租户和数据范围条件的主业务表。</span>
+            </div>
+            <n-tag size="small" :type="hasMultiTableQuery ? 'warning' : 'default'" :bordered="false">
+              {{ hasMultiTableQuery ? '多表 SQL' : '自动识别' }}
+            </n-tag>
+          </div>
+          <div class="dataset-query-workbench__access-row">
+            <n-select
+              v-model:value="selectedDataAccessSource"
+              clearable
+              filterable
+              size="small"
+              :options="dataAccessSourceOptions"
+              :disabled="!dataAccessSourceOptions.length"
+              placeholder="请选择主业务表别名，例如 wo"
+            />
+            <n-button
+              v-if="suggestedDataAccessOption"
+              secondary
+              size="small"
+              type="primary"
+              @click="useSuggestedDataAccessSource"
+            >
+              使用建议：{{ suggestedDataAccessOption.label }}
+            </n-button>
+          </div>
+          <n-alert v-if="hasMultiTableQuery && !selectedDataAccessSource" type="warning" :bordered="false">
+            {{ dataAccessWarningText }}
+          </n-alert>
+          <p v-else class="dataset-query-workbench__access-tip">{{ dataAccessSourceHelpText }}</p>
+        </div>
+
         <VariableSchemaEditor
           v-if="hasQueryVariables"
           v-model="queryVariablesSchema"
@@ -165,6 +201,17 @@
     type DatasetSourceTable,
   } from '@/api/datasets';
 
+  type DataAccessSourceKind = 'alias' | 'table';
+
+  interface DataAccessSourceOption {
+    label: string;
+    value: string;
+    kind: DataAccessSourceKind;
+    name: string;
+    table: string;
+    alias: string;
+  }
+
   const route = useRoute();
   const router = useRouter();
   const message = useMessage();
@@ -233,6 +280,57 @@
   });
 
   const queryResultScrollX = computed(() => Math.max(queryResultColumns.value.length * 150, 760));
+  const queryTableReferences = computed(() => extractSqlTableReferences(querySql.value));
+  const hasMultiTableQuery = computed(() => queryTableReferences.value.length > 1);
+  const selectedDataAccessSource = computed({
+    get(): string | null {
+      return currentDataAccessSourceValue();
+    },
+    set(value: string | null) {
+      const next = { ...queryDataAccess.value };
+      delete next.source_alias;
+      delete next.source_table;
+      const source = parseDataAccessSourceValue(value);
+      if (source?.kind === 'alias') next.source_alias = source.name;
+      if (source?.kind === 'table') next.source_table = source.name;
+      queryDataAccess.value = pruneEmptyDataAccess(next);
+    },
+  });
+  const dataAccessSourceOptions = computed<DataAccessSourceOption[]>(() => {
+    const seen = new Set<string>();
+    const options = queryTableReferences.value.filter((option) => {
+      if (seen.has(option.value)) return false;
+      seen.add(option.value);
+      return true;
+    });
+    const current = currentDataAccessSourceOption();
+    if (current && !seen.has(current.value)) {
+      options.unshift(current);
+    }
+    return options;
+  });
+  const suggestedDataAccessOption = computed(() => {
+    const firstReference = queryTableReferences.value[0];
+    if (!firstReference) return dataAccessSourceOptions.value[0] || null;
+    return dataAccessSourceOptions.value.find((option) => option.value === firstReference.value) || firstReference;
+  });
+  const dataAccessWarningText = computed(() => {
+    const suggestion = suggestedDataAccessOption.value?.label;
+    if (!suggestion) return '检测到多表 SQL，请选择用于注入权限条件的主业务表/别名。';
+    return `检测到 ${queryTableReferences.value.length} 张表，请选择用于注入权限条件的主业务表/别名。通常选择 FROM 后面的业务主表，当前建议为 ${suggestion}。`;
+  });
+  const dataAccessSourceHelpText = computed(() => {
+    const selected = dataAccessSourceOptions.value.find((option) => option.value === selectedDataAccessSource.value);
+    if (selected) return `已选择 ${selected.label}，系统会把当前租户和数据范围条件加到这张表上。`;
+    if (queryTableReferences.value.length === 1) return '单表 SQL 通常无需手动配置；如果后续增加 JOIN，可以在这里固定主业务表。';
+    return '系统会根据 SQL 中的 FROM/JOIN 自动列出候选表。';
+  });
+  const dataAccessRequiredMessage = computed(() => {
+    const suggestion = suggestedDataAccessOption.value?.label;
+    return suggestion
+      ? `检测到多表 SQL，请先在“数据权限”中选择主业务表/别名。建议选择 ${suggestion}。`
+      : '检测到多表 SQL，请先在“数据权限”中选择主业务表/别名。';
+  });
 
   async function loadDataset() {
     if (!datasetId.value) return;
@@ -267,7 +365,7 @@
     const config = dataset.value?.query_config || {};
     querySql.value = String(config.sql || '');
     queryParams.value = normalizeQueryParams(config.params);
-    queryDataAccess.value = normalizeSchemaObject(config.data_access);
+    queryDataAccess.value = pruneEmptyDataAccess(normalizeSchemaObject(config.data_access));
     queryVariablesSchema.value = normalizeSchemaObject(config.variables_schema);
     queryVariables.value = {};
     queryRows.value = [];
@@ -305,7 +403,8 @@
       queryTotal.value = 0;
       queryExecuted.value = false;
       queryResultTab.value = 'result';
-      queryError.value = error instanceof Error ? error.message : 'SQL 执行失败';
+      queryError.value = normalizeQueryExecutionError(error);
+      message.error(queryError.value);
     } finally {
       queryLoading.value = false;
     }
@@ -341,6 +440,10 @@
       message.error('请输入查询 SQL');
       return null;
     }
+    if (hasMultiTableQuery.value && !selectedDataAccessSource.value) {
+      message.warning(dataAccessRequiredMessage.value);
+      return null;
+    }
     const queryConfig: Record<string, unknown> = {
       sql,
       variables_schema: queryVariablesSchema.value,
@@ -361,6 +464,10 @@
 
   function normalizeSchemaObject(value: unknown): Record<string, unknown> {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  function pruneEmptyDataAccess(value: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== '' && item !== null && item !== undefined));
   }
 
   function buildQueryParams(sql: string, schema: Record<string, unknown>, fallback: unknown[] | Record<string, unknown>) {
@@ -388,6 +495,87 @@
       keys.add(match[1]);
     }
     return [...keys];
+  }
+
+  function extractSqlTableReferences(sql: string): DataAccessSourceOption[] {
+    const cleanedSql = stripSqlComments(sql).replace(/\s+/g, ' ');
+    const reservedAliases = new Set(['where', 'on', 'left', 'right', 'inner', 'full', 'cross', 'join', 'group', 'order', 'limit', 'having', 'union', 'offset']);
+    const tablePattern = /\b(?:from|join)\s+([`"\[]?[a-zA-Z_][\w$]*(?:\.[`"\[]?[a-zA-Z_][\w$]*)?[`"\]]?)(?:\s+(?:as\s+)?([`"\[]?[a-zA-Z_][\w$]*[`"\]]?))?/gi;
+    const references: DataAccessSourceOption[] = [];
+    for (const match of cleanedSql.matchAll(tablePattern)) {
+      const table = normalizeSqlIdentifier(match[1] || '');
+      const rawAlias = normalizeSqlIdentifier(match[2] || '');
+      const alias = rawAlias && !reservedAliases.has(rawAlias.toLowerCase()) ? rawAlias : '';
+      if (!table) continue;
+      const kind: DataAccessSourceKind = alias ? 'alias' : 'table';
+      const name = alias || table;
+      references.push({
+        label: alias ? `${alias}（${table}）` : table,
+        value: `${kind}:${name}`,
+        kind,
+        name,
+        table,
+        alias,
+      });
+    }
+    return references;
+  }
+
+  function stripSqlComments(sql: string) {
+    return sql.replace(/--.*$/gm, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  }
+
+  function normalizeSqlIdentifier(value: string) {
+    return value.trim().replace(/^[`"\[]+|[`"\]]+$/g, '');
+  }
+
+  function currentDataAccessSourceValue() {
+    const alias = typeof queryDataAccess.value.source_alias === 'string' ? queryDataAccess.value.source_alias.trim() : '';
+    if (alias) return `alias:${alias}`;
+    const table = typeof queryDataAccess.value.source_table === 'string' ? queryDataAccess.value.source_table.trim() : '';
+    return table ? `table:${table}` : null;
+  }
+
+  function currentDataAccessSourceOption(): DataAccessSourceOption | null {
+    const source = parseDataAccessSourceValue(currentDataAccessSourceValue());
+    if (!source) return null;
+    return {
+      label: source.kind === 'alias' ? `当前别名：${source.name}` : `当前表：${source.name}`,
+      value: `${source.kind}:${source.name}`,
+      kind: source.kind,
+      name: source.name,
+      table: source.kind === 'table' ? source.name : '',
+      alias: source.kind === 'alias' ? source.name : '',
+    };
+  }
+
+  function parseDataAccessSourceValue(value: string | null | undefined): { kind: DataAccessSourceKind; name: string } | null {
+    if (!value) return null;
+    const separatorIndex = value.indexOf(':');
+    if (separatorIndex <= 0) return null;
+    const kind = value.slice(0, separatorIndex);
+    const name = value.slice(separatorIndex + 1).trim();
+    if ((kind === 'alias' || kind === 'table') && name) return { kind, name };
+    return null;
+  }
+
+  function useSuggestedDataAccessSource() {
+    if (!suggestedDataAccessOption.value) return;
+    selectedDataAccessSource.value = suggestedDataAccessOption.value.value;
+  }
+
+  function normalizeQueryExecutionError(error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'SQL 执行失败';
+    if (errorMessage.includes('多表 SQL 需要配置 data_access.source_table 或 source_alias')) {
+      return dataAccessRequiredMessage.value;
+    }
+    if (errorMessage.includes('data_access.source_alias 未匹配到唯一数据表')) {
+      return '数据权限里选择的表别名没有匹配到 SQL 中的唯一表，请重新选择主业务表/别名。';
+    }
+    if (errorMessage.includes('data_access.source_table 未匹配到唯一数据表')) {
+      return '数据权限里选择的主表没有匹配到 SQL 中的唯一表，请重新选择主业务表/别名。';
+    }
+    return errorMessage;
   }
 
   function inferColumnsFromRows(items: Record<string, unknown>[]): DataTableColumns<Record<string, unknown>> {
@@ -657,6 +845,7 @@
   }
 
   .dataset-query-workbench__editor-card,
+  .dataset-query-workbench__access-card,
   .dataset-query-workbench__result,
   .dataset-query-workbench__main :deep(.variable-schema-editor) {
     min-width: 0;
@@ -668,6 +857,49 @@
 
   .dataset-query-workbench__editor-card :deep(.code-preview) {
     max-height: 240px;
+  }
+
+  .dataset-query-workbench__access-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .dataset-query-workbench__access-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .dataset-query-workbench__access-head div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .dataset-query-workbench__access-head strong {
+    color: var(--app-text-color-1);
+    font-weight: 650;
+  }
+
+  .dataset-query-workbench__access-head span,
+  .dataset-query-workbench__access-tip {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+  }
+
+  .dataset-query-workbench__access-row {
+    display: grid;
+    grid-template-columns: minmax(260px, 420px) auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .dataset-query-workbench__access-tip {
+    margin: 0;
+    line-height: 1.5;
   }
 
   .dataset-query-workbench__toolbar,
@@ -760,6 +992,10 @@
 
     .dataset-query-workbench__main {
       overflow: visible;
+    }
+
+    .dataset-query-workbench__access-row {
+      grid-template-columns: 1fr;
     }
 
     .dataset-query-workbench__editor-card :deep(.code-preview) {

@@ -759,6 +759,20 @@
       border-color: color-mix(in srgb, var(--app-border-color, #d9e1ec) 58%, transparent);
     }
 
+    :deep(.n-data-table-td:not(.n-data-table-td--selection, .n-data-table-td--expand) .n-data-table-td__ellipsis),
+    :deep(.app-table-cell-clamp) {
+      display: -webkit-box;
+      max-height: calc(var(--app-page-table-row-height) * 2 - 8px);
+      overflow: hidden;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+      text-overflow: ellipsis;
+      white-space: normal;
+      word-break: break-word;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
     :deep(.n-data-table-thead) {
       background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 30%, var(--app-surface-bg, #ffffff));
     }

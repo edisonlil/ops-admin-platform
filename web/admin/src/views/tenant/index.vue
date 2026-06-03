@@ -459,7 +459,7 @@
         });
       },
     },
-    { title: '部门', key: 'departments', minWidth: 220, render: (row) => departmentNames(row.department_ids || []) },
+    { title: '部门', key: 'departments', minWidth: 220, render: renderDepartmentCell },
     { title: '直属上级', key: 'manager_user_id', minWidth: 160, render: (row) => managerUserName(row.manager_user_id || null) },
     {
       title: '状态',
@@ -1104,6 +1104,11 @@
     return names.length ? names.join('、') : ids.join('、');
   }
 
+  function renderDepartmentCell(row: TenantUserRow) {
+    const text = departmentNames(row.department_ids || []);
+    return h('span', { class: 'tenant-page__department-cell app-table-cell-clamp', title: text }, text);
+  }
+
   function managerUserName(id: number | null) {
     if (!id) return '-';
     const user = tenantUsers.value.find((item) => Number(item.id) === Number(id));
@@ -1209,6 +1214,10 @@
   .tenant-drawer-note {
     color: var(--app-text-color-2);
     font-size: 13px;
+  }
+
+  .tenant-page__department-cell {
+    max-width: 100%;
   }
 
 </style>

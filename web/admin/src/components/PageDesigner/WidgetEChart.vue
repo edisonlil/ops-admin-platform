@@ -456,7 +456,7 @@
             color: secondaryTextColor(),
             fontSize: 11,
             fontWeight: 500,
-            distance: -30,
+            distance: -22,
           },
           detail: {
             valueAnimation: true,
