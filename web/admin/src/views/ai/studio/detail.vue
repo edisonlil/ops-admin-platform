@@ -143,6 +143,56 @@
                 </div>
               </template>
 
+              <template #node-file_extract="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--file-extract" :class="workflowNodeCardClass(id, selected)">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">TXT</span>
+                    <strong>{{ data.label || '文件提取' }}</strong>
+                  </div>
+                  <div class="workflow-node-card__meta">输出：{{ data.output_key || 'file_content' }}</div>
+                  <p class="workflow-node-card__file-preview" :title="String(data.input || '')">
+                    {{ compactFileExtractPreview(data.input) }}
+                  </p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
+              <template #node-script="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--script" :class="workflowNodeCardClass(id, selected)">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">PY</span>
+                    <strong>{{ data.label || '脚本处理' }}</strong>
+                  </div>
+                  <div class="workflow-node-card__meta">输出：{{ data.output_key || 'processed' }}</div>
+                  <p class="workflow-node-card__script-preview" :title="String(data.code || '')">
+                    {{ compactScriptPreview(data.code) }}
+                  </p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
               <template #node-condition="{ id, data, selected }">
                 <div class="workflow-node-card workflow-node-card--condition" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
@@ -221,6 +271,14 @@
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('sql_query')">
                 <strong>SQL 查询</strong>
                 <span>执行只读 SQL 并输出变量</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('file_extract')">
+                <strong>文件提取</strong>
+                <span>读取文件内容并输出变量</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('script')">
+                <strong>脚本处理</strong>
+                <span>清洗、转换或重组变量数据</span>
               </button>
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('condition')">
                 <strong>条件判断</strong>
@@ -540,6 +598,98 @@
                   </n-form-item>
                   <n-form-item label="最大行数">
                     <n-input-number v-model:value="selectedWorkflowNode.data.max_rows" :min="1" :max="1000" />
+                  </n-form-item>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'file_extract'">
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        输入文件变量
+                        <n-popover trigger="click" placement="right" :width="360">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-field-help">
+                            {{ fileExtractInputVariableHint(selectedWorkflowNode.data.input) }}
+                          </div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <n-input v-model:value="selectedWorkflowNode.data.input" placeholder="例如：{{file}}，也可使用 {{last}}" />
+                  </n-form-item>
+                  <n-form-item label="最大字符数">
+                    <n-input-number v-model:value="selectedWorkflowNode.data.max_chars" :min="1" :max="500000" />
+                  </n-form-item>
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        输出变量名
+                        <n-popover trigger="click" placement="right" :width="380">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-field-help">
+                            {{ fileExtractOutputVariableHint(selectedWorkflowNode.data.output_key) }}
+                          </div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：file_content" />
+                  </n-form-item>
+                </template>
+                <template v-else-if="selectedWorkflowNode.type === 'script'">
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        输入变量
+                        <n-popover trigger="click" placement="right" :width="360">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-field-help">
+                            {{ scriptInputVariableHint(selectedWorkflowNode.data.input) }}
+                          </div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <n-input v-model:value="selectedWorkflowNode.data.input" placeholder="例如：{{records.rows}}，留空时使用 {{last}}" />
+                  </n-form-item>
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        Python 脚本
+                        <n-popover trigger="click" placement="right" :width="460">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-sql-help markdown-answer" v-html="scriptNodeHelpHtml"></div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <CodePreview
+                      v-model:value="selectedWorkflowNode.data.code"
+                      class="workflow-script-editor"
+                      language="python"
+                      height="260px"
+                      :auto-height="false"
+                      :read-only="false"
+                    />
+                  </n-form-item>
+                  <n-form-item>
+                    <template #label>
+                      <span class="workflow-form-label-with-help">
+                        输出变量名
+                        <n-popover trigger="click" placement="right" :width="360">
+                          <template #trigger>
+                            <n-button class="workflow-help-button" text size="tiny" @click.stop>?</n-button>
+                          </template>
+                          <div class="workflow-field-help">
+                            {{ scriptOutputVariableHint(selectedWorkflowNode.data.output_key) }}
+                          </div>
+                        </n-popover>
+                      </span>
+                    </template>
+                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：processed" />
                   </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
@@ -1316,7 +1466,7 @@
   type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
-  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'condition' | 'end';
+  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'file_extract' | 'script' | 'condition' | 'end';
   type WorkflowEdgeStyle = 'default' | 'smoothstep' | 'straight' | 'step';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
@@ -1522,6 +1672,26 @@ WHERE product_line = :product_line
 
 兼容旧写法：SQL 中使用 \`?\` 时，参数 JSON 可以继续写数组，例如 \`["{{status}}"]\`。
 `.trim();
+  const scriptNodeHelpMarkdown = `
+### 脚本节点使用方式
+
+脚本节点用于对上游变量做数据清洗、格式转换和字段重组。运行时会提供 \`input\`、\`variables\`、\`nodes\`、\`last\` 和 \`json\`。
+
+\`\`\`python
+rows = input if isinstance(input, list) else []
+result = [
+  {
+    "name": item.get("name", ""),
+    "amount": float(item.get("amount", 0)),
+  }
+  for item in rows
+]
+\`\`\`
+
+- 必须给 \`result\` 或 \`output\` 赋值，节点会把它写入“输出变量名”。
+- \`input\` 可通过 \`{{records.rows}}\`、\`{{last.result}}\` 等模板引用上游数据。
+- 支持常见纯数据内置函数和 \`json.loads/json.dumps\`；不支持导入模块、文件、网络、数据库或系统调用。
+`.trim();
   const platformPreviewForm = reactive({
     tenant_id: null as number | null,
     model: '',
@@ -1552,6 +1722,7 @@ WHERE product_line = :product_line
   const selectedWorkflowNode = computed(() => workflowNodes.value.find((node) => node.id === selectedWorkflowNodeId.value) || null);
   const workflowDefaultEdgeOptions = computed(() => ({ type: workflowEdgeStyle.value }));
   const sqlParamsHelpHtml = computed(() => renderMarkdown(sqlParamsHelpMarkdown));
+  const scriptNodeHelpHtml = computed(() => renderMarkdown(scriptNodeHelpMarkdown));
 
   const parsedVariablesSchema = computed(() => parseJsonObjectSilently(variablesSchemaText.value));
   const workflowStartNode = computed(() => workflowNodes.value.find((node) => node.type === 'start') || null);
@@ -1569,7 +1740,15 @@ WHERE product_line = :product_line
     return [
       ...new Set(
         workflowNodes.value.flatMap((node) =>
-          [node.data?.system_prompt, node.data?.developer_prompt, node.data?.user_prompt_template, node.data?.left, node.data?.right, node.data?.output]
+          [
+            node.data?.system_prompt,
+            node.data?.developer_prompt,
+            node.data?.user_prompt_template,
+            node.data?.left,
+            node.data?.right,
+            node.data?.output,
+            node.data?.input,
+          ]
             .map((value) => String(value || ''))
             .flatMap(extractTemplateVariableKeys)
         )
@@ -2288,7 +2467,7 @@ WHERE product_line = :product_line
   function normalizeWorkflowNode(node: unknown, index: number): WorkflowNode {
     const record = asSchemaRecord(node) || {};
     const data = asSchemaRecord(record.data) || {};
-    const type = String(record.type || 'llm') as WorkflowNodeType;
+    const type = normalizeWorkflowNodeType(record.type || record.node_type);
     const sqlData =
       type === 'sql_query'
         ? {
@@ -2304,6 +2483,22 @@ WHERE product_line = :product_line
             response_format_type: workflowLlmResponseFormatType(data.response_format),
           }
         : {};
+    const scriptData =
+      type === 'script'
+        ? {
+            input: String(data.input || '{{last}}'),
+            code: String(data.code || data.script || defaultWorkflowScriptCode()),
+            output_key: String(data.output_key || 'processed'),
+          }
+        : {};
+    const fileExtractData =
+      type === 'file_extract'
+        ? {
+            input: String(data.input || '{{file}}'),
+            output_key: String(data.output_key || 'file_content'),
+            max_chars: Number(data.max_chars || 50000),
+          }
+        : {};
     return {
       id: String(record.id || `${type}_${index + 1}`),
       type,
@@ -2315,8 +2510,19 @@ WHERE product_line = :product_line
         ...(type === 'start' ? { variables: normalizeWorkflowStartVariables(data.variables) } : {}),
         ...llmData,
         ...sqlData,
+        ...fileExtractData,
+        ...scriptData,
       },
     };
+  }
+
+  function normalizeWorkflowNodeType(value: unknown): WorkflowNodeType {
+    const type = String(value || 'llm').trim();
+    if (type === 'sql' || type === 'sql_query') return 'sql_query';
+    if (type === 'file_extract' || type === 'file_extraction' || type === 'extract_file') return 'file_extract';
+    if (type === 'script' || type === 'python_script') return 'script';
+    if (type === 'start' || type === 'llm' || type === 'condition' || type === 'end') return type;
+    return 'llm';
   }
 
   function normalizeWorkflowEdge(edge: unknown, index: number): WorkflowEdge {
@@ -2383,6 +2589,16 @@ WHERE product_line = :product_line
         data.response_format_type === 'json_object' ? { type: 'json_object' } : undefined;
       delete data.response_format_type;
     }
+    if (node.type === 'script') {
+      data.input = String(data.input || '{{last}}');
+      data.code = String(data.code || defaultWorkflowScriptCode());
+      data.output_key = String(data.output_key || 'processed');
+    }
+    if (node.type === 'file_extract') {
+      data.input = String(data.input || '{{file}}');
+      data.output_key = String(data.output_key || 'file_content');
+      data.max_chars = Math.max(1, Math.min(500000, Number(data.max_chars || 50000)));
+    }
     return data;
   }
 
@@ -2429,6 +2645,19 @@ WHERE product_line = :product_line
     };
   }
 
+  function defaultWorkflowScriptCode() {
+    return [
+      'rows = input if isinstance(input, list) else []',
+      'result = [',
+      '  {',
+      '    "name": item.get("name", ""),',
+      '    "value": item.get("value", item),',
+      '  }',
+      '  for item in rows',
+      ']',
+    ].join('\n');
+  }
+
   function addWorkflowNode(type: Exclude<WorkflowNodeType, 'start'>, position?: XYPosition) {
     const count = workflowNodes.value.filter((node) => node.type === type).length + 1;
     const id = `${type}_${Date.now().toString(36)}`;
@@ -2449,6 +2678,16 @@ WHERE product_line = :product_line
       data.result_shape = 'rows';
       data.max_rows = 100;
       data.data_access = { resource_key: 'ai_applications.workflow_sql', tenant_column: 'tenant_id' };
+    }
+    if (type === 'script') {
+      data.input = '{{last}}';
+      data.code = defaultWorkflowScriptCode();
+      data.output_key = count === 1 ? 'processed' : `processed_${count}`;
+    }
+    if (type === 'file_extract') {
+      data.input = '{{file}}';
+      data.output_key = count === 1 ? 'file_content' : `file_content_${count}`;
+      data.max_chars = 50000;
     }
     if (type === 'condition') {
       data.left = '{{input}}';
@@ -2498,7 +2737,7 @@ WHERE product_line = :product_line
     openWorkflowNodeMenuId.value = '';
     const panelRect = workflowCanvasPanelRef.value?.getBoundingClientRect();
     const menuWidth = 220;
-    const menuHeight = 252;
+    const menuHeight = 364;
     const rawX = panelRect ? event.clientX - panelRect.left : event.clientX;
     const rawY = panelRect ? event.clientY - panelRect.top : event.clientY;
     workflowCanvasMenu.x = Math.max(8, Math.min(rawX, (panelRect?.width || rawX + menuWidth) - menuWidth - 8));
@@ -2600,10 +2839,12 @@ WHERE product_line = :product_line
   function compareWorkflowLayoutNodes(left: WorkflowNode, right: WorkflowNode) {
     const order: Record<WorkflowNodeType, number> = {
       start: 0,
-      sql_query: 1,
-      condition: 2,
-      llm: 3,
-      end: 4,
+      file_extract: 1,
+      sql_query: 2,
+      script: 3,
+      condition: 4,
+      llm: 5,
+      end: 6,
     };
     const leftOrder = order[left.type as WorkflowNodeType] ?? 99;
     const rightOrder = order[right.type as WorkflowNodeType] ?? 99;
@@ -2914,6 +3155,8 @@ WHERE product_line = :product_line
     if (type === 'start') return 'S';
     if (type === 'llm') return 'AI';
     if (type === 'sql_query' || type === 'sql') return 'SQL';
+    if (type === 'file_extract' || type === 'file_extraction') return 'TXT';
+    if (type === 'script' || type === 'python_script') return 'PY';
     if (type === 'condition') return 'IF';
     if (type === 'end') return 'E';
     return type.slice(0, 2).toUpperCase();
@@ -3018,6 +3261,37 @@ WHERE product_line = :product_line
     return text.length > 120 ? `${text.slice(0, 120)}...` : text;
   }
 
+  function compactScriptPreview(value: unknown) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '用脚本清洗、转换或重组上游变量';
+    return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  }
+
+  function compactFileExtractPreview(value: unknown) {
+    const text = String(value || '{{file}}').replace(/\s+/g, ' ').trim();
+    return `读取 ${text || '{{file}}'} 的文本内容`;
+  }
+
+  function fileExtractInputVariableHint(value: unknown) {
+    const input = String(value || '{{file}}').trim() || '{{file}}';
+    return `运行时会从 ${input} 提取文本内容，支持文件变量、文件数组，以及已带 text 的上传文件对象。`;
+  }
+
+  function fileExtractOutputVariableHint(value: unknown) {
+    const key = String(value || 'file_content').trim() || 'file_content';
+    return `提取结果会写入 {{${key}}}，常用 {{${key}.text}}、{{${key}.file_count}}、{{${key}.truncated}}。`;
+  }
+
+  function scriptInputVariableHint(value: unknown) {
+    const input = String(value || '{{last}}').trim() || '{{last}}';
+    return `运行时会把 ${input} 解析为脚本内的 input，脚本也可以直接读取 variables、nodes 和 last。`;
+  }
+
+  function scriptOutputVariableHint(value: unknown) {
+    const key = String(value || 'processed').trim() || 'processed';
+    return `脚本中的 result 或 output 会写入 {{${key}}}，后续节点可继续引用。`;
+  }
+
   function workflowLlmResponseFormatType(value: unknown) {
     const responseFormat = asSchemaRecord(value);
     return responseFormat?.type === 'json_object' ? 'json_object' : 'text';
@@ -3027,6 +3301,8 @@ WHERE product_line = :product_line
     if (type === 'start') return '开始';
     if (type === 'llm') return 'LLM';
     if (type === 'sql_query') return 'SQL 查询';
+    if (type === 'file_extract') return '文件提取';
+    if (type === 'script') return '脚本处理';
     if (type === 'condition') return '条件判断';
     if (type === 'end') return '结束';
     return String(type);
@@ -4409,6 +4685,14 @@ WHERE product_line = :product_line
     width: 286px;
   }
 
+  .workflow-node-card--script .workflow-node-card__icon {
+    background: color-mix(in srgb, var(--app-success-color, #18a058) 72%, var(--app-primary-color));
+  }
+
+  .workflow-node-card--file-extract .workflow-node-card__icon {
+    background: color-mix(in srgb, var(--app-info-color, #2080f0) 70%, var(--app-success-color, #18a058));
+  }
+
   .workflow-node-card__head {
     display: flex;
     gap: 10px;
@@ -4485,7 +4769,9 @@ WHERE product_line = :product_line
     -webkit-box-orient: vertical;
   }
 
-  .workflow-node-card--sql .workflow-node-card__sql-preview {
+  .workflow-node-card--sql .workflow-node-card__sql-preview,
+  .workflow-node-card--file-extract .workflow-node-card__file-preview,
+  .workflow-node-card--script .workflow-node-card__script-preview {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
     font-size: 11.5px;
     font-weight: 500;
@@ -4493,7 +4779,9 @@ WHERE product_line = :product_line
     word-break: break-word;
   }
 
-  .workflow-node-card--sql .workflow-node-card__meta {
+  .workflow-node-card--sql .workflow-node-card__meta,
+  .workflow-node-card--file-extract .workflow-node-card__meta,
+  .workflow-node-card--script .workflow-node-card__meta {
     padding: 0;
     background: transparent;
     border: 0;
@@ -5041,6 +5329,7 @@ WHERE product_line = :product_line
   }
 
   .workflow-sql-editor,
+  .workflow-script-editor,
   .workflow-json-editor {
     overflow: hidden;
     border: 1px solid var(--app-border-color, #d9e1ec);

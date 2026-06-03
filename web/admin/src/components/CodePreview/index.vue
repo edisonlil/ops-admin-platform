@@ -102,6 +102,8 @@
         ? import('monaco-editor/esm/vs/language/json/monaco.contribution')
         : props.language === 'sql'
           ? import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution')
+          : props.language === 'python'
+            ? import('monaco-editor/esm/vs/basic-languages/python/python.contribution')
         : Promise.resolve(),
     ]);
     if (disposed || !containerRef.value) return;
@@ -148,6 +150,7 @@
     async (language) => {
       if (language === 'json') await import('monaco-editor/esm/vs/language/json/monaco.contribution');
       if (language === 'sql') await import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution');
+      if (language === 'python') await import('monaco-editor/esm/vs/basic-languages/python/python.contribution');
       const model = editor?.getModel();
       if (model) monacoApi?.editor.setModelLanguage(model, language);
       scheduleEditorLayout();

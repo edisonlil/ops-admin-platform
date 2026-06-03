@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ast
+import base64
 import copy
 import json
 import re
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
@@ -15,6 +18,87 @@ from ai_runtime_core.prompt_runtime import resolve_variable_value
 WorkflowDefinition = dict[str, Any]
 WorkflowContext = dict[str, Any]
 JSON_CODE_FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
+MAX_SCRIPT_CHARS = 20000
+MAX_SCRIPT_AST_NODES = 1000
+MAX_SCRIPT_RANGE_SIZE = 10000
+DEFAULT_FILE_EXTRACT_MAX_CHARS = 50000
+MAX_FILE_EXTRACT_CHARS = 500000
+MAX_FILE_EXTRACT_DATA_URL_CHARS = 2_000_000
+TEXT_FILE_MIME_TYPES = {
+    "application/csv",
+    "application/json",
+    "application/ld+json",
+    "application/log",
+    "application/markdown",
+    "application/toml",
+    "application/x-ndjson",
+    "application/x-yaml",
+    "application/xml",
+    "application/yaml",
+    "text/csv",
+    "text/markdown",
+    "text/plain",
+    "text/xml",
+    "text/yaml",
+}
+TEXT_FILE_EXTENSIONS = {
+    ".csv",
+    ".json",
+    ".jsonl",
+    ".log",
+    ".md",
+    ".ndjson",
+    ".text",
+    ".toml",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+DISALLOWED_SCRIPT_NODE_TYPES = (
+    ast.AsyncFor,
+    ast.AsyncFunctionDef,
+    ast.AsyncWith,
+    ast.Await,
+    ast.ClassDef,
+    ast.Delete,
+    ast.FunctionDef,
+    ast.Global,
+    ast.Import,
+    ast.ImportFrom,
+    ast.Lambda,
+    ast.Nonlocal,
+    ast.Raise,
+    ast.Try,
+    ast.While,
+    ast.With,
+    ast.Yield,
+    ast.YieldFrom,
+)
+DISALLOWED_SCRIPT_NAMES = {
+    "__builtins__",
+    "__import__",
+    "breakpoint",
+    "compile",
+    "delattr",
+    "dir",
+    "eval",
+    "exec",
+    "exit",
+    "getattr",
+    "globals",
+    "help",
+    "locals",
+    "memoryview",
+    "object",
+    "open",
+    "quit",
+    "setattr",
+    "super",
+    "type",
+    "vars",
+}
+DISALLOWED_SCRIPT_ATTRIBUTES = {"mro", "subclasses"}
 
 
 @dataclass(slots=True)
@@ -54,6 +138,22 @@ class WorkflowSQLResult:
 
 
 @dataclass(slots=True)
+class WorkflowFileExtractRequest:
+    node_id: str
+    value: Any
+    output_key: str = ""
+    max_chars: int = DEFAULT_FILE_EXTRACT_MAX_CHARS
+
+
+@dataclass(slots=True)
+class WorkflowFileExtractResult:
+    text: str = ""
+    files: list[dict[str, Any]] = field(default_factory=list)
+    file_count: int = 0
+    truncated: bool = False
+
+
+@dataclass(slots=True)
 class WorkflowRunResult:
     answer: str
     context: WorkflowContext
@@ -63,6 +163,7 @@ class WorkflowRunResult:
 
 LLMExecutor = Callable[[WorkflowLLMRequest], WorkflowLLMResult]
 SQLExecutor = Callable[[WorkflowSQLRequest], WorkflowSQLResult]
+FileExtractor = Callable[[WorkflowFileExtractRequest], WorkflowFileExtractResult | dict[str, Any] | str]
 
 
 class WorkflowRuntimeError(RuntimeError):
@@ -75,6 +176,7 @@ def execute_workflow(
     *,
     llm_executor: LLMExecutor,
     sql_executor: SQLExecutor | None = None,
+    file_extractor: FileExtractor | None = None,
     max_steps: int = 50,
 ) -> WorkflowRunResult:
     result: WorkflowRunResult | None = None
@@ -83,6 +185,7 @@ def execute_workflow(
         variables,
         llm_executor=llm_executor,
         sql_executor=sql_executor,
+        file_extractor=file_extractor,
         max_steps=max_steps,
     ):
         if event.get("event") == "workflow.completed":
@@ -100,6 +203,7 @@ def iter_workflow_events(
     *,
     llm_executor: LLMExecutor,
     sql_executor: SQLExecutor | None = None,
+    file_extractor: FileExtractor | None = None,
     max_steps: int = 50,
 ) -> Iterator[dict[str, Any]]:
     normalized = normalize_workflow_definition(definition)
@@ -137,6 +241,10 @@ def iter_workflow_events(
                 merge_usage(usage, result.usage)
             elif node_type in {"sql", "sql_query"}:
                 output = execute_sql_query_node(node, context, sql_executor)
+            elif node_type in {"file_extract", "file_extraction"}:
+                output = execute_file_extract_node(node, context, file_extractor)
+            elif node_type in {"script", "python_script"}:
+                output = execute_script_node(node, context)
             elif node_type in {"condition", "if_else"}:
                 matched = evaluate_condition_node(node, context)
                 output = {"matched": matched}
@@ -434,6 +542,328 @@ def sql_output_payload(result: WorkflowSQLResult, result_shape: str) -> dict[str
         "result_shape": result_shape,
         "truncated": bool(result.truncated),
     }
+
+
+def execute_file_extract_node(
+    node: dict[str, Any],
+    context: WorkflowContext,
+    file_extractor: FileExtractor | None,
+) -> dict[str, Any]:
+    data = node["data"]
+    output_key = str(data.get("output_key") or "").strip()
+    if not output_key:
+        raise WorkflowRuntimeError(f"file extract node output_key is required: {node['id']}")
+    max_chars = bounded_file_extract_max_chars(data.get("max_chars"))
+    source_value = resolve_workflow_value(data.get("input") if "input" in data else "{{last}}", context)
+    if file_extractor is None:
+        output = extract_file_content_payload(source_value, max_chars=max_chars)
+    else:
+        output = normalize_file_extract_output(
+            file_extractor(
+                WorkflowFileExtractRequest(
+                    node_id=node["id"],
+                    value=snapshot_value(source_value),
+                    output_key=output_key,
+                    max_chars=max_chars,
+                )
+            ),
+            max_chars=max_chars,
+        )
+    assign_path(context["variables"], output_key, output)
+    return output
+
+
+def bounded_file_extract_max_chars(value: Any) -> int:
+    try:
+        parsed = int(value or DEFAULT_FILE_EXTRACT_MAX_CHARS)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_FILE_EXTRACT_MAX_CHARS
+    return max(1, min(MAX_FILE_EXTRACT_CHARS, parsed))
+
+
+def normalize_file_extract_output(value: WorkflowFileExtractResult | dict[str, Any] | str, *, max_chars: int) -> dict[str, Any]:
+    if isinstance(value, WorkflowFileExtractResult):
+        text, text_truncated = truncate_text(value.text, max_chars)
+        files, files_truncated = normalize_file_extract_files(value.files, max_chars=max_chars)
+        file_count = int(value.file_count or len(files))
+        return {
+            "text": text,
+            "files": files,
+            "file_count": file_count,
+            "truncated": bool(value.truncated or text_truncated or files_truncated),
+        }
+    if isinstance(value, dict):
+        text, text_truncated = truncate_text(str(value.get("text") or ""), max_chars)
+        files, files_truncated = normalize_file_extract_files(
+            value.get("files") if isinstance(value.get("files"), list) else [],
+            max_chars=max_chars,
+        )
+        return {
+            "text": text,
+            "files": files,
+            "file_count": int(value.get("file_count") or len(files)),
+            "truncated": bool(value.get("truncated") or text_truncated or files_truncated),
+        }
+    text, text_truncated = truncate_text(str(value or ""), max_chars)
+    return {"text": text, "files": [], "file_count": 0, "truncated": text_truncated}
+
+
+def normalize_file_extract_files(files: list[Any], *, max_chars: int) -> tuple[list[dict[str, Any]], bool]:
+    normalized: list[dict[str, Any]] = []
+    truncated = False
+    for item in files:
+        record = snapshot_value(item) if isinstance(item, dict) else file_extract_item_metadata(item)
+        if not isinstance(record, dict):
+            record = {}
+        file_text, file_text_truncated = truncate_text(str(record.get("text") or ""), max_chars)
+        record["text"] = file_text
+        record["truncated"] = bool(record.get("truncated") or file_text_truncated)
+        truncated = truncated or bool(record["truncated"])
+        normalized.append(record)
+    return normalized, truncated
+
+
+def extract_file_content_payload(value: Any, *, max_chars: int) -> dict[str, Any]:
+    items = file_extract_items(value)
+    if not items:
+        return {"text": "", "files": [], "file_count": 0, "truncated": False}
+    files: list[dict[str, Any]] = []
+    text_parts: list[str] = []
+    truncated = False
+    remaining_chars = max_chars
+    for item in items:
+        if remaining_chars <= 0:
+            remaining_text = file_extract_item_text(item)
+            files.append({**file_extract_item_metadata(item), "text": "", "truncated": bool(remaining_text)})
+            truncated = truncated or bool(remaining_text)
+            continue
+        file_payload = file_extract_item_payload(item, max_chars=max(remaining_chars, 1))
+        files.append(file_payload)
+        file_text = str(file_payload.get("text") or "")
+        if file_text and remaining_chars > 0:
+            kept, text_truncated = truncate_text(file_text, remaining_chars)
+            text_parts.append(kept)
+            remaining_chars -= len(kept)
+            truncated = truncated or text_truncated or bool(file_payload.get("truncated"))
+        elif file_text:
+            truncated = True
+        else:
+            truncated = truncated or bool(file_payload.get("truncated"))
+    joined = "\n\n".join(part for part in text_parts if part)
+    text, text_truncated = truncate_text(joined, max_chars)
+    return {
+        "text": text,
+        "files": files,
+        "file_count": len(files),
+        "truncated": bool(truncated or text_truncated),
+    }
+
+
+def file_extract_items(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [item for item in value if item not in (None, "")]
+    if isinstance(value, dict):
+        if isinstance(value.get("files"), list):
+            return value["files"]
+        if isinstance(value.get("items"), list) and not media_like_file_record(value):
+            return value["items"]
+    return [value]
+
+
+def media_like_file_record(value: dict[str, Any]) -> bool:
+    return any(key in value for key in ("type", "name", "mime_type", "data_url", "text", "file_ref", "file_id"))
+
+
+def file_extract_item_payload(value: Any, *, max_chars: int) -> dict[str, Any]:
+    metadata = file_extract_item_metadata(value)
+    text = file_extract_item_text(value)
+    kept, truncated = truncate_text(text, max_chars)
+    return {
+        **metadata,
+        "text": kept,
+        "truncated": truncated,
+    }
+
+
+def file_extract_item_metadata(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"name": "", "mime_type": "", "size": None}
+    return {
+        "name": str(value.get("name") or value.get("filename") or ""),
+        "mime_type": str(value.get("mime_type") or value.get("content_type") or ""),
+        "size": value.get("size"),
+        "file_ref": value.get("file_ref"),
+        "file_id": value.get("file_id"),
+    }
+
+
+def file_extract_item_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "content"):
+        if value.get(key) not in (None, ""):
+            return str(value.get(key) or "")
+    data_url = str(value.get("data_url") or "").strip()
+    if data_url:
+        return text_from_data_url(
+            data_url,
+            name=str(value.get("name") or value.get("filename") or ""),
+            mime_type=str(value.get("mime_type") or value.get("content_type") or ""),
+        )
+    return ""
+
+
+def text_from_data_url(data_url: str, *, name: str, mime_type: str) -> str:
+    if len(data_url) > MAX_FILE_EXTRACT_DATA_URL_CHARS or not data_url.startswith("data:") or "," not in data_url:
+        return ""
+    header, payload = data_url.split(",", 1)
+    header_parts = header[5:].split(";")
+    data_mime_type = (header_parts[0] or mime_type or "").strip().lower()
+    if not is_text_like_file(name=name, mime_type=data_mime_type):
+        return ""
+    try:
+        raw_bytes = base64.b64decode(payload, validate=True) if "base64" in header_parts else urllib.parse.unquote_to_bytes(payload)
+    except (ValueError, TypeError):
+        return ""
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def is_text_like_file(*, name: str, mime_type: str) -> bool:
+    normalized_mime = mime_type.strip().lower()
+    if normalized_mime.startswith("text/") or normalized_mime in TEXT_FILE_MIME_TYPES:
+        return True
+    lower_name = name.strip().lower()
+    return any(lower_name.endswith(extension) for extension in TEXT_FILE_EXTENSIONS)
+
+
+def truncate_text(value: str, max_chars: int) -> tuple[str, bool]:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text, False
+    return text[:max_chars], True
+
+
+def execute_script_node(node: dict[str, Any], context: WorkflowContext) -> dict[str, Any]:
+    data = node["data"]
+    code = str(data.get("code") or data.get("script") or "").strip()
+    if not code:
+        raise WorkflowRuntimeError(f"script code is required: {node['id']}")
+    output_key = str(data.get("output_key") or "").strip()
+    if not output_key:
+        raise WorkflowRuntimeError(f"script node output_key is required: {node['id']}")
+    validate_script_code(code)
+    script_input = resolve_workflow_value(data.get("input") if "input" in data else "{{last}}", context)
+    script_scope: dict[str, Any] = {
+        "__builtins__": SAFE_SCRIPT_BUILTINS,
+        "json": SAFE_SCRIPT_JSON,
+        "input": snapshot_value(script_input),
+        "variables": snapshot_value(context.get("variables") if isinstance(context.get("variables"), dict) else {}),
+        "nodes": snapshot_value(context.get("nodes") if isinstance(context.get("nodes"), dict) else {}),
+        "last": snapshot_value(context.get("last") if isinstance(context.get("last"), dict) else {}),
+        "result": None,
+        "output": None,
+    }
+    try:
+        compiled = compile(code, f"<workflow-script:{node['id']}>", "exec")
+        exec(compiled, script_scope, script_scope)
+    except WorkflowRuntimeError:
+        raise
+    except Exception as exc:
+        raise WorkflowRuntimeError(f"script node failed: {exc}") from exc
+    result = script_scope.get("result")
+    if result is None and script_scope.get("output") is not None:
+        result = script_scope.get("output")
+    if result is None:
+        raise WorkflowRuntimeError(f"script node must assign result or output: {node['id']}")
+    assign_path(context["variables"], output_key, snapshot_value(result))
+    return {"result": snapshot_value(result), "output_key": output_key}
+
+
+def validate_script_code(code: str) -> None:
+    if len(code) > MAX_SCRIPT_CHARS:
+        raise WorkflowRuntimeError(f"script code is too long; max {MAX_SCRIPT_CHARS} characters")
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as exc:
+        raise WorkflowRuntimeError(f"script syntax is invalid: {exc.msg}") from exc
+    nodes = list(ast.walk(tree))
+    if len(nodes) > MAX_SCRIPT_AST_NODES:
+        raise WorkflowRuntimeError(f"script is too complex; max {MAX_SCRIPT_AST_NODES} syntax nodes")
+    for item in nodes:
+        if isinstance(item, DISALLOWED_SCRIPT_NODE_TYPES):
+            raise WorkflowRuntimeError(f"script statement is not allowed: {item.__class__.__name__}")
+        if isinstance(item, ast.Name) and is_disallowed_script_name(item.id):
+            raise WorkflowRuntimeError(f"script name is not allowed: {item.id}")
+        if isinstance(item, ast.Attribute) and is_disallowed_script_attribute(item.attr):
+            raise WorkflowRuntimeError(f"script attribute is not allowed: {item.attr}")
+
+
+def is_disallowed_script_name(name: str) -> bool:
+    return name.startswith("__") or name in DISALLOWED_SCRIPT_NAMES
+
+
+def is_disallowed_script_attribute(name: str) -> bool:
+    return name.startswith("_") or name in DISALLOWED_SCRIPT_ATTRIBUTES
+
+
+def safe_script_range(*args: int) -> range:
+    if not 1 <= len(args) <= 3:
+        raise WorkflowRuntimeError("range expects 1 to 3 integer arguments")
+    values = [int(item) for item in args]
+    range_value = range(*values)
+    try:
+        range_size = len(range_value)
+    except OverflowError as exc:
+        raise WorkflowRuntimeError(f"range is too large; max {MAX_SCRIPT_RANGE_SIZE} items") from exc
+    if range_size > MAX_SCRIPT_RANGE_SIZE:
+        raise WorkflowRuntimeError(f"range is too large; max {MAX_SCRIPT_RANGE_SIZE} items")
+    return range_value
+
+
+class SafeScriptJson:
+    @staticmethod
+    def loads(value: str) -> Any:
+        return json.loads(value)
+
+    @staticmethod
+    def dumps(value: Any, *, ensure_ascii: bool = False, indent: int | None = None) -> str:
+        return json.dumps(value, ensure_ascii=ensure_ascii, indent=indent)
+
+
+SAFE_SCRIPT_JSON = SafeScriptJson()
+SAFE_SCRIPT_BUILTINS: dict[str, Any] = {
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "enumerate": enumerate,
+    "filter": filter,
+    "float": float,
+    "int": int,
+    "isinstance": isinstance,
+    "len": len,
+    "list": list,
+    "map": map,
+    "max": max,
+    "min": min,
+    "range": safe_script_range,
+    "round": round,
+    "set": set,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+}
 
 
 def render_llm_messages(data: dict[str, Any], variables: dict[str, Any]) -> list[dict[str, Any]]:

@@ -1653,6 +1653,131 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_script_node_transforms_application_variables(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("script-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["variables_schema"] = {"type": "object", "required": ["orders"]}
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "script_1",
+                                    "type": "script",
+                                    "data": {
+                                        "input": "{{orders}}",
+                                        "code": "\n".join(
+                                            [
+                                                "paid = [item for item in input if item.get('status') == 'paid']",
+                                                "result = {",
+                                                "  'count': len(paid),",
+                                                "  'total': sum(item.get('amount', 0) for item in paid),",
+                                                "}",
+                                            ]
+                                        ),
+                                        "output_key": "summary",
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {"output": "{{summary.total}}"}},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "script_1"},
+                                {"source": "script_1", "target": "end"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+                    result = ai_applications.run_draft_application(
+                        "script-workflow",
+                        {
+                            "variables": {
+                                "orders": [
+                                    {"status": "paid", "amount": 12},
+                                    {"status": "draft", "amount": 40},
+                                    {"status": "paid", "amount": 8},
+                                ]
+                            }
+                        },
+                    )
+
+            self.assertEqual(result["answer"], "20")
+            workflow_trace = result["trace"]["rendered_messages"][-1]["content"]["workflow"]
+            self.assertEqual([item["node_id"] for item in workflow_trace["nodes"]], ["start", "script_1", "end"])
+            self.assertEqual(workflow_trace["nodes"][1]["node_type"], "script")
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["result"]["count"], 2)
+        finally:
+            self._unlink_db(db_path)
+
+    def test_workflow_file_extract_node_passes_content_to_next_node(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("file-extract-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["variables_schema"] = {"type": "object", "required": ["document"]}
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "file_extract_1",
+                                    "type": "file_extract",
+                                    "data": {
+                                        "input": "{{document}}",
+                                        "output_key": "file_content",
+                                        "max_chars": 1000,
+                                    },
+                                },
+                                {
+                                    "id": "script_1",
+                                    "type": "script",
+                                    "data": {
+                                        "input": "{{file_content}}",
+                                        "code": "result = {'summary': input.get('text', '').replace('原文：', '')}",
+                                        "output_key": "processed",
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {"output": "{{processed.summary}}" }},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "file_extract_1"},
+                                {"source": "file_extract_1", "target": "script_1"},
+                                {"source": "script_1", "target": "end"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+                    result = ai_applications.run_draft_application(
+                        "file-extract-workflow",
+                        {
+                            "variables": {
+                                "document": {
+                                    "type": "file",
+                                    "name": "meeting.txt",
+                                    "mime_type": "text/plain",
+                                    "size": 24,
+                                    "text": "原文：会议纪要内容",
+                                }
+                            }
+                        },
+                    )
+
+            self.assertEqual(result["answer"], "会议纪要内容")
+            workflow_trace = result["trace"]["rendered_messages"][-1]["content"]["workflow"]
+            self.assertEqual([item["node_id"] for item in workflow_trace["nodes"]], ["start", "file_extract_1", "script_1", "end"])
+            self.assertEqual(workflow_trace["nodes"][1]["node_type"], "file_extract")
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["file_count"], 1)
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["text"], "原文：会议纪要内容")
+        finally:
+            self._unlink_db(db_path)
+
     def test_workflow_node_system_prompt_is_not_truncated_when_saved(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
