@@ -6,6 +6,7 @@
       :row-height="layout.rowHeight || 64"
       :is-draggable="!readonly"
       :is-resizable="!readonly"
+      :margin="gridMargin"
       :vertical-compact="true"
       :use-css-transforms="true"
       @layout-updated="emitLayoutChange"
@@ -83,6 +84,7 @@
   const innerLayout = ref<GridCanvasItem[]>(toGridItems(props.layout));
   const datasetPayloads = reactive<Record<string, DatasetRuntimePayload | null | undefined>>({});
   const datasetIds = computed(() => Array.from(new Set(props.components.map(datasetIdForComponent).filter(Boolean))));
+  const gridMargin = computed<[number, number]>(() => (props.readonly ? [8, 8] : [10, 10]));
   const componentActionOptions = [
     { label: '配置', key: 'configure' },
     { label: '复制', key: 'duplicate' },
@@ -230,6 +232,7 @@
 
   .is-readonly {
     min-height: 0;
+    padding: 0;
     background: transparent;
     border: 0;
 

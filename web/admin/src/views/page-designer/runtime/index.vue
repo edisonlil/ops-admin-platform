@@ -58,19 +58,46 @@
 <style lang="less" scoped>
   .page-designer-runtime {
     min-width: 0;
+    color: var(--app-text-color, #111827);
+    font-family: var(
+      --app-font-family-base,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      'Microsoft YaHei',
+      'PingFang SC',
+      sans-serif
+    );
   }
 
   .page-designer-runtime__header {
-    margin-bottom: 16px;
+    display: grid;
+    gap: 6px;
+    min-height: var(--app-page-header-min-height);
+    margin-bottom: var(--app-page-section-gap, 16px);
+    padding: var(--app-page-header-padding-block) var(--app-page-header-padding-inline);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border-color, #dfe4ea) 72%, transparent);
 
     h1 {
-      margin: 0 0 6px;
-      font-size: 22px;
+      margin: 0;
+      overflow: hidden;
+      color: var(--app-text-color, #111827);
+      font-size: var(--app-page-header-title-size, var(--app-font-size-lg, 16px));
+      font-weight: 650;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     p {
       margin: 0;
-      color: #64748b;
+      overflow: hidden;
+      color: var(--app-icon-color, var(--app-text-color-2, #4b5565));
+      font-size: var(--app-page-header-description-size, var(--app-font-size-sm, 13px));
+      line-height: 1.5;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 </style>

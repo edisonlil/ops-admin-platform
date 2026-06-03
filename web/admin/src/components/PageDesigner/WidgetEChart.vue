@@ -24,7 +24,14 @@
   const { setOptions, resize } = useECharts(chartRef as Ref<HTMLDivElement>);
   const { width, height } = useElementSize(chartRef);
 
-  const chartColors = ['#2563eb', '#14b8a6', '#f97316', '#8b5cf6', '#0ea5e9', '#84cc16'];
+  const chartColors = computed(() => [
+    cssVar('--app-primary-color', '#2d8cf0'),
+    cssVar('--app-success-color', '#18a058'),
+    cssVar('--app-warning-color', '#f0a020'),
+    '#8b5cf6',
+    cssVar('--app-info-color', '#2080f0'),
+    '#84cc16',
+  ]);
   const chartSeries = computed<ChartSeriesItem[]>(() => (Array.isArray(props.data.series) ? (props.data.series as ChartSeriesItem[]) : []));
   const chartCategories = computed(() =>
     Array.isArray(props.data.categories) ? (props.data.categories as unknown[]).map((item) => String(item)) : []
@@ -68,49 +75,82 @@
     return createLineOption();
   }
 
+  function cssVar(name: string, fallback: string) {
+    const target = chartRef.value || document.documentElement;
+    const value = getComputedStyle(target).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  function textColor() {
+    return cssVar('--app-text-color', '#111827');
+  }
+
+  function secondaryTextColor() {
+    return cssVar('--app-icon-color', '#64748b');
+  }
+
+  function borderColor() {
+    return cssVar('--app-border-color', '#dbe3ee');
+  }
+
+  function mutedSurfaceColor() {
+    return cssVar('--app-surface-muted-bg', '#eef1f5');
+  }
+
+  function tooltipOption(trigger: 'axis' | 'item') {
+    return {
+      trigger,
+      confine: true,
+      backgroundColor: 'rgba(17, 24, 39, 0.92)',
+      borderWidth: 0,
+      padding: [8, 10],
+      textStyle: {
+        color: '#fff',
+        fontSize: 12,
+        lineHeight: 18,
+      },
+      extraCssText: 'border-radius: 4px; box-shadow: 0 8px 20px rgb(15 23 42 / 16%);',
+    };
+  }
+
+  function axisLabelOption() {
+    return {
+      color: secondaryTextColor(),
+      fontSize: 11,
+      lineHeight: 16,
+      margin: 7,
+      hideOverlap: true,
+    };
+  }
+
   function baseGridOption(): EChartsOption {
     return {
-      color: chartColors,
+      color: chartColors.value,
       animationDuration: 420,
       animationEasing: 'cubicOut',
-      tooltip: {
-        trigger: 'axis',
-        confine: true,
-        backgroundColor: 'rgba(15, 23, 42, 0.9)',
-        borderWidth: 0,
-        textStyle: {
-          color: '#fff',
-          fontSize: 12,
-        },
-      },
+      tooltip: tooltipOption('axis'),
       grid: {
-        left: 10,
-        right: 12,
-        top: 18,
-        bottom: 6,
+        left: 2,
+        right: 4,
+        top: 8,
+        bottom: 0,
         containLabel: true,
       },
       xAxis: {
         type: 'category',
         data: categories.value,
         boundaryGap: true,
-        axisLine: { lineStyle: { color: '#dbe3ee' } },
+        axisLine: { lineStyle: { color: borderColor() } },
         axisTick: { show: false },
-        axisLabel: {
-          color: '#64748b',
-          fontSize: 11,
-          hideOverlap: true,
-        },
+        axisLabel: axisLabelOption(),
       },
       yAxis: {
         type: 'value',
-        axisLabel: {
-          color: '#64748b',
-          fontSize: 11,
-        },
+        axisLabel: axisLabelOption(),
         splitLine: {
           lineStyle: {
-            color: '#e8eef6',
+            color: borderColor(),
+            opacity: 0.58,
           },
         },
       },
@@ -129,16 +169,17 @@
         type: 'line',
         smooth: true,
         symbol: 'circle',
-        symbolSize: 7,
-        showSymbol: true,
+        symbolSize: 5,
+        showSymbol: false,
         lineStyle: {
-          width: 2.5,
+          width: 2.4,
         },
         areaStyle: {
-          opacity: 0.14,
+          opacity: 0.1,
         },
         emphasis: {
           focus: 'series',
+          scale: true,
         },
         data: series.data,
       })),
@@ -148,10 +189,15 @@
   function createBarOption(): EChartsOption {
     return {
       ...baseGridOption(),
+      grid: {
+        ...(baseGridOption().grid as Record<string, unknown>),
+        top: 6,
+      },
       series: normalizedSeries().map((series, index) => ({
         name: series.name || `系列 ${index + 1}`,
         type: 'bar',
-        barMaxWidth: 34,
+        barMaxWidth: 42,
+        barCategoryGap: '36%',
         itemStyle: {
           borderRadius: [4, 4, 0, 0],
         },
@@ -169,31 +215,32 @@
       value,
     }));
     return {
-      color: chartColors,
+      color: chartColors.value,
       animationDuration: 420,
       tooltip: {
-        trigger: 'item',
-        confine: true,
+        ...tooltipOption('item'),
         formatter: '{b}<br/>{c} ({d}%)',
       },
       legend: {
         type: 'scroll',
         orient: 'vertical',
-        right: 4,
+        right: 0,
         top: 'center',
         itemWidth: 8,
         itemHeight: 8,
+        itemGap: 10,
         textStyle: {
-          color: '#64748b',
-          fontSize: 11,
+          color: secondaryTextColor(),
+          fontSize: 12,
+          lineHeight: 16,
         },
       },
       series: [
         {
           name: props.component.title || '占比',
           type: 'pie',
-          radius: ['42%', '68%'],
-          center: ['38%', '52%'],
+          radius: ['48%', '76%'],
+          center: ['39%', '50%'],
           avoidLabelOverlap: true,
           label: {
             show: false,
@@ -203,7 +250,12 @@
               show: true,
               fontSize: 12,
               fontWeight: 600,
+              color: textColor(),
             },
+          },
+          itemStyle: {
+            borderColor: cssVar('--app-surface-bg', '#fff'),
+            borderWidth: 2,
           },
           data,
         },
@@ -225,11 +277,12 @@
         smooth: true,
         symbol: 'circle',
         symbolSize: 5,
+        showSymbol: false,
         lineStyle: {
-          width: 2,
+          width: 2.2,
         },
         areaStyle: {
-          opacity: 0.2,
+          opacity: 0.16,
         },
         emphasis: {
           focus: 'series',
@@ -242,46 +295,41 @@
   function createScatterOption(): EChartsOption {
     const pairs = normalizedScatterData();
     return {
-      color: chartColors,
+      color: chartColors.value,
       animationDuration: 420,
       tooltip: {
-        trigger: 'item',
-        confine: true,
+        ...tooltipOption('item'),
         formatter: (params) => {
           const value = Array.isArray(params.value) ? params.value : [];
           return `${params.seriesName}<br/>X：${value[0] ?? 0}<br/>Y：${value[1] ?? 0}`;
         },
       },
       grid: {
-        left: 12,
-        right: 16,
-        top: 18,
-        bottom: 8,
+        left: 2,
+        right: 6,
+        top: 8,
+        bottom: 0,
         containLabel: true,
       },
       xAxis: {
         type: 'value',
-        axisLine: { lineStyle: { color: '#dbe3ee' } },
+        axisLine: { lineStyle: { color: borderColor() } },
         axisTick: { show: false },
-        axisLabel: {
-          color: '#64748b',
-          fontSize: 11,
-        },
+        axisLabel: axisLabelOption(),
         splitLine: {
           lineStyle: {
-            color: '#e8eef6',
+            color: borderColor(),
+            opacity: 0.58,
           },
         },
       },
       yAxis: {
         type: 'value',
-        axisLabel: {
-          color: '#64748b',
-          fontSize: 11,
-        },
+        axisLabel: axisLabelOption(),
         splitLine: {
           lineStyle: {
-            color: '#e8eef6',
+            color: borderColor(),
+            opacity: 0.58,
           },
         },
       },
@@ -300,35 +348,32 @@
     const metrics = radarMetrics();
     const max = Math.max(...metrics.map((item) => item.value), 100, 1);
     return {
-      color: chartColors,
+      color: chartColors.value,
       animationDuration: 420,
-      tooltip: {
-        trigger: 'item',
-        confine: true,
-      },
+      tooltip: tooltipOption('item'),
       radar: {
-        center: ['50%', '52%'],
-        radius: '66%',
+        center: ['50%', '50%'],
+        radius: '72%',
         splitNumber: 4,
         indicator: metrics.map((item) => ({ name: item.label, max })),
         axisName: {
-          color: '#64748b',
+          color: secondaryTextColor(),
           fontSize: 11,
           fontWeight: 600,
         },
         axisLine: {
           lineStyle: {
-            color: '#dbe3ee',
+            color: borderColor(),
           },
         },
         splitLine: {
           lineStyle: {
-            color: '#dbe3ee',
+            color: borderColor(),
           },
         },
         splitArea: {
           areaStyle: {
-            color: ['rgba(37, 99, 235, 0.03)', 'rgba(37, 99, 235, 0.07)'],
+            color: ['rgba(45, 140, 240, 0.025)', 'rgba(45, 140, 240, 0.07)'],
           },
         },
       },
@@ -358,46 +403,49 @@
   function createGaugeOption(): EChartsOption {
     const value = gaugeValue();
     return {
-      color: chartColors,
+      color: chartColors.value,
       animationDuration: 420,
       series: [
         {
           type: 'gauge',
           min: 0,
           max: value.max,
-          radius: '86%',
-          center: ['50%', '58%'],
+          radius: '104%',
+          center: ['50%', '62%'],
           progress: {
             show: true,
-            width: 10,
+            width: 12,
             roundCap: true,
+            itemStyle: {
+              color: chartColors.value[0],
+            },
           },
           axisLine: {
             roundCap: true,
             lineStyle: {
-              width: 10,
-              color: [[1, '#e2e8f0']],
+              width: 12,
+              color: [[1, mutedSurfaceColor()]],
             },
           },
           pointer: {
             width: 4,
-            length: '56%',
+            length: '54%',
             itemStyle: {
-              color: '#0f172a',
+              color: textColor(),
             },
           },
           anchor: {
             show: true,
             size: 8,
             itemStyle: {
-              color: '#0f172a',
+              color: textColor(),
             },
           },
           splitLine: {
-            distance: -14,
+            distance: -16,
             length: 8,
             lineStyle: {
-              color: '#cbd5e1',
+              color: borderColor(),
               width: 1,
             },
           },
@@ -405,22 +453,22 @@
             show: false,
           },
           axisLabel: {
-            color: '#64748b',
+            color: secondaryTextColor(),
             fontSize: 10,
-            distance: 14,
+            distance: 13,
           },
           detail: {
             valueAnimation: true,
             formatter: `{value}${value.unit}`,
-            color: '#0f172a',
-            fontSize: 22,
+            color: textColor(),
+            fontSize: 26,
             fontWeight: 700,
-            offsetCenter: [0, '70%'],
+            offsetCenter: [0, '58%'],
           },
           title: {
-            color: '#64748b',
+            color: secondaryTextColor(),
             fontSize: 12,
-            offsetCenter: [0, '92%'],
+            offsetCenter: [0, '78%'],
           },
           data: [
             {
