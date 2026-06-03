@@ -410,11 +410,11 @@
           type: 'gauge',
           min: 0,
           max: value.max,
-          radius: '104%',
-          center: ['50%', '62%'],
+          radius: '94%',
+          center: ['50%', '60%'],
           progress: {
             show: true,
-            width: 12,
+            width: 10,
             roundCap: true,
             itemStyle: {
               color: chartColors.value[0],
@@ -423,13 +423,13 @@
           axisLine: {
             roundCap: true,
             lineStyle: {
-              width: 12,
+              width: 10,
               color: [[1, mutedSurfaceColor()]],
             },
           },
           pointer: {
             width: 4,
-            length: '54%',
+            length: '50%',
             itemStyle: {
               color: textColor(),
             },
@@ -442,8 +442,8 @@
             },
           },
           splitLine: {
-            distance: -16,
-            length: 8,
+            distance: -12,
+            length: 7,
             lineStyle: {
               color: borderColor(),
               width: 1,
@@ -454,8 +454,9 @@
           },
           axisLabel: {
             color: secondaryTextColor(),
-            fontSize: 10,
-            distance: 13,
+            fontSize: 11,
+            fontWeight: 500,
+            distance: -30,
           },
           detail: {
             valueAnimation: true,
@@ -463,12 +464,12 @@
             color: textColor(),
             fontSize: 26,
             fontWeight: 700,
-            offsetCenter: [0, '58%'],
+            offsetCenter: [0, '48%'],
           },
           title: {
             color: secondaryTextColor(),
             fontSize: 12,
-            offsetCenter: [0, '78%'],
+            offsetCenter: [0, '66%'],
           },
           data: [
             {
