@@ -229,6 +229,7 @@ def stream_ai_capability(capability_key: str, payload: dict[str, Any]) -> Any:
             app,
             run_payload,
             caller_type="ai_capability",
+            caller_key=capability["capability_key"],
             require_published=True,
         )
     prepared = ai_application_services.prepare_single_turn_run(app, run_payload, require_published=True)

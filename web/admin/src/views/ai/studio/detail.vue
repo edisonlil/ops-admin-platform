@@ -313,7 +313,7 @@
                   :key="`${traceNode.node_id}-${traceNode.node_type}`"
                   class="workflow-trace-item"
                   :class="`is-${workflowTraceStatus(traceNode)}`"
-                  :open="traceNode.status === 'failed'"
+                  :open="traceNode.status === 'failed' || traceNode.status === 'running'"
                 >
                   <summary>
                     <span class="workflow-trace-item__icon">{{ workflowTraceNodeIcon(traceNode.node_type) }}</span>
@@ -333,7 +333,7 @@
               </div>
               <div v-else-if="running || workflowRunStatusText !== '等待运行'" class="workflow-trace-placeholder">
                 <span class="rendering-spinner"></span>
-                <span>{{ workflowRunStatusText }}，节点日志会在后端返回 trace 后展开...</span>
+                <span>{{ workflowRunStatusText }}，节点开始执行后会实时展开...</span>
               </div>
               <div v-else-if="workflowRunErrorText" class="workflow-trace-error">
                 {{ workflowRunErrorText }}
@@ -1418,6 +1418,7 @@
   const runLogsLoading = ref(false);
   const selectedRunLogId = ref('');
   const streamThinkText = ref('');
+  const streamWorkflowTraceNodes = ref<WorkflowTraceNode[]>([]);
   const allowHtmlScripts = ref(false);
   const runningElapsedMs = ref(0);
   const lastRunElapsedMs = ref(0);
@@ -1613,7 +1614,7 @@ WHERE product_line = :product_line
     if (workflowContent) return workflowContent;
     return asSchemaRecord((runResult.value as unknown as SchemaRecord | null)?.workflow_trace);
   });
-  const workflowTraceNodes = computed<WorkflowTraceNode[]>(() => {
+  const persistedWorkflowTraceNodes = computed<WorkflowTraceNode[]>(() => {
     const workflow = asSchemaRecord(workflowTracePayload.value?.workflow);
     const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
     return nodes
@@ -1634,9 +1635,15 @@ WHERE product_line = :product_line
       })
       .filter(Boolean) as WorkflowTraceNode[];
   });
+  const workflowTraceNodes = computed<WorkflowTraceNode[]>(() =>
+    persistedWorkflowTraceNodes.value.length ? persistedWorkflowTraceNodes.value : streamWorkflowTraceNodes.value
+  );
   const workflowExecutedNodeIds = computed(() => new Set(workflowTraceNodes.value.map((node) => node.node_id)));
   const workflowFailedNodeIds = computed(
     () => new Set(workflowTraceNodes.value.filter((node) => node.status === 'failed').map((node) => node.node_id))
+  );
+  const workflowRunningNodeIds = computed(
+    () => new Set(workflowTraceNodes.value.filter((node) => node.status === 'running').map((node) => node.node_id))
   );
   const workflowExecutedEdgeIds = computed(() => {
     const edgeIds = new Set<string>();
@@ -2171,6 +2178,7 @@ WHERE product_line = :product_line
       }
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
+      streamWorkflowTraceNodes.value = [];
       if (isWorkflowMode.value) workflowRunStatusText.value = '请求后端执行';
       await runDraftStream({
         variables: buildRuntimeVariables(),
@@ -2892,6 +2900,7 @@ WHERE product_line = :product_line
       'is-selected': selected,
       'is-executed': workflowExecutedNodeIds.value.has(nodeId),
       'is-failed': workflowFailedNodeIds.value.has(nodeId),
+      'is-running': workflowRunningNodeIds.value.has(nodeId),
     };
   }
 
@@ -2914,11 +2923,49 @@ WHERE product_line = :product_line
     return traceNode.status === 'failed' ? 'failed' : traceNode.status === 'running' ? 'running' : 'success';
   }
 
+  function mergeStreamWorkflowTraceNode(payloadData: Record<string, any>) {
+    const node = normalizeWorkflowTraceNode(payloadData?.node);
+    if (!node) return;
+    const nodes = [...streamWorkflowTraceNodes.value];
+    const existingIndex = nodes.findIndex((item) => item.node_id === node.node_id);
+    if (existingIndex >= 0) {
+      nodes[existingIndex] = { ...nodes[existingIndex], ...node };
+    } else {
+      nodes.push(node);
+    }
+    streamWorkflowTraceNodes.value = nodes;
+    if (node.status === 'running') {
+      workflowRunStatusText.value = `正在执行：${workflowTraceNodeTitle(node)}`;
+    } else if (node.status === 'failed') {
+      workflowRunStatusText.value = `节点失败：${workflowTraceNodeTitle(node)}`;
+    } else {
+      workflowRunStatusText.value = `已完成：${workflowTraceNodeTitle(node)}`;
+    }
+  }
+
+  function normalizeWorkflowTraceNode(value: unknown): WorkflowTraceNode | null {
+    const record = asSchemaRecord(value);
+    if (!record) return null;
+    const nodeId = String(record.node_id || '');
+    if (!nodeId) return null;
+    const output = asSchemaRecord(record.output);
+    return {
+      node_id: nodeId,
+      node_type: String(record.node_type || ''),
+      status: String(record.status || 'running'),
+      branch: typeof record.branch === 'string' ? record.branch : undefined,
+      output: output || {},
+      error: typeof record.error === 'string' ? record.error : undefined,
+      elapsed_ms: typeof record.elapsed_ms === 'number' ? record.elapsed_ms : Number(record.elapsed_ms || 0),
+    };
+  }
+
   function resetWorkflowDebugRun() {
     runResult.value = null;
     workflowRunErrorText.value = '';
     workflowRunStatusText.value = '等待运行';
     streamThinkText.value = '';
+    streamWorkflowTraceNodes.value = [];
     lastRunElapsedMs.value = 0;
     runningElapsedMs.value = 0;
   }
@@ -3132,11 +3179,16 @@ WHERE product_line = :product_line
           continue;
         }
         if (parsed.type === 'trace') {
+          streamWorkflowTraceNodes.value = [];
           runResult.value = {
             ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
             trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
             trace: payloadData.trace,
           };
+          continue;
+        }
+        if (parsed.type === 'workflow_node') {
+          mergeStreamWorkflowTraceNode(payloadData);
           continue;
         }
         const delta = payloadData?.choices?.[0]?.delta || {};
@@ -4337,6 +4389,13 @@ WHERE product_line = :product_line
     box-shadow:
       0 0 0 2px color-mix(in srgb, var(--app-success-color, #18a058) 14%, transparent),
       0 18px 36px color-mix(in srgb, var(--app-success-color, #18a058) 12%, transparent);
+  }
+
+  .workflow-node-card.is-running {
+    border-color: color-mix(in srgb, var(--app-primary-color) 72%, var(--app-border-color, #d9e1ec));
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--app-primary-color) 18%, transparent),
+      0 18px 36px color-mix(in srgb, var(--app-primary-color) 12%, transparent);
   }
 
   .workflow-node-card.is-failed {

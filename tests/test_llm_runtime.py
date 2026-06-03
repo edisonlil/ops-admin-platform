@@ -972,6 +972,61 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_draft_stream_emits_node_events_before_trace(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("stream-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "llm_1",
+                                    "type": "llm",
+                                    "data": {
+                                        "model": "dashscope.qwen-plus",
+                                        "user_prompt_template": "Summarize: {{question}}",
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {}},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "llm_1"},
+                                {"source": "llm_1", "target": "end"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.chat_completions",
+                        return_value={"choices": [{"message": {"content": "workflow answer"}}], "usage": {"total_tokens": 5}},
+                    ):
+                        events = list(
+                            ai_applications.stream_draft_application(
+                                "stream-workflow",
+                                {"variables": {"question": "node logs"}},
+                            )
+                        )
+
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            joined = "".join(events)
+            first_node_index = next(index for index, event in enumerate(events) if event.startswith("event: workflow_node\n"))
+            trace_index = next(index for index, event in enumerate(events) if event.startswith("event: trace\n"))
+            self.assertLess(first_node_index, trace_index)
+            self.assertIn('"event": "workflow.node.started"', joined)
+            self.assertIn('"event": "workflow.node.completed"', joined)
+            self.assertIn('"node_id": "llm_1"', joined)
+            self.assertEqual(events[-1], "data: [DONE]\n\n")
+            self.assertEqual(traces[0]["answer"], "workflow answer")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_run_logs_are_scoped_to_application(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

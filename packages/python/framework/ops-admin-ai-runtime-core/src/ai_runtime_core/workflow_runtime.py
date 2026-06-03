@@ -5,7 +5,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_runtime_core.prompt_runtime import render_template
@@ -77,6 +77,31 @@ def execute_workflow(
     sql_executor: SQLExecutor | None = None,
     max_steps: int = 50,
 ) -> WorkflowRunResult:
+    result: WorkflowRunResult | None = None
+    for event in iter_workflow_events(
+        definition,
+        variables,
+        llm_executor=llm_executor,
+        sql_executor=sql_executor,
+        max_steps=max_steps,
+    ):
+        if event.get("event") == "workflow.completed":
+            candidate = event.get("result")
+            if isinstance(candidate, WorkflowRunResult):
+                result = candidate
+    if result is None:
+        raise WorkflowRuntimeError("workflow did not complete")
+    return result
+
+
+def iter_workflow_events(
+    definition: WorkflowDefinition,
+    variables: dict[str, Any],
+    *,
+    llm_executor: LLMExecutor,
+    sql_executor: SQLExecutor | None = None,
+    max_steps: int = 50,
+) -> Iterator[dict[str, Any]]:
     normalized = normalize_workflow_definition(definition)
     nodes = {node["id"]: node for node in normalized["nodes"]}
     outgoing = outgoing_edges(normalized["edges"])
@@ -99,8 +124,9 @@ def execute_workflow(
         trace_node: dict[str, Any] = {
             "node_id": current_id,
             "node_type": node_type,
-            "status": "success",
+            "status": "running",
         }
+        yield {"event": "workflow.node.started", "node": snapshot_value(trace_node)}
         try:
             if node_type == "start":
                 output = {"variables": snapshot_value(context["variables"])}
@@ -118,17 +144,21 @@ def execute_workflow(
             elif node_type == "end":
                 output = execute_end_node(node, context, answer)
                 answer = str(output.get("answer") or answer)
+                trace_node["status"] = "success"
                 trace_node["output"] = snapshot_value(output)
                 trace_node["elapsed_ms"] = elapsed_ms(started_at)
                 trace_nodes.append(trace_node)
+                yield {"event": "workflow.node.completed", "node": snapshot_value(trace_node)}
                 break
             else:
                 raise WorkflowRuntimeError(f"unsupported workflow node type: {node_type}")
             context["nodes"][current_id] = output
             context["last"] = output
+            trace_node["status"] = "success"
             trace_node["output"] = snapshot_value(output)
             trace_node["elapsed_ms"] = elapsed_ms(started_at)
             trace_nodes.append(trace_node)
+            yield {"event": "workflow.node.completed", "node": snapshot_value(trace_node)}
             next_id = next_node_id(current_id, outgoing, trace_node.get("branch"))
             if not next_id:
                 break
@@ -138,21 +168,25 @@ def execute_workflow(
             trace_node["error"] = str(exc)
             trace_node["elapsed_ms"] = elapsed_ms(started_at)
             trace_nodes.append(trace_node)
+            yield {"event": "workflow.node.failed", "node": snapshot_value(trace_node)}
             raise
     else:
         raise WorkflowRuntimeError("workflow exceeded max steps")
 
-    return WorkflowRunResult(
-        answer=answer,
-        context=context,
-        usage=usage,
-        trace={
-            "workflow": {
-                "nodes": trace_nodes,
-                "final_node_id": current_id,
-            }
-        },
-    )
+    yield {
+        "event": "workflow.completed",
+        "result": WorkflowRunResult(
+            answer=answer,
+            context=context,
+            usage=usage,
+            trace={
+                "workflow": {
+                    "nodes": trace_nodes,
+                    "final_node_id": current_id,
+                }
+            },
+        ),
+    }
 
 
 def snapshot_value(value: Any) -> Any:

@@ -9,6 +9,7 @@ from ai_runtime_core.workflow_runtime import WorkflowLLMResult
 from ai_runtime_core.workflow_runtime import WorkflowRunResult
 from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import execute_workflow
+from ai_runtime_core.workflow_runtime import iter_workflow_events
 
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "WorkflowRunResult",
     "WorkflowRuntimeError",
     "execute_workflow",
+    "iter_workflow_events",
 ]

@@ -20,6 +20,7 @@ from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
+from ai_runtime_core.workflow_runtime import iter_workflow_events
 from ai_runtime_core.workflow_runtime import normalize_workflow_definition
 from llm_runtime.application import gateway
 from system.application.database import connect
@@ -918,31 +919,134 @@ def stream_workflow_application(
     *,
     caller_type: str,
     require_published: bool,
+    caller_key: str | None = None,
     current_user: dict[str, Any] | None = None,
 ) -> Any:
     def events() -> Any:
+        trace_id = f"trace_{uuid.uuid4().hex}"
+        started_at = time.perf_counter()
+        variables: dict[str, Any] = {}
+        rendered_messages: list[dict[str, Any]] = []
+        rendered_prompt = ""
+        model = ""
+        answer = ""
+        usage: dict[str, Any] = {}
+        trace_nodes: list[dict[str, Any]] = []
+
+        def trace_event(trace: dict[str, Any]) -> str:
+            return workflow_stream_event(
+                "trace",
+                {"trace_id": trace_id, "trace": trace, "object": "ai_application.run.trace"},
+            )
+
+        def node_event(event_name: str, node: dict[str, Any]) -> str:
+            return workflow_stream_event(
+                "workflow_node",
+                {
+                    "trace_id": trace_id,
+                    "event": event_name,
+                    "node": node,
+                    "object": "ai_application.workflow.node",
+                },
+            )
+
         try:
-            result = execute_workflow_application(
-                app,
-                payload,
+            if require_published and app.get("status") != "published":
+                raise HTTPException(status_code=409, detail="AI application is not published")
+            variables = extract_run_variables(payload)
+            definition = workflow_definition_from_app(app)
+            validate_workflow_variables(definition, variables)
+            model = resolve_workflow_default_model(app, payload, definition)
+            yield workflow_stream_event(
+                "meta",
+                {"trace_id": trace_id, "model": model, "object": "ai_application.workflow.start"},
+            )
+
+            def llm_executor(request: WorkflowLLMRequest) -> WorkflowLLMResult:
+                nonlocal rendered_messages, rendered_prompt, model
+                rendered_messages.append(
+                    {
+                        "role": "workflow_node",
+                        "node_id": request.node_id,
+                        "model": request.model,
+                        "messages": request.messages,
+                    }
+                )
+                rendered_prompt = gateway.prompt_from_messages(
+                    prompt=None,
+                    messages=gateway.messages_as_text_messages(request.messages),
+                )
+                model = request.model
+                response = gateway.chat_completions(
+                    model=request.model,
+                    messages=request.messages,
+                    temperature=request.temperature,
+                    response_format=request.response_format,
+                    extra_body={**resolve_extra_body(app, payload), **request.extra_body},
+                    enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+                    correlation_id=trace_id,
+                )
+                response_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+                return WorkflowLLMResult(answer=extract_answer(response), usage=response_usage, model=str(response.get("model") or request.model))
+
+            def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
+                return execute_workflow_sql_query(app, request, current_user=current_user)
+
+            workflow_result = None
+            for workflow_event in iter_workflow_events(definition, variables, llm_executor=llm_executor, sql_executor=sql_executor):
+                event_name = str(workflow_event.get("event") or "")
+                node = workflow_event.get("node")
+                if isinstance(node, dict):
+                    upsert_latest_workflow_trace_node(trace_nodes, node)
+                    yield node_event(event_name, node)
+                    continue
+                if event_name == "workflow.completed":
+                    workflow_result = workflow_event.get("result")
+            if workflow_result is None:
+                raise WorkflowRuntimeError("workflow did not complete")
+            answer = workflow_result.answer
+            usage = workflow_result.usage
+            elapsed = int((time.perf_counter() - started_at) * 1000)
+            trace = record_trace(
+                trace_id=trace_id,
+                app=app,
                 caller_type=caller_type,
-                require_published=require_published,
-                current_user=current_user,
+                caller_key=caller_key,
+                model=model,
+                status="success",
+                variables=variables,
+                messages=workflow_trace_messages(rendered_messages, workflow_result.trace),
+                rendered_prompt=rendered_prompt,
+                answer=answer,
+                usage=usage,
+                elapsed_ms=elapsed,
             )
-            trace_id = str(result.get("trace_id") or "")
-            yield gateway.sse_data({"trace_id": trace_id, "object": "ai_application.workflow.start"}).replace(
-                "data: ", "event: meta\ndata: ", 1
-            )
-            answer = str(result.get("answer") or "")
             if answer:
-                yield gateway.sse_data({"choices": [{"delta": {"content": answer}}]})
-            yield gateway.sse_data({"trace_id": trace_id, "trace": result.get("trace"), "object": "ai_application.run.trace"}).replace(
-                "data: ", "event: trace\ndata: ", 1
-            )
+                yield workflow_stream_event(None, {"choices": [{"delta": {"content": answer}}]})
+            yield trace_event(trace)
             yield "data: [DONE]\n\n"
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
             yield gateway.sse_error(str(detail.get("message") or exc.detail))
+            yield "data: [DONE]\n\n"
+        except (WorkflowRuntimeError, gateway.LLMRoutingError, RuntimeError) as exc:
+            trace = record_trace(
+                trace_id=trace_id,
+                app=app,
+                caller_type=caller_type,
+                caller_key=caller_key,
+                model=model,
+                status="failed",
+                variables=variables,
+                messages=workflow_trace_messages(rendered_messages, {"workflow": {"nodes": trace_nodes}} if trace_nodes else {}),
+                rendered_prompt=rendered_prompt,
+                answer=answer,
+                usage=usage,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                error=exc,
+            )
+            yield gateway.sse_error(str(exc))
+            yield trace_event(trace)
             yield "data: [DONE]\n\n"
 
     return events()
@@ -1450,6 +1554,23 @@ def workflow_trace_messages(rendered_messages: list[dict[str, Any]], workflow_tr
     if workflow_trace:
         result.append({"role": "workflow_trace", "content": workflow_trace})
     return result
+
+
+def upsert_latest_workflow_trace_node(trace_nodes: list[dict[str, Any]], node: dict[str, Any]) -> None:
+    node_id = str(node.get("node_id") or "")
+    if not node_id:
+        return
+    for index, existing in enumerate(trace_nodes):
+        if str(existing.get("node_id") or "") == node_id:
+            trace_nodes[index] = dict(node)
+            return
+    trace_nodes.append(dict(node))
+
+
+def workflow_stream_event(event_name: str | None, payload: dict[str, Any]) -> str:
+    event_prefix = f"event: {event_name}\n" if event_name else ""
+    data = gateway.json.dumps(payload, ensure_ascii=False, default=str)
+    return f"{event_prefix}data: {data}\n\n"
 
 
 def validate_variables(app: dict[str, Any], variables: dict[str, Any]) -> None:

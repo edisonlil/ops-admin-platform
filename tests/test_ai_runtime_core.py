@@ -8,6 +8,7 @@ from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
 from ai_runtime_core.workflow_runtime import execute_workflow
+from ai_runtime_core.workflow_runtime import iter_workflow_events
 
 
 class AIRuntimeCoreTests(unittest.TestCase):
@@ -71,6 +72,40 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(result.answer, "退回")
         condition_trace = result.trace["workflow"]["nodes"][1]
         self.assertEqual(condition_trace["branch"], "false")
+
+    def test_workflow_events_emit_node_progress_before_completion(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "llm_1",
+                    "type": "llm",
+                    "data": {
+                        "model": "dashscope.qwen-plus",
+                        "user_prompt_template": "{{content}}",
+                    },
+                },
+                {"id": "end", "type": "end", "data": {}},
+            ],
+            "edges": [
+                {"source": "start", "target": "llm_1"},
+                {"source": "llm_1", "target": "end"},
+            ],
+        }
+
+        events = list(
+            iter_workflow_events(
+                definition,
+                {"content": "hello"},
+                llm_executor=lambda request: WorkflowLLMResult(answer="ok", model=request.model),
+            )
+        )
+
+        self.assertEqual(events[0]["event"], "workflow.node.started")
+        self.assertEqual(events[0]["node"]["node_id"], "start")
+        self.assertIn("workflow.node.completed", [item["event"] for item in events[:-1]])
+        self.assertEqual(events[-1]["event"], "workflow.completed")
+        self.assertEqual(events[-1]["result"].answer, "ok")
 
     def test_workflow_sql_node_writes_custom_output_variable(self) -> None:
         definition = {
