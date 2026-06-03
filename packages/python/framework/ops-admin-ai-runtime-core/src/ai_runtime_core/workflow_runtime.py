@@ -7,8 +7,12 @@ import json
 import re
 import time
 import urllib.parse
+import zipfile
 from dataclasses import dataclass, field
+from datetime import date, datetime, time as datetime_time
+from io import BytesIO
 from typing import Any, Callable, Iterator
+from xml.etree import ElementTree
 
 from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_runtime_core.prompt_runtime import render_template
@@ -23,7 +27,12 @@ MAX_SCRIPT_AST_NODES = 1000
 MAX_SCRIPT_RANGE_SIZE = 10000
 DEFAULT_FILE_EXTRACT_MAX_CHARS = 50000
 MAX_FILE_EXTRACT_CHARS = 500000
-MAX_FILE_EXTRACT_DATA_URL_CHARS = 2_000_000
+MAX_FILE_EXTRACT_DATA_URL_CHARS = 16_000_000
+DOCX_WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+PDF_FILE_MIME_TYPES = {"application/pdf"}
+DOCX_FILE_MIME_TYPES = {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+XLSX_FILE_MIME_TYPES = {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+TEXT_FILE_ENCODINGS = ("utf-8-sig", "utf-16", "gb18030", "big5", "latin-1")
 TEXT_FILE_MIME_TYPES = {
     "application/csv",
     "application/json",
@@ -708,32 +717,165 @@ def file_extract_item_text(value: Any) -> str:
         return str(value)
     if not isinstance(value, dict):
         return ""
-    for key in ("text", "content"):
-        if value.get(key) not in (None, ""):
-            return str(value.get(key) or "")
     data_url = str(value.get("data_url") or "").strip()
     if data_url:
-        return text_from_data_url(
+        extracted = extracted_text_from_data_url(
             data_url,
             name=str(value.get("name") or value.get("filename") or ""),
             mime_type=str(value.get("mime_type") or value.get("content_type") or ""),
         )
+        if extracted:
+            return extracted
+    for key in ("text", "content"):
+        if value.get(key) not in (None, ""):
+            return str(value.get(key) or "")
     return ""
 
 
-def text_from_data_url(data_url: str, *, name: str, mime_type: str) -> str:
+def extracted_text_from_data_url(data_url: str, *, name: str, mime_type: str) -> str:
+    decoded = decode_file_data_url(data_url)
+    if decoded is None:
+        return ""
+    data_mime_type, raw_bytes = decoded
+    effective_mime_type = data_mime_type or mime_type
+    if is_pdf_file(name=name, mime_type=effective_mime_type):
+        return extract_pdf_text(raw_bytes)
+    if is_docx_file(name=name, mime_type=effective_mime_type):
+        return extract_docx_text(raw_bytes)
+    if is_xlsx_file(name=name, mime_type=effective_mime_type):
+        return extract_xlsx_text(raw_bytes)
+    if is_text_like_file(name=name, mime_type=effective_mime_type):
+        return decode_text_bytes(raw_bytes)
+    return ""
+
+
+def decode_file_data_url(data_url: str) -> tuple[str, bytes] | None:
     if len(data_url) > MAX_FILE_EXTRACT_DATA_URL_CHARS or not data_url.startswith("data:") or "," not in data_url:
-        return ""
+        return None
     header, payload = data_url.split(",", 1)
-    header_parts = header[5:].split(";")
-    data_mime_type = (header_parts[0] or mime_type or "").strip().lower()
-    if not is_text_like_file(name=name, mime_type=data_mime_type):
-        return ""
+    header_parts = [item.strip().lower() for item in header[5:].split(";")]
+    data_mime_type = header_parts[0] if header_parts else ""
     try:
         raw_bytes = base64.b64decode(payload, validate=True) if "base64" in header_parts else urllib.parse.unquote_to_bytes(payload)
     except (ValueError, TypeError):
+        return None
+    return data_mime_type, raw_bytes
+
+
+def extract_pdf_text(content: bytes) -> str:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        try:
+            from PyPDF2 import PdfReader
+        except ImportError as fallback_exc:
+            raise WorkflowRuntimeError("PDF 解析需要安装 pypdf") from fallback_exc
+    try:
+        reader = PdfReader(BytesIO(content))
+        return "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+    except Exception as exc:
+        raise WorkflowRuntimeError(f"PDF 文件解析失败: {exc}") from exc
+
+
+def extract_docx_text(content: bytes) -> str:
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except KeyError as exc:
+        raise WorkflowRuntimeError("DOCX 文件缺少 word/document.xml") from exc
+    except zipfile.BadZipFile as exc:
+        raise WorkflowRuntimeError("DOCX 文件格式无效") from exc
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        raise WorkflowRuntimeError("DOCX 文件内容解析失败") from exc
+    paragraphs: list[str] = []
+    for paragraph in root.iter(f"{DOCX_WORD_NAMESPACE}p"):
+        text_parts: list[str] = []
+        for element in paragraph.iter():
+            if element.tag == f"{DOCX_WORD_NAMESPACE}t" and element.text:
+                text_parts.append(element.text)
+            elif element.tag == f"{DOCX_WORD_NAMESPACE}tab":
+                text_parts.append("\t")
+            elif element.tag == f"{DOCX_WORD_NAMESPACE}br":
+                text_parts.append("\n")
+        paragraph_text = "".join(text_parts).strip()
+        if paragraph_text:
+            paragraphs.append(paragraph_text)
+    return "\n".join(paragraphs)
+
+
+def extract_xlsx_text(content: bytes) -> str:
+    try:
+        import openpyxl
+    except ImportError as exc:
+        raise WorkflowRuntimeError("XLSX 解析需要安装 openpyxl") from exc
+    try:
+        workbook = openpyxl.load_workbook(BytesIO(content), data_only=True, read_only=True)
+    except Exception as exc:
+        raise WorkflowRuntimeError(f"XLSX 文件解析失败: {exc}") from exc
+    try:
+        sheet_texts: list[str] = []
+        for worksheet in workbook.worksheets:
+            rows: list[str] = []
+            for row in worksheet.iter_rows(values_only=True):
+                cells = [xlsx_cell_text(cell) for cell in row]
+                while cells and not cells[-1]:
+                    cells.pop()
+                if any(cells):
+                    rows.append("\t".join(cells))
+            if rows:
+                sheet_texts.append(f"## {worksheet.title}\n" + "\n".join(rows))
+        return "\n\n".join(sheet_texts)
+    finally:
+        workbook.close()
+
+
+def xlsx_cell_text(value: Any) -> str:
+    if value is None:
         return ""
-    return raw_bytes.decode("utf-8", errors="replace")
+    if isinstance(value, (datetime, date, datetime_time)):
+        return value.isoformat()
+    return str(value)
+
+
+def decode_text_bytes(content: bytes) -> str:
+    if not content:
+        return ""
+    candidates: list[tuple[int, str]] = []
+    for encoding in TEXT_FILE_ENCODINGS:
+        try:
+            text = content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        candidates.append((text_mojibake_score(text), text))
+    if not candidates:
+        return content.decode("utf-8", errors="replace")
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def text_mojibake_score(text: str) -> int:
+    if not text:
+        return 0
+    replacement_count = text.count("\ufffd")
+    control_count = sum(1 for char in text if ord(char) < 32 and char not in "\t\r\n")
+    mojibake_markers = ("锟", "绱", "Â", "Ã", "�")
+    marker_count = sum(text.count(marker) for marker in mojibake_markers)
+    cjk_count = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+    ascii_count = sum(1 for char in text if "\x20" <= char <= "\x7e")
+    return replacement_count * 100 + control_count * 20 + marker_count * 8 - cjk_count - ascii_count // 10
+
+
+def is_pdf_file(*, name: str, mime_type: str) -> bool:
+    return mime_type.strip().lower() in PDF_FILE_MIME_TYPES or name.strip().lower().endswith(".pdf")
+
+
+def is_docx_file(*, name: str, mime_type: str) -> bool:
+    return mime_type.strip().lower() in DOCX_FILE_MIME_TYPES or name.strip().lower().endswith(".docx")
+
+
+def is_xlsx_file(*, name: str, mime_type: str) -> bool:
+    return mime_type.strip().lower() in XLSX_FILE_MIME_TYPES or name.strip().lower().endswith(".xlsx")
 
 
 def is_text_like_file(*, name: str, mime_type: str) -> bool:

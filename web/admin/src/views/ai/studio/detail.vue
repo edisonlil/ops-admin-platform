@@ -4252,12 +4252,44 @@ result = [
     const textLike =
       file.type.startsWith('text/') || /\.(txt|md|json|csv|xml|yaml|yml|log)$/i.test(file.name || '');
     if (!textLike || file.size > 512 * 1024) return Promise.resolve('');
-    return new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || '').slice(0, 20000));
-      reader.onerror = () => resolve('');
-      reader.readAsText(file);
-    });
+    return file
+      .arrayBuffer()
+      .then((buffer) => decodeTextPreviewBuffer(buffer).slice(0, 20000))
+      .catch(() => '');
+  }
+
+  function decodeTextPreviewBuffer(buffer: ArrayBuffer) {
+    const bytes = new Uint8Array(buffer);
+    const encodings = textPreviewCandidateEncodings(bytes);
+    const candidates = encodings
+      .map((encoding) => {
+        try {
+          const text = new TextDecoder(encoding).decode(bytes);
+          return { text, score: textMojibakeScore(text) };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as Array<{ text: string; score: number }>;
+    return candidates.sort((left, right) => left.score - right.score)[0]?.text || '';
+  }
+
+  function textPreviewCandidateEncodings(bytes: Uint8Array) {
+    if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return ['utf-16le'];
+    if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return ['utf-16be'];
+    return ['utf-8', 'gb18030', 'big5', 'windows-1252'];
+  }
+
+  function textMojibakeScore(text: string) {
+    const replacementCount = (text.match(/\uFFFD/g) || []).length;
+    const controlCount = Array.from(text).filter((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 && !['\t', '\r', '\n'].includes(char);
+    }).length;
+    const markerCount = ['锟', '绱', 'Â', 'Ã', '�'].reduce((count, marker) => count + text.split(marker).length - 1, 0);
+    const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const asciiCount = (text.match(/[\x20-\x7e]/g) || []).length;
+    return replacementCount * 100 + controlCount * 20 + markerCount * 8 - cjkCount - Math.floor(asciiCount / 10);
   }
 
   function readFileAsDataUrl(file: File) {
@@ -4641,6 +4673,15 @@ result = [
   }
 
   .workflow-node-card {
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-bg: color-mix(in srgb, var(--app-surface-bg) 94%, var(--workflow-node-soft-bg));
+    --workflow-node-border-color: color-mix(in srgb, var(--workflow-node-accent-color) 14%, var(--app-border-color, #d9e1ec));
+    --workflow-node-body-color: var(--app-text-color-3);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--workflow-node-accent-color) 82%, var(--app-text-color) 18%);
+    --workflow-node-inline-meta-color: color-mix(in srgb, var(--workflow-node-accent-color) 70%, var(--app-text-color-2));
+    --workflow-node-meta-bg: color-mix(in srgb, var(--workflow-node-accent-color) 7%, var(--app-surface-muted-bg, #f5f7fb));
+    --workflow-node-meta-border-color: color-mix(in srgb, var(--workflow-node-accent-color) 12%, transparent);
+    --workflow-node-soft-bg: color-mix(in srgb, var(--workflow-node-accent-color) 9%, var(--app-surface-bg));
     position: relative;
     display: grid;
     gap: 10px;
@@ -4648,17 +4689,17 @@ result = [
     min-height: 120px;
     padding: 14px;
     color: var(--app-text-color-1);
-    background: color-mix(in srgb, var(--app-surface-bg) 94%, var(--app-primary-soft-bg, #eef4ff));
-    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 86%, transparent);
+    background: var(--workflow-node-bg);
+    border: 1px solid var(--workflow-node-border-color);
     border-radius: 14px;
     box-shadow: 0 14px 30px color-mix(in srgb, #0f172a 10%, transparent);
   }
 
   .workflow-node-card.is-selected {
-    border-color: var(--app-primary-color);
+    border-color: var(--workflow-node-accent-color);
     box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--app-primary-color) 18%, transparent),
-      0 18px 36px color-mix(in srgb, var(--app-primary-color) 16%, transparent);
+      0 0 0 2px color-mix(in srgb, var(--workflow-node-accent-color) 18%, transparent),
+      0 18px 36px color-mix(in srgb, var(--workflow-node-accent-color) 16%, transparent);
   }
 
   .workflow-node-card.is-executed {
@@ -4682,13 +4723,34 @@ result = [
       0 18px 36px color-mix(in srgb, var(--app-error-color, #d03050) 12%, transparent);
   }
 
+  .workflow-node-card--start {
+    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+  }
+
+  .workflow-node-card--llm {
+    --workflow-node-accent-color: var(--app-primary-color);
+  }
+
+  .workflow-node-card--sql {
+    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+  }
+
+  .workflow-node-card--file-extract {
+    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+  }
+
+  .workflow-node-card--script {
+    --workflow-node-accent-color: var(--app-success-color, #18a058);
+  }
+
   .workflow-node-card--condition {
+    --workflow-node-accent-color: var(--app-warning-color, #f0a020);
     width: 286px;
   }
 
-  .workflow-node-card--script .workflow-node-card__icon,
-  .workflow-node-card--file-extract .workflow-node-card__icon {
-    background: color-mix(in srgb, var(--app-success-color, #18a058) 72%, var(--app-primary-color));
+  .workflow-node-card--end {
+    --workflow-node-accent-color: var(--app-text-color-2);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-text-color-1) 76%, var(--app-primary-color) 24%);
   }
 
   .workflow-node-card__head {
@@ -4717,7 +4779,7 @@ result = [
     color: #fff;
     font-size: 12px;
     font-weight: 800;
-    background: color-mix(in srgb, var(--app-primary-color) 82%, #10b981);
+    background: var(--workflow-node-icon-bg);
     border-radius: 10px;
   }
 
@@ -4731,7 +4793,8 @@ result = [
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
-    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 78%, var(--app-surface-bg));
+    background: var(--workflow-node-meta-bg);
+    box-shadow: inset 0 0 0 1px var(--workflow-node-meta-border-color);
     border-radius: 8px;
   }
 
@@ -4750,7 +4813,7 @@ result = [
   .workflow-node-branch span {
     display: -webkit-box;
     overflow: hidden;
-    color: var(--app-text-color-3);
+    color: var(--workflow-node-body-color);
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
@@ -4759,7 +4822,7 @@ result = [
     display: -webkit-box;
     margin: 0;
     overflow: hidden;
-    color: var(--app-text-color-3);
+    color: var(--workflow-node-body-color);
     font-size: 12px;
     font-weight: 500;
     line-height: 1.45;
@@ -4781,8 +4844,10 @@ result = [
   .workflow-node-card--file-extract .workflow-node-card__meta,
   .workflow-node-card--script .workflow-node-card__meta {
     padding: 0;
+    color: var(--workflow-node-inline-meta-color);
     background: transparent;
     border: 0;
+    box-shadow: none;
   }
 
   .workflow-node-card__actions {
@@ -4829,8 +4894,8 @@ result = [
 
   .workflow-node-card__actions button:hover,
   .workflow-node-card__actions button:focus-visible {
-    color: var(--app-primary-color);
-    background: var(--app-primary-soft-bg, #eef4ff);
+    color: var(--workflow-node-accent-color);
+    background: var(--workflow-node-soft-bg);
     outline: none;
   }
 
@@ -4877,9 +4942,9 @@ result = [
   :deep(.workflow-node-card .vue-flow__handle) {
     width: 10px;
     height: 10px;
-    background: var(--app-primary-color);
+    background: var(--workflow-node-accent-color);
     border: 2px solid var(--app-surface-bg);
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--app-primary-color) 28%, transparent);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--workflow-node-accent-color) 28%, transparent);
   }
 
   :deep(.workflow-node-card__branch-handle--true) {

@@ -345,6 +345,49 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(result.context["variables"]["extracted"]["file_count"], 2)
         self.assertTrue(result.context["variables"]["extracted"]["files"][1]["truncated"])
 
+    def test_workflow_file_extract_node_decodes_gb18030_text_data_url(self) -> None:
+        raw_content = "北京客户清单,WPS365-文档平台\n张三,合同审批"
+        encoded_content = base64.b64encode(raw_content.encode("gb18030")).decode("ascii")
+        definition = file_extract_definition()
+
+        result = execute_workflow(
+            definition,
+            {
+                "document": {
+                    "type": "file",
+                    "name": "客户清单.csv",
+                    "mime_type": "text/csv",
+                    "data_url": f"data:text/csv;base64,{encoded_content}",
+                }
+            },
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+        )
+
+        self.assertEqual(result.context["variables"]["file_content"]["text"], raw_content)
+        self.assertNotIn("\ufffd", result.context["variables"]["file_content"]["text"])
+
+    def test_workflow_file_extract_node_prefers_decoded_data_url_over_broken_text_preview(self) -> None:
+        raw_content = "北京客户清单,WPS365-文档平台\n张三,合同审批"
+        encoded_content = base64.b64encode(raw_content.encode("gb18030")).decode("ascii")
+        broken_preview = raw_content.encode("gb18030").decode("utf-8", errors="replace")
+        definition = file_extract_definition()
+
+        result = execute_workflow(
+            definition,
+            {
+                "document": {
+                    "type": "file",
+                    "name": "客户清单.csv",
+                    "mime_type": "text/csv",
+                    "text": broken_preview,
+                    "data_url": f"data:text/csv;base64,{encoded_content}",
+                }
+            },
+            llm_executor=lambda request: WorkflowLLMResult(answer=""),
+        )
+
+        self.assertEqual(result.context["variables"]["file_content"]["text"], raw_content)
+
     def test_workflow_file_extract_node_accepts_external_extractor(self) -> None:
         definition = {
             "nodes": [
