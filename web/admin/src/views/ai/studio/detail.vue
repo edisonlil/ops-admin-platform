@@ -4727,7 +4727,8 @@ result = [
   }
 
   .workflow-node-card--start {
-    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 88%, var(--app-text-color) 12%);
   }
 
   .workflow-node-card--llm {
@@ -4735,25 +4736,29 @@ result = [
   }
 
   .workflow-node-card--sql {
-    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 86%, var(--app-text-color) 14%);
   }
 
   .workflow-node-card--file-extract {
-    --workflow-node-accent-color: var(--app-info-color, var(--app-primary-color));
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 84%, var(--app-text-color) 16%);
   }
 
   .workflow-node-card--script {
-    --workflow-node-accent-color: var(--app-success-color, #18a058);
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 82%, var(--app-text-color) 18%);
   }
 
   .workflow-node-card--condition {
-    --workflow-node-accent-color: var(--app-warning-color, #f0a020);
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 78%, var(--app-text-color) 22%);
     width: 286px;
   }
 
   .workflow-node-card--end {
-    --workflow-node-accent-color: var(--app-text-color-2);
-    --workflow-node-icon-bg: color-mix(in srgb, var(--app-text-color-1) 76%, var(--app-primary-color) 24%);
+    --workflow-node-accent-color: var(--app-primary-color);
+    --workflow-node-icon-bg: color-mix(in srgb, var(--app-primary-color) 70%, var(--app-text-color-1) 30%);
   }
 
   .workflow-node-card__head {
