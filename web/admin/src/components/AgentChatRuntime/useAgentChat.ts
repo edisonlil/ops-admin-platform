@@ -112,7 +112,10 @@ export function useAgentChat(appKey: () => string) {
     return createConversation('Agent 调试会话');
   }
 
-  async function send(content: string, options: Pick<AiAgentMessagePayload, 'model' | 'variables' | 'temperature'> = {}) {
+  async function send(
+    content: string,
+    options: Pick<AiAgentMessagePayload, 'model' | 'variables' | 'temperature' | 'skill_planning' | 'skill_call_budget'> = {}
+  ) {
     const key = appKey();
     const text = content.trim();
     if (!key || !text) return;
@@ -172,6 +175,8 @@ export function useAgentChat(appKey: () => string) {
       const requestPayload: AiAgentMessagePayload = { content: text, variables: options.variables || {} };
       if (options.model) requestPayload.model = options.model;
       if (typeof options.temperature === 'number') requestPayload.temperature = options.temperature;
+      if (typeof options.skill_planning === 'boolean') requestPayload.skill_planning = options.skill_planning;
+      if (typeof options.skill_call_budget === 'number') requestPayload.skill_call_budget = options.skill_call_budget;
       const response = await fetchAiApplicationAgentMessageStream(key, conversationKey, requestPayload, abortController.signal);
       if (!response.ok || !response.body) throw new Error(`Agent stream failed: ${response.status}`);
       const reader = response.body.getReader();
@@ -197,7 +202,27 @@ export function useAgentChat(appKey: () => string) {
             replaceLocalMessageKey(localUserKey, String(payload.user_message_key || localUserKey));
             replaceLocalMessageKey(localAssistantKey, String(payload.assistant_message_key || localAssistantKey));
           } else if (event === 'trace') {
-            traceState.value = { trace_id: String(payload.trace_id || ''), trace: payload.trace };
+            traceState.value = { ...(traceState.value || { trace_id: String(payload.trace_id || '') }), trace_id: String(payload.trace_id || ''), trace: payload.trace };
+          } else if (event === 'skill_plan') {
+            traceState.value = {
+              ...(traceState.value || { trace_id: String(payload.trace_id || '') }),
+              trace_id: String(payload.trace_id || traceState.value?.trace_id || ''),
+              skill_plan: {
+                trace_id: payload.trace_id,
+                skills: Array.isArray(payload.skills) ? payload.skills : [],
+                planned_calls: Array.isArray(payload.planned_calls) ? payload.planned_calls : [],
+              },
+            };
+          } else if (event === 'skill_result') {
+            const current = traceState.value || { trace_id: String(payload.trace_id || '') };
+            traceState.value = {
+              ...current,
+              trace_id: String(payload.trace_id || current.trace_id || ''),
+              skill_results: [
+                ...(current.skill_results || []),
+                { trace_id: payload.trace_id, skill: isRecord(payload.skill) ? payload.skill : {} },
+              ],
+            };
           } else if (event === 'final' && payload.assistant_message) {
             upsertMessage(payload.assistant_message as AiAgentMessage);
           } else if (event === 'error') {
@@ -226,6 +251,10 @@ export function useAgentChat(appKey: () => string) {
 
   function stop() {
     abortController?.abort();
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
   function replaceLocalMessageKey(oldKey: string, newKey: string) {

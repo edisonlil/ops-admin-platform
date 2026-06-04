@@ -260,11 +260,24 @@ export interface AiSkillCall {
   reason?: string;
 }
 
+export interface AiSkillPlan {
+  trace_id?: string;
+  skills: Array<Record<string, unknown>>;
+  planned_calls: Array<Record<string, unknown>>;
+}
+
+export interface AiSkillRunResult {
+  trace_id?: string;
+  skill: Record<string, unknown>;
+}
+
 export interface AiRunResult {
   answer: string;
   trace_id: string;
   usage: Record<string, unknown>;
   trace?: RuntimeTrace;
+  skill_plan?: AiSkillPlan;
+  skill_results?: AiSkillRunResult[];
 }
 
 export interface PlatformCapabilityModelOptions {

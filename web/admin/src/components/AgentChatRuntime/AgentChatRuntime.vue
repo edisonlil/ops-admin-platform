@@ -40,9 +40,28 @@
           <div class="agent-config-row">
             <div>
               <strong>可用 Skill</strong>
-              <span>待接入</span>
+              <span>{{ skillBindings.length ? `${skillBindings.length} 个已绑定` : '未绑定' }}</span>
             </div>
-            <n-button size="small" secondary disabled>选择</n-button>
+            <n-switch :value="skillPlanningEnabled" size="small" @update:value="handleSkillPlanningUpdate" />
+          </div>
+          <div class="agent-config-row">
+            <div>
+              <strong>调用预算</strong>
+              <span>自动规划最多调用次数</span>
+            </div>
+            <n-input-number
+              class="agent-skill-budget"
+              size="small"
+              :value="skillCallBudget"
+              :min="0"
+              :max="10"
+              @update:value="handleSkillBudgetUpdate"
+            />
+          </div>
+          <div v-if="skillBindings.length" class="agent-skill-list">
+            <span v-for="item in skillBindings" :key="skillBindingKey(item)">
+              {{ skillBindingLabel(item) }}
+            </span>
           </div>
           <div class="agent-config-row">
             <div>
@@ -131,7 +150,20 @@
         <dt v-if="traceState.trace.error_message">错误</dt>
         <dd v-if="traceState.trace.error_message">{{ traceState.trace.error_message }}</dd>
       </dl>
-      <n-empty v-else size="small" description="发送消息后展示本次运行信息" />
+      <div v-if="traceState?.skill_plan || traceState?.skill_results?.length" class="agent-skill-trace">
+        <section v-if="traceState.skill_plan">
+          <strong>Skill 计划</strong>
+          <span>{{ traceState.skill_plan.skills.length }} 个可用，{{ traceState.skill_plan.planned_calls.length }} 个自动调用</span>
+        </section>
+        <details v-for="item in traceState.skill_results || []" :key="skillTraceItemKey(item)" open>
+          <summary>
+            <span>{{ skillTraceTitle(item) }}</span>
+            <small>{{ skillTraceStatus(item) }}</small>
+          </summary>
+          <p v-if="skillTraceSummary(item)">{{ skillTraceSummary(item) }}</p>
+        </details>
+      </div>
+      <n-empty v-else-if="!traceState?.trace" size="small" description="发送消息后展示本次运行信息" />
     </aside>
   </section>
 </template>
@@ -146,12 +178,18 @@
     defineProps<{
       appKey: string;
       modelValue?: string;
+      skillPlanningEnabled?: boolean;
+      skillCallBudget?: number;
+      skillBindings?: Array<Record<string, unknown>>;
       modelOptions?: SelectOption[];
       modelLoading?: boolean;
       saving?: boolean;
     }>(),
     {
       modelValue: '',
+      skillPlanningEnabled: false,
+      skillCallBudget: 3,
+      skillBindings: () => [],
       modelOptions: () => [],
       modelLoading: false,
       saving: false,
@@ -160,6 +198,8 @@
 
   const emit = defineEmits<{
     (event: 'update:modelValue', value: string): void;
+    (event: 'update:skillPlanningEnabled', value: boolean): void;
+    (event: 'update:skillCallBudget', value: number): void;
     (event: 'saveConfig'): void;
   }>();
 
@@ -202,6 +242,56 @@
 
   function handleModelUpdate(value: string | number | null) {
     emit('update:modelValue', value == null ? '' : String(value));
+  }
+
+  function handleSkillPlanningUpdate(value: boolean) {
+    emit('update:skillPlanningEnabled', value);
+  }
+
+  function handleSkillBudgetUpdate(value: number | null) {
+    emit('update:skillCallBudget', clampNumber(Number(value || 0), 0, 10));
+  }
+
+  function skillBindingKey(item: Record<string, unknown>) {
+    return String(item.skill_key || item.alias || JSON.stringify(item));
+  }
+
+  function skillBindingLabel(item: Record<string, unknown>) {
+    const key = String(item.alias || item.skill_key || 'Skill');
+    const mode = String(item.mode || 'auto');
+    return `${key} · ${skillModeLabel(mode)}`;
+  }
+
+  function skillModeLabel(mode: string) {
+    if (mode === 'required') return '必选';
+    if (mode === 'manual') return '手动';
+    if (mode === 'disabled') return '停用';
+    return '自动';
+  }
+
+  function skillTraceItemKey(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.run_id || `${skill.skill_key || skill.alias || 'skill'}-${skill.elapsed_ms || 0}`);
+  }
+
+  function skillTracePayload(item: Record<string, unknown>) {
+    const skill = item.skill;
+    return skill && typeof skill === 'object' && !Array.isArray(skill) ? (skill as Record<string, unknown>) : item;
+  }
+
+  function skillTraceTitle(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.alias || skill.skill_key || 'Skill');
+  }
+
+  function skillTraceStatus(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.status || '-');
+  }
+
+  function skillTraceSummary(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.summary || skill.error_message || '');
   }
 
   function clampNumber(value: number, min: number, max: number) {
@@ -247,7 +337,11 @@
     const value = draft.value.trim();
     if (!value || sending.value || !props.modelValue) return;
     draft.value = '';
-    await send(value, { model: props.modelValue });
+    await send(value, {
+      model: props.modelValue,
+      skill_planning: props.skillPlanningEnabled,
+      skill_call_budget: clampNumber(Number(props.skillCallBudget || 0), 0, 10),
+    });
   }
 
   function scrollToBottom() {
@@ -370,6 +464,29 @@
   .agent-config-row strong {
     font-size: 13px;
     font-weight: 600;
+  }
+
+  .agent-skill-budget {
+    width: 92px;
+  }
+
+  .agent-skill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .agent-skill-list span {
+    max-width: 100%;
+    padding: 3px 7px;
+    overflow: hidden;
+    color: var(--app-text-color-2);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--app-primary-color) 8%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-primary-color) 18%, var(--app-border-color, #d9e1ec));
+    border-radius: 999px;
   }
 
   .agent-config-actions {
@@ -555,6 +672,49 @@
     min-width: 0;
     margin: 0;
     overflow-wrap: anywhere;
+  }
+
+  .agent-skill-trace {
+    display: grid;
+    gap: 8px;
+    padding: 0 12px 12px;
+    overflow: auto;
+  }
+
+  .agent-skill-trace section,
+  .agent-skill-trace details {
+    min-width: 0;
+    padding: 8px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 68%, transparent);
+    border-radius: 7px;
+  }
+
+  .agent-skill-trace strong,
+  .agent-skill-trace span,
+  .agent-skill-trace small,
+  .agent-skill-trace p {
+    overflow-wrap: anywhere;
+  }
+
+  .agent-skill-trace strong {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 13px;
+  }
+
+  .agent-skill-trace summary {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+
+  .agent-skill-trace p {
+    margin: 8px 0 0;
+    color: var(--app-text-color-2);
+    font-size: 12px;
   }
 
   @media (max-width: 1180px) {

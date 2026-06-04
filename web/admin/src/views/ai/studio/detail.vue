@@ -19,8 +19,11 @@
         v-if="activeWorkspace === 'agent' && isAgentMode && form.app_key"
         :app-key="form.app_key"
         v-model:model-value="selectedModelKey"
+        v-model:skill-planning-enabled="skillPlanningEnabled"
+        v-model:skill-call-budget="skillCallBudget"
         :model-options="modelConfigOptions"
         :model-loading="modelConfigLoading"
+        :skill-bindings="activeSkillBindingPayload"
         :saving="saving"
         @save-config="() => saveCurrent()"
       />
@@ -193,6 +196,29 @@
                 </div>
               </template>
 
+              <template #node-skill="{ id, data, selected }">
+                <div class="workflow-node-card workflow-node-card--skill" :class="workflowNodeCardClass(id, selected)">
+                  <Handle type="target" :position="Position.Left" />
+                  <Handle type="source" :position="Position.Right" />
+                  <div class="workflow-node-card__actions">
+                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
+                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
+                  </div>
+                  <div class="workflow-node-card__head">
+                    <span class="workflow-node-card__icon">SK</span>
+                    <strong>{{ data.label || 'Skill 调用' }}</strong>
+                  </div>
+                  <div class="workflow-node-card__meta">输出：{{ data.output_key || 'skill_result' }}</div>
+                  <p>{{ workflowSkillNodePreview(data) }}</p>
+                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
+                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
+                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
+                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
+                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
+                  </div>
+                </div>
+              </template>
+
               <template #node-condition="{ id, data, selected }">
                 <div class="workflow-node-card workflow-node-card--condition" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
@@ -279,6 +305,10 @@
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('script')">
                 <strong>脚本处理</strong>
                 <span>清洗、转换或重组变量数据</span>
+              </button>
+              <button type="button" @click="addWorkflowNodeFromCanvasMenu('skill')">
+                <strong>Skill 调用</strong>
+                <span>调用已绑定的技能</span>
               </button>
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('condition')">
                 <strong>条件判断</strong>
@@ -692,6 +722,33 @@
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：processed" />
                   </n-form-item>
                 </template>
+                <template v-else-if="selectedWorkflowNode.type === 'skill'">
+                  <n-form-item label="Skill">
+                    <n-select
+                      v-model:value="selectedWorkflowNode.data.skill_key"
+                      :options="workflowSkillOptions"
+                      filterable
+                      tag
+                      placeholder="选择已绑定 Skill 或输入 Skill Key"
+                    />
+                  </n-form-item>
+                  <n-form-item label="别名">
+                    <n-input v-model:value="selectedWorkflowNode.data.alias" placeholder="可选，用于匹配绑定别名" />
+                  </n-form-item>
+                  <n-form-item label="输入 JSON">
+                    <CodePreview
+                      v-model:value="selectedWorkflowNode.data.input_text"
+                      class="workflow-json-editor"
+                      language="json"
+                      height="180px"
+                      :auto-height="false"
+                      :read-only="false"
+                    />
+                  </n-form-item>
+                  <n-form-item label="输出变量名">
+                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：skill_result" />
+                  </n-form-item>
+                </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
                   <n-form-item label="左值">
                     <n-input v-model:value="selectedWorkflowNode.data.left" placeholder="例如：{{score}}" />
@@ -831,6 +888,49 @@
                   />
                 </div>
               </div>
+            </section>
+
+            <section class="skill-runtime-config">
+              <div class="skill-runtime-config__header">
+                <div>
+                  <h4>Skills</h4>
+                  <span>绑定可在本应用运行前调用的技能，支持必选、自动规划和手动调用。</span>
+                </div>
+                <n-button size="tiny" text @click="addSkillBinding">添加 Skill</n-button>
+              </div>
+              <div class="skill-runtime-options">
+                <n-switch v-model:value="skillPlanningEnabled" size="small">
+                  <template #checked>自动规划</template>
+                  <template #unchecked>关闭规划</template>
+                </n-switch>
+                <n-input-number
+                  v-model:value="skillCallBudget"
+                  size="small"
+                  class="skill-budget-input"
+                  :min="0"
+                  :max="10"
+                  placeholder="调用预算"
+                />
+                <n-button size="tiny" text :loading="publishedSkillsLoading" @click="loadPublishedSkills">刷新技能</n-button>
+              </div>
+              <div v-if="skillBindings.length" class="skill-binding-list">
+                <div v-for="binding in skillBindings" :key="binding.id" class="skill-binding-row">
+                  <n-select
+                    v-model:value="binding.skill_key"
+                    :options="publishedSkillOptions"
+                    :loading="publishedSkillsLoading"
+                    filterable
+                    tag
+                    placeholder="选择或输入 Skill Key"
+                    @focus="loadPublishedSkills"
+                  />
+                  <n-input v-model:value="binding.alias" placeholder="别名" />
+                  <n-select v-model:value="binding.mode" :options="skillBindingModeOptions" :consistent-menu-width="false" />
+                  <n-input v-model:value="binding.inject_as" placeholder="注入变量，例如 analysis.log" />
+                  <n-button size="small" tertiary type="error" @click="removeSkillBinding(binding.id)">删除</n-button>
+                </div>
+              </div>
+              <n-empty v-else size="small" description="暂未绑定 Skill" />
             </section>
           </div>
         </section>
@@ -990,6 +1090,25 @@
             </div>
 
             <n-collapse class="preview-collapse" arrow-placement="right">
+              <n-collapse-item title="Skills" name="skills">
+                <div v-if="skillTraceItems.length || skillTracePlan" class="skill-trace-list">
+                  <section v-if="skillTracePlan" class="skill-trace-plan">
+                    <strong>计划</strong>
+                    <span>{{ skillTracePlan.skills?.length || 0 }} 个可用 Skill，{{ skillTracePlan.planned_calls?.length || 0 }} 个自动调用</span>
+                  </section>
+                  <details v-for="item in skillTraceItems" :key="skillTraceItemKey(item)" class="skill-trace-item" open>
+                    <summary>
+                      <span>{{ skillTraceTitle(item) }}</span>
+                      <n-tag size="small" :type="skillTraceStatus(item) === 'success' ? 'success' : 'error'">
+                        {{ skillTraceStatus(item) }}
+                      </n-tag>
+                    </summary>
+                    <p v-if="skillTraceSummary(item)">{{ skillTraceSummary(item) }}</p>
+                    <CodePreview :value="stringifyJson(skillTracePayload(item))" language="json" :min-height="120" :max-height="260" />
+                  </details>
+                </div>
+                <n-empty v-else description="运行后显示 Skill 计划和结果" />
+              </n-collapse-item>
               <n-collapse-item title="Trace" name="trace">
                 <dl v-if="runResult?.trace" class="trace-list">
                   <dt>Trace ID</dt>
@@ -1401,7 +1520,7 @@
   import type { SelectOption, UploadFileInfo } from 'naive-ui';
   import MarkdownIt from 'markdown-it';
   import { getLlmModels, getLlmRoutingPolicies, getTenants } from '@/api/business';
-  import { getPublishedPromptAsset, getPublishedPromptAssets, type PublishedPromptAsset, type PromptAsset } from '@/api/aiAssets';
+  import { getPublishedPromptAsset, getPublishedPromptAssets, getPublishedSkillAssets, type PublishedPromptAsset, type PromptAsset, type SkillAsset } from '@/api/aiAssets';
   import { AgentChatRuntime } from '@/components/AgentChatRuntime';
   import CodePreview from '@/components/CodePreview/index.vue';
   import { defineDetailPage, DetailPageRuntime } from '@/page-runtime';
@@ -1449,6 +1568,15 @@
     description: string;
   }
 
+  interface SkillBindingDraft {
+    id: string;
+    skill_key: string;
+    alias: string;
+    mode: 'required' | 'auto' | 'manual' | 'disabled';
+    inject_as: string;
+    priority: number;
+  }
+
   interface WorkflowTraceNode {
     node_id: string;
     node_type: string;
@@ -1466,7 +1594,7 @@
   type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
-  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'file_extract' | 'script' | 'condition' | 'end';
+  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'file_extract' | 'script' | 'skill' | 'condition' | 'end';
   type WorkflowEdgeStyle = 'default' | 'smoothstep' | 'straight' | 'step';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
@@ -1526,6 +1654,7 @@
   const runtimeVariablesCollapsed = ref(false);
   const modelConfigLoading = ref(false);
   const publishedPromptsLoading = ref(false);
+  const publishedSkillsLoading = ref(false);
   const platformPreviewModalVisible = ref(false);
   const workflowRunPanelVisible = ref(false);
   const workflowRunErrorText = ref('');
@@ -1537,6 +1666,7 @@
   const models = ref<Recordable[]>([]);
   const policies = ref<Recordable[]>([]);
   const publishedPrompts = ref<PromptAsset[]>([]);
+  const publishedSkills = ref<SkillAsset[]>([]);
   const publishedPromptDetails = reactive<Record<string, PublishedPromptAsset>>({});
   const platformTenants = ref<Recordable[]>([]);
   const platformPreviewModels = ref<Recordable[]>([]);
@@ -1551,6 +1681,9 @@
   const variableTypeOverrides = reactive<Record<string, RuntimeVariableType>>({});
   const variableLabelOverrides = reactive<Record<string, string>>({});
   const variableOptionalOverrides = reactive<Record<string, boolean>>({});
+  const skillBindings = ref<SkillBindingDraft[]>([]);
+  const skillPlanningEnabled = ref(false);
+  const skillCallBudget = ref(3);
   const workflowNodes = ref<WorkflowNode[]>([]);
   const workflowEdges = ref<WorkflowEdge[]>([]);
   const workflowEdgeStyle = ref<WorkflowEdgeStyle>('default');
@@ -1639,6 +1772,12 @@
     { label: 'Markdown', value: 'markdown' },
     { label: 'HTML', value: 'html' },
     { label: 'JSON', value: 'json' },
+  ];
+  const skillBindingModeOptions: SelectOption[] = [
+    { label: '必选', value: 'required' },
+    { label: '自动', value: 'auto' },
+    { label: '手动', value: 'manual' },
+    { label: '停用', value: 'disabled' },
   ];
   const workflowEdgeStyleOptions: SelectOption[] = [
     { label: '贝塞尔曲线', value: 'default' },
@@ -1774,6 +1913,20 @@ result = [
       value: item.prompt_key,
     }))
   );
+  const publishedSkillOptions = computed<SelectOption[]>(() =>
+    publishedSkills.value.map((item) => ({
+      label: `${item.name} (${item.skill_key})`,
+      value: item.skill_key,
+    }))
+  );
+  const workflowSkillOptions = computed<SelectOption[]>(() => {
+    const options = activeSkillBindingPayload.value.map((item) => ({
+      label: `${item.alias || item.skill_key} (${item.mode})`,
+      value: item.alias || item.skill_key,
+    }));
+    return options.length ? options : publishedSkillOptions.value;
+  });
+  const activeSkillBindingPayload = computed(() => buildSkillBindingsPayload());
   const selectedPublishedPrompt = computed(() => {
     const key = selectedSystemPromptAssetKey.value;
     return key ? publishedPromptDetails[key] : null;
@@ -1840,6 +1993,8 @@ result = [
   const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
   const previewRenderedOutput = computed(() => renderAnswer(previewAnswerText.value, selectedOutputFormat.value));
+  const skillTracePlan = computed(() => runResult.value?.skill_plan || null);
+  const skillTraceItems = computed(() => runResult.value?.skill_results || []);
   const htmlPreviewSrcdoc = computed(() =>
     allowHtmlScripts.value ? previewRenderedOutput.value.rawContent || previewRenderedOutput.value.content : previewRenderedOutput.value.content
   );
@@ -2010,10 +2165,11 @@ result = [
           isPlatformCapabilityRoute.value ? getPlatformAiCapability(key) : getAiCapability(key),
           loadModelConfigs(),
           canUsePromptAsset.value ? loadPublishedPrompts() : Promise.resolve(),
+          loadPublishedSkills(),
         ]);
         selectCapability(capability);
       } else {
-        const [app] = await Promise.all([getAiApplication(key), loadModelConfigs(), loadPublishedPrompts()]);
+        const [app] = await Promise.all([getAiApplication(key), loadModelConfigs(), loadPublishedPrompts(), loadPublishedSkills()]);
         selectApp(app);
       }
     } finally {
@@ -2038,6 +2194,17 @@ result = [
       publishedPrompts.value = payload.items || [];
     } finally {
       publishedPromptsLoading.value = false;
+    }
+  }
+
+  async function loadPublishedSkills() {
+    if (publishedSkillsLoading.value) return;
+    publishedSkillsLoading.value = true;
+    try {
+      const payload = await getPublishedSkillAssets({ page: 1, page_size: 100 });
+      publishedSkills.value = payload.items || [];
+    } finally {
+      publishedSkillsLoading.value = false;
     }
   }
 
@@ -2135,6 +2302,7 @@ result = [
     systemPromptSource.value = app.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = String(app.runtime_config?.system_prompt_asset_key || '');
     selectedOutputFormat.value = normalizeOutputFormat(app.runtime_config?.output_format);
+    loadSkillRuntimeConfig(app.runtime_config);
     if (selectedSystemPromptAssetKey.value) {
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
@@ -2170,6 +2338,7 @@ result = [
     systemPromptSource.value = canUsePromptAsset.value && capability.runtime_config?.system_prompt_source === 'asset' ? 'asset' : 'inline';
     selectedSystemPromptAssetKey.value = canUsePromptAsset.value ? String(capability.runtime_config?.system_prompt_asset_key || '') : '';
     selectedOutputFormat.value = normalizeOutputFormat(capability.runtime_config?.output_format);
+    loadSkillRuntimeConfig(capability.runtime_config);
     if (selectedSystemPromptAssetKey.value) {
       void loadPublishedPromptDetail(selectedSystemPromptAssetKey.value);
     }
@@ -2361,6 +2530,8 @@ result = [
       if (isWorkflowMode.value) workflowRunStatusText.value = '请求后端执行';
       await runDraftStream({
         variables: buildRuntimeVariables(),
+        files: buildRuntimeFiles(),
+        ...skillRunPayload(),
         ...runOutputFormatPayload(),
       }, runAbortController.signal);
       if (isWorkflowMode.value) workflowRunStatusText.value = '执行完成';
@@ -2433,6 +2604,8 @@ result = [
         tenant_id: Number(platformPreviewForm.tenant_id),
         model: platformPreviewForm.model,
         variables: buildRuntimeVariables(),
+        files: buildRuntimeFiles(),
+        ...skillRunPayload(),
         ...runOutputFormatPayload(),
       });
       runResult.value = result;
@@ -3417,7 +3590,16 @@ result = [
     }
   }
 
-  async function runDraftStream(payload: { variables: Record<string, unknown>; response_format?: Record<string, unknown> }, signal?: AbortSignal) {
+  async function runDraftStream(
+    payload: {
+      variables: Record<string, unknown>;
+      files?: RuntimeMediaVariableValue[];
+      skill_planning?: boolean;
+      skill_call_budget?: number;
+      response_format?: Record<string, unknown>;
+    },
+    signal?: AbortSignal
+  ) {
     const response = isCapability.value
       ? await fetchAiCapabilityStream(form.app_key, payload, signal)
       : await fetchAiApplicationDraftStream(form.app_key, payload, signal);
@@ -3465,6 +3647,29 @@ result = [
         }
         if (parsed.type === 'workflow_node') {
           mergeStreamWorkflowTraceNode(payloadData);
+          continue;
+        }
+        if (parsed.type === 'skill_plan') {
+          runResult.value = {
+            ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
+            trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
+            skill_plan: {
+              trace_id: payloadData.trace_id,
+              skills: Array.isArray(payloadData.skills) ? payloadData.skills : [],
+              planned_calls: Array.isArray(payloadData.planned_calls) ? payloadData.planned_calls : [],
+            },
+          };
+          continue;
+        }
+        if (parsed.type === 'skill_result') {
+          runResult.value = {
+            ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
+            trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
+            skill_results: [
+              ...(runResult.value?.skill_results || []),
+              { trace_id: payloadData.trace_id, skill: asSchemaRecord(payloadData.skill) || {} },
+            ],
+          };
           continue;
         }
         const delta = payloadData?.choices?.[0]?.delta || {};
@@ -3532,6 +3737,112 @@ result = [
     return {
       response_format: { type: 'json_object' },
     };
+  }
+
+  function skillRunPayload() {
+    return {
+      skill_planning: skillPlanningEnabled.value,
+      skill_call_budget: clampSkillCallBudget(skillCallBudget.value),
+    };
+  }
+
+  function loadSkillRuntimeConfig(runtimeConfig: unknown) {
+    const config = asSchemaRecord(runtimeConfig) || {};
+    skillPlanningEnabled.value = Boolean(config.skill_planning || config.skill_planning_enabled);
+    skillCallBudget.value = clampSkillCallBudget(config.skill_call_budget);
+    const rows = Array.isArray(config.skills) ? config.skills : Array.isArray(config.skill_bindings) ? config.skill_bindings : [];
+    skillBindings.value = rows
+      .map((item, index) => normalizeSkillBindingDraft(item, index))
+      .filter((item): item is SkillBindingDraft => !!item);
+  }
+
+  function normalizeSkillBindingDraft(value: unknown, index = 0): SkillBindingDraft | null {
+    const record = typeof value === 'string' ? { skill_key: value } : asSchemaRecord(value);
+    if (!record) return null;
+    const skillKey = String(record.skill_key || record.key || '').trim();
+    const alias = String(record.alias || '').trim();
+    if (!skillKey && !alias) return null;
+    return {
+      id: String(record.id || `skill_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 7)}`),
+      skill_key: skillKey,
+      alias,
+      mode: normalizeSkillBindingMode(record.mode),
+      inject_as: String(record.inject_as || '').trim(),
+      priority: Number(record.priority || 100 + index),
+    };
+  }
+
+  function normalizeSkillBindingMode(value: unknown): SkillBindingDraft['mode'] {
+    const mode = String(value || 'auto');
+    return mode === 'required' || mode === 'manual' || mode === 'disabled' ? mode : 'auto';
+  }
+
+  function buildSkillBindingsPayload() {
+    return skillBindings.value
+      .map((item, index) => ({
+        skill_key: item.skill_key.trim(),
+        alias: item.alias.trim(),
+        mode: item.mode,
+        inject_as: item.inject_as.trim(),
+        priority: Number.isFinite(item.priority) ? item.priority : 100 + index,
+      }))
+      .filter((item) => item.skill_key || item.alias);
+  }
+
+  function addSkillBinding() {
+    skillBindings.value = [
+      ...skillBindings.value,
+      {
+        id: `skill_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+        skill_key: '',
+        alias: '',
+        mode: 'auto',
+        inject_as: '',
+        priority: 100 + skillBindings.value.length,
+      },
+    ];
+    void loadPublishedSkills();
+  }
+
+  function removeSkillBinding(id: string) {
+    skillBindings.value = skillBindings.value.filter((item) => item.id !== id);
+  }
+
+  function clampSkillCallBudget(value: unknown) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 3;
+    return Math.max(0, Math.min(10, Math.round(parsed)));
+  }
+
+  function buildRuntimeFiles(): RuntimeMediaVariableValue[] {
+    return Object.values(runtimeVariableValues).flatMap((value) => {
+      if (Array.isArray(value)) return value.filter(isRuntimeMediaVariableValue);
+      return isRuntimeMediaVariableValue(value) ? [value] : [];
+    });
+  }
+
+  function skillTraceItemKey(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.run_id || `${skill.skill_key || skill.alias || 'skill'}-${skill.elapsed_ms || 0}`);
+  }
+
+  function skillTracePayload(item: Record<string, unknown>) {
+    return asSchemaRecord(item.skill) || item;
+  }
+
+  function skillTraceTitle(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.alias || skill.skill_key || 'Skill');
+  }
+
+  function skillTraceStatus(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.status || '-');
+  }
+
+  function skillTraceSummary(item: Record<string, unknown>) {
+    const skill = skillTracePayload(item);
+    return String(skill.summary || skill.error_message || '');
   }
 
   function normalizeOutputFormat(value: unknown): OutputFormat {
@@ -3639,6 +3950,9 @@ result = [
         system_prompt_source: systemPromptSource.value,
         system_prompt_asset_key: systemPromptSource.value === 'asset' ? selectedSystemPromptAssetKey.value : '',
         output_format: selectedOutputFormat.value,
+        skills: buildSkillBindingsPayload(),
+        skill_planning: skillPlanningEnabled.value,
+        skill_call_budget: clampSkillCallBudget(skillCallBudget.value),
         ...(workflow ? { workflow } : {}),
       },
     };
@@ -3653,6 +3967,9 @@ result = [
       system_prompt_source: systemPromptAssetEnabled ? 'asset' : 'inline',
       system_prompt_asset_key: systemPromptAssetEnabled ? selectedSystemPromptAssetKey.value : '',
       output_format: selectedOutputFormat.value,
+      skills: buildSkillBindingsPayload(),
+      skill_planning: skillPlanningEnabled.value,
+      skill_call_budget: clampSkillCallBudget(skillCallBudget.value),
       ...(workflow ? { workflow } : {}),
     };
     return {
@@ -6203,6 +6520,59 @@ result = [
     justify-self: start;
   }
 
+  .skill-runtime-config {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 70%, transparent);
+  }
+
+  .skill-runtime-config__header,
+  .skill-runtime-options {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .skill-runtime-config__header h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .skill-runtime-config__header span {
+    color: var(--app-text-color-3);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .skill-runtime-options {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .skill-budget-input {
+    width: 120px;
+  }
+
+  .skill-binding-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .skill-binding-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 1.2fr) minmax(90px, 0.7fr) 96px minmax(150px, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+  }
+
   .studio-preview {
     position: sticky;
     top: 12px;
@@ -6668,6 +7038,48 @@ result = [
 
   .trace-list dd {
     margin: 4px 0 0;
+  }
+
+  .skill-trace-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .skill-trace-plan,
+  .skill-trace-item {
+    min-width: 0;
+    padding: 10px;
+    background: color-mix(in srgb, var(--app-surface-muted-bg, #f5f7fb) 72%, var(--app-surface-bg));
+    border: 1px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 68%, transparent);
+    border-radius: 8px;
+  }
+
+  .skill-trace-plan strong,
+  .skill-trace-plan span,
+  .skill-trace-item p {
+    display: block;
+  }
+
+  .skill-trace-plan span,
+  .skill-trace-item p {
+    margin-top: 4px;
+    color: var(--app-text-color-2);
+    font-size: 12px;
+  }
+
+  .skill-trace-item summary {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+
+  .skill-trace-item summary span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   pre {

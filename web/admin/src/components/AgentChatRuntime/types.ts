@@ -1,4 +1,4 @@
-import type { AiAgentConversation, AiAgentMessage, RuntimeTrace } from '@/api/aiStudio';
+import type { AiAgentConversation, AiAgentMessage, AiSkillPlan, AiSkillRunResult, RuntimeTrace } from '@/api/aiStudio';
 
 export type AgentConversation = AiAgentConversation;
 export type AgentMessage = AiAgentMessage;
@@ -14,4 +14,6 @@ export interface AgentStreamMeta {
 export interface AgentTraceState {
   trace_id: string;
   trace?: RuntimeTrace;
+  skill_plan?: AiSkillPlan;
+  skill_results?: AiSkillRunResult[];
 }
