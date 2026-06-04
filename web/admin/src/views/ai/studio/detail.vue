@@ -4131,7 +4131,8 @@ result = [
     if (field.type === 'image') return 'image/png,image/jpeg,image/webp,image/gif';
     if (field.type === 'audio') return 'audio/*';
     if (field.type === 'video') return 'video/*';
-    if (field.type === 'file') return '.txt,.md,.json,.csv,.xml,.yaml,.yml,.log,.pdf,.docx,.xlsx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (field.type === 'file')
+      return '.txt,.text,.md,.json,.jsonl,.ndjson,.csv,.xml,.yaml,.yml,.toml,.log,.pdf,.docx,.xlsx,text/*,application/json,application/ld+json,application/log,application/markdown,application/toml,application/x-ndjson,application/x-yaml,application/xml,application/yaml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     return '';
   }
 
@@ -4250,7 +4251,9 @@ result = [
 
   function readTextPreviewIfSupported(file: File) {
     const textLike =
-      file.type.startsWith('text/') || /\.(txt|md|json|csv|xml|yaml|yml|log)$/i.test(file.name || '');
+      file.type.startsWith('text/') ||
+      /^(application\/(json|ld\+json|log|markdown|toml|x-ndjson|x-yaml|xml|yaml))$/i.test(file.type || '') ||
+      /\.(txt|text|md|json|jsonl|ndjson|csv|xml|yaml|yml|toml|log)$/i.test(file.name || '');
     if (!textLike || file.size > 512 * 1024) return Promise.resolve('');
     return file
       .arrayBuffer()
