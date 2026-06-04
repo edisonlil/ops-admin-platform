@@ -163,6 +163,26 @@ class WorkflowFileExtractResult:
 
 
 @dataclass(slots=True)
+class WorkflowSkillRequest:
+    node_id: str
+    skill_key: str
+    input: dict[str, Any] = field(default_factory=dict)
+    alias: str = ""
+    output_key: str = ""
+    call_config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkflowSkillResult:
+    output: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    status: str = "success"
+    elapsed_ms: int = 0
+
+
+@dataclass(slots=True)
 class WorkflowRunResult:
     answer: str
     context: WorkflowContext
@@ -173,6 +193,7 @@ class WorkflowRunResult:
 LLMExecutor = Callable[[WorkflowLLMRequest], WorkflowLLMResult]
 SQLExecutor = Callable[[WorkflowSQLRequest], WorkflowSQLResult]
 FileExtractor = Callable[[WorkflowFileExtractRequest], WorkflowFileExtractResult | dict[str, Any] | str]
+SkillExecutor = Callable[[WorkflowSkillRequest], WorkflowSkillResult | dict[str, Any]]
 
 
 class WorkflowRuntimeError(RuntimeError):
@@ -186,6 +207,7 @@ def execute_workflow(
     llm_executor: LLMExecutor,
     sql_executor: SQLExecutor | None = None,
     file_extractor: FileExtractor | None = None,
+    skill_executor: SkillExecutor | None = None,
     max_steps: int = 50,
 ) -> WorkflowRunResult:
     result: WorkflowRunResult | None = None
@@ -195,6 +217,7 @@ def execute_workflow(
         llm_executor=llm_executor,
         sql_executor=sql_executor,
         file_extractor=file_extractor,
+        skill_executor=skill_executor,
         max_steps=max_steps,
     ):
         if event.get("event") == "workflow.completed":
@@ -213,6 +236,7 @@ def iter_workflow_events(
     llm_executor: LLMExecutor,
     sql_executor: SQLExecutor | None = None,
     file_extractor: FileExtractor | None = None,
+    skill_executor: SkillExecutor | None = None,
     max_steps: int = 50,
 ) -> Iterator[dict[str, Any]]:
     normalized = normalize_workflow_definition(definition)
@@ -252,6 +276,8 @@ def iter_workflow_events(
                 output = execute_sql_query_node(node, context, sql_executor)
             elif node_type in {"file_extract", "file_extraction"}:
                 output = execute_file_extract_node(node, context, file_extractor)
+            elif node_type in {"skill", "tool"}:
+                output = execute_skill_node(node, context, skill_executor)
             elif node_type in {"script", "python_script"}:
                 output = execute_script_node(node, context)
             elif node_type in {"condition", "if_else"}:
@@ -615,6 +641,70 @@ def normalize_file_extract_output(value: WorkflowFileExtractResult | dict[str, A
         }
     text, text_truncated = truncate_text(str(value or ""), max_chars)
     return {"text": text, "files": [], "file_count": 0, "truncated": text_truncated}
+
+
+def execute_skill_node(
+    node: dict[str, Any],
+    context: WorkflowContext,
+    skill_executor: SkillExecutor | None,
+) -> dict[str, Any]:
+    if skill_executor is None:
+        raise WorkflowRuntimeError(f"skill executor is required for node: {node['id']}")
+    data = node["data"]
+    skill_key = str(data.get("skill_key") or data.get("key") or "").strip()
+    alias = str(data.get("alias") or "").strip()
+    if not skill_key and not alias:
+        raise WorkflowRuntimeError(f"skill node skill_key is required: {node['id']}")
+    output_key = str(data.get("output_key") or "").strip()
+    input_value = resolve_workflow_input(data.get("input") if "input" in data else {}, context)
+    if not isinstance(input_value, dict):
+        input_value = {"value": input_value}
+    result = normalize_skill_output(
+        skill_executor(
+            WorkflowSkillRequest(
+                node_id=node["id"],
+                skill_key=skill_key,
+                alias=alias,
+                input=snapshot_value(input_value),
+                output_key=output_key,
+                call_config=data.get("call_config") if isinstance(data.get("call_config"), dict) else {},
+            )
+        )
+    )
+    if output_key:
+        assign_path(context["variables"], output_key, result.get("output"))
+    return result
+
+
+def normalize_skill_output(value: WorkflowSkillResult | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(value, WorkflowSkillResult):
+        return {
+            "status": value.status,
+            "summary": value.summary,
+            "output": snapshot_value(value.output),
+            "evidence": snapshot_value(value.evidence),
+            "artifacts": snapshot_value(value.artifacts),
+            "elapsed_ms": int(value.elapsed_ms or 0),
+        }
+    if isinstance(value, dict):
+        output = value.get("output")
+        return {
+            "status": str(value.get("status") or "success"),
+            "summary": str(value.get("summary") or ""),
+            "output": snapshot_value(output if isinstance(output, dict) else value),
+            "evidence": snapshot_value(value.get("evidence") if isinstance(value.get("evidence"), list) else []),
+            "artifacts": snapshot_value(value.get("artifacts") if isinstance(value.get("artifacts"), list) else []),
+            "elapsed_ms": int(value.get("elapsed_ms") or 0),
+        }
+    raise WorkflowRuntimeError("skill executor returned invalid result")
+
+
+def resolve_workflow_input(value: Any, context: WorkflowContext) -> Any:
+    if isinstance(value, dict):
+        return {str(key): resolve_workflow_input(item, context) for key, item in value.items()}
+    if isinstance(value, list):
+        return [resolve_workflow_input(item, context) for item in value]
+    return resolve_workflow_value(value, context)
 
 
 def normalize_file_extract_files(files: list[Any], *, max_chars: int) -> tuple[list[dict[str, Any]], bool]:

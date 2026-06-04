@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from ai_assets.application import services as prompt_asset_services
+from ai_applications.application import skill_runtime
 from ai_applications.application.ports import AIApplicationsRepository
 from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_runtime_core.prompt_runtime import render_template
@@ -19,6 +20,8 @@ from ai_runtime_core.workflow_runtime import WorkflowLLMResult
 from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
+from ai_runtime_core.workflow_runtime import WorkflowSkillRequest
+from ai_runtime_core.workflow_runtime import WorkflowSkillResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 from ai_runtime_core.workflow_runtime import iter_workflow_events
 from ai_runtime_core.workflow_runtime import normalize_workflow_definition
@@ -281,7 +284,10 @@ def stream_draft_application(app_key: str, payload: dict[str, Any], current_user
         return stream_workflow_application(app, payload, caller_type="studio_draft", require_published=False, current_user=current_user)
     if app.get("app_type") == "agent":
         raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
-    prepared = prepare_single_turn_run(app, payload, require_published=False)
+    try:
+        prepared = prepare_single_turn_run(app, payload, require_published=False)
+    except skill_runtime.SkillRuntimeError as exc:
+        raise skill_http_error(exc) from exc
     return stream_single_turn_application(prepared, caller_type="studio_draft")
 
 
@@ -339,6 +345,10 @@ def create_agent_conversation(app_key: str, payload: dict[str, Any], current_use
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
+def skill_http_error(exc: skill_runtime.SkillRuntimeError) -> HTTPException:
+    return HTTPException(status_code=422, detail={"message": str(exc), "code": "SKILL_RUNTIME_ERROR"})
+
+
 def list_agent_messages(
     app_key: str,
     conversation_key: str,
@@ -370,7 +380,10 @@ def send_agent_message(
     payload: dict[str, Any],
     current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
+    try:
+        prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
+    except skill_runtime.SkillRuntimeError as exc:
+        raise skill_http_error(exc) from exc
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     answer = ""
@@ -411,6 +424,11 @@ def send_agent_message(
         return {
             "conversation": prepared["conversation"],
             "user_message": prepared["user_message"],
+            "tool_messages": prepared.get("tool_messages", []),
+            "skill_plan": {
+                "skills": skill_runtime.toolbox_snapshot(prepared["skill_plan"]),
+                "planned_calls": skill_runtime.skill_calls_snapshot(prepared["skill_plan"].planned_calls),
+            },
             "assistant_message": assistant_message,
             "answer": answer,
             "trace_id": trace_id,
@@ -453,7 +471,10 @@ def stream_agent_message(
     payload: dict[str, Any],
     current_user: dict[str, Any] | None = None,
 ) -> Any:
-    prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
+    try:
+        prepared = prepare_agent_run(app_key, conversation_key, payload, current_user=current_user)
+    except skill_runtime.SkillRuntimeError as exc:
+        raise skill_http_error(exc) from exc
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
     assistant_message = persist_agent_assistant_message(
@@ -511,6 +532,26 @@ def stream_agent_message(
                 "object": "ai_application.agent.run.start",
             },
         )
+        skill_plan = prepared.get("skill_plan")
+        if skill_plan:
+            yield emit_named(
+                "skill_plan",
+                {
+                    "trace_id": trace_id,
+                    "skills": skill_runtime.toolbox_snapshot(skill_plan),
+                    "planned_calls": skill_runtime.skill_calls_snapshot(skill_plan.planned_calls),
+                    "object": "ai_application.skill.plan",
+                },
+            )
+        for result in prepared.get("skill_results", []):
+            yield emit_named(
+                "skill_result",
+                {
+                    "trace_id": trace_id,
+                    "skill": result.to_trace(),
+                    "object": "ai_application.skill.result",
+                },
+            )
         try:
             for event in gateway.stream_chat_completions(
                 model=prepared["model"],
@@ -659,15 +700,36 @@ def prompt_asset_is_referenced(*, tenant_id: int, prompt_key: str) -> bool:
                 prompt_key=prompt_key,
             )
     except RuntimeError as exc:
-        if "ai_applications storage is not initialized" in str(exc):
+        if "ai applications repository is not configured" in str(exc) or "ai_applications storage is not initialized" in str(exc):
             return False
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
-    except (sqlite3.Error, ValueError) as exc:
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+
+
+def skill_asset_is_referenced(*, tenant_id: int, skill_key: str) -> bool:
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=True) as conn:
+            repo().require_ai_applications_schema(conn)
+            return repo().skill_asset_is_referenced_by_ai_application(
+                conn,
+                tenant_id=tenant_id,
+                skill_key=skill_key,
+            )
+    except RuntimeError as exc:
+        if "ai applications repository is not configured" in str(exc) or "ai_applications storage is not initialized" in str(exc):
+            return False
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
+    except ValueError as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
 prompt_asset_services.register_prompt_asset_reference_checker(
     lambda tenant_id, prompt_key: prompt_asset_is_referenced(tenant_id=tenant_id, prompt_key=prompt_key)
+)
+prompt_asset_services.register_skill_asset_reference_checker(
+    lambda tenant_id, skill_key: skill_asset_is_referenced(tenant_id=tenant_id, skill_key=skill_key)
 )
 
 
@@ -713,7 +775,10 @@ def execute_single_turn_application(
     if require_published and app.get("status") != "published":
         raise HTTPException(status_code=409, detail="AI application is not published")
 
-    prepared = prepare_single_turn_run(app, payload, require_published=require_published)
+    try:
+        prepared = prepare_single_turn_run(app, payload, require_published=require_published)
+    except skill_runtime.SkillRuntimeError as exc:
+        raise skill_http_error(exc) from exc
     app_for_run = prepared["app"]
     variables = prepared["variables"]
     messages = prepared["messages"]
@@ -874,8 +939,25 @@ def execute_workflow_application(
     def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
         return execute_workflow_sql_query(app, request, current_user=current_user)
 
+    def skill_executor(request: WorkflowSkillRequest) -> WorkflowSkillResult:
+        result = skill_runtime.execute_workflow_skill_call(app, payload, variables, request)
+        return WorkflowSkillResult(
+            output=result.output,
+            summary=result.summary,
+            evidence=result.evidence,
+            artifacts=result.artifacts,
+            status=result.status,
+            elapsed_ms=result.elapsed_ms,
+        )
+
     try:
-        workflow_result = execute_workflow(definition, variables, llm_executor=llm_executor, sql_executor=sql_executor)
+        workflow_result = execute_workflow(
+            definition,
+            variables,
+            llm_executor=llm_executor,
+            sql_executor=sql_executor,
+            skill_executor=skill_executor,
+        )
         answer = workflow_result.answer
         usage = workflow_result.usage
         elapsed = int((time.perf_counter() - started_at) * 1000)
@@ -992,8 +1074,25 @@ def stream_workflow_application(
             def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
                 return execute_workflow_sql_query(app, request, current_user=current_user)
 
+            def skill_executor(request: WorkflowSkillRequest) -> WorkflowSkillResult:
+                result = skill_runtime.execute_workflow_skill_call(app, payload, variables, request)
+                return WorkflowSkillResult(
+                    output=result.output,
+                    summary=result.summary,
+                    evidence=result.evidence,
+                    artifacts=result.artifacts,
+                    status=result.status,
+                    elapsed_ms=result.elapsed_ms,
+                )
+
             workflow_result = None
-            for workflow_event in iter_workflow_events(definition, variables, llm_executor=llm_executor, sql_executor=sql_executor):
+            for workflow_event in iter_workflow_events(
+                definition,
+                variables,
+                llm_executor=llm_executor,
+                sql_executor=sql_executor,
+                skill_executor=skill_executor,
+            ):
                 event_name = str(workflow_event.get("event") or "")
                 node = workflow_event.get("node")
                 if isinstance(node, dict):
@@ -1162,9 +1261,29 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
 
     app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
     variables = extract_run_variables(payload)
+    skill_plan = skill_runtime.prepare_skill_runtime(
+        app_for_run,
+        payload,
+        variables,
+        app_type="single_turn_generation",
+    )
+    planning_content = render_template(str(app_for_run.get("user_prompt_template") or ""), variables)
+    plan_agent_skills_if_enabled(
+        app_for_run,
+        payload,
+        variables,
+        planning_content,
+        skill_plan,
+        model=resolve_model(app_for_run, payload),
+        temperature=resolve_temperature(app_for_run, payload),
+        app_type="single_turn_generation",
+    )
+    skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
+    variables = skill_runtime.merge_skill_results_into_variables(variables, skill_plan, skill_results)
     validate_variables(app_for_run, variables)
 
     messages = render_messages(app_for_run, variables)
+    messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results)
     rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
     model = resolve_model(app_for_run, payload)
     return {
@@ -1177,6 +1296,8 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         "temperature": resolve_temperature(app_for_run, payload),
         "response_format": resolve_response_format(app_for_run, payload),
         "prompt_refs": prompt_refs,
+        "skill_plan": skill_plan,
+        "skill_results": skill_results,
     }
 
 
@@ -1190,6 +1311,8 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
     temperature = prepared["temperature"]
     response_format = prepared["response_format"]
     prompt_refs = prepared["prompt_refs"]
+    skill_plan = prepared.get("skill_plan")
+    skill_results = prepared.get("skill_results") if isinstance(prepared.get("skill_results"), list) else []
     trace_id = f"trace_{uuid.uuid4().hex}"
     started_at = time.perf_counter()
 
@@ -1226,6 +1349,23 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
         yield gateway.sse_data({"trace_id": trace_id, "model": model, "object": "ai_application.run.start"}).replace(
             "data: ", "event: meta\ndata: ", 1
         )
+        if skill_plan:
+            yield gateway.sse_data(
+                {
+                    "trace_id": trace_id,
+                    "skills": skill_runtime.toolbox_snapshot(skill_plan),
+                    "planned_calls": skill_runtime.skill_calls_snapshot(skill_plan.planned_calls),
+                    "object": "ai_application.skill.plan",
+                }
+            ).replace("data: ", "event: skill_plan\ndata: ", 1)
+        for result in skill_results:
+            yield gateway.sse_data(
+                {
+                    "trace_id": trace_id,
+                    "skill": result.to_trace(),
+                    "object": "ai_application.skill.result",
+                }
+            ).replace("data: ", "event: skill_result\ndata: ", 1)
         try:
             for event in gateway.stream_chat_completions(
                 model=model,
@@ -1320,9 +1460,22 @@ def prepare_agent_run(
 
     app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
     variables = extract_run_variables(payload)
+    skill_plan = skill_runtime.prepare_skill_runtime(app_for_run, payload, variables, app_type="agent")
+    plan_agent_skills_if_enabled(
+        app_for_run,
+        payload,
+        variables,
+        content,
+        skill_plan,
+        model=resolve_model(app_for_run, payload),
+        temperature=resolve_temperature(app_for_run, payload),
+    )
+    skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
+    variables = skill_runtime.merge_skill_results_into_variables(variables, skill_plan, skill_results)
     validate_variables(app_for_run, variables)
 
     database_target = require_database()
+    tool_messages: list[dict[str, Any]] = []
     try:
         with connect(database_target, readonly=False) as conn:
             repo().require_ai_applications_schema(conn)
@@ -1344,16 +1497,38 @@ def prepare_agent_run(
                     "metadata": {"variables": variables},
                 },
             )
+            for tool_payload in skill_runtime.agent_tool_messages(skill_results):
+                tool_messages.append(
+                    repo().insert_agent_message(
+                        conn,
+                        {
+                            "app_key": app_for_run["app_key"],
+                            "conversation_key": conversation["conversation_key"],
+                            "role": "tool",
+                            "content": tool_payload["content"],
+                            "status": tool_payload["status"],
+                            "metadata": tool_payload["metadata"],
+                        },
+                    )
+                )
             conversation = repo().get_agent_conversation(conn, app_for_run["app_key"], conversation["conversation_key"]) or conversation
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
-    messages = build_agent_messages(app_for_run, variables, history, content)
+    messages = build_agent_messages(
+        app_for_run,
+        variables,
+        [*history, *tool_messages],
+        content,
+        skill_plan=skill_plan,
+        skill_results=skill_results,
+    )
     rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
     return {
         "app": app_for_run,
         "conversation": conversation,
         "user_message": user_message,
+        "tool_messages": tool_messages,
         "variables": variables,
         "messages": messages,
         "rendered_prompt": rendered_prompt,
@@ -1361,6 +1536,8 @@ def prepare_agent_run(
         "temperature": resolve_temperature(app_for_run, payload),
         "response_format": resolve_response_format(app_for_run, payload),
         "prompt_refs": prompt_refs,
+        "skill_plan": skill_plan,
+        "skill_results": skill_results,
     }
 
 
@@ -1369,19 +1546,26 @@ def build_agent_messages(
     variables: dict[str, Any],
     history: list[dict[str, Any]],
     user_content: str,
+    *,
+    skill_plan: skill_runtime.SkillRuntimePlan | None = None,
+    skill_results: list[skill_runtime.SkillExecutionResult] | None = None,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     for role, field in (("system", "system_prompt"), ("developer", "developer_prompt")):
         content = render_template(str(app.get(field) or ""), variables)
         if content.strip():
             messages.append({"role": role, "content": content})
+    if skill_plan is not None:
+        messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results or [])
     for item in history:
         role = str(item.get("role") or "")
-        if role not in {"user", "assistant"}:
+        if role not in {"user", "assistant", "tool"}:
             continue
         content = str(item.get("content") or "")
         if content.strip():
-            messages.append({"role": role, "content": content})
+            message_role = "user" if role == "tool" else role
+            prefix = "Tool result:\n" if role == "tool" else ""
+            messages.append({"role": message_role, "content": f"{prefix}{content}"})
     messages.append({"role": "user", "content": render_message_content("user", user_content, variables)})
     return messages
 
@@ -1486,7 +1670,19 @@ def validate_publishable(app: dict[str, Any]) -> None:
 def extract_run_variables(payload: dict[str, Any]) -> dict[str, Any]:
     variables = payload.get("variables")
     if variables is None:
-        variables = {key: value for key, value in payload.items() if key not in {"model", "temperature", "response_format"}}
+        runtime_keys = {
+            "model",
+            "temperature",
+            "response_format",
+            "extra_body",
+            "enable_think_output",
+            "files",
+            "skill_calls",
+            "skill_planning",
+            "skill_call_budget",
+            "skills",
+        }
+        variables = {key: value for key, value in payload.items() if key not in runtime_keys}
     if not isinstance(variables, dict):
         raise HTTPException(status_code=422, detail="variables must be an object")
     return variables
@@ -1571,6 +1767,37 @@ def workflow_stream_event(event_name: str | None, payload: dict[str, Any]) -> st
     event_prefix = f"event: {event_name}\n" if event_name else ""
     data = gateway.json.dumps(payload, ensure_ascii=False, default=str)
     return f"{event_prefix}data: {data}\n\n"
+
+
+def plan_agent_skills_if_enabled(
+    app: dict[str, Any],
+    payload: dict[str, Any],
+    variables: dict[str, Any],
+    user_content: str,
+    skill_plan: skill_runtime.SkillRuntimePlan,
+    *,
+    model: str,
+    temperature: float | None,
+    app_type: str = "agent",
+) -> None:
+    if not skill_runtime.skill_planning_enabled(app, payload, app_type=app_type):
+        return
+    if not skill_runtime.planning_candidates(skill_plan):
+        return
+    budget = skill_runtime.skill_call_budget(app, payload, app_type=app_type)
+    if budget <= 0:
+        return
+    response = gateway.chat_completions(
+        model=model,
+        messages=skill_runtime.build_skill_planning_messages(app, variables, user_content, skill_plan, app_type=app_type),
+        temperature=0 if temperature is None else min(float(temperature), 0.2),
+        response_format={"type": "json_object"},
+        extra_body=resolve_extra_body(app, payload),
+        enable_think_output=False,
+        correlation_id=f"skill_plan_{uuid.uuid4().hex}",
+    )
+    planned = skill_runtime.parse_planned_skill_calls(extract_answer(response), skill_plan, budget=budget)
+    skill_runtime.set_planned_skill_calls(skill_plan, planned)
 
 
 def validate_variables(app: dict[str, Any], variables: dict[str, Any]) -> None:

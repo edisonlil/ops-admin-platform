@@ -155,6 +155,34 @@ def prompt_asset_is_referenced_by_ai_application(conn: Any, *, tenant_id: int, p
     return False
 
 
+def skill_asset_is_referenced_by_ai_application(conn: Any, *, tenant_id: int, skill_key: str) -> bool:
+    rows = conn.execute(
+        """
+        SELECT runtime_config_json
+        FROM ai_applications
+        WHERE tenant_id = ? AND deleted = 0
+        """,
+        (tenant_id,),
+    ).fetchall()
+    normalized_skill_key = str(skill_key or "").strip()
+    for row in rows:
+        runtime_config = parse_json_object(row["runtime_config_json"])
+        raw_bindings = runtime_config.get("skills")
+        if raw_bindings is None:
+            raw_bindings = runtime_config.get("skill_bindings")
+        if not isinstance(raw_bindings, list):
+            continue
+        for raw in raw_bindings:
+            if isinstance(raw, str) and raw.strip() == normalized_skill_key:
+                return True
+            if not isinstance(raw, dict):
+                continue
+            candidate = str(raw.get("skill_key") or raw.get("asset_key") or raw.get("key") or "").strip()
+            if candidate == normalized_skill_key:
+                return True
+    return False
+
+
 def upsert_ai_application(conn: Any, payload: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id()
     app_key = normalize_key(payload.get("app_key"))

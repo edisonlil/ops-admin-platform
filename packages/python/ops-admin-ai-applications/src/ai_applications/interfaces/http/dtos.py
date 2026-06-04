@@ -28,6 +28,10 @@ class AIApplicationRunRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     variables: dict[str, Any] = Field(default_factory=dict)
+    files: list[dict[str, Any]] = Field(default_factory=list)
+    skill_calls: list[dict[str, Any]] = Field(default_factory=list)
+    skill_planning: bool | None = None
+    skill_call_budget: int | None = Field(default=None, ge=0, le=10)
     model: str | None = Field(default=None, max_length=200)
     temperature: float | None = Field(default=None, ge=0, le=2)
     response_format: dict[str, Any] | None = None
@@ -51,6 +55,10 @@ class AIAgentMessageRequest(BaseModel):
 
     content: str = Field(min_length=1, max_length=20000)
     variables: dict[str, Any] = Field(default_factory=dict)
+    files: list[dict[str, Any]] = Field(default_factory=list)
+    skill_calls: list[dict[str, Any]] = Field(default_factory=list)
+    skill_planning: bool | None = None
+    skill_call_budget: int | None = Field(default=None, ge=0, le=10)
     model: str | None = Field(default=None, max_length=200)
     temperature: float | None = Field(default=None, ge=0, le=2)
     response_format: dict[str, Any] | None = None

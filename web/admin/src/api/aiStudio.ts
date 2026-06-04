@@ -215,6 +215,10 @@ export interface AiCapabilityPayload {
 
 export interface AiRunPayload {
   variables: Record<string, unknown>;
+  files?: AiFileInput[];
+  skill_calls?: AiSkillCall[];
+  skill_planning?: boolean;
+  skill_call_budget?: number;
   model?: string;
   temperature?: number;
   response_format?: Record<string, unknown>;
@@ -225,11 +229,35 @@ export interface AiRunPayload {
 export interface AiAgentMessagePayload {
   content: string;
   variables?: Record<string, unknown>;
+  files?: AiFileInput[];
+  skill_calls?: AiSkillCall[];
+  skill_planning?: boolean;
+  skill_call_budget?: number;
   model?: string;
   temperature?: number;
   response_format?: Record<string, unknown>;
   extra_body?: Record<string, unknown>;
   enable_think_output?: boolean;
+}
+
+export interface AiFileInput {
+  name?: string;
+  filename?: string;
+  mime_type?: string;
+  size?: number;
+  data_url?: string;
+  base64?: string;
+  text?: string;
+  content?: string;
+  file_ref?: string;
+  file_id?: string;
+}
+
+export interface AiSkillCall {
+  skill_key?: string;
+  alias?: string;
+  input?: Record<string, unknown>;
+  reason?: string;
 }
 
 export interface AiRunResult {
