@@ -369,6 +369,156 @@ class LLMRuntimeTests(unittest.TestCase):
         audio_part = next(part for part in content if part.get("type") == "audio_url")
         self.assertEqual(audio_part["audio_url"]["url"], "data:audio/mpeg;base64,abc")
 
+    def test_siliconflow_collapses_developer_role_into_system(self) -> None:
+        """业务层会同时下发 system_prompt 和 developer_prompt 给 siliconflow。
+
+        siliconflow 不认 role='developer'，会返回 400。client 层需要在出站前把
+        developer 合并到 system 后面，附 ``## Developer Notes`` 分隔标题。
+        """
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="siliconflow",
+            api_key="sk-test",
+            model="Qwen/Qwen3-32B",
+            base_url="https://api.siliconflow.cn/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            response = client.generate_chat_response(
+                [
+                    {"role": "system", "content": "you are an assistant"},
+                    {"role": "developer", "content": "respond in chinese"},
+                    {"role": "user", "content": "hi"},
+                ]
+            )
+
+        self.assertEqual(response.content, "ok")
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        messages = body["messages"]
+        # 不再下发 role=developer
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        # developer 内容被合并到 system，并加 ## Developer Notes 标题
+        system_content = messages[0]["content"]
+        self.assertIn("you are an assistant", system_content)
+        self.assertIn("## Developer Notes", system_content)
+        self.assertIn("respond in chinese", system_content)
+
+    def test_siliconflow_developer_without_system_promotes_to_system(self) -> None:
+        """没有 system 时，第一段 developer 应被提升为 system。"""
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="siliconflow",
+            api_key="sk-test",
+            model="Qwen/Qwen3-32B",
+            base_url="https://api.siliconflow.cn/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            client.generate_chat_response(
+                [
+                    {"role": "developer", "content": "be concise"},
+                    {"role": "user", "content": "hi"},
+                ]
+            )
+
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        messages = body["messages"]
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        self.assertEqual(messages[0]["content"], "be concise")
+
+    def test_dashscope_collapses_developer_role_into_system(self) -> None:
+        """dashscope（阿里百炼 OpenAI 兼容层）也不认 developer，必须降级。"""
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="dashscope",
+            api_key="sk-test",
+            model="qwen-plus",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            client.generate_chat_response(
+                [
+                    {"role": "system", "content": "sys"},
+                    {"role": "developer", "content": "dev1"},
+                    {"role": "developer", "content": "dev2"},
+                    {"role": "user", "content": "hi"},
+                ]
+            )
+
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        messages = body["messages"]
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        system_content = messages[0]["content"]
+        self.assertIn("sys", system_content)
+        self.assertIn("dev1", system_content)
+        self.assertIn("dev2", system_content)
+        # 两段 developer 都标注来源
+        self.assertEqual(system_content.count("## Developer Notes"), 2)
+
+    def test_openai_provider_preserves_developer_role(self) -> None:
+        """OpenAI 原生 o 系列支持 role=developer，必须原样保留分层语义。"""
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="openai",
+            api_key="sk-test",
+            model="o3-mini",
+            base_url="https://api.openai.com/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            client.generate_chat_response(
+                [
+                    {"role": "system", "content": "sys"},
+                    {"role": "developer", "content": "dev"},
+                    {"role": "user", "content": "hi"},
+                ]
+            )
+
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        messages = body["messages"]
+        self.assertEqual([m["role"] for m in messages], ["system", "developer", "user"])
+        self.assertEqual(messages[1]["content"], "dev")
+
     def test_image_media_part_requires_supported_valid_data_url_or_remote_url(self) -> None:
         valid_png = self._image_data_url()
 

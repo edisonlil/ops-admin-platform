@@ -279,6 +279,22 @@ class OpenAICompatibleLLMClient:
 
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
 
+# `role: "developer"` 是 OpenAI 在 o 系列推理模型上引入的指令分层角色。
+# 截至目前，全行业只有 OpenAI 原生（含 Azure OpenAI 的 o 系列）支持该 role；
+# 其他 OpenAI 兼容 provider（dashscope、siliconflow、deepseek、kimi、mimo、
+# 智谱、mistral、cohere、groq 等）以及 anthropic（用 Messages API、根本没有
+# message 内的 system role）都不支持，发出去会直接 400。
+# 业务层在 ai_applications.application 里把 system/developer 当作两个独立来源
+# 拼消息，client 层负责按 provider 做兼容：
+#   - provider == "openai" → 原样保留 developer（让 o 系列推理模型拿到分层指令）
+#   - 其他所有 provider     → 把 developer 合并到最近的 system 后面，标注来源
+# 这样业务代码不需要知道下游是哪个 provider，也不会因为切了模型就炸。
+DEVELOPER_MERGE_SEPARATOR = "\n\n## Developer Notes\n"
+
+# 哪些 provider 原生支持 role="developer"。
+# 当前仅 OpenAI 原生。Azure OpenAI 的 o 系列应该走单独的 provider name（业务侧可扩展）。
+DEVELOPER_AWARE_PROVIDERS: frozenset[str] = frozenset({"openai"})
+
 
 def normalize_think_output(
     content: str,
@@ -320,9 +336,108 @@ def first_text(*values: Any) -> str:
     return ""
 
 
-def normalize_chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
+def collapse_developer_role_to_system(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把所有 ``role == "developer"`` 的消息合并到最近的 ``role == "system"`` 后面。
+
+    行为约定：
+    - 业务层在组装 messages 时，会按 ``(system, developer)`` 顺序、可能穿插
+      skill 上下文，调用此函数后再下发，可保证下游不认 developer 的 provider
+      不会因为 role 不识别返回 400。
+    - 如果整段 messages 里没有 ``system``，第一段 ``developer`` 会被提升为
+      ``system``；后续 developer 继续追加在该 system 末尾。
+    - 多段 developer 之间也按出现顺序串接，每段都加 ``## Developer Notes``
+      分隔标题，方便下游模型在 system 长上下文里区分来源。
+    - 非字符串 content（list of parts）按字符串化处理拼接，避免破坏 siliconflow
+      那一类依赖 content 形状的特殊处理。
+    """
+    collapsed: list[dict[str, Any]] = []
     for message in messages:
+        if not isinstance(message, dict):
+            collapsed.append(message)
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        content = message.get("content", "")
+        if role != "developer":
+            collapsed.append(message)
+            continue
+        text = _message_content_to_text(content)
+        if not text.strip():
+            # 空的 developer 直接丢弃，不污染 system
+            continue
+        if collapsed and str(collapsed[-1].get("role") or "").strip().lower() == "system":
+            existing = collapsed[-1].get("content", "")
+            collapsed[-1] = {
+                **collapsed[-1],
+                "content": _join_text_content(existing, text, DEVELOPER_MERGE_SEPARATOR),
+            }
+        else:
+            collapsed.append({"role": "system", "content": text})
+    return collapsed
+
+
+def _message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def _join_text_content(existing: Any, addition: str, separator: str) -> Any:
+    """拼接两段 content，保持原形状。
+
+    - existing 为字符串 → 直接字符串拼接
+    - existing 为 list of parts → 在末尾追加一个 text part（避免破坏 siliconflow
+      那类需要 content 是 list 的 provider）
+    - 其它情况 → 退化为字符串
+    """
+    if isinstance(existing, str):
+        if not existing:
+            return addition
+        return f"{existing}{separator}{addition}"
+    if isinstance(existing, list):
+        text_part: dict[str, Any] = {"type": "text", "text": separator[2:] + addition}
+        if existing and isinstance(existing[-1], dict) and existing[-1].get("type") == "text":
+            existing = [*existing]
+            existing[-1] = {**existing[-1], "text": f"{existing[-1].get('text', '')}{separator}{addition}"}
+            return existing
+        return [*existing, text_part]
+    if existing is None or existing == "":
+        return addition
+    return f"{existing}{separator}{addition}"
+
+
+def normalize_chat_messages(
+    messages: list[dict[str, Any]],
+    *,
+    collapse_developer: bool = True,
+) -> list[dict[str, Any]]:
+    """基础 messages 归一化。
+
+    ``collapse_developer=True`` 时，会把所有 ``role == "developer"`` 消息
+    合并到最近的 system 后面。绝大多数 provider（除 OpenAI 原生 o 系列外）
+    都不支持 developer role，业务侧不应该传 False；只有确认走 OpenAI o 系列的
+    调用方才传 False 保留分层语义。
+    """
+    working: list[dict[str, Any]] = (
+        collapse_developer_role_to_system(messages) if collapse_developer else list(messages)
+    )
+    normalized: list[dict[str, Any]] = []
+    for message in working:
+        if not isinstance(message, dict):
+            # 保留异常输入的形状，不主动补默认 role（避免静默丢字段）
+            normalized.append(message)
+            continue
         role = str(message.get("role") or "user").strip() or "user"
         normalized.append(
             {
@@ -333,9 +448,21 @@ def normalize_chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, An
     return normalized or [{"role": "user", "content": ""}]
 
 
-def normalize_provider_chat_messages(provider_name: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized = normalize_chat_messages(messages)
-    if provider_name.strip().lower() != "siliconflow":
+def normalize_provider_chat_messages(
+    provider_name: str,
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """按 provider 名字做归一化。
+
+    - 非 siliconflow：保持 content 原样
+    - siliconflow：把 ``input_audio`` 形态转换成 ``audio_url``（旧版 SDK 约定）
+    - role 归一化与 ``developer`` → ``system`` 降级在 ``normalize_chat_messages``
+      里完成；只有 provider 原生支持 ``developer`` 的才传 ``collapse_developer=False``
+    """
+    provider_key = provider_name.strip().lower()
+    collapse_developer = provider_key not in DEVELOPER_AWARE_PROVIDERS
+    normalized = normalize_chat_messages(messages, collapse_developer=collapse_developer)
+    if provider_key != "siliconflow":
         return normalized
     return [
         {
