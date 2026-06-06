@@ -90,6 +90,7 @@ AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES = (
     "terminal",
 )
 AGENT_TOOL_CALL_MARKERS = ("<tool_call", "</tool_call", "<tool_result", "</tool_result", "minimax[>|")
+AGENT_TOOL_PROTOCOL_FRAGMENTS = ("<tool_", "</tool_", "|<tool_", "minimax[>")
 AGENT_UNHANDLED_TOOL_CALL_MESSAGE = (
     "模型输出了未开放的原生工具调用（例如 bash/run_command/tool_call/tool_result），本次运行已停止，避免继续循环。"
     "当前 Agent 只支持文件工作区工具：list_files、find_files、read_file、write_file、append_file、search_files；"
@@ -537,12 +538,12 @@ def stream_agent_message(
         answer_parts: list[str] = []
         error: Exception | None = None
         trace_recorded = False
+        stream_tool_marker_count = 0
+        stream_recent_text = ""
         stream_messages = prepared["messages"]
         stream_rendered_prompt = prepared["rendered_prompt"]
         stream_tool_results: list[dict[str, Any]] = []
         stream_tool_messages: list[dict[str, Any]] = []
-        stream_tool_marker_count = 0
-        stream_recent_text = ""
 
         def emit_named(event_name: str, payload_data: dict[str, Any]) -> str:
             return gateway.sse_data(payload_data).replace("data: ", f"event: {event_name}\ndata: ", 1)
@@ -671,11 +672,12 @@ def stream_agent_message(
                     yield event
                     break
                 content_delta = gateway.stream_event_content(event)
-                if content_delta:
-                    stream_tool_marker_count += raw_agent_tool_marker_count(content_delta)
-                    stream_recent_text = (stream_recent_text + content_delta)[-8000:]
+                visible_delta = stream_event_visible_text(event)
+                if visible_delta:
+                    stream_tool_marker_count += raw_agent_tool_marker_count(visible_delta)
+                    stream_recent_text = (stream_recent_text + visible_delta)[-8000:]
                     recent_tool_marker_count = raw_agent_tool_marker_count(stream_recent_text)
-                    if len("".join(answer_parts)) + len(content_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
+                    if len("".join(answer_parts)) + len(visible_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
                         boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         yield agent_boundary_stream_event(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
@@ -694,6 +696,7 @@ def stream_agent_message(
                     if (
                         stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
                         or recent_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
+                        or raw_agent_tool_protocol_fragment_detected(stream_recent_text)
                         or raw_agent_unsupported_tool_detected(stream_recent_text)
                     ):
                         boundary_error = agent_execution_boundary_error()
@@ -1429,6 +1432,8 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
         answer_parts: list[str] = []
         error: Exception | None = None
         trace_recorded = False
+        stream_tool_marker_count = 0
+        stream_recent_text = ""
 
         def finish_trace(status: str, trace_error: Exception | None) -> dict[str, Any]:
             nonlocal trace_recorded
@@ -1495,7 +1500,34 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
                     yield trace_event(trace)
                     yield event
                     break
-                answer_parts.append(gateway.stream_event_content(event))
+                content_delta = gateway.stream_event_content(event)
+                visible_delta = stream_event_visible_text(event)
+                if visible_delta:
+                    stream_tool_marker_count += raw_agent_tool_marker_count(visible_delta)
+                    stream_recent_text = (stream_recent_text + visible_delta)[-8000:]
+                    recent_tool_marker_count = raw_agent_tool_marker_count(stream_recent_text)
+                    if len("".join(answer_parts)) + len(visible_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
+                        boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        yield tool_call_blocked_event(trace_id, AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        trace = finish_trace("failed", boundary_error)
+                        yield trace_event(trace)
+                        yield "data: [DONE]\n\n"
+                        return
+                    if (
+                        stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
+                        or recent_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
+                        or raw_agent_tool_protocol_fragment_detected(stream_recent_text)
+                        or raw_agent_unsupported_tool_detected(stream_recent_text)
+                    ):
+                        boundary_error = agent_execution_boundary_error()
+                        answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                        yield tool_call_blocked_event(trace_id)
+                        trace = finish_trace("failed", boundary_error)
+                        yield trace_event(trace)
+                        yield "data: [DONE]\n\n"
+                        return
+                answer_parts.append(content_delta)
                 yield event
             if not trace_recorded:
                 trace = finish_trace("failed" if error else "success", error)
@@ -1713,6 +1745,11 @@ def raw_agent_tool_marker_count(text: str) -> int:
     return sum(lowered.count(marker) for marker in AGENT_TOOL_CALL_MARKERS)
 
 
+def raw_agent_tool_protocol_fragment_detected(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(fragment in lowered for fragment in AGENT_TOOL_PROTOCOL_FRAGMENTS)
+
+
 def raw_agent_unsupported_tool_detected(text: str) -> bool:
     compact = "".join(str(text or "").lower().split())
     return any(f'"name":"{tool_name}"' in compact or f'"tool":"{tool_name}"' in compact for tool_name in AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES)
@@ -1770,6 +1807,17 @@ def agent_boundary_stream_event(message: str) -> str:
             "choices": [{"index": 0, "delta": {"content": message}, "finish_reason": None}],
         }
     )
+
+
+def tool_call_blocked_event(trace_id: str, message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE) -> str:
+    return gateway.sse_data(
+        {
+            "trace_id": trace_id,
+            "status": "blocked",
+            "message": message,
+            "object": "ai_application.tool_call.blocked",
+        }
+    ).replace("data: ", "event: tool_call_blocked\ndata: ", 1)
 
 
 def run_agent_model_with_file_tools(
@@ -2432,6 +2480,23 @@ def parse_sse_event(event: str) -> tuple[str, dict[str, Any]]:
     except Exception:
         return event_type, {}
     return event_type, payload if isinstance(payload, dict) else {}
+
+
+def stream_event_visible_text(event: str) -> str:
+    event_type, payload = parse_sse_event(event)
+    if event_type == "error" or not payload:
+        return ""
+    choices = payload.get("choices") if isinstance(payload.get("choices"), list) else []
+    first = choices[0] if choices and isinstance(choices[0], dict) else {}
+    delta = first.get("delta") if isinstance(first.get("delta"), dict) else {}
+    parts = [
+        delta.get("content"),
+        delta.get("reasoning_content"),
+        delta.get("reasoning"),
+        delta.get("think"),
+        delta.get("thinking"),
+    ]
+    return "".join(str(part or "") for part in parts)
 
 
 def read_list(

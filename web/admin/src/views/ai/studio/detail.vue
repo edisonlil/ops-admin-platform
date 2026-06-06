@@ -996,6 +996,13 @@
                     <pre class="think-box">{{ previewThinkText }}</pre>
                   </n-collapse-item>
                 </n-collapse>
+                <div v-if="toolCallBlockedNotice" class="tool-call-notice">
+                  <span class="tool-call-notice__icon">!</span>
+                  <div>
+                    <strong>工具调用已拦截</strong>
+                    <p>{{ toolCallBlockedNotice }}</p>
+                  </div>
+                </div>
                 <div v-if="previewAnswerText" class="answer-renderer">
                   <template v-if="previewRenderedOutput.kind === 'html'">
                     <div class="html-preview-toolbar">
@@ -1647,6 +1654,7 @@
   const runLogsLoading = ref(false);
   const selectedRunLogId = ref('');
   const streamThinkText = ref('');
+  const toolCallBlockedNotice = ref('');
   const streamWorkflowTraceNodes = ref<WorkflowTraceNode[]>([]);
   const allowHtmlScripts = ref(false);
   const runningElapsedMs = ref(0);
@@ -2250,6 +2258,7 @@ result = [
     runLogs.value = [];
     selectedRunLogId.value = '';
     streamThinkText.value = '';
+    toolCallBlockedNotice.value = '';
     syncRuntimeVariableValues();
     ensureWorkspaceMatchesAppType();
   }
@@ -2286,6 +2295,7 @@ result = [
     runLogs.value = [];
     selectedRunLogId.value = '';
     streamThinkText.value = '';
+    toolCallBlockedNotice.value = '';
     syncRuntimeVariableValues();
     ensureWorkspaceMatchesAppType();
   }
@@ -2465,6 +2475,7 @@ result = [
       }
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
+      toolCallBlockedNotice.value = '';
       streamWorkflowTraceNodes.value = [];
       if (isWorkflowMode.value) workflowRunStatusText.value = '请求后端执行';
       await runDraftStream({
@@ -2539,6 +2550,7 @@ result = [
       if (!saved) return;
       runResult.value = { answer: '', trace_id: '', usage: {} };
       streamThinkText.value = '';
+      toolCallBlockedNotice.value = '';
       const result = await previewPlatformAiCapability(form.app_key, {
         tenant_id: Number(platformPreviewForm.tenant_id),
         model: platformPreviewForm.model,
@@ -3321,6 +3333,7 @@ result = [
     workflowRunErrorText.value = '';
     workflowRunStatusText.value = '等待运行';
     streamThinkText.value = '';
+    toolCallBlockedNotice.value = '';
     streamWorkflowTraceNodes.value = [];
     lastRunElapsedMs.value = 0;
     runningElapsedMs.value = 0;
@@ -3612,9 +3625,25 @@ result = [
           };
           continue;
         }
+        if (parsed.type === 'tool_call_blocked') {
+          toolCallBlockedNotice.value = String(payloadData.message || '模型请求了当前应用未开放的工具调用，已停止本次输出。');
+          streamThinkText.value = '模型请求了当前应用未开放的工具调用，系统已拦截并停止继续输出。';
+          runResult.value = {
+            ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
+            trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
+            answer: content,
+          };
+          continue;
+        }
         const delta = payloadData?.choices?.[0]?.delta || {};
         const reasoningDelta = delta.reasoning_content || delta.reasoning || delta.think || delta.thinking || '';
         const contentDelta = delta.content || '';
+        const visibleDelta = `${reasoningDelta || ''}${contentDelta || ''}`;
+        if (containsRawToolProtocol(visibleDelta)) {
+          toolCallBlockedNotice.value = '模型请求了当前应用未开放的工具调用，已停止显示原始工具协议。';
+          streamThinkText.value = '模型请求了当前应用未开放的工具调用，系统已隐藏原始协议内容。';
+          continue;
+        }
         if (reasoningDelta) {
           reasoning += reasoningDelta;
           streamThinkText.value = reasoning;
@@ -3654,6 +3683,29 @@ result = [
         ?.slice(6)
         .trim() || '';
     return { type, data };
+  }
+
+  function containsRawToolProtocol(value: unknown) {
+    const text = String(value || '').toLowerCase();
+    if (!text) return false;
+    const compact = text.replace(/\s+/g, '');
+    return (
+      text.includes('<tool_call') ||
+      text.includes('</tool_call') ||
+      text.includes('<tool_result') ||
+      text.includes('</tool_result') ||
+      text.includes('<tool_') ||
+      text.includes('</tool_') ||
+      text.includes('|<tool_') ||
+      text.includes('minimax[>|') ||
+      text.includes('minimax[>') ||
+      compact.includes('"name":"bash"') ||
+      compact.includes('"tool":"bash"') ||
+      compact.includes('"name":"run_command"') ||
+      compact.includes('"tool":"run_command"') ||
+      compact.includes('"name":"shell_exec"') ||
+      compact.includes('"tool":"shell_exec"')
+    );
   }
 
   function isAbortError(error: unknown) {
@@ -6723,6 +6775,46 @@ result = [
     line-height: 1.7;
     background: transparent;
     border-left: 2px solid color-mix(in srgb, var(--app-border-color, #d9e1ec) 80%, transparent);
+  }
+
+  .tool-call-notice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    color: var(--app-text-color-2);
+    background: color-mix(in srgb, #f59e0b 10%, var(--app-surface-bg, #fff));
+    border: 1px solid color-mix(in srgb, #f59e0b 34%, transparent);
+    border-radius: 8px;
+  }
+
+  .tool-call-notice__icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid color-mix(in srgb, #f59e0b 55%, transparent);
+    border-radius: 999px;
+  }
+
+  .tool-call-notice strong {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--app-text-color-1);
+    font-size: 13px;
+  }
+
+  .tool-call-notice p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
   }
 
   :deep(.think-collapse .n-collapse-item) {

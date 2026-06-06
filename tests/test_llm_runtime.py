@@ -1083,6 +1083,41 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_ai_application_draft_stream_hides_raw_native_tool_protocol(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    ai_applications.save_ai_application(self._sample_ai_application("tool-protocol-stream"))
+
+                    def fake_stream_chat_completions(**kwargs: object) -> object:
+                        yield 'data: {"choices":[{"delta":{"reasoning_content":"I need a file "}}]}\n\n'
+                        yield 'data: {"choices":[{"delta":{"reasoning_content":"<tool_call>{\\"name\\":\\"bash\\",\\"arguments\\":{\\"command\\":\\"ls /tmp\\"}}</tool_call>"}}]}\n\n'
+                        raise AssertionError("stream should stop before forwarding later chunks")
+
+                    with mock.patch(
+                        "ai_applications.application.services.gateway.stream_chat_completions",
+                        side_effect=fake_stream_chat_completions,
+                    ):
+                        events = list(
+                            ai_applications.stream_draft_application(
+                                "tool-protocol-stream",
+                                {"variables": {"question": "read pdf"}, "enable_think_output": True},
+                            )
+                        )
+                    traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            joined = "".join(events)
+            self.assertIn("event: tool_call_blocked", joined)
+            self.assertNotIn("<tool_call>", joined)
+            self.assertNotIn('"name":"bash"', joined)
+            self.assertTrue(joined.rstrip().endswith("data: [DONE]"))
+            self.assertEqual(traces[0]["status"], "failed")
+            self.assertIn("未开放", traces[0]["answer"])
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_draft_stream_records_trace_without_done_event(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)
@@ -2234,7 +2269,8 @@ class LLMRuntimeTests(unittest.TestCase):
                         messages = ai_applications.list_agent_messages("stream-tool-result-agent", conversation["conversation_key"])["items"]
 
             joined = "".join(events)
-            self.assertIn("prefix", joined)
+            self.assertNotIn("prefix <tool_", joined)
+            self.assertNotIn("<tool_", joined)
             self.assertIn("run_command", joined)
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["status"], "failed")
