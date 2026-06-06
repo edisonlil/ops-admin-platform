@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import tempfile
 import unittest
 import zipfile
@@ -468,6 +469,64 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(version["manifest"]["runtime"]["kind"], "sandbox_python")
         self.assertEqual(version["runtime_constraints"]["requirements"], "scripts/requirements.txt")
         self.assertIn("scripts/main.py", [entry["path"] for entry in version["package_files"]])
+
+    def test_skill_upload_infers_name_from_filename_when_skill_md_has_no_name(self) -> None:
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("SKILL.md", "# Interview Architect\n\nBuild an interview plan.")
+
+        uploaded = services.upload_skill_asset(
+            {
+                "version": "1.0.0",
+                "filename": "afrexai-interview-architect-1.0.0.zip",
+                "package_bytes": buffer.getvalue(),
+            },
+            self.current_user,
+        )
+
+        item = uploaded["item"]
+        version = uploaded["version"]
+        self.assertEqual(item["name"], "afrexai-interview-architect")
+        self.assertEqual(item["skill_key"], "afrexai-interview-architect")
+        self.assertEqual(version["manifest"]["name"], "afrexai-interview-architect")
+        self.assertEqual(version["manifest"]["skill_key"], "afrexai-interview-architect")
+
+    def test_skill_upload_normalizes_single_root_folder_package(self) -> None:
+        buffer = BytesIO()
+        skill_md = "\n".join(
+            [
+                "---",
+                "description: nested package",
+                "runtime:",
+                "  kind: sandbox_python",
+                "  entrypoint: scripts/main.py",
+                "---",
+                "",
+                "Run nested package script.",
+            ]
+        )
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("afrexai-interview-architect/SKILL.md", skill_md)
+            archive.writestr("afrexai-interview-architect/scripts/main.py", "result = {'ok': True}")
+
+        uploaded = services.upload_skill_asset(
+            {
+                "version": "1.0.0",
+                "filename": "afrexai-interview-architect-1.0.0.zip",
+                "package_bytes": buffer.getvalue(),
+            },
+            self.current_user,
+        )
+
+        version = uploaded["version"]
+        self.assertEqual(uploaded["item"]["name"], "afrexai-interview-architect")
+        self.assertEqual(version["entrypoint"], "scripts/main.py")
+        self.assertEqual([entry["path"] for entry in version["package_files"]], ["SKILL.md", "scripts/main.py"])
+        services.publish_skill_version(int(uploaded["item"]["id"]), int(version["id"]), self.current_user)
+        resolved = services.resolve_published_skill(skill_key=uploaded["item"]["skill_key"], tenant_id=7)
+        package_bytes = base64.b64decode(resolved["package_data_base64"])
+        with zipfile.ZipFile(BytesIO(package_bytes)) as archive:
+            self.assertEqual(sorted(archive.namelist()), ["SKILL.md", "scripts/main.py"])
 
     def test_published_skill_http_payload_does_not_expose_package_body(self) -> None:
         skill = self.create_skill(skill_key="contract.review")

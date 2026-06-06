@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import hashlib
@@ -789,34 +789,6 @@ def load_skill_asset(skill_id: int, current_user: dict[str, Any], action: str = 
     return item
 
 
-def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
-    filename = str(payload.get("filename") or "").strip()
-    if filename and not filename.lower().endswith(".zip"):
-        raise domain_http_error(InvalidSkillPackage("仅支持 ZIP 技能包"))
-    package_bytes = payload.get("package_bytes")
-    if not isinstance(package_bytes, (bytes, bytearray)) or not package_bytes:
-        raise domain_http_error(InvalidSkillPackage("请上传 ZIP 技能包"))
-    if len(package_bytes) > MAX_SKILL_PACKAGE_BYTES:
-        raise domain_http_error(InvalidSkillPackage("ZIP 技能包过大"))
-    try:
-        with zipfile.ZipFile(io.BytesIO(bytes(package_bytes))) as archive:
-            skill_entry = find_skill_entry(archive)
-            if skill_entry.flag_bits & 0x1:
-                raise domain_http_error(InvalidSkillPackage("不支持加密 ZIP 技能包"))
-            raw_content = archive.read(skill_entry)
-    except zipfile.BadZipFile as exc:
-        raise domain_http_error(InvalidSkillPackage("ZIP 技能包格式无效")) from exc
-    except RuntimeError as exc:
-        raise domain_http_error(InvalidSkillPackage("读取 ZIP 技能包失败")) from exc
-    if len(raw_content) > MAX_SKILL_CONTENT_LENGTH:
-        raise domain_http_error(InvalidSkillPackage("SKILL.md 内容过大"))
-    try:
-        content = raw_content.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise domain_http_error(InvalidSkillPackage("SKILL.md 必须使用 UTF-8 编码")) from exc
-    return normalize_skill_package_content({**payload, "content": content, "entrypoint": "SKILL.md"})
-
-
 def find_skill_entry(archive: zipfile.ZipFile) -> zipfile.ZipInfo:
     candidates: list[tuple[str, zipfile.ZipInfo]] = []
     for entry in archive.infolist():
@@ -868,6 +840,55 @@ def validate_skill_archive_entries(archive: zipfile.ZipFile) -> list[dict[str, A
     return entries
 
 
+def normalize_skill_archive_package(archive: zipfile.ZipFile) -> tuple[bytes, list[dict[str, Any]], bytes]:
+    skill_entry = find_skill_entry(archive)
+    skill_path = normalize_zip_entry_name(skill_entry.filename)
+    root_prefix = skill_path[: -len("SKILL.md")] if skill_path != "SKILL.md" else ""
+    package_files: list[dict[str, Any]] = []
+    raw_content = b""
+    seen_paths: set[str] = set()
+    file_count = 0
+    canonical_buffer = io.BytesIO()
+    with zipfile.ZipFile(canonical_buffer, "w", compression=zipfile.ZIP_DEFLATED) as canonical:
+        for entry in archive.infolist():
+            normalized = normalize_zip_entry_name(entry.filename)
+            if not normalized:
+                continue
+            if entry.flag_bits & 0x1:
+                raise domain_http_error(InvalidSkillPackage("encrypted ZIP skill packages are not supported"))
+            if entry.is_dir():
+                continue
+            relative_path = normalized
+            if root_prefix:
+                if not normalized.startswith(root_prefix):
+                    continue
+                relative_path = normalized[len(root_prefix):]
+            if not relative_path:
+                continue
+            validate_relative_skill_package_path(relative_path)
+            if relative_path in seen_paths:
+                raise domain_http_error(InvalidSkillPackage(f"duplicate skill package path: {relative_path}"))
+            seen_paths.add(relative_path)
+            file_count += 1
+            if file_count > MAX_SKILL_FILE_COUNT:
+                raise domain_http_error(InvalidSkillPackage("ZIP skill package contains too many files"))
+            data = archive.read(entry)
+            canonical.writestr(relative_path, data)
+            package_files.append({"path": relative_path, "size": int(entry.file_size or 0), "sha256": hashlib.sha256(data).hexdigest()})
+            if relative_path == "SKILL.md":
+                raw_content = data
+    if not raw_content:
+        raise domain_http_error(InvalidSkillPackage("ZIP skill package must contain SKILL.md"))
+    return raw_content, package_files, canonical_buffer.getvalue()
+
+
+def validate_relative_skill_package_path(path: str) -> None:
+    normalized = path.replace("\\", "/").strip("/")
+    parts = normalized.split("/")
+    if not normalized or any(part in {"", ".", ".."} for part in parts) or ":" in parts[0]:
+        raise domain_http_error(InvalidSkillPackage("ZIP skill package contains unsafe path"))
+
+
 def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
     filename = str(payload.get("filename") or "").strip()
     if filename and not filename.lower().endswith(".zip"):
@@ -880,9 +901,7 @@ def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
         raise domain_http_error(InvalidSkillPackage("ZIP skill package is too large"))
     try:
         with zipfile.ZipFile(io.BytesIO(package_bytes)) as archive:
-            package_files = validate_skill_archive_entries(archive)
-            skill_entry = find_skill_entry(archive)
-            raw_content = archive.read(skill_entry)
+            raw_content, package_files, normalized_package_bytes = normalize_skill_archive_package(archive)
     except zipfile.BadZipFile as exc:
         raise domain_http_error(InvalidSkillPackage("ZIP skill package is invalid")) from exc
     except RuntimeError as exc:
@@ -903,75 +922,12 @@ def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
     )
     package.update(
         {
-            "package_sha256": hashlib.sha256(package_bytes).hexdigest(),
-            "package_size": len(package_bytes),
-            "package_data_base64": base64.b64encode(package_bytes).decode("ascii"),
+            "package_sha256": hashlib.sha256(normalized_package_bytes).hexdigest(),
+            "package_size": len(normalized_package_bytes),
+            "package_data_base64": base64.b64encode(normalized_package_bytes).decode("ascii"),
         }
     )
     return package
-
-
-def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
-    content = str(payload.get("content") or payload.get("skill_content") or "").strip()
-    if not content:
-        raise domain_http_error(InvalidSkillPackage("skill content is required"))
-    if len(content) > MAX_SKILL_CONTENT_LENGTH:
-        raise domain_http_error(InvalidSkillPackage("skill content is too large"))
-    entrypoint = str(payload.get("entrypoint") or "SKILL.md").strip() or "SKILL.md"
-    if entrypoint.replace("\\", "/") != "SKILL.md":
-        raise domain_http_error(InvalidSkillPackage("only SKILL.md entrypoint is supported"))
-    manifest = normalize_dict(payload.get("manifest"))
-    parsed = parse_skill_markdown_frontmatter(content)
-    manifest = {**parsed, **manifest}
-    name = str(payload.get("name") or manifest.get("name") or "").strip()
-    if not name:
-        raise domain_http_error(InvalidSkillPackage("skill name is required"))
-    description = str(payload.get("description") or manifest.get("description") or "").strip()
-    tags = normalize_string_list(payload.get("tags") or manifest.get("tags"))
-    manifest.update({"name": name, "description": description})
-    if tags:
-        manifest["tags"] = tags
-    runtime_constraints = normalize_dict(payload.get("runtime_constraints"))
-    validation_report = {
-        "valid": True,
-        "entrypoint": entrypoint,
-        "checks": [
-            {"code": "name", "message": "技能名称已填写", "passed": True},
-            {"code": "content", "message": "技能内容已填写", "passed": True},
-            {"code": "entrypoint", "message": "入口文件为 SKILL.md", "passed": True},
-        ],
-    }
-    return {
-        "skill_key": str(payload.get("skill_key") or manifest.get("skill_key") or "").strip(),
-        "name": name,
-        "description": description,
-        "tags": tags,
-        "manifest": manifest,
-        "content": content,
-        "entrypoint": entrypoint,
-        "runtime_constraints": runtime_constraints,
-        "validation_report": validation_report,
-    }
-
-
-def parse_skill_markdown_frontmatter(content: str) -> dict[str, Any]:
-    if not content.startswith("---"):
-        return {}
-    lines = content.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    frontmatter: dict[str, Any] = {}
-    for line in lines[1:80]:
-        if line.strip() == "---":
-            return frontmatter
-        if ":" not in line:
-            continue
-        key, raw_value = line.split(":", 1)
-        key = key.strip()
-        value = raw_value.strip().strip('"').strip("'")
-        if key:
-            frontmatter[key] = value
-    return {}
 
 
 def normalize_required(value: Any, field_name: str) -> str:
@@ -1107,6 +1063,24 @@ def parse_frontmatter_scalar(value: str) -> Any:
     return text
 
 
+def infer_skill_package_name(payload: dict[str, Any], manifest: dict[str, Any]) -> str:
+    for value in (payload.get("name"), manifest.get("name"), payload.get("skill_key"), manifest.get("skill_key")):
+        text = str(value or "").strip()
+        if text:
+            return text
+    filename = str(payload.get("filename") or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if filename.lower().endswith(".zip"):
+        filename = filename[:-4]
+    filename = re.sub(r"[-_. ]*v?\d+(?:\.\d+){1,3}$", "", filename, flags=re.IGNORECASE).strip("-_. ")
+    return filename or "uploaded-skill"
+
+
+def normalize_skill_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    normalized = re.sub(r"[^a-z0-9_.-]+", "_", text).strip("._-")
+    return normalized[:80].strip("._-")
+
+
 def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
     content = str(payload.get("content") or payload.get("skill_content") or "").strip()
     if not content:
@@ -1116,19 +1090,18 @@ def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
     manifest = {**parse_skill_markdown_frontmatter(content), **normalize_dict(payload.get("manifest"))}
     package_files = normalize_list_of_dict(payload.get("package_files"))
     manifest = normalize_skill_manifest(manifest, package_files=package_files)
-    name = str(payload.get("name") or manifest.get("name") or "").strip()
-    if not name:
-        raise domain_http_error(InvalidSkillPackage("skill name is required"))
+    name = infer_skill_package_name(payload, manifest)
     description = str(payload.get("description") or manifest.get("description") or "").strip()
     tags = normalize_string_list(payload.get("tags") or manifest.get("tags"))
-    manifest.update({"name": name, "description": description})
+    skill_key = normalize_skill_key(payload.get("skill_key") or manifest.get("skill_key") or name)
+    manifest.update({"name": name, "skill_key": skill_key, "description": description})
     if tags:
         manifest["tags"] = tags
     entrypoint = runtime_entrypoint(manifest, fallback=str(payload.get("entrypoint") or "SKILL.md"))
     validate_skill_package_runtime(manifest, entrypoint=entrypoint, package_files=package_files)
     runtime_constraints = {**manifest_runtime_constraints(manifest), **normalize_dict(payload.get("runtime_constraints"))}
     return {
-        "skill_key": str(payload.get("skill_key") or manifest.get("skill_key") or "").strip(),
+        "skill_key": skill_key,
         "name": name,
         "description": description,
         "tags": tags,
