@@ -4,7 +4,10 @@ import json
 import os
 import subprocess
 import tempfile
+import zipfile
+from io import BytesIO
 from pathlib import Path
+import base64
 from typing import Any
 
 from ai_applications.application.skill_runtime import SkillRuntimeError
@@ -30,7 +33,7 @@ class DockerSkillSandboxRunner:
         cpus: str = DEFAULT_CPUS,
         pids_limit: str = DEFAULT_PIDS_LIMIT,
         user: str = DEFAULT_USER,
-        network: str = "none",
+        network: str = "bridge",
     ) -> None:
         self.image = image
         self.docker_binary = docker_binary
@@ -39,7 +42,7 @@ class DockerSkillSandboxRunner:
         self.cpus = cpus or DEFAULT_CPUS
         self.pids_limit = pids_limit or DEFAULT_PIDS_LIMIT
         self.user = user or DEFAULT_USER
-        self.network = network or "none"
+        self.network = network or "bridge"
 
     def run(self, request: dict[str, Any]) -> dict[str, Any]:
         runtime_kind = str(request.get("runtime_kind") or "").strip().lower()
@@ -52,9 +55,7 @@ class DockerSkillSandboxRunner:
         with tempfile.TemporaryDirectory(prefix="ops_skill_sandbox_") as temp_dir:
             workspace = Path(temp_dir)
             write_common_inputs(workspace, request)
-            script_path = workspace / entrypoint
-            script_path.parent.mkdir(parents=True, exist_ok=True)
-            script_path.write_text(str(request.get("content") or ""), encoding="utf-8")
+            prepare_skill_package(workspace, request, entrypoint)
             command = [
                 "python",
                 "/workspace/runner.py",
@@ -72,9 +73,7 @@ class DockerSkillSandboxRunner:
         with tempfile.TemporaryDirectory(prefix="ops_skill_sandbox_") as temp_dir:
             workspace = Path(temp_dir)
             write_common_inputs(workspace, request)
-            script_path = workspace / entrypoint
-            script_path.parent.mkdir(parents=True, exist_ok=True)
-            script_path.write_text(str(request.get("content") or ""), encoding="utf-8")
+            prepare_skill_package(workspace, request, entrypoint)
             command = [
                 "python",
                 "/workspace/runner.py",
@@ -162,6 +161,45 @@ def write_common_inputs(workspace: Path, request: dict[str, Any]) -> None:
     chmod_best_effort(runner_path, 0o644)
 
 
+def prepare_skill_package(workspace: Path, request: dict[str, Any], entrypoint: Path) -> None:
+    package_data = str(request.get("package_data_base64") or "")
+    if package_data:
+        extract_package(workspace, package_data)
+    else:
+        script_path = workspace / entrypoint
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(str(request.get("content") or ""), encoding="utf-8")
+    if not (workspace / entrypoint).exists():
+        raise SkillRuntimeError(f"skill sandbox entrypoint not found: {entrypoint.as_posix()}")
+
+
+def extract_package(workspace: Path, package_data_base64: str) -> None:
+    try:
+        package_bytes = base64.b64decode(package_data_base64)
+    except ValueError as exc:
+        raise SkillRuntimeError("skill package payload is not valid base64") from exc
+    try:
+        with zipfile.ZipFile(BytesIO(package_bytes)) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                path = safe_archive_path(info.filename)
+                target = workspace / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(info))
+                chmod_best_effort(target, 0o755 if path.suffix in {".sh", ".py"} else 0o644)
+    except zipfile.BadZipFile as exc:
+        raise SkillRuntimeError("skill package payload is not a valid ZIP archive") from exc
+
+
+def safe_archive_path(name: str) -> Path:
+    normalized = str(name or "").replace("\\", "/").strip("/")
+    path = Path(normalized)
+    if not normalized or any(part in {"", ".", ".."} or ":" in part for part in path.parts):
+        raise SkillRuntimeError("skill package contains unsafe path")
+    return Path(*path.parts)
+
+
 def safe_entrypoint(request: dict[str, Any], *, default_name: str) -> Path:
     raw = str(request.get("entrypoint") or request.get("runtime_config", {}).get("entrypoint") or default_name).strip()
     normalized = raw.replace("\\", "/").lstrip("/")
@@ -211,7 +249,7 @@ def configured_runner_from_env() -> DockerSkillSandboxRunner | None:
         cpus=os.environ.get("OPS_ADMIN_SKILL_SANDBOX_CPUS", DEFAULT_CPUS).strip() or DEFAULT_CPUS,
         pids_limit=os.environ.get("OPS_ADMIN_SKILL_SANDBOX_PIDS_LIMIT", DEFAULT_PIDS_LIMIT).strip() or DEFAULT_PIDS_LIMIT,
         user=os.environ.get("OPS_ADMIN_SKILL_SANDBOX_USER", DEFAULT_USER).strip() or DEFAULT_USER,
-        network=os.environ.get("OPS_ADMIN_SKILL_SANDBOX_NETWORK", "none").strip() or "none",
+        network=os.environ.get("OPS_ADMIN_SKILL_SANDBOX_NETWORK", "bridge").strip() or "bridge",
     )
 
 
@@ -222,6 +260,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import runpy
 import subprocess
 import sys
@@ -236,6 +275,7 @@ def main() -> int:
     args = parser.parse_args()
     with open(args.input, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
+    install_requirements()
     if args.shell:
         completed = subprocess.run(
             ["sh", args.shell],
@@ -274,6 +314,27 @@ def main() -> int:
 def write_output(path: str, payload: dict) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False)
+
+
+def install_requirements() -> None:
+    for candidate in ("requirements.txt", "scripts/requirements.txt"):
+        if not os.path.exists(candidate):
+            continue
+        target = "/workspace/.skill_deps"
+        os.makedirs(target, exist_ok=True)
+        completed = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--target", target, "-r", candidate],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or "pip install failed")
+        if target not in sys.path:
+            sys.path.insert(0, target)
+        return
 
 
 if __name__ == "__main__":

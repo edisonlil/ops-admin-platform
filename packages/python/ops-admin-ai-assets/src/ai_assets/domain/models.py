@@ -130,6 +130,10 @@ class SkillVersion:
     content_sha256: str
     entrypoint: str
     runtime_constraints: dict[str, Any]
+    package_sha256: str
+    package_size: int
+    package_data_base64: str
+    package_files: list[dict[str, Any]]
     validation_report: dict[str, Any]
     status: str
     published_time: str | None
@@ -147,6 +151,9 @@ class SkillVersion:
             "content_sha256": self.content_sha256,
             "entrypoint": self.entrypoint,
             "runtime_constraints": self.runtime_constraints,
+            "package_sha256": self.package_sha256,
+            "package_size": self.package_size,
+            "package_files": self.package_files,
             "validation_report": self.validation_report,
             "status": self.status,
             "published_time": self.published_time,

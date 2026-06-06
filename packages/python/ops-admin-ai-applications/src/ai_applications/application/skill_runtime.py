@@ -17,6 +17,7 @@ from ai_assets.application import services as skill_asset_services
 
 SANDBOX_RUNTIME_KINDS = {"sandbox", "sandbox_python", "sandbox_shell", "python", "shell"}
 PROMPT_CONTEXT_RUNTIME_KINDS = {"", "prompt", "prompt_context", "context"}
+LLM_TASK_RUNTIME_KINDS = {"llm_task", "llm"}
 BUILTIN_RUNTIME_KINDS = {"builtin", "builtin_executor"}
 BUILTIN_EXECUTOR_KEYS = {"log_zip_error_inspector", "log_zip_analysis", "log_analysis"}
 DEFAULT_SKILL_RESULT_VARIABLE = "_skills"
@@ -55,17 +56,32 @@ class SkillSandboxRunner(Protocol):
     def run(self, request: dict[str, Any]) -> dict[str, Any]: ...
 
 
+class SkillLLMTaskRunner(Protocol):
+    def run(self, request: dict[str, Any]) -> dict[str, Any]: ...
+
+
 class UnavailableSkillSandboxRunner:
     def run(self, request: dict[str, Any]) -> dict[str, Any]:
         raise SkillRuntimeError("skill sandbox runner is not configured")
 
 
+class UnavailableSkillLLMTaskRunner:
+    def run(self, request: dict[str, Any]) -> dict[str, Any]:
+        raise SkillRuntimeError("skill LLM task runner is not configured")
+
+
 _sandbox_runner: SkillSandboxRunner = UnavailableSkillSandboxRunner()
+_llm_task_runner: SkillLLMTaskRunner = UnavailableSkillLLMTaskRunner()
 
 
 def configure_sandbox_runner(runner: SkillSandboxRunner | None) -> None:
     global _sandbox_runner
     _sandbox_runner = runner or UnavailableSkillSandboxRunner()
+
+
+def configure_llm_task_runner(runner: SkillLLMTaskRunner | None) -> None:
+    global _llm_task_runner
+    _llm_task_runner = runner or UnavailableSkillLLMTaskRunner()
 
 
 @dataclass(slots=True)
@@ -304,23 +320,6 @@ def parse_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def execute_workflow_skill_call(
-    app: dict[str, Any],
-    payload: dict[str, Any],
-    variables: dict[str, Any],
-    request: Any,
-) -> SkillExecutionResult:
-    plan = prepare_skill_runtime(app, payload, variables, app_type="workflow")
-    input_payload = request.input if isinstance(getattr(request, "input", None), dict) else {}
-    call = SkillCall(
-        skill_key=str(getattr(request, "skill_key", "") or ""),
-        alias=str(getattr(request, "alias", "") or ""),
-        input=input_payload,
-    )
-    descriptor = plan.descriptor_for(call.alias or call.skill_key)
-    return execute_skill_call(plan, descriptor, call)
 
 
 def append_skill_context_messages(
@@ -651,6 +650,8 @@ def execute_skill_by_runtime(
     runtime_kind = descriptor.runtime_kind
     if runtime_kind in SANDBOX_RUNTIME_KINDS:
         return execute_sandbox_skill(plan, descriptor, input_payload)
+    if runtime_kind in LLM_TASK_RUNTIME_KINDS:
+        return execute_llm_task_skill(plan, descriptor, input_payload)
     if runtime_kind in BUILTIN_RUNTIME_KINDS or descriptor.executor_key in BUILTIN_EXECUTOR_KEYS:
         return execute_builtin_skill(descriptor, input_payload)
     if runtime_kind in PROMPT_CONTEXT_RUNTIME_KINDS:
@@ -687,6 +688,9 @@ def execute_sandbox_skill(
         "entrypoint": descriptor.resolved.get("entrypoint") or descriptor.manifest.get("entrypoint") or "",
         "content_sha256": descriptor.resolved.get("content_sha256") or "",
         "content": descriptor.content,
+        "package_data_base64": descriptor.resolved.get("package_data_base64") or "",
+        "package_sha256": descriptor.resolved.get("package_sha256") or "",
+        "package_files": descriptor.resolved.get("package_files") if isinstance(descriptor.resolved.get("package_files"), list) else [],
         "input": input_payload,
         "runtime_config": descriptor.runtime_config,
         "runtime_constraints": descriptor.runtime_constraints,
@@ -697,6 +701,35 @@ def execute_sandbox_skill(
     status = str(response.get("status") or "success")
     if status != "success":
         raise SkillRuntimeError(str(response.get("error_message") or "skill sandbox runner failed"))
+    output = response.get("output")
+    return output if isinstance(output, dict) else {"result": output}
+
+
+def execute_llm_task_skill(
+    plan: SkillRuntimePlan,
+    descriptor: SkillDescriptor,
+    input_payload: dict[str, Any],
+) -> dict[str, Any]:
+    request = {
+        "tenant_id": plan.tenant_id,
+        "app_key": plan.app_key,
+        "skill_key": descriptor.binding.skill_key,
+        "runtime_kind": descriptor.runtime_kind,
+        "manifest": descriptor.manifest,
+        "content": descriptor.content,
+        "package_data_base64": descriptor.resolved.get("package_data_base64") or "",
+        "package_sha256": descriptor.resolved.get("package_sha256") or "",
+        "package_files": descriptor.resolved.get("package_files") if isinstance(descriptor.resolved.get("package_files"), list) else [],
+        "input": input_payload,
+        "runtime_config": descriptor.runtime_config,
+        "runtime_constraints": descriptor.runtime_constraints,
+    }
+    response = _llm_task_runner.run(request)
+    if not isinstance(response, dict):
+        raise SkillRuntimeError("skill LLM task runner returned invalid result")
+    status = str(response.get("status") or "success")
+    if status != "success":
+        raise SkillRuntimeError(str(response.get("error_message") or "skill LLM task runner failed"))
     output = response.get("output")
     return output if isinstance(output, dict) else {"result": output}
 

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import copy
+import base64
+import io
+import json
+import zipfile
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
 from ai_assets.application import services as prompt_asset_services
+from ai_applications.application import agent_file_tools
 from ai_applications.application import skill_runtime
 from ai_applications.application.ports import AIApplicationsRepository
 from ai_runtime_core.prompt_runtime import media_content_parts
@@ -20,8 +24,6 @@ from ai_runtime_core.workflow_runtime import WorkflowLLMResult
 from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
-from ai_runtime_core.workflow_runtime import WorkflowSkillRequest
-from ai_runtime_core.workflow_runtime import WorkflowSkillResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 from ai_runtime_core.workflow_runtime import iter_workflow_events
 from ai_runtime_core.workflow_runtime import normalize_workflow_definition
@@ -80,6 +82,30 @@ repository: AIApplicationsRepository | None = None
 def configure_repository(ai_applications_repository: AIApplicationsRepository) -> None:
     global repository
     repository = ai_applications_repository
+
+
+class GatewaySkillLLMTaskRunner:
+    def __init__(self, *, model: str, temperature: float | None, extra_body: dict[str, Any] | None = None) -> None:
+        self.model = model
+        self.temperature = temperature
+        self.extra_body = dict(extra_body or {})
+
+    def run(self, request: dict[str, Any]) -> dict[str, Any]:
+        messages = build_llm_task_skill_messages(request)
+        response = gateway.chat_completions(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            extra_body=self.extra_body,
+            correlation_id=f"skill_llm_{uuid.uuid4().hex}",
+        )
+        answer = extract_answer(response)
+        output = {
+            "summary": "Skill executed as an LLM task.",
+            "answer": answer,
+            "artifacts": llm_task_artifacts(answer, request),
+        }
+        return {"status": "success", "output": output}
 
 
 def repo() -> AIApplicationsRepository:
@@ -389,17 +415,9 @@ def send_agent_message(
     answer = ""
     usage: dict[str, Any] = {}
     try:
-        response = gateway.chat_completions(
-            model=prepared["model"],
-            messages=prepared["messages"],
-            temperature=prepared["temperature"],
-            response_format=prepared["response_format"],
-            extra_body=resolve_extra_body(prepared["app"], payload),
-            enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
-            correlation_id=trace_id,
-        )
-        answer = extract_answer(response)
-        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        agent_run = run_agent_model_with_file_tools(prepared, payload, trace_id=trace_id)
+        answer = agent_run["answer"]
+        usage = agent_run["usage"]
         trace = record_trace(
             trace_id=trace_id,
             app=prepared["app"],
@@ -408,8 +426,8 @@ def send_agent_message(
             model=prepared["model"],
             status="success",
             variables=prepared["variables"],
-            messages=prepared["messages"],
-            rendered_prompt=prepared["rendered_prompt"],
+            messages=agent_run["messages"],
+            rendered_prompt=agent_run["rendered_prompt"],
             answer=answer,
             usage=usage,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -424,11 +442,13 @@ def send_agent_message(
         return {
             "conversation": prepared["conversation"],
             "user_message": prepared["user_message"],
-            "tool_messages": prepared.get("tool_messages", []),
+            "tool_messages": [*prepared.get("tool_messages", []), *agent_run.get("agent_tool_messages", [])],
             "skill_plan": {
                 "skills": skill_runtime.toolbox_snapshot(prepared["skill_plan"]),
                 "planned_calls": skill_runtime.skill_calls_snapshot(prepared["skill_plan"].planned_calls),
             },
+            "agent_file_workspace": agent_file_tools.snapshot(prepared.get("file_workspace")),
+            "agent_tool_results": agent_run.get("agent_tool_results", []),
             "assistant_message": assistant_message,
             "answer": answer,
             "trace_id": trace_id,
@@ -488,6 +508,10 @@ def stream_agent_message(
         answer_parts: list[str] = []
         error: Exception | None = None
         trace_recorded = False
+        stream_messages = prepared["messages"]
+        stream_rendered_prompt = prepared["rendered_prompt"]
+        stream_tool_results: list[dict[str, Any]] = []
+        stream_tool_messages: list[dict[str, Any]] = []
 
         def emit_named(event_name: str, payload_data: dict[str, Any]) -> str:
             return gateway.sse_data(payload_data).replace("data: ", f"event: {event_name}\ndata: ", 1)
@@ -504,8 +528,8 @@ def stream_agent_message(
                 model=prepared["model"],
                 status=status,
                 variables=prepared["variables"],
-                messages=prepared["messages"],
-                rendered_prompt=prepared["rendered_prompt"],
+                messages=stream_messages,
+                rendered_prompt=stream_rendered_prompt,
                 answer=answer,
                 usage={},
                 elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -553,9 +577,25 @@ def stream_agent_message(
                 },
             )
         try:
+            if agent_file_tool_stream_preflight_required(prepared, payload):
+                preflight = run_agent_file_tool_preflight(prepared, payload, trace_id=trace_id)
+                stream_tool_results = preflight.get("agent_tool_results", [])
+                stream_tool_messages = preflight.get("agent_tool_messages", [])
+                if stream_tool_results:
+                    stream_messages = preflight["messages"]
+                    stream_rendered_prompt = preflight["rendered_prompt"]
+                    yield emit_named(
+                        "agent_tool_result",
+                        {
+                            "trace_id": trace_id,
+                            "results": stream_tool_results,
+                            "tool_messages": stream_tool_messages,
+                            "object": "ai_application.agent.file_tools.result",
+                        },
+                    )
             for event in gateway.stream_chat_completions(
                 model=prepared["model"],
-                messages=prepared["messages"],
+                messages=stream_messages,
                 temperature=prepared["temperature"],
                 response_format=prepared["response_format"],
                 extra_body=resolve_extra_body(prepared["app"], payload),
@@ -939,24 +979,12 @@ def execute_workflow_application(
     def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
         return execute_workflow_sql_query(app, request, current_user=current_user)
 
-    def skill_executor(request: WorkflowSkillRequest) -> WorkflowSkillResult:
-        result = skill_runtime.execute_workflow_skill_call(app, payload, variables, request)
-        return WorkflowSkillResult(
-            output=result.output,
-            summary=result.summary,
-            evidence=result.evidence,
-            artifacts=result.artifacts,
-            status=result.status,
-            elapsed_ms=result.elapsed_ms,
-        )
-
     try:
         workflow_result = execute_workflow(
             definition,
             variables,
             llm_executor=llm_executor,
             sql_executor=sql_executor,
-            skill_executor=skill_executor,
         )
         answer = workflow_result.answer
         usage = workflow_result.usage
@@ -1074,24 +1102,12 @@ def stream_workflow_application(
             def sql_executor(request: WorkflowSQLRequest) -> WorkflowSQLResult:
                 return execute_workflow_sql_query(app, request, current_user=current_user)
 
-            def skill_executor(request: WorkflowSkillRequest) -> WorkflowSkillResult:
-                result = skill_runtime.execute_workflow_skill_call(app, payload, variables, request)
-                return WorkflowSkillResult(
-                    output=result.output,
-                    summary=result.summary,
-                    evidence=result.evidence,
-                    artifacts=result.artifacts,
-                    status=result.status,
-                    elapsed_ms=result.elapsed_ms,
-                )
-
             workflow_result = None
             for workflow_event in iter_workflow_events(
                 definition,
                 variables,
                 llm_executor=llm_executor,
                 sql_executor=sql_executor,
-                skill_executor=skill_executor,
             ):
                 event_name = str(workflow_event.get("event") or "")
                 node = workflow_event.get("node")
@@ -1261,6 +1277,9 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
 
     app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
     variables = extract_run_variables(payload)
+    model = resolve_model(app_for_run, payload)
+    temperature = resolve_temperature(app_for_run, payload)
+    configure_skill_llm_task_runner(app_for_run, payload, model=model, temperature=temperature)
     skill_plan = skill_runtime.prepare_skill_runtime(
         app_for_run,
         payload,
@@ -1274,8 +1293,8 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         variables,
         planning_content,
         skill_plan,
-        model=resolve_model(app_for_run, payload),
-        temperature=resolve_temperature(app_for_run, payload),
+        model=model,
+        temperature=temperature,
         app_type="single_turn_generation",
     )
     skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
@@ -1285,7 +1304,6 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
     messages = render_messages(app_for_run, variables)
     messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results)
     rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
-    model = resolve_model(app_for_run, payload)
     return {
         "app": app_for_run,
         "payload": payload,
@@ -1293,7 +1311,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         "messages": messages,
         "rendered_prompt": rendered_prompt,
         "model": model,
-        "temperature": resolve_temperature(app_for_run, payload),
+        "temperature": temperature,
         "response_format": resolve_response_format(app_for_run, payload),
         "prompt_refs": prompt_refs,
         "skill_plan": skill_plan,
@@ -1431,9 +1449,20 @@ def workflow_definition_from_import_payload(payload: dict[str, Any]) -> dict[str
 
 def validate_workflow_definition_payload(workflow: dict[str, Any]) -> None:
     try:
-        normalize_workflow_definition(workflow)
+        normalized = normalize_workflow_definition(workflow)
     except WorkflowRuntimeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    reject_workflow_skill_nodes(normalized)
+
+
+def reject_workflow_skill_nodes(workflow: dict[str, Any]) -> None:
+    nodes = workflow.get("nodes") if isinstance(workflow.get("nodes"), list) else []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_type = str(node.get("type") or "").strip().lower()
+        if node_type in {"skill", "tool"}:
+            raise HTTPException(status_code=422, detail="workflow applications do not support Skill nodes")
 
 
 def get_agent_conversation_or_404(app: dict[str, Any], conversation_key: str) -> dict[str, Any]:
@@ -1460,6 +1489,9 @@ def prepare_agent_run(
 
     app_for_run, prompt_refs = resolve_prompt_runtime_app(app)
     variables = extract_run_variables(payload)
+    model = resolve_model(app_for_run, payload)
+    temperature = resolve_temperature(app_for_run, payload)
+    configure_skill_llm_task_runner(app_for_run, payload, model=model, temperature=temperature)
     skill_plan = skill_runtime.prepare_skill_runtime(app_for_run, payload, variables, app_type="agent")
     plan_agent_skills_if_enabled(
         app_for_run,
@@ -1467,12 +1499,21 @@ def prepare_agent_run(
         variables,
         content,
         skill_plan,
-        model=resolve_model(app_for_run, payload),
-        temperature=resolve_temperature(app_for_run, payload),
+        model=model,
+        temperature=temperature,
     )
     skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
     variables = skill_runtime.merge_skill_results_into_variables(variables, skill_plan, skill_results)
     validate_variables(app_for_run, variables)
+    try:
+        file_workspace = agent_file_tools.prepare_workspace(
+            app_for_run,
+            conversation,
+            payload,
+            skill_runtime.collect_files(payload, variables),
+        )
+    except agent_file_tools.AgentFileToolError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     database_target = require_database()
     tool_messages: list[dict[str, Any]] = []
@@ -1522,6 +1563,7 @@ def prepare_agent_run(
         content,
         skill_plan=skill_plan,
         skill_results=skill_results,
+        file_workspace=file_workspace,
     )
     rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
     return {
@@ -1532,12 +1574,13 @@ def prepare_agent_run(
         "variables": variables,
         "messages": messages,
         "rendered_prompt": rendered_prompt,
-        "model": resolve_model(app_for_run, payload),
-        "temperature": resolve_temperature(app_for_run, payload),
+        "model": model,
+        "temperature": temperature,
         "response_format": resolve_response_format(app_for_run, payload),
         "prompt_refs": prompt_refs,
         "skill_plan": skill_plan,
         "skill_results": skill_results,
+        "file_workspace": file_workspace,
     }
 
 
@@ -1549,6 +1592,7 @@ def build_agent_messages(
     *,
     skill_plan: skill_runtime.SkillRuntimePlan | None = None,
     skill_results: list[skill_runtime.SkillExecutionResult] | None = None,
+    file_workspace: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     for role, field in (("system", "system_prompt"), ("developer", "developer_prompt")):
@@ -1557,6 +1601,9 @@ def build_agent_messages(
             messages.append({"role": role, "content": content})
     if skill_plan is not None:
         messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results or [])
+    file_tool_prompt = agent_file_tools.build_prompt(file_workspace)
+    if file_tool_prompt:
+        messages.append({"role": "developer", "content": file_tool_prompt})
     for item in history:
         role = str(item.get("role") or "")
         if role not in {"user", "assistant", "tool"}:
@@ -1568,6 +1615,124 @@ def build_agent_messages(
             messages.append({"role": message_role, "content": f"{prefix}{content}"})
     messages.append({"role": "user", "content": render_message_content("user", user_content, variables)})
     return messages
+
+
+def run_agent_model_with_file_tools(
+    prepared: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    trace_id: str,
+) -> dict[str, Any]:
+    response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=prepared["messages"],
+        temperature=prepared["temperature"],
+        response_format=prepared["response_format"],
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+        correlation_id=trace_id,
+    )
+    first_answer = extract_answer(response)
+    first_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+    request = agent_file_tools.parse_tool_request(first_answer)
+    if not prepared.get("file_workspace", {}).get("enabled") or not request.get("tool_calls"):
+        return {
+            "answer": agent_file_tools.protocol_final_answer(first_answer) or first_answer,
+            "usage": first_usage,
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [],
+            "agent_tool_messages": [],
+        }
+
+    tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
+    tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
+    follow_up_messages = agent_file_tools.build_follow_up_messages(prepared["messages"], first_answer, tool_results)
+    follow_up_response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=follow_up_messages,
+        temperature=prepared["temperature"],
+        response_format=prepared["response_format"],
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+        correlation_id=f"{trace_id}_final",
+    )
+    final_answer = extract_answer(follow_up_response)
+    follow_up_usage = follow_up_response.get("usage") if isinstance(follow_up_response.get("usage"), dict) else {}
+    return {
+        "answer": final_answer,
+        "usage": agent_file_tools.merge_usage(first_usage, follow_up_usage),
+        "messages": follow_up_messages,
+        "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
+        "agent_tool_results": tool_results,
+        "agent_tool_messages": tool_messages,
+    }
+
+
+def agent_file_tool_stream_preflight_required(prepared: dict[str, Any], payload: dict[str, Any]) -> bool:
+    return agent_file_tools.stream_preflight_required(prepared.get("file_workspace"), payload)
+
+
+def run_agent_file_tool_preflight(
+    prepared: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    trace_id: str,
+) -> dict[str, Any]:
+    response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=[*prepared["messages"], {"role": "user", "content": "If file tools are needed, return tool_calls JSON now. Otherwise return {\"tool_calls\":[]}."}],
+        temperature=0,
+        response_format={"type": "json_object"},
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=False,
+        correlation_id=f"{trace_id}_file_tools",
+    )
+    request = agent_file_tools.parse_tool_request(extract_answer(response))
+    if not request.get("tool_calls"):
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [],
+            "agent_tool_messages": [],
+        }
+    tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
+    tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
+    messages = agent_file_tools.build_follow_up_messages(prepared["messages"], extract_answer(response), tool_results)
+    return {
+        "messages": messages,
+        "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages)),
+        "agent_tool_results": tool_results,
+        "agent_tool_messages": tool_messages,
+    }
+
+
+def persist_agent_file_tool_messages(prepared: dict[str, Any], tool_results: list[dict[str, Any]], *, trace_id: str) -> list[dict[str, Any]]:
+    if not tool_results:
+        return []
+    status = "failed" if any(result.get("status") != "success" for result in tool_results) else "completed"
+    content = "Agent file tool results:\n" + json_dump(tool_results)
+    database_target = require_database()
+    try:
+        with connect(database_target, readonly=False) as conn:
+            repo().require_ai_applications_schema(conn)
+            repo().require_ai_agent_schema(conn)
+            return [
+                repo().insert_agent_message(
+                    conn,
+                    {
+                        "app_key": prepared["app"]["app_key"],
+                        "conversation_key": prepared["conversation"]["conversation_key"],
+                        "role": "tool",
+                        "content": content,
+                        "status": status,
+                        "trace_id": trace_id,
+                        "metadata": {"agent_file_tool_results": tool_results},
+                    },
+                )
+            ]
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
 
 
 def agent_history_limit(app: dict[str, Any]) -> int:
@@ -1653,11 +1818,13 @@ def normalize_application_payload(payload: dict[str, Any]) -> None:
     payload.setdefault("variables_schema", {})
     payload.setdefault("model_preferences", {})
     payload.setdefault("trace_policy", {"enabled": True})
+    if payload["app_type"] == "workflow":
+        validate_workflow_definition_payload(workflow_definition_from_app(payload))
 
 
 def validate_publishable(app: dict[str, Any]) -> None:
     if app.get("app_type") == "workflow":
-        workflow_definition_from_app(app)
+        validate_workflow_definition_payload(workflow_definition_from_app(app))
         return
     if app.get("app_type") == "agent":
         resolve_model(app, {})
@@ -1693,6 +1860,7 @@ def workflow_definition_from_app(app: dict[str, Any]) -> dict[str, Any]:
     workflow = runtime_config.get("workflow") if isinstance(runtime_config.get("workflow"), dict) else {}
     if not workflow:
         raise HTTPException(status_code=422, detail="workflow runtime_config.workflow is required")
+    reject_workflow_skill_nodes(workflow)
     return workflow
 
 
@@ -1901,6 +2069,90 @@ def resolve_extra_body(app: dict[str, Any], payload: dict[str, Any]) -> dict[str
     if isinstance(request_extra_body, dict):
         result.update(request_extra_body)
     return result
+
+
+def configure_skill_llm_task_runner(app: dict[str, Any], payload: dict[str, Any], *, model: str, temperature: float | None) -> None:
+    skill_runtime.configure_llm_task_runner(
+        GatewaySkillLLMTaskRunner(
+            model=model,
+            temperature=temperature,
+            extra_body=resolve_extra_body(app, payload),
+        )
+    )
+
+
+def build_llm_task_skill_messages(request: dict[str, Any]) -> list[dict[str, Any]]:
+    manifest = request.get("manifest") if isinstance(request.get("manifest"), dict) else {}
+    runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
+    references = collect_skill_reference_text(request, runtime)
+    payload = {
+        "skill_key": request.get("skill_key"),
+        "input": request.get("input") if isinstance(request.get("input"), dict) else {},
+        "manifest": manifest,
+    }
+    developer_parts = [
+        "You are executing the following uploaded Skill as an LLM task.",
+        "Follow the Skill instructions exactly and return the requested deliverable.",
+        "If you create an HTML deliverable, return the complete HTML document.",
+        str(request.get("content") or "").strip(),
+    ]
+    if references:
+        developer_parts.append("Skill package references:\n" + references)
+    return [
+        {"role": "developer", "content": "\n\n".join(part for part in developer_parts if part)},
+        {"role": "user", "content": json_dump(payload)},
+    ]
+
+
+def collect_skill_reference_text(request: dict[str, Any], runtime: dict[str, Any]) -> str:
+    reference_paths = [str(item).replace("\\", "/").lstrip("/") for item in runtime.get("references", []) if str(item or "").strip()]
+    if not reference_paths:
+        return ""
+    package_data = str(request.get("package_data_base64") or "")
+    if not package_data:
+        return ""
+    try:
+        package_bytes = base64.b64decode(package_data)
+    except ValueError:
+        return ""
+    chunks: list[str] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(package_bytes)) as archive:
+            names = {name.replace("\\", "/").lstrip("/"): name for name in archive.namelist()}
+            for path in reference_paths[:20]:
+                raw_name = names.get(path)
+                if not raw_name:
+                    continue
+                data = archive.read(raw_name)
+                if len(data) > 100_000:
+                    data = data[:100_000]
+                chunks.append(f"--- {path} ---\n{data.decode('utf-8-sig', errors='replace')}")
+    except (RuntimeError, zipfile.BadZipFile):
+        return ""
+    return "\n\n".join(chunks)
+
+
+def llm_task_artifacts(answer: str, request: dict[str, Any]) -> list[dict[str, Any]]:
+    if not answer.strip():
+        return []
+    output_schema = request.get("manifest", {}).get("outputs") if isinstance(request.get("manifest"), dict) else {}
+    artifact_type = "text/html" if "<html" in answer.lower() or "<!doctype html" in answer.lower() else "text/plain"
+    if isinstance(output_schema, dict):
+        raw_artifacts = output_schema.get("artifacts")
+        if isinstance(raw_artifacts, list) and raw_artifacts and isinstance(raw_artifacts[0], dict):
+            artifact_type = str(raw_artifacts[0].get("type") or artifact_type)
+    extension = "html" if artifact_type == "text/html" else "txt"
+    return [
+        {
+            "name": f"{request.get('skill_key') or 'skill'}-result.{extension}",
+            "type": artifact_type,
+            "content": answer,
+        }
+    ]
+
+
+def json_dump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def extract_answer(response: dict[str, Any]) -> str:

@@ -852,6 +852,10 @@ def save_skill_version(
         str(payload.get("content_sha256") or ""),
         str(payload.get("entrypoint") or "SKILL.md"),
         encode_json_dict(payload.get("runtime_constraints")),
+        str(payload.get("package_sha256") or ""),
+        int(payload.get("package_size") or 0),
+        str(payload.get("package_data_base64") or ""),
+        encode_json_list(payload.get("package_files")),
         encode_json_dict(payload.get("validation_report")),
         str(payload.get("status") or "draft"),
         actor,
@@ -865,7 +869,8 @@ def save_skill_version(
                 """
                 UPDATE skill_versions
                 SET version = ?, manifest_json = ?, content_text = ?, content_sha256 = ?,
-                    entrypoint = ?, runtime_constraints_json = ?, validation_report_json = ?,
+                    entrypoint = ?, runtime_constraints_json = ?, package_sha256 = ?, package_size = ?,
+                    package_data_base64 = ?, package_files_json = ?, validation_report_json = ?,
                     status = ?, editor = ?, editor_id = ?, update_time = ?, lock_version = lock_version + 1
                 WHERE id = ? AND tenant_id = ? AND skill_id = ? AND deleted = 0
                 """,
@@ -877,12 +882,13 @@ def save_skill_version(
                 """
                 INSERT INTO skill_versions (
                     tenant_id, skill_id, version, manifest_json, content_text, content_sha256,
-                    entrypoint, runtime_constraints_json, validation_report_json, status,
+                    entrypoint, runtime_constraints_json, package_sha256, package_size,
+                    package_data_base64, package_files_json, validation_report_json, status,
                     creator, creator_id, editor, editor_id, create_time, update_time
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tenant_id, skill_id, *values[:8], actor, actor_id, actor, actor_id, timestamp, timestamp),
+                (tenant_id, skill_id, *values[:12], actor, actor_id, actor, actor_id, timestamp, timestamp),
             )
             saved_id = inserted_id(conn, cursor, "skill_versions", timestamp, actor)
     return get_skill_version(tenant_id=tenant_id, version_id=saved_id)
@@ -1028,6 +1034,10 @@ def row_to_skill_version(row: dict[str, Any]) -> SkillVersion:
         content_sha256=str(row.get("content_sha256") or ""),
         entrypoint=str(row.get("entrypoint") or "SKILL.md"),
         runtime_constraints=decode_json_dict(row.get("runtime_constraints_json")),
+        package_sha256=str(row.get("package_sha256") or ""),
+        package_size=int(row.get("package_size") or 0),
+        package_data_base64=str(row.get("package_data_base64") or ""),
+        package_files=decode_json_list_of_dict(row.get("package_files_json")),
         validation_report=decode_json_dict(row.get("validation_report_json")),
         status=str(row.get("status") or "draft"),
         published_time=str(row["published_time"]) if row.get("published_time") is not None else None,

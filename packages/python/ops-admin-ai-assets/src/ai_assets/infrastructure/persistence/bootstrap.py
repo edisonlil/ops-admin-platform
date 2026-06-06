@@ -42,6 +42,9 @@ def require_ai_assets_schema(conn: Any) -> None:
     for table_name in ("prompt_assets", "prompt_versions", "skill_assets", "skill_versions"):
         if not column_exists(conn, table_name, "active_marker"):
             missing_columns.append(f"{table_name}.active_marker")
+    for column_name in ("package_sha256", "package_size", "package_data_base64", "package_files_json"):
+        if not column_exists(conn, "skill_versions", column_name):
+            missing_columns.append(f"skill_versions.{column_name}")
     if missing_columns:
         raise RuntimeError(
             "AI assets storage is not initialized; run `python scripts/init_ai_assets.py`"
@@ -58,6 +61,11 @@ def ensure_ai_assets_columns(conn: Any) -> None:
     if table_exists(conn, "skill_assets"):
         add_column_if_missing(conn, "skill_assets", "owner_user_id", "BIGINT DEFAULT NULL")
         add_column_if_missing(conn, "skill_assets", "owner_department_id", "BIGINT DEFAULT NULL")
+    if table_exists(conn, "skill_versions"):
+        add_column_if_missing(conn, "skill_versions", "package_sha256", "TEXT NOT NULL DEFAULT ''")
+        add_column_if_missing(conn, "skill_versions", "package_size", "BIGINT NOT NULL DEFAULT 0")
+        add_column_if_missing(conn, "skill_versions", "package_data_base64", "TEXT NOT NULL DEFAULT ''")
+        add_column_if_missing(conn, "skill_versions", "package_files_json", "TEXT NOT NULL DEFAULT '[]'")
 
 
 def ensure_ai_assets_active_markers(conn: Any) -> None:

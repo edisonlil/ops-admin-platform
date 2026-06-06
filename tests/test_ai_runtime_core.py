@@ -12,8 +12,6 @@ from ai_runtime_core.workflow_runtime import WorkflowLLMResult
 from ai_runtime_core.workflow_runtime import WorkflowRuntimeError
 from ai_runtime_core.workflow_runtime import WorkflowSQLRequest
 from ai_runtime_core.workflow_runtime import WorkflowSQLResult
-from ai_runtime_core.workflow_runtime import WorkflowSkillRequest
-from ai_runtime_core.workflow_runtime import WorkflowSkillResult
 from ai_runtime_core.workflow_runtime import execute_workflow
 from ai_runtime_core.workflow_runtime import iter_workflow_events
 
@@ -223,7 +221,7 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual(script_trace["node_type"], "script")
         self.assertEqual(script_trace["output"]["result"]["total"], 20)
 
-    def test_workflow_skill_node_calls_external_executor_and_writes_output_variable(self) -> None:
+    def test_workflow_skill_node_is_not_supported(self) -> None:
         definition = {
             "nodes": [
                 {"id": "start", "type": "start", "data": {}},
@@ -243,31 +241,12 @@ class AIRuntimeCoreTests(unittest.TestCase):
                 {"source": "skill_1", "target": "end"},
             ],
         }
-        requests: list[WorkflowSkillRequest] = []
-
-        def fake_skill(request: WorkflowSkillRequest) -> WorkflowSkillResult:
-            requests.append(request)
-            return WorkflowSkillResult(
-                summary="found errors",
-                output={"summary": "found errors", "count": 2},
-                evidence=[{"line": 1}],
-                elapsed_ms=12,
+        with self.assertRaisesRegex(WorkflowRuntimeError, "does not support Skill nodes"):
+            execute_workflow(
+                definition,
+                {"query": "error"},
+                llm_executor=lambda request: WorkflowLLMResult(answer=""),
             )
-
-        result = execute_workflow(
-            definition,
-            {"query": "error"},
-            llm_executor=lambda request: WorkflowLLMResult(answer=""),
-            skill_executor=fake_skill,
-        )
-
-        self.assertEqual(result.answer, "found errors")
-        self.assertEqual(requests[0].skill_key, "log-analysis")
-        self.assertEqual(requests[0].input["query"], "error")
-        self.assertEqual(result.context["variables"]["skill_result"]["count"], 2)
-        skill_trace = result.trace["workflow"]["nodes"][1]
-        self.assertEqual(skill_trace["node_type"], "skill")
-        self.assertEqual(skill_trace["output"]["summary"], "found errors")
 
     def test_workflow_script_node_can_parse_json_from_previous_node(self) -> None:
         definition = {

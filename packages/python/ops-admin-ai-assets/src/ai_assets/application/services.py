@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import re
@@ -56,6 +57,21 @@ PROMPT_ASSET_RESOURCE = ResourceDescriptor(resource_key="prompt.asset")
 SKILL_ASSET_RESOURCE = ResourceDescriptor(resource_key="ai_asset.skill")
 MAX_SKILL_CONTENT_LENGTH = 200_000
 MAX_SKILL_PACKAGE_BYTES = 5_000_000
+MAX_SKILL_FILE_COUNT = 200
+SKILL_RUNTIME_KINDS = {
+    "",
+    "prompt",
+    "prompt_context",
+    "context",
+    "llm_task",
+    "sandbox",
+    "sandbox_python",
+    "sandbox_shell",
+    "python",
+    "shell",
+    "builtin",
+    "builtin_executor",
+}
 
 
 def configure_repository(ai_assets_repository: AIAssetsRepository) -> None:
@@ -502,7 +518,9 @@ def list_published_skill_assets(
 
 def get_published_skill_asset(skill_key: str, current_user: dict[str, Any]) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
-    return resolve_published_skill(skill_key=skill_key, tenant_id=tenant_id)
+    payload = resolve_published_skill(skill_key=skill_key, tenant_id=tenant_id)
+    payload.pop("package_data_base64", None)
+    return payload
 
 
 def resolve_published_skill(*, skill_key: str, tenant_id: int) -> dict[str, Any]:
@@ -535,6 +553,10 @@ def resolve_published_skill(*, skill_key: str, tenant_id: int) -> dict[str, Any]
         "content_sha256": version.content_sha256,
         "entrypoint": version.entrypoint,
         "runtime_constraints": version.runtime_constraints,
+        "package_sha256": version.package_sha256,
+        "package_size": version.package_size,
+        "package_data_base64": version.package_data_base64,
+        "package_files": version.package_files,
         "validation_report": version.validation_report,
         "published_time": version.published_time,
     }
@@ -690,6 +712,10 @@ def save_skill_version(
         "content_sha256": hashlib.sha256(package["content"].encode("utf-8")).hexdigest(),
         "entrypoint": package["entrypoint"],
         "runtime_constraints": package["runtime_constraints"],
+        "package_sha256": package["package_sha256"],
+        "package_size": package["package_size"],
+        "package_data_base64": package["package_data_base64"],
+        "package_files": package["package_files"],
         "validation_report": package["validation_report"],
         "status": str(payload.get("status") or "draft").strip() or "draft",
     }
@@ -823,6 +849,68 @@ def normalize_zip_entry_name(name: str) -> str:
     return normalized
 
 
+def validate_skill_archive_entries(archive: zipfile.ZipFile) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    file_count = 0
+    for entry in archive.infolist():
+        normalized = normalize_zip_entry_name(entry.filename)
+        if not normalized:
+            continue
+        if entry.flag_bits & 0x1:
+            raise domain_http_error(InvalidSkillPackage("encrypted ZIP skill packages are not supported"))
+        if entry.is_dir():
+            continue
+        file_count += 1
+        if file_count > MAX_SKILL_FILE_COUNT:
+            raise domain_http_error(InvalidSkillPackage("ZIP skill package contains too many files"))
+        data = archive.read(entry)
+        entries.append({"path": normalized, "size": int(entry.file_size or 0), "sha256": hashlib.sha256(data).hexdigest()})
+    return entries
+
+
+def normalize_skill_package_from_zip(payload: dict[str, Any]) -> dict[str, Any]:
+    filename = str(payload.get("filename") or "").strip()
+    if filename and not filename.lower().endswith(".zip"):
+        raise domain_http_error(InvalidSkillPackage("only ZIP skill packages are supported"))
+    raw_package_bytes = payload.get("package_bytes")
+    if not isinstance(raw_package_bytes, (bytes, bytearray)) or not raw_package_bytes:
+        raise domain_http_error(InvalidSkillPackage("please upload a ZIP skill package"))
+    package_bytes = bytes(raw_package_bytes)
+    if len(package_bytes) > MAX_SKILL_PACKAGE_BYTES:
+        raise domain_http_error(InvalidSkillPackage("ZIP skill package is too large"))
+    try:
+        with zipfile.ZipFile(io.BytesIO(package_bytes)) as archive:
+            package_files = validate_skill_archive_entries(archive)
+            skill_entry = find_skill_entry(archive)
+            raw_content = archive.read(skill_entry)
+    except zipfile.BadZipFile as exc:
+        raise domain_http_error(InvalidSkillPackage("ZIP skill package is invalid")) from exc
+    except RuntimeError as exc:
+        raise domain_http_error(InvalidSkillPackage("failed to read ZIP skill package")) from exc
+    if len(raw_content) > MAX_SKILL_CONTENT_LENGTH:
+        raise domain_http_error(InvalidSkillPackage("SKILL.md content is too large"))
+    try:
+        content = raw_content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise domain_http_error(InvalidSkillPackage("SKILL.md must be UTF-8 encoded")) from exc
+    package = normalize_skill_package_content(
+        {
+            **payload,
+            "content": content,
+            "entrypoint": "SKILL.md",
+            "package_files": package_files,
+        }
+    )
+    package.update(
+        {
+            "package_sha256": hashlib.sha256(package_bytes).hexdigest(),
+            "package_size": len(package_bytes),
+            "package_data_base64": base64.b64encode(package_bytes).decode("ascii"),
+        }
+    )
+    return package
+
+
 def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
     content = str(payload.get("content") or payload.get("skill_content") or "").strip()
     if not content:
@@ -946,5 +1034,182 @@ def storage_unavailable(exc: RuntimeError) -> HTTPException:
 
 def domain_http_error(exc: AIAssetsError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+def parse_skill_markdown_frontmatter(content: str) -> dict[str, Any]:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    block: list[str] = []
+    for line in lines[1:160]:
+        if line.strip() == "---":
+            return parse_simple_frontmatter(block)
+        block.append(line.rstrip("\n"))
+    return {}
+
+
+def parse_simple_frontmatter(lines: list[str]) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    stack: list[tuple[int, Any]] = [(-1, root)]
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1]
+        if stripped.startswith("- "):
+            if isinstance(parent, list):
+                parent.append(parse_frontmatter_scalar(stripped[2:].strip()))
+            continue
+        if ":" not in stripped or not isinstance(parent, dict):
+            continue
+        key, raw_value = stripped.split(":", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if not key:
+            continue
+        if not raw_value:
+            next_container: dict[str, Any] | list[Any]
+            next_container = [] if next_nonempty_line_is_list(lines, line) else {}
+            parent[key] = next_container
+            stack.append((indent, next_container))
+            continue
+        if raw_value in {"|", ">"}:
+            parent[key] = ""
+            continue
+        parent[key] = parse_frontmatter_scalar(raw_value)
+    return root
+
+
+def next_nonempty_line_is_list(lines: list[str], current_line: str) -> bool:
+    try:
+        start = lines.index(current_line) + 1
+    except ValueError:
+        return False
+    current_indent = len(current_line) - len(current_line.lstrip(" "))
+    for line in lines[start:]:
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        return indent > current_indent and line.strip().startswith("- ")
+    return False
+
+
+def parse_frontmatter_scalar(value: str) -> Any:
+    text = value.strip().strip('"').strip("'")
+    lowered = text.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if lowered in {"null", "none"}:
+        return None
+    return text
+
+
+def normalize_skill_package_content(payload: dict[str, Any]) -> dict[str, Any]:
+    content = str(payload.get("content") or payload.get("skill_content") or "").strip()
+    if not content:
+        raise domain_http_error(InvalidSkillPackage("skill content is required"))
+    if len(content) > MAX_SKILL_CONTENT_LENGTH:
+        raise domain_http_error(InvalidSkillPackage("skill content is too large"))
+    manifest = {**parse_skill_markdown_frontmatter(content), **normalize_dict(payload.get("manifest"))}
+    package_files = normalize_list_of_dict(payload.get("package_files"))
+    manifest = normalize_skill_manifest(manifest, package_files=package_files)
+    name = str(payload.get("name") or manifest.get("name") or "").strip()
+    if not name:
+        raise domain_http_error(InvalidSkillPackage("skill name is required"))
+    description = str(payload.get("description") or manifest.get("description") or "").strip()
+    tags = normalize_string_list(payload.get("tags") or manifest.get("tags"))
+    manifest.update({"name": name, "description": description})
+    if tags:
+        manifest["tags"] = tags
+    entrypoint = runtime_entrypoint(manifest, fallback=str(payload.get("entrypoint") or "SKILL.md"))
+    validate_skill_package_runtime(manifest, entrypoint=entrypoint, package_files=package_files)
+    runtime_constraints = {**manifest_runtime_constraints(manifest), **normalize_dict(payload.get("runtime_constraints"))}
+    return {
+        "skill_key": str(payload.get("skill_key") or manifest.get("skill_key") or "").strip(),
+        "name": name,
+        "description": description,
+        "tags": tags,
+        "manifest": manifest,
+        "content": content,
+        "entrypoint": entrypoint,
+        "runtime_constraints": runtime_constraints,
+        "package_sha256": str(payload.get("package_sha256") or ""),
+        "package_size": int(payload.get("package_size") or 0),
+        "package_data_base64": str(payload.get("package_data_base64") or ""),
+        "package_files": package_files,
+        "validation_report": {
+            "valid": True,
+            "entrypoint": entrypoint,
+            "runtime_kind": skill_runtime_kind(manifest),
+            "file_count": len(package_files),
+            "checks": [
+                {"code": "name", "message": "skill name is present", "passed": True},
+                {"code": "content", "message": "SKILL.md is present", "passed": True},
+                {"code": "entrypoint", "message": "entrypoint is valid for runtime", "passed": True},
+                {"code": "package", "message": "complete ZIP package is persisted", "passed": True},
+            ],
+        },
+    }
+
+
+def normalize_skill_manifest(manifest: dict[str, Any], *, package_files: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized = dict(manifest)
+    runtime = normalize_dict(normalized.get("runtime"))
+    if not runtime:
+        runtime = {}
+    kind = normalize_runtime_kind(runtime.get("kind") or runtime.get("type") or normalized.get("runtime_kind"))
+    if kind:
+        runtime["kind"] = kind
+    elif not runtime:
+        runtime["kind"] = "prompt_context"
+    normalized["runtime"] = runtime
+    if package_files:
+        normalized["package_files"] = package_files
+    return normalized
+
+
+def skill_runtime_kind(manifest: dict[str, Any]) -> str:
+    runtime = normalize_dict(manifest.get("runtime"))
+    return normalize_runtime_kind(runtime.get("kind") or runtime.get("type") or manifest.get("runtime_kind"))
+
+
+def normalize_runtime_kind(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"promptcontext", "prompt_context"}:
+        normalized = "prompt_context"
+    if normalized in {"llm", "llm_skill", "llm_task"}:
+        normalized = "llm_task"
+    return normalized
+
+
+def runtime_entrypoint(manifest: dict[str, Any], *, fallback: str) -> str:
+    runtime = normalize_dict(manifest.get("runtime"))
+    entrypoint = str(runtime.get("entrypoint") or manifest.get("entrypoint") or fallback or "SKILL.md").strip()
+    return entrypoint.replace("\\", "/").lstrip("/") or "SKILL.md"
+
+
+def manifest_runtime_constraints(manifest: dict[str, Any]) -> dict[str, Any]:
+    runtime = normalize_dict(manifest.get("runtime"))
+    result: dict[str, Any] = {}
+    for key in ("network", "timeout_seconds", "requirements", "image", "memory", "cpus"):
+        if key in runtime:
+            result[key] = runtime[key]
+    return result
+
+
+def validate_skill_package_runtime(manifest: dict[str, Any], *, entrypoint: str, package_files: list[dict[str, Any]]) -> None:
+    kind = skill_runtime_kind(manifest)
+    if kind not in SKILL_RUNTIME_KINDS:
+        raise domain_http_error(InvalidSkillPackage(f"unsupported skill runtime kind: {kind}"))
+    file_paths = {str(item.get("path") or "") for item in package_files}
+    if entrypoint not in file_paths:
+        raise domain_http_error(InvalidSkillPackage(f"skill entrypoint not found in package: {entrypoint}"))
+    runtime = normalize_dict(manifest.get("runtime"))
+    requirements = str(runtime.get("requirements") or "").strip().replace("\\", "/").lstrip("/")
+    if requirements and requirements not in file_paths:
+        raise domain_http_error(InvalidSkillPackage(f"skill requirements file not found in package: {requirements}"))
 
 

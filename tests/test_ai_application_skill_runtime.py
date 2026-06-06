@@ -97,6 +97,50 @@ def test_sandbox_skill_uses_configured_runner(monkeypatch) -> None:
     assert captured["runtime_constraints"]["network"] == "none"
 
 
+def test_llm_task_skill_uses_configured_runner(monkeypatch) -> None:
+    monkeypatch.setattr(
+        skill_runtime,
+        "resolve_published_skill",
+        lambda skill_key, *, tenant_id: {
+            "skill_key": skill_key,
+            "name": skill_key,
+            "resolved_version": "1.0.0",
+            "manifest": {"runtime": {"kind": "llm_task"}, "outputs": {"artifacts": [{"key": "quiz_html", "type": "text/html"}]}},
+            "runtime_constraints": {},
+            "content": "Generate quiz HTML.",
+            "content_sha256": "abc",
+            "package_data_base64": "UEsDBAo=",
+            "package_sha256": "def",
+            "package_files": [{"path": "SKILL.md"}],
+        },
+    )
+    captured: dict = {}
+
+    class FakeLLMTaskRunner:
+        def run(self, request: dict) -> dict:
+            captured.update(request)
+            return {"status": "success", "output": {"answer": "<html>quiz</html>", "artifacts": [{"type": "text/html"}]}}
+
+    skill_runtime.configure_llm_task_runner(FakeLLMTaskRunner())
+    try:
+        app = {
+            "app_key": "quiz",
+            "app_type": "single_turn_generation",
+            "tenant_id": 1,
+            "runtime_config": {"skills": [{"skill_key": "quiz-from-content", "mode": "required"}]},
+        }
+        plan = skill_runtime.prepare_skill_runtime(app, {}, {"question": "docs"}, app_type="single_turn_generation")
+        results = skill_runtime.execute_pre_model_skills(plan)
+    finally:
+        skill_runtime.configure_llm_task_runner(None)
+
+    assert results[0].output["answer"] == "<html>quiz</html>"
+    assert captured["skill_key"] == "quiz-from-content"
+    assert captured["runtime_kind"] == "llm_task"
+    assert captured["package_data_base64"] == "UEsDBAo="
+    assert captured["package_files"] == [{"path": "SKILL.md"}]
+
+
 def test_parse_planned_skill_calls_filters_to_auto_candidates(monkeypatch) -> None:
     monkeypatch.setattr(
         skill_runtime,

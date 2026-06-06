@@ -906,7 +906,7 @@ class LLMRuntimeTests(unittest.TestCase):
                     "ai_applications.application.services.resolve_data_access_filter",
                     return_value=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
                 ):
-                    ai_applications.save_ai_application(app)
+                    ai_applications.save_ai_application(app, current_user=current_user)
                     result = ai_applications.run_draft_application("workflow-sql", {"variables": {}}, current_user=current_user)
 
             self.assertIn("自己的订单", result["answer"])
@@ -978,7 +978,7 @@ class LLMRuntimeTests(unittest.TestCase):
                     "ai_applications.application.services.resolve_data_access_filter",
                     return_value=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
                 ):
-                    ai_applications.save_ai_application(app)
+                    ai_applications.save_ai_application(app, current_user=current_user)
                     result = ai_applications.run_draft_application(
                         "workflow-sql-public-columns",
                         {"variables": {}},
@@ -1728,6 +1728,207 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertEqual([item["role"] for item in calls[1][-3:]], ["user", "assistant", "user"])
             self.assertEqual([item["content"] for item in calls[1][-3:]], ["第一问", "answer-1", "第二问"])
             self.assertEqual([item["role"] for item in messages], ["user", "assistant", "user", "assistant"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_agent_application_executes_default_file_tools(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("file-agent")
+                        payload["app_type"] = "agent"
+                        payload["system_prompt"] = "You are a file-capable agent."
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("file-agent", {"title": "files"})
+
+                        calls: list[list[dict[str, object]]] = []
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            calls.append(messages)
+                            if len(calls) == 1:
+                                self.assertIn("Agent file workspace tools", str(messages[-2]["content"]))
+                                return {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": json.dumps(
+                                                    {
+                                                        "tool_calls": [
+                                                            {
+                                                                "tool": "write_file",
+                                                                "arguments": {"path": "notes/todo.txt", "content": "hello file", "overwrite": True},
+                                                            },
+                                                            {"tool": "read_file", "arguments": {"path": "notes/todo.txt"}},
+                                                        ]
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    ],
+                                    "usage": {"total_tokens": 2},
+                                }
+                            self.assertIn("Agent file tool results", str(messages[-1]["content"]))
+                            return {"choices": [{"message": {"content": "file is ready"}}], "usage": {"total_tokens": 3}}
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "file-agent",
+                                conversation["conversation_key"],
+                                {
+                                    "content": "write and read a file",
+                                    "variables": {},
+                                    "files": [{"name": "source.txt", "type": "file", "mime_type": "text/plain", "text": "uploaded text"}],
+                                },
+                            )
+                        messages = ai_applications.list_agent_messages("file-agent", conversation["conversation_key"])["items"]
+
+            self.assertEqual(result["answer"], "file is ready")
+            self.assertEqual(result["usage"]["total_tokens"], 5)
+            self.assertEqual([item["status"] for item in result["agent_tool_results"]], ["success", "success"])
+            self.assertEqual(result["agent_tool_results"][1]["output"]["content"], "hello file")
+            self.assertTrue((workspace_root / "tenant_1" / "file-agent" / conversation["conversation_key"] / "notes" / "todo.txt").exists())
+            self.assertTrue(any(item["role"] == "tool" and item["metadata"].get("agent_file_tool_results") for item in messages))
+            self.assertEqual(result["agent_file_workspace"]["uploads"][0]["path"], "uploads/source.txt")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_agent_file_tools_reject_workspace_escape(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("safe-file-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("safe-file-agent", {"title": "safe"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            if len(messages) < 4:
+                                return {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": json.dumps(
+                                                    {
+                                                        "tool_calls": [
+                                                            {
+                                                                "tool": "write_file",
+                                                                "arguments": {"path": "../secret.txt", "content": "nope"},
+                                                            }
+                                                        ]
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    ],
+                                    "usage": {},
+                                }
+                            self.assertIn("parent path segments are not allowed", str(messages[-1]["content"]))
+                            return {"choices": [{"message": {"content": "blocked"}}], "usage": {}}
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "safe-file-agent",
+                                conversation["conversation_key"],
+                                {"content": "write file outside workspace", "variables": {}},
+                            )
+
+            self.assertEqual(result["answer"], "blocked")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "failed")
+            self.assertEqual(result["agent_tool_results"][0]["error_code"], "AgentFileToolError")
+            self.assertFalse((workspace_root / "tenant_1" / "secret.txt").exists())
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_executes_file_tool_preflight(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-file-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-file-agent", {"title": "stream-files"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            self.assertEqual(kwargs.get("response_format"), {"type": "json_object"})
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": json.dumps(
+                                                {
+                                                    "tool_calls": [
+                                                        {
+                                                            "tool": "write_file",
+                                                            "arguments": {"path": "stream.txt", "content": "stream content"},
+                                                        }
+                                                    ]
+                                                }
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertIn("Agent file tool results", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"stream "}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"done"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-file-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "write file stream.txt", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-file-agent", conversation["conversation_key"])["items"]
+
+            self.assertTrue(any(event.startswith("event: agent_tool_result\n") for event in events))
+            self.assertIn('"content":"stream "', "".join(events))
+            self.assertTrue((workspace_root / "tenant_1" / "stream-file-agent" / conversation["conversation_key"] / "stream.txt").exists())
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["content"], "stream done")
+            self.assertTrue(any(item["role"] == "tool" and item["metadata"].get("agent_file_tool_results") for item in messages))
         finally:
             self._unlink_db(db_path)
 

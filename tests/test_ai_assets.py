@@ -428,7 +428,58 @@ class AIAssetsTests(unittest.TestCase):
         self.assertEqual(version["entrypoint"], "SKILL.md")
         self.assertEqual(version["manifest"]["name"], "contract-review")
         self.assertEqual(len(version["content_sha256"]), 64)
+        self.assertEqual(len(version["package_sha256"]), 64)
+        self.assertGreater(version["package_size"], 0)
+        self.assertIn("SKILL.md", [entry["path"] for entry in version["package_files"]])
         self.assertTrue(version["validation_report"]["valid"])
+
+    def test_skill_upload_preserves_runtime_package_metadata(self) -> None:
+        buffer = BytesIO()
+        skill_md = "\n".join(
+            [
+                "---",
+                "name: package-tool",
+                "description: package runner",
+                "runtime:",
+                "  kind: sandbox_python",
+                "  entrypoint: scripts/main.py",
+                "  requirements: scripts/requirements.txt",
+                "---",
+                "",
+                "Run the packaged script.",
+            ]
+        )
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("SKILL.md", skill_md)
+            archive.writestr("scripts/main.py", "result = {'ok': True}")
+            archive.writestr("scripts/requirements.txt", "requests==2.32.3\n")
+
+        uploaded = services.upload_skill_asset(
+            {
+                "version": "1.0.0",
+                "filename": "package-tool.zip",
+                "package_bytes": buffer.getvalue(),
+            },
+            self.current_user,
+        )
+
+        version = uploaded["version"]
+        self.assertEqual(version["entrypoint"], "scripts/main.py")
+        self.assertEqual(version["manifest"]["runtime"]["kind"], "sandbox_python")
+        self.assertEqual(version["runtime_constraints"]["requirements"], "scripts/requirements.txt")
+        self.assertIn("scripts/main.py", [entry["path"] for entry in version["package_files"]])
+
+    def test_published_skill_http_payload_does_not_expose_package_body(self) -> None:
+        skill = self.create_skill(skill_key="contract.review")
+        version = self.create_skill_version(int(skill["id"]), version="1.0.0")
+        services.publish_skill_version(int(skill["id"]), int(version["id"]), self.current_user)
+
+        http_payload = services.get_published_skill_asset("contract.review", self.current_user)
+        runtime_payload = services.resolve_published_skill(skill_key="contract.review", tenant_id=7)
+
+        self.assertNotIn("package_data_base64", http_payload)
+        self.assertIn("package_data_base64", runtime_payload)
+        self.assertTrue(runtime_payload["package_data_base64"])
 
     def test_skill_version_publish_makes_version_immutable(self) -> None:
         skill = self.create_skill()

@@ -196,29 +196,6 @@
                 </div>
               </template>
 
-              <template #node-skill="{ id, data, selected }">
-                <div class="workflow-node-card workflow-node-card--skill" :class="workflowNodeCardClass(id, selected)">
-                  <Handle type="target" :position="Position.Left" />
-                  <Handle type="source" :position="Position.Right" />
-                  <div class="workflow-node-card__actions">
-                    <button type="button" title="运行此步骤" @click.stop="runWorkflowNode(id)">▶</button>
-                    <button type="button" title="节点操作" @click.stop="toggleWorkflowNodeMenu(id)">...</button>
-                  </div>
-                  <div class="workflow-node-card__head">
-                    <span class="workflow-node-card__icon">SK</span>
-                    <strong>{{ data.label || 'Skill 调用' }}</strong>
-                  </div>
-                  <div class="workflow-node-card__meta">输出：{{ data.output_key || 'skill_result' }}</div>
-                  <p>{{ workflowSkillNodePreview(data) }}</p>
-                  <div v-if="openWorkflowNodeMenuId === id" class="workflow-node-menu" @click.stop>
-                    <button type="button" @click="runWorkflowNode(id)">运行此步骤</button>
-                    <button type="button" @click="openWorkflowNodeConfig(id)">更改节点</button>
-                    <button type="button" @click="duplicateWorkflowNode(id)">复制</button>
-                    <button type="button" class="is-danger" @click="deleteWorkflowNode(id)">删除</button>
-                  </div>
-                </div>
-              </template>
-
               <template #node-condition="{ id, data, selected }">
                 <div class="workflow-node-card workflow-node-card--condition" :class="workflowNodeCardClass(id, selected)">
                   <Handle type="target" :position="Position.Left" />
@@ -305,10 +282,6 @@
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('script')">
                 <strong>脚本处理</strong>
                 <span>清洗、转换或重组变量数据</span>
-              </button>
-              <button type="button" @click="addWorkflowNodeFromCanvasMenu('skill')">
-                <strong>Skill 调用</strong>
-                <span>调用已绑定的技能</span>
               </button>
               <button type="button" @click="addWorkflowNodeFromCanvasMenu('condition')">
                 <strong>条件判断</strong>
@@ -720,33 +693,6 @@
                       </span>
                     </template>
                     <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：processed" />
-                  </n-form-item>
-                </template>
-                <template v-else-if="selectedWorkflowNode.type === 'skill'">
-                  <n-form-item label="Skill">
-                    <n-select
-                      v-model:value="selectedWorkflowNode.data.skill_key"
-                      :options="workflowSkillOptions"
-                      filterable
-                      tag
-                      placeholder="选择已绑定 Skill 或输入 Skill Key"
-                    />
-                  </n-form-item>
-                  <n-form-item label="别名">
-                    <n-input v-model:value="selectedWorkflowNode.data.alias" placeholder="可选，用于匹配绑定别名" />
-                  </n-form-item>
-                  <n-form-item label="输入 JSON">
-                    <CodePreview
-                      v-model:value="selectedWorkflowNode.data.input_text"
-                      class="workflow-json-editor"
-                      language="json"
-                      height="180px"
-                      :auto-height="false"
-                      :read-only="false"
-                    />
-                  </n-form-item>
-                  <n-form-item label="输出变量名">
-                    <n-input v-model:value="selectedWorkflowNode.data.output_key" placeholder="例如：skill_result" />
                   </n-form-item>
                 </template>
                 <template v-else-if="selectedWorkflowNode.type === 'condition'">
@@ -1594,7 +1540,7 @@
   type PromptSource = 'inline' | 'asset';
   type WorkspaceKey = 'orchestration' | 'agent' | 'api' | 'logs' | 'monitoring' | 'settings';
   type StudioResourceType = 'application' | 'capability';
-  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'file_extract' | 'script' | 'skill' | 'condition' | 'end';
+  type WorkflowNodeType = 'start' | 'llm' | 'sql_query' | 'file_extract' | 'script' | 'condition' | 'end';
   type WorkflowEdgeStyle = 'default' | 'smoothstep' | 'straight' | 'step';
   type WorkflowNode = Node<Record<string, any>, WorkflowNodeType>;
   type WorkflowEdge = Edge<Record<string, any>>;
@@ -1919,13 +1865,6 @@ result = [
       value: item.skill_key,
     }))
   );
-  const workflowSkillOptions = computed<SelectOption[]>(() => {
-    const options = activeSkillBindingPayload.value.map((item) => ({
-      label: `${item.alias || item.skill_key} (${item.mode})`,
-      value: item.alias || item.skill_key,
-    }));
-    return options.length ? options : publishedSkillOptions.value;
-  });
   const activeSkillBindingPayload = computed(() => buildSkillBindingsPayload());
   const selectedPublishedPrompt = computed(() => {
     const key = selectedSystemPromptAssetKey.value;
@@ -2694,6 +2633,7 @@ result = [
     if (type === 'sql' || type === 'sql_query') return 'sql_query';
     if (type === 'file_extract' || type === 'file_extraction' || type === 'extract_file') return 'file_extract';
     if (type === 'script' || type === 'python_script') return 'script';
+    if (type === 'skill' || type === 'tool') return 'llm';
     if (type === 'start' || type === 'llm' || type === 'condition' || type === 'end') return type;
     return 'llm';
   }

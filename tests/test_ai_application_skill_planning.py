@@ -68,3 +68,25 @@ def test_plan_agent_skills_if_enabled_is_opt_in(monkeypatch) -> None:
     services.plan_agent_skills_if_enabled(app, {}, {}, "hello", plan, model="test", temperature=None)
 
     assert plan.planned_calls == []
+
+
+def test_workflow_definition_rejects_skill_nodes() -> None:
+    workflow = {
+        "nodes": [
+            {"id": "start", "type": "start", "data": {"variables": []}},
+            {"id": "skill_1", "type": "skill", "data": {"skill_key": "quiz-from-content"}},
+            {"id": "end", "type": "end", "data": {"output": "{{skill_result}}"}},
+        ],
+        "edges": [
+            {"id": "start-skill_1", "source": "start", "target": "skill_1"},
+            {"id": "skill_1-end", "source": "skill_1", "target": "end"},
+        ],
+    }
+
+    try:
+        services.validate_workflow_definition_payload(workflow)
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 422
+        assert "Skill" in str(getattr(exc, "detail", ""))
+    else:
+        raise AssertionError("workflow Skill nodes must be rejected")

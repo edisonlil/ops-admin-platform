@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
+import zipfile
+from io import BytesIO
 
 import pytest
 
@@ -44,7 +47,7 @@ def test_docker_skill_sandbox_runner_uses_locked_down_container(monkeypatch) -> 
     command = captured["command"]
     assert result == {"status": "success", "output": {"answer": "ok"}}
     assert command[:3] == ["docker", "run", "--rm"]
-    assert command[command.index("--network") + 1] == "none"
+    assert command[command.index("--network") + 1] == "bridge"
     assert command[command.index("--memory") + 1] == "256m"
     assert command[command.index("--pids-limit") + 1] == "64"
     assert command[command.index("--user") + 1] == "65534:65534"
@@ -52,6 +55,43 @@ def test_docker_skill_sandbox_runner_uses_locked_down_container(monkeypatch) -> 
     assert "--cap-drop" in command
     assert "sandbox:local" in command
     assert captured["kwargs"]["timeout"] == 9
+
+
+def test_docker_skill_sandbox_runner_extracts_package_payload(monkeypatch) -> None:
+    captured: dict = {}
+
+    package = BytesIO()
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("SKILL.md", "name: packaged")
+        archive.writestr("scripts/main.py", "result = {'answer': input['name']}")
+    encoded = base64.b64encode(package.getvalue()).decode("ascii")
+
+    def fake_run(command, **kwargs):
+        volume = command[command.index("-v") + 1]
+        workspace = volume.rsplit(":/workspace:rw", 1)[0]
+        captured["command"] = command
+        with open(f"{workspace}/scripts/main.py", "r", encoding="utf-8") as handle:
+            captured["script"] = handle.read()
+        with open(f"{workspace}/output.json", "w", encoding="utf-8") as handle:
+            json.dump({"status": "success", "output": {"answer": "ok"}}, handle)
+        return Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner = DockerSkillSandboxRunner(image="sandbox:local")
+
+    result = runner.run(
+        {
+            "runtime_kind": "sandbox_python",
+            "entrypoint": "scripts/main.py",
+            "package_data_base64": encoded,
+            "content": "this should not be used",
+            "input": {"name": "ok"},
+        }
+    )
+
+    assert result == {"status": "success", "output": {"answer": "ok"}}
+    assert "input['name']" in captured["script"]
+    assert captured["command"][captured["command"].index("--network") + 1] == "bridge"
 
 
 def test_docker_skill_sandbox_runner_rejects_unsafe_entrypoint() -> None:
