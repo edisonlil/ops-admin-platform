@@ -77,10 +77,21 @@ AI_APPLICATION_RESOURCE = ResourceDescriptor(
 )
 AGENT_STREAM_MAX_ANSWER_CHARS = 200_000
 AGENT_TOOL_CALL_MARKER_LIMIT = 3
-AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES = ("bash", "shell", "sh", "cmd", "powershell", "python", "python3", "terminal")
-AGENT_TOOL_CALL_MARKERS = ("<tool_call", "</tool_call", "minimax[>|")
+AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES = (
+    "bash",
+    "cmd",
+    "execute_command",
+    "powershell",
+    "run_command",
+    "run_shell",
+    "shell",
+    "shell_exec",
+    "sh",
+    "terminal",
+)
+AGENT_TOOL_CALL_MARKERS = ("<tool_call", "</tool_call", "<tool_result", "</tool_result", "minimax[>|")
 AGENT_UNHANDLED_TOOL_CALL_MESSAGE = (
-    "模型输出了未开放的原生工具调用（例如 bash/tool_call），本次运行已停止，避免继续循环。"
+    "模型输出了未开放的原生工具调用（例如 bash/run_command/tool_call/tool_result），本次运行已停止，避免继续循环。"
     "当前 Agent 只支持文件工作区工具：list_files、find_files、read_file、write_file、append_file、search_files；"
     "如需执行脚本，请通过已配置的 Skill sandbox 能力运行。"
 )
@@ -663,6 +674,7 @@ def stream_agent_message(
                 if content_delta:
                     stream_tool_marker_count += raw_agent_tool_marker_count(content_delta)
                     stream_recent_text = (stream_recent_text + content_delta)[-8000:]
+                    recent_tool_marker_count = raw_agent_tool_marker_count(stream_recent_text)
                     if len("".join(answer_parts)) + len(content_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
                         boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
@@ -679,7 +691,11 @@ def stream_agent_message(
                         )
                         yield "data: [DONE]\n\n"
                         return
-                    if stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT or raw_agent_unsupported_tool_detected(stream_recent_text):
+                    if (
+                        stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
+                        or recent_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
+                        or raw_agent_unsupported_tool_detected(stream_recent_text)
+                    ):
                         boundary_error = agent_execution_boundary_error()
                         answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
                         yield agent_boundary_stream_event(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)

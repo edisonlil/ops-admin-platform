@@ -1909,6 +1909,50 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_agent_message_does_not_block_plain_python_text(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("python-text-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("python-text-agent", {"title": "python-text"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": '{"name":"python","arguments":{"code":"print(1)"}}'
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "python-text-agent",
+                                conversation["conversation_key"],
+                                {"content": "show python example", "variables": {}},
+                            )
+
+            self.assertEqual(result["assistant_message"]["status"], "completed")
+            self.assertEqual(result["trace"]["status"], "success")
+            self.assertEqual(result["agent_tool_results"], [])
+            self.assertIn('"name":"python"', result["answer"])
+        finally:
+            self._unlink_db(db_path)
+
     def test_stream_agent_message_executes_file_tool_preflight(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
@@ -2038,6 +2082,61 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_stream_agent_message_stops_when_preflight_emits_run_command_tool_result(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-run-command-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-run-command-agent", {"title": "run-command"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": (
+                                                '<tool_call>{"name":"run_command","arguments":{"command":"pdftotext file.pdf /tmp/document.txt"}}</tool_call>'
+                                                '<tool_result>{"result":"undefined name pdftotext"}</tool_result>'
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=AssertionError("main stream should not run after run_command boundary"),
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-run-command-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "generate quiz from pdf", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-run-command-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("run_command", joined)
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "failed")
+            self.assertIn("run_command", assistant_messages[-1]["content"])
+        finally:
+            self._unlink_db(db_path)
+
     def test_stream_agent_message_stops_repeated_native_tool_call_chunks(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
@@ -2087,6 +2186,59 @@ class LLMRuntimeTests(unittest.TestCase):
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["status"], "failed")
             self.assertIn("未开放的原生工具调用", assistant_messages[-1]["content"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_stops_split_tool_result_chunks(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-tool-result-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-tool-result-agent", {"title": "tool-result"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {"choices": [{"message": {"content": json.dumps({"tool_calls": []})}}], "usage": {}}
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            yield 'data: {"choices":[{"delta":{"content":"prefix <tool_"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"result>{\\"result\\":\\"ls /tmp\\"}"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"</tool_"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"result>"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"<tool_"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"result>{\\"result\\":\\"ls /\\"}"}}]}\n\n'
+                            raise AssertionError("stream should stop after split tool_result markers")
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-tool-result-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "read pdf", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-tool-result-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("prefix", joined)
+            self.assertIn("run_command", joined)
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "failed")
+            self.assertIn("run_command", assistant_messages[-1]["content"])
         finally:
             self._unlink_db(db_path)
 
