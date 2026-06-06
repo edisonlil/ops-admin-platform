@@ -182,6 +182,8 @@ export function useAgentChat(appKey: () => string) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let receivedFinalMessage = false;
+      let streamFailed = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -224,16 +226,20 @@ export function useAgentChat(appKey: () => string) {
               ],
             };
           } else if (event === 'final' && payload.assistant_message) {
+            receivedFinalMessage = true;
             upsertMessage(payload.assistant_message as AiAgentMessage);
           } else if (event === 'error') {
             errorText.value = String(payload.message || 'Agent 执行失败');
+            streamFailed = true;
             markAssistantFailed(localAssistantKey, errorText.value);
           } else {
             appendAssistantContent(localAssistantKey, streamDeltaContent(payload));
           }
         }
       }
-      markAssistantCompleted(localAssistantKey);
+      if (!receivedFinalMessage && !streamFailed) {
+        markAssistantCompleted(localAssistantKey);
+      }
       await loadConversations();
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {

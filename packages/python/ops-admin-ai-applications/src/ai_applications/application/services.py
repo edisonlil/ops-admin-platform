@@ -75,6 +75,16 @@ AI_APPLICATION_RESOURCE = ResourceDescriptor(
     owner_user_column="creator_id",
     owner_department_column="owner_department_id",
 )
+AGENT_STREAM_MAX_ANSWER_CHARS = 200_000
+AGENT_TOOL_CALL_MARKER_LIMIT = 3
+AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES = ("bash", "shell", "sh", "cmd", "powershell", "python", "python3", "terminal")
+AGENT_TOOL_CALL_MARKERS = ("<tool_call", "</tool_call", "minimax[>|")
+AGENT_UNHANDLED_TOOL_CALL_MESSAGE = (
+    "模型输出了未开放的原生工具调用（例如 bash/tool_call），本次运行已停止，避免继续循环。"
+    "当前 Agent 只支持文件工作区工具：list_files、find_files、read_file、write_file、append_file、search_files；"
+    "如需执行脚本，请通过已配置的 Skill sandbox 能力运行。"
+)
+AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE = "模型输出超过 Agent 单次流式回答上限，本次运行已停止，避免长时间占用会话。"
 
 repository: AIApplicationsRepository | None = None
 
@@ -106,6 +116,10 @@ class GatewaySkillLLMTaskRunner:
             "artifacts": llm_task_artifacts(answer, request),
         }
         return {"status": "success", "output": output}
+
+
+class AgentExecutionBoundaryError(RuntimeError):
+    pass
 
 
 def repo() -> AIApplicationsRepository:
@@ -418,26 +432,30 @@ def send_agent_message(
         agent_run = run_agent_model_with_file_tools(prepared, payload, trace_id=trace_id)
         answer = agent_run["answer"]
         usage = agent_run["usage"]
+        run_error = agent_run.get("error") if isinstance(agent_run.get("error"), Exception) else None
+        run_status = str(agent_run.get("status") or "success")
         trace = record_trace(
             trace_id=trace_id,
             app=prepared["app"],
             caller_type="ai_agent",
             caller_key=prepared["conversation"]["conversation_key"],
             model=prepared["model"],
-            status="success",
+            status=run_status,
             variables=prepared["variables"],
             messages=agent_run["messages"],
             rendered_prompt=agent_run["rendered_prompt"],
             answer=answer,
             usage=usage,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            error=run_error,
             prompt_refs=prepared["prompt_refs"],
         )
         assistant_message = persist_agent_assistant_message(
             prepared,
             content=answer,
-            status="completed",
+            status="completed" if run_status == "success" else "failed",
             trace_id=trace_id,
+            error=run_error,
         )
         return {
             "conversation": prepared["conversation"],
@@ -512,6 +530,8 @@ def stream_agent_message(
         stream_rendered_prompt = prepared["rendered_prompt"]
         stream_tool_results: list[dict[str, Any]] = []
         stream_tool_messages: list[dict[str, Any]] = []
+        stream_tool_marker_count = 0
+        stream_recent_text = ""
 
         def emit_named(event_name: str, payload_data: dict[str, Any]) -> str:
             return gateway.sse_data(payload_data).replace("data: ", f"event: {event_name}\ndata: ", 1)
@@ -593,6 +613,25 @@ def stream_agent_message(
                             "object": "ai_application.agent.file_tools.result",
                         },
                     )
+                if preflight.get("boundary_answer"):
+                    boundary_answer = str(preflight["boundary_answer"])
+                    boundary_error = preflight.get("boundary_error")
+                    if not isinstance(boundary_error, Exception):
+                        boundary_error = agent_execution_boundary_error(boundary_answer)
+                    answer_parts.append(boundary_answer)
+                    yield agent_boundary_stream_event(boundary_answer)
+                    trace = finish("failed", boundary_error)
+                    yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                    yield emit_named(
+                        "final",
+                        {
+                            "trace_id": trace_id,
+                            "assistant_message": assistant_message,
+                            "object": "ai_application.agent.message.final",
+                        },
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
             for event in gateway.stream_chat_completions(
                 model=prepared["model"],
                 messages=stream_messages,
@@ -620,7 +659,43 @@ def stream_agent_message(
                     )
                     yield event
                     break
-                answer_parts.append(gateway.stream_event_content(event))
+                content_delta = gateway.stream_event_content(event)
+                if content_delta:
+                    stream_tool_marker_count += raw_agent_tool_marker_count(content_delta)
+                    stream_recent_text = (stream_recent_text + content_delta)[-8000:]
+                    if len("".join(answer_parts)) + len(content_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
+                        boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        yield agent_boundary_stream_event(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        trace = finish("failed", boundary_error)
+                        yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                        yield emit_named(
+                            "final",
+                            {
+                                "trace_id": trace_id,
+                                "assistant_message": assistant_message,
+                                "object": "ai_application.agent.message.final",
+                            },
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
+                    if stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT or raw_agent_unsupported_tool_detected(stream_recent_text):
+                        boundary_error = agent_execution_boundary_error()
+                        answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                        yield agent_boundary_stream_event(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                        trace = finish("failed", boundary_error)
+                        yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                        yield emit_named(
+                            "final",
+                            {
+                                "trace_id": trace_id,
+                                "assistant_message": assistant_message,
+                                "object": "ai_application.agent.message.final",
+                            },
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
+                answer_parts.append(content_delta)
                 yield event
             if not trace_recorded:
                 trace = finish("failed" if error else "success", error)
@@ -1617,6 +1692,70 @@ def build_agent_messages(
     return messages
 
 
+def raw_agent_tool_marker_count(text: str) -> int:
+    lowered = str(text or "").lower()
+    return sum(lowered.count(marker) for marker in AGENT_TOOL_CALL_MARKERS)
+
+
+def raw_agent_unsupported_tool_detected(text: str) -> bool:
+    compact = "".join(str(text or "").lower().split())
+    return any(f'"name":"{tool_name}"' in compact or f'"tool":"{tool_name}"' in compact for tool_name in AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES)
+
+
+def agent_execution_boundary_error(message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE) -> AgentExecutionBoundaryError:
+    return AgentExecutionBoundaryError(message)
+
+
+def agent_execution_boundary_result(
+    *,
+    answer: str,
+    message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE,
+    tool_name: str = "unsupported_native_tool",
+    index: int = 1,
+) -> dict[str, Any]:
+    return {
+        "index": index,
+        "tool": tool_name,
+        "status": "failed",
+        "arguments": {},
+        "error_code": "UNSUPPORTED_AGENT_TOOL",
+        "error_message": message,
+        "output": {"raw_preview": str(answer or "")[:2000]},
+        "elapsed_ms": 0,
+    }
+
+
+def agent_boundary_run(
+    prepared: dict[str, Any],
+    *,
+    answer: str,
+    trace_id: str,
+    message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE,
+) -> dict[str, Any]:
+    result = agent_execution_boundary_result(answer=answer, message=message)
+    tool_messages = persist_agent_file_tool_messages(prepared, [result], trace_id=trace_id)
+    error = agent_execution_boundary_error(message)
+    return {
+        "answer": message,
+        "usage": {},
+        "messages": prepared["messages"],
+        "rendered_prompt": prepared["rendered_prompt"],
+        "agent_tool_results": [result],
+        "agent_tool_messages": tool_messages,
+        "status": "failed",
+        "error": error,
+    }
+
+
+def agent_boundary_stream_event(message: str) -> str:
+    return gateway.sse_data(
+        {
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": message}, "finish_reason": None}],
+        }
+    )
+
+
 def run_agent_model_with_file_tools(
     prepared: dict[str, Any],
     payload: dict[str, Any],
@@ -1635,7 +1774,15 @@ def run_agent_model_with_file_tools(
     first_answer = extract_answer(response)
     first_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
     request = agent_file_tools.parse_tool_request(first_answer)
+    if raw_agent_unsupported_tool_detected(first_answer):
+        boundary = agent_boundary_run(prepared, answer=first_answer, trace_id=trace_id)
+        boundary["usage"] = first_usage
+        return boundary
     if not prepared.get("file_workspace", {}).get("enabled") or not request.get("tool_calls"):
+        if raw_agent_tool_marker_count(first_answer) > 0:
+            boundary = agent_boundary_run(prepared, answer=first_answer, trace_id=trace_id)
+            boundary["usage"] = first_usage
+            return boundary
         return {
             "answer": agent_file_tools.protocol_final_answer(first_answer) or first_answer,
             "usage": first_usage,
@@ -1643,6 +1790,7 @@ def run_agent_model_with_file_tools(
             "rendered_prompt": prepared["rendered_prompt"],
             "agent_tool_results": [],
             "agent_tool_messages": [],
+            "status": "success",
         }
 
     tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
@@ -1666,6 +1814,7 @@ def run_agent_model_with_file_tools(
         "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
         "agent_tool_results": tool_results,
         "agent_tool_messages": tool_messages,
+        "status": "success",
     }
 
 
@@ -1688,8 +1837,29 @@ def run_agent_file_tool_preflight(
         enable_think_output=False,
         correlation_id=f"{trace_id}_file_tools",
     )
-    request = agent_file_tools.parse_tool_request(extract_answer(response))
+    preflight_answer = extract_answer(response)
+    request = agent_file_tools.parse_tool_request(preflight_answer)
+    if raw_agent_unsupported_tool_detected(preflight_answer):
+        boundary = agent_boundary_run(prepared, answer=preflight_answer, trace_id=trace_id)
+        return {
+            "messages": boundary["messages"],
+            "rendered_prompt": boundary["rendered_prompt"],
+            "agent_tool_results": boundary["agent_tool_results"],
+            "agent_tool_messages": boundary["agent_tool_messages"],
+            "boundary_answer": boundary["answer"],
+            "boundary_error": boundary["error"],
+        }
     if not request.get("tool_calls"):
+        if raw_agent_tool_marker_count(preflight_answer) > 0:
+            boundary = agent_boundary_run(prepared, answer=preflight_answer, trace_id=trace_id)
+            return {
+                "messages": boundary["messages"],
+                "rendered_prompt": boundary["rendered_prompt"],
+                "agent_tool_results": boundary["agent_tool_results"],
+                "agent_tool_messages": boundary["agent_tool_messages"],
+                "boundary_answer": boundary["answer"],
+                "boundary_error": boundary["error"],
+            }
         return {
             "messages": prepared["messages"],
             "rendered_prompt": prepared["rendered_prompt"],
@@ -1698,7 +1868,7 @@ def run_agent_file_tool_preflight(
         }
     tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
     tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
-    messages = agent_file_tools.build_follow_up_messages(prepared["messages"], extract_answer(response), tool_results)
+    messages = agent_file_tools.build_follow_up_messages(prepared["messages"], preflight_answer, tool_results)
     return {
         "messages": messages,
         "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages)),

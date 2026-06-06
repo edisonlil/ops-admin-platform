@@ -1861,6 +1861,54 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_agent_message_records_boundary_for_native_tool_call_text(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("native-tool-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("native-tool-agent", {"title": "native-tool"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": '<tool_call>{"name":"bash","arguments":{"cmd":"cat uploads/a.log"}}</tool_call>'
+                                        }
+                                    }
+                                ],
+                                "usage": {"total_tokens": 9},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "native-tool-agent",
+                                conversation["conversation_key"],
+                                {"content": "read logs", "variables": {}},
+                            )
+                        messages = ai_applications.list_agent_messages("native-tool-agent", conversation["conversation_key"])["items"]
+
+            self.assertIn("未开放的原生工具调用", result["answer"])
+            self.assertEqual(result["assistant_message"]["status"], "failed")
+            self.assertEqual(result["trace"]["status"], "failed")
+            self.assertEqual(result["trace"]["error_code"], "AgentExecutionBoundaryError")
+            self.assertEqual(result["usage"]["total_tokens"], 9)
+            self.assertEqual(result["agent_tool_results"][0]["error_code"], "UNSUPPORTED_AGENT_TOOL")
+            self.assertTrue(any(item["role"] == "tool" and item["status"] == "failed" for item in messages))
+        finally:
+            self._unlink_db(db_path)
+
     def test_stream_agent_message_executes_file_tool_preflight(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
@@ -1929,6 +1977,116 @@ class LLMRuntimeTests(unittest.TestCase):
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["content"], "stream done")
             self.assertTrue(any(item["role"] == "tool" and item["metadata"].get("agent_file_tool_results") for item in messages))
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_stops_when_preflight_emits_native_tool_call(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-boundary-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-boundary-agent", {"title": "boundary"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            self.assertEqual(kwargs.get("response_format"), {"type": "json_object"})
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": '1<]minimax[>|<tool_call>{"name":"bash","arguments":{"cmd":"find ."}}|</tool_call>'
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=AssertionError("main stream should not run after boundary"),
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-boundary-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "分析日志压缩包", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-boundary-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("未开放的原生工具调用", joined)
+            self.assertTrue(any(event.startswith("event: final\n") for event in events))
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "failed")
+            self.assertEqual(assistant_messages[-1]["error_code"], "AgentExecutionBoundaryError")
+            self.assertIn("未开放的原生工具调用", assistant_messages[-1]["content"])
+            tool_messages = [item for item in messages if item["role"] == "tool"]
+            self.assertEqual(tool_messages[-1]["status"], "failed")
+            self.assertEqual(tool_messages[-1]["metadata"]["agent_file_tool_results"][0]["error_code"], "UNSUPPORTED_AGENT_TOOL")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_stops_repeated_native_tool_call_chunks(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-loop-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-loop-agent", {"title": "loop"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {"choices": [{"message": {"content": json.dumps({"tool_calls": []})}}], "usage": {}}
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            yield 'data: {"choices":[{"delta":{"content":"步骤1 "}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"|<tool_call>"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"{\\"name\\":\\"bash\\",\\"arguments\\":{\\"cmd\\":\\"ls\\"}}"}}]}\n\n'
+                            yield 'data: {"choices":[{"delta":{"content":"|</tool_call>"}}]}\n\n'
+                            raise AssertionError("stream should stop before later chunks")
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-loop-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "分析日志", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-loop-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("步骤1", joined)
+            self.assertIn("未开放的原生工具调用", joined)
+            self.assertTrue(joined.rstrip().endswith("data: [DONE]"))
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "failed")
+            self.assertIn("未开放的原生工具调用", assistant_messages[-1]["content"])
         finally:
             self._unlink_db(db_path)
 
