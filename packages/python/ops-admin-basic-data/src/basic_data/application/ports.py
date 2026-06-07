@@ -56,6 +56,8 @@ class BasicDataRepository(Protocol):
         status: str | None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        code: str = "",
+        value: str = "",
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryItem], int]: ...
 

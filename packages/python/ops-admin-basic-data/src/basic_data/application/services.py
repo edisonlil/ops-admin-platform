@@ -188,6 +188,8 @@ def list_dictionary_items(
     current_user: dict[str, Any],
     sort_by: str | None = None,
     sort_dir: str | None = None,
+    code: str = "",
+    value: str = "",
 ) -> dict[str, Any]:
     tenant_id = current_tenant_id(current_user)
     ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
@@ -201,6 +203,8 @@ def list_dictionary_items(
             status=status,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            code=code,
+            value=value,
             data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
         )
     except RuntimeError as exc:

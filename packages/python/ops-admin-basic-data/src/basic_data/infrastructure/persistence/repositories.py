@@ -263,12 +263,20 @@ def list_dictionary_items(
     status: str | None = None,
     sort_by: str | None = None,
     sort_dir: str | None = None,
+    code: str = "",
+    value: str = "",
     data_scope: DataAccessPredicate | None = None,
 ) -> tuple[list[DictionaryItem], int]:
     offset = (page - 1) * page_size
     where = ["i.tenant_id = ?", "i.type_id = ?", "i.deleted = 0"]
     params: list[Any] = [tenant_id, type_id]
     append_data_scope(where, params, data_scope, DICTIONARY_RESOURCE, alias="i")
+    if code.strip():
+        where.append("i.code LIKE ?")
+        params.append(f"%{code.strip()}%")
+    if value.strip():
+        where.append("i.value LIKE ?")
+        params.append(f"%{value.strip()}%")
     if keyword.strip():
         where.append("(i.code LIKE ? OR i.value LIKE ? OR i.description LIKE ?)")
         text = f"%{keyword.strip()}%"

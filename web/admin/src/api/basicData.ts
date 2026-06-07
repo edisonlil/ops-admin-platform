@@ -154,7 +154,14 @@ export function deleteDictionaryType(typeId: number) {
 
 export function getDictionaryItems(
   typeId: number,
-  params: { page?: number; page_size?: number; keyword?: string; status?: string | null } & SortParams = {}
+  params: {
+    page?: number;
+    page_size?: number;
+    keyword?: string;
+    code?: string;
+    value?: string;
+    status?: string | null;
+  } & SortParams = {}
 ) {
   return Alova.Get<BasicDataListData<DictionaryItem>>(`/basic-data/dictionary-types/${typeId}/items`, {
     params: withNoCacheParams(params),

@@ -412,6 +412,94 @@ class BasicDataTests(unittest.TestCase):
         self.assertEqual(tree[0]["name"], "上海市")
         self.assertEqual(tree[0]["children"][0]["name"], "市辖区")
 
+    def test_dictionary_item_list_filters_by_code_and_value(self) -> None:
+        from basic_data.application import services
+
+        saved_type = services.save_dictionary_type(
+            {"code": "customer_level_filter", "name": "客户等级筛选"},
+            self.current_user,
+        )["item"]
+        for code, value, status in [
+            ("gold", "金牌客户", "active"),
+            ("silver", "银牌客户", "active"),
+            ("bronze", "铜牌客户", "disabled"),
+            ("platinum", "白金客户", "active"),
+        ]:
+            services.save_dictionary_item(
+                int(saved_type["id"]),
+                {"code": code, "value": value, "status": status},
+                self.current_user,
+            )
+
+        all_items = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(all_items["pagination"]["total"], 4)
+
+        only_silver = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            code="silver",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(only_silver["pagination"]["total"], 1)
+        self.assertEqual(only_silver["items"][0]["code"], "silver")
+
+        gold_value = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            value="金牌",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(gold_value["pagination"]["total"], 1)
+        self.assertEqual(gold_value["items"][0]["value"], "金牌客户")
+
+        metal_value = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            value="牌",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(metal_value["pagination"]["total"], 3)
+
+        code_and_value = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            code="gold",
+            value="银",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(code_and_value["pagination"]["total"], 0)
+
+        code_with_status = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            value="牌",
+            status="disabled",
+            current_user=self.current_user,
+        )
+        self.assertEqual(code_with_status["pagination"]["total"], 1)
+        self.assertEqual(code_with_status["items"][0]["code"], "bronze")
+
     def test_dictionary_service_without_data_policy_uses_tenant_scope(self) -> None:
         from authorization.application import services as authorization_services
         from basic_data.application import services

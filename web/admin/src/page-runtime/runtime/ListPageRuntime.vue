@@ -169,6 +169,7 @@
             <h3 v-if="splitView.detail.title">{{ splitView.detail.title }}</h3>
             <p v-if="splitView.detail.description">{{ splitView.detail.description }}</p>
           </div>
+          <slot name="detail-filters" v-if="isSplitListView"></slot>
           <div class="app-list-page__pane-actions">
             <n-button
               v-for="action in splitView.detail.actions || []"
@@ -458,6 +459,7 @@
     'toolbar-right',
     'header-actions',
     'collection',
+    'detail-filters',
   ];
   const hasDeclaredFilters = computed(() => !!props.schema.filters?.length);
   const rightTools = computed(() => props.schema.toolbar?.rightTools || []);

@@ -16,6 +16,41 @@
           @update:value="submit"
         />
       </template>
+      <template #detail-filters>
+        <n-input
+          v-model:value="itemCode"
+          clearable
+          size="small"
+          placeholder="字典项编码"
+          style="width: 160px"
+          @keyup.enter="reloadItems"
+        />
+        <n-input
+          v-model:value="itemValue"
+          clearable
+          size="small"
+          placeholder="字典项值"
+          style="width: 180px"
+          @keyup.enter="reloadItems"
+        />
+        <n-input
+          v-model:value="itemKeyword"
+          clearable
+          size="small"
+          placeholder="备注关键字"
+          style="width: 180px"
+          @keyup.enter="reloadItems"
+        />
+        <n-select
+          v-model:value="itemStatus"
+          clearable
+          size="small"
+          placeholder="状态"
+          :options="statusOptions"
+          style="width: 130px"
+          @update:value="reloadItems"
+        />
+      </template>
     </ListPageRuntime>
 
     <n-drawer v-model:show="typeDrawerVisible" width="560">
@@ -189,6 +224,8 @@
   const typeKeyword = ref('');
   const typeStatus = ref<string | null>(null);
   const itemKeyword = ref('');
+  const itemCode = ref('');
+  const itemValue = ref('');
   const itemStatus = ref<string | null>(null);
   const itemExtraText = ref('{}');
   const itemRuntimeState = ref<ListRuntimeState>({});
@@ -411,7 +448,7 @@
   );
 
   watch([typeStatus], () => reloadTypes());
-  watch([itemStatus], () => reloadItems());
+  watch([itemStatus, itemCode, itemValue], () => reloadItems());
 
   function resetTypeForm() {
     Object.assign(typeForm, {
@@ -458,6 +495,8 @@
     selectedTypeKeys.value = nextType ? [nextType.id] : [];
     activeType.value = nextType;
     itemKeyword.value = '';
+    itemCode.value = '';
+    itemValue.value = '';
     itemStatus.value = null;
     itemRows.value = [];
     if (nextType) reloadItems();
@@ -597,6 +636,10 @@
   function resetFilters() {
     typeKeyword.value = '';
     typeStatus.value = null;
+    itemKeyword.value = '';
+    itemCode.value = '';
+    itemValue.value = '';
+    itemStatus.value = null;
   }
 
   async function reloadTypes(preferredTypeId?: number) {
@@ -625,6 +668,8 @@
       const payload = await getDictionaryItems(activeType.value.id, {
         ...runtimeListParams(state || itemRuntimeState.value, { pageSize: 20 }),
         keyword: itemKeyword.value,
+        code: itemCode.value,
+        value: itemValue.value,
         status: itemStatus.value,
       });
       itemRows.value = payload.items || [];
