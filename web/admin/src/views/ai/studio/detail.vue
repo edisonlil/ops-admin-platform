@@ -1951,7 +1951,7 @@ result = [
     return edgeIds;
   });
   const parsedPreviewOutput = computed(() => splitThinkContent(runResult.value?.answer || ''));
-  const previewThinkText = computed(() => streamThinkText.value || parsedPreviewOutput.value.think);
+  const previewThinkText = computed(() => sanitizeDisplayedToolProtocol(streamThinkText.value || parsedPreviewOutput.value.think));
   const previewAnswerText = computed(() => parsedPreviewOutput.value.answer);
   const previewRenderedOutput = computed(() => renderAnswer(previewAnswerText.value, selectedOutputFormat.value));
   const skillTracePlan = computed(() => runResult.value?.skill_plan || null);
@@ -3730,8 +3730,38 @@ result = [
       compact.includes('"name":"run_command"') ||
       compact.includes('"tool":"run_command"') ||
       compact.includes('"name":"shell_exec"') ||
-      compact.includes('"tool":"shell_exec"')
+      compact.includes('"tool":"shell_exec"') ||
+      compact.includes('"tool_calls":') ||
+      compact.includes('"arguments":') && (compact.includes('"tool":"') || compact.includes('"name":"'))
     );
+  }
+
+  function isToolRequestPayload(value: string) {
+    const text = String(value || '').trim();
+    if (!text || !text.startsWith('{')) return false;
+    try {
+      const payload = JSON.parse(text);
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+      const record = payload as Record<string, unknown>;
+      const toolCalls = record.tool_calls;
+      if (Array.isArray(toolCalls)) return true;
+      return Boolean((record.tool || record.name) && (record.arguments || record.input));
+    } catch {
+      return false;
+    }
+  }
+
+  function sanitizeDisplayedToolProtocol(value: string) {
+    const text = String(value || '');
+    if (!text) return '';
+    if (isToolRequestPayload(text)) return '';
+    return text
+      .replace(/<tool_(call|result)>[\s\S]*?(<\/tool_\1>|$)/gi, '')
+      .replace(/\|?<tool_[^>]*>?/gi, '')
+      .split('\n')
+      .filter((line) => !isToolRequestPayload(line.trim()))
+      .join('\n')
+      .trim();
   }
 
   function isAbortError(error: unknown) {
@@ -3741,11 +3771,11 @@ result = [
   function splitThinkContent(content: string) {
     const match = content.match(/<think\b[^>]*>([\s\S]*?)(?:<\/think>|$)/i);
     if (!match) {
-      return { think: '', answer: content.trim() };
+      return { think: '', answer: sanitizeDisplayedToolProtocol(content) };
     }
-    const answer = content.replace(match[0], '').trim();
+    const answer = sanitizeDisplayedToolProtocol(content.replace(match[0], ''));
     return {
-      think: match[1].trim(),
+      think: sanitizeDisplayedToolProtocol(match[1]),
       answer,
     };
   }

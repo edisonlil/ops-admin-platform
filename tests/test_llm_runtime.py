@@ -1305,6 +1305,66 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_single_turn_stream_executes_complete_native_tool_call_and_continues(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        ai_applications.save_ai_application(self._sample_ai_application("single-stream-native-tool"))
+                        stream_calls = {"count": 0}
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {"choices": [{"message": {"content": json.dumps({"tool_calls": []})}}], "usage": {}}
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            stream_calls["count"] += 1
+                            if stream_calls["count"] == 1:
+                                yield 'data: {"choices":[{"delta":{"content":"先检查文件 "}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"<tool_call>"}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"{\\"name\\":\\"write_file\\",\\"arguments\\":{\\"path\\":\\"note.txt\\",\\"content\\":\\"hello\\"}}"}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"</tool_call>"}}]}\n\n'
+                                yield "data: [DONE]\n\n"
+                                return
+                            self.assertIn("Agent tool results", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"处理完成"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_draft_application(
+                                        "single-stream-native-tool",
+                                        {
+                                            "variables": {"question": "write note"},
+                                            "files": [{"name": "content.txt", "mime_type": "text/plain", "text": "lesson"}],
+                                        },
+                                    )
+                                )
+                        traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            joined = "".join(events)
+            self.assertEqual(stream_calls["count"], 2)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("先检查文件", joined)
+            self.assertIn("处理完成", joined)
+            self.assertNotIn("<tool_call>", joined)
+            self.assertTrue(any("note.txt" in str(path) for path in workspace_root.rglob("note.txt")))
+            self.assertEqual(traces[0]["status"], "success")
+            self.assertEqual(traces[0]["answer"], "先检查文件 处理完成")
+        finally:
+            self._unlink_db(db_path)
+
     def test_ai_application_draft_stream_records_trace_without_done_event(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

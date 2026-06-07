@@ -260,9 +260,9 @@ class BasicDataTests(unittest.TestCase):
             self.current_user,
         )["item"]
         csv_content = (
-            "code,value,color,sort_order,status,description,extra_json\n"
-            'gold,G,#D97706,1,active,金牌客户,"{""score"":90}"\n'
-            "silver,S,#94A3B8,2,disabled,银牌客户,\n"
+            "字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)\n"
+            'gold,金牌客户,#D97706,1,启用,高价值客户,"{""score"":90}"\n'
+            "silver,银牌客户,#94A3B8,2,停用,普通客户,\n"
         ).encode("utf-8")
 
         dry_run = services.import_dictionary_items(
@@ -304,10 +304,11 @@ class BasicDataTests(unittest.TestCase):
         )
         self.assertEqual([item["code"] for item in items["items"]], ["gold", "silver"])
         self.assertEqual(items["items"][0]["extra"], {"score": 90})
+        self.assertEqual(items["items"][1]["status"], "disabled")
 
         update_content = (
-            "code,value,color,sort_order,status,description,extra_json\n"
-            "gold,VIP,#059669,3,active,已升级,\n"
+            "字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)\n"
+            "gold,VIP客户,#059669,3,启用,已升级,\n"
         ).encode("utf-8")
         updated = services.import_dictionary_items(
             type_id=int(saved_type["id"]),
@@ -327,13 +328,19 @@ class BasicDataTests(unittest.TestCase):
             current_user=self.current_user,
         )["items"][0]
         self.assertEqual(gold["code"], "gold")
-        self.assertEqual(gold["value"], "VIP")
+        self.assertEqual(gold["value"], "VIP客户")
 
         stream, filename = services.export_dictionary_items(type_id=int(saved_type["id"]), current_user=self.current_user)
         exported_text = stream.read().decode("utf-8-sig")
         self.assertEqual(filename, "customer_level-dictionary-items.csv")
-        self.assertIn("code,value,color,sort_order,status,description,extra_json", exported_text)
-        self.assertIn("gold,VIP,#059669,3,active,已升级,", exported_text)
+        self.assertIn("字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)", exported_text)
+        self.assertIn("gold,VIP客户,#059669,3,启用,已升级,", exported_text)
+
+        template_stream, template_filename = services.dictionary_item_import_template(type_id=int(saved_type["id"]), current_user=self.current_user)
+        template_text = template_stream.read().decode("utf-8-sig")
+        self.assertEqual(template_filename, "customer_level-字典项导入模板.csv")
+        self.assertIn("字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)", template_text)
+        self.assertIn("gold,金牌客户,#D97706,1,启用,用于标识高价值客户", template_text)
 
         invalid = services.import_dictionary_items(
             type_id=int(saved_type["id"]),
@@ -553,7 +560,13 @@ class BasicDataTests(unittest.TestCase):
         )
         self.assertEqual(type_response.status_code, 200)
         type_id = int(type_response.json()["data"]["item"]["id"])
-        content = "code,value,color,sort_order,status,description,extra_json\nopen,待处理,#2563EB,1,active,待处理工单,{}\n".encode("utf-8")
+        content = "字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)\nopen,待处理,#2563EB,1,启用,待处理工单,{}\n".encode("utf-8")
+
+        template_response = self.request("GET", f"/api/basic-data/dictionary-types/{type_id}/items/import-template")
+        self.assertEqual(template_response.status_code, 200)
+        self.assertIn("attachment", template_response.headers.get("content-disposition", ""))
+        template_text = template_response.content.decode("utf-8-sig")
+        self.assertIn("字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)", template_text)
 
         dry_run_response = self.request(
             "POST",
@@ -574,7 +587,9 @@ class BasicDataTests(unittest.TestCase):
         export_response = self.request("GET", f"/api/basic-data/dictionary-types/{type_id}/items/export")
         self.assertEqual(export_response.status_code, 200)
         self.assertIn("attachment", export_response.headers.get("content-disposition", ""))
-        self.assertIn("open,待处理,#2563EB,1,active,待处理工单,{}", export_response.content.decode("utf-8-sig"))
+        exported_text = export_response.content.decode("utf-8-sig")
+        self.assertIn("字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)", exported_text)
+        self.assertIn("open,待处理,#2563EB,1,启用,待处理工单,{}", exported_text)
 
     def test_missing_schema_returns_operational_error(self) -> None:
         from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema

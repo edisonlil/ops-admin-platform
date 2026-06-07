@@ -107,8 +107,11 @@
       <n-drawer-content title="导入字典项">
         <n-space vertical :size="16">
           <n-alert type="info" :show-icon="false">
-            CSV 字段：code,value,color,sort_order,status,description,extra_json。导入范围为当前选中的业务字典，code 相同的字典项会按导入模式更新或跳过。
+            CSV 字段请使用：字典项编码、字典项名称、标签颜色、显示顺序、状态、备注、扩展信息(JSON)。状态填写“启用”或“停用”，字典项编码相同的数据会按导入模式更新或跳过。
           </n-alert>
+          <n-space>
+            <n-button secondary :loading="downloadingItemTemplate" @click="downloadImportTemplate">下载导入模板</n-button>
+          </n-space>
           <n-upload :max="1" accept=".csv" :default-upload="false" @change="handleImportFileChange">
             <n-upload-dragger>
               <div class="basic-data-dictionary-page__upload-title">选择 CSV 文件</div>
@@ -152,6 +155,7 @@
   import {
     deleteDictionaryItem,
     deleteDictionaryType,
+    downloadDictionaryItemImportTemplate,
     downloadDictionaryItems,
     getDictionaryItems,
     getDictionaryTypes,
@@ -170,6 +174,7 @@
   const loadingItems = ref(false);
   const savingItem = ref(false);
   const importingItems = ref(false);
+  const downloadingItemTemplate = ref(false);
   const exportingItems = ref(false);
   const typeDrawerVisible = ref(false);
   const itemFormVisible = ref(false);
@@ -556,6 +561,20 @@
       await reloadItems();
     } finally {
       importingItems.value = false;
+    }
+  }
+
+  async function downloadImportTemplate() {
+    if (!activeType.value) return;
+    downloadingItemTemplate.value = true;
+    try {
+      await downloadDictionaryItemImportTemplate(
+        activeType.value.id,
+        `${safeFileName(activeType.value.code || activeType.value.name)}-字典项导入模板.csv`
+      );
+      message.success('字典项导入模板已开始下载');
+    } finally {
+      downloadingItemTemplate.value = false;
     }
   }
 

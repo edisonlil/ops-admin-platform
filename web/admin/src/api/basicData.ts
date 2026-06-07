@@ -192,14 +192,22 @@ export function importDictionaryItems(typeId: number, file: File, options: { dry
   });
 }
 
+export async function downloadDictionaryItemImportTemplate(typeId: number, filename: string) {
+  await downloadBasicDataFile(`/basic-data/dictionary-types/${typeId}/items/import-template`, filename, '字典项导入模板下载失败');
+}
+
 export async function downloadDictionaryItems(typeId: number, filename: string) {
-  const response = await fetch(basicDataApiUrl(`/basic-data/dictionary-types/${typeId}/items/export`), {
+  await downloadBasicDataFile(`/basic-data/dictionary-types/${typeId}/items/export`, filename, '字典项导出失败');
+}
+
+async function downloadBasicDataFile(path: string, filename: string, fallbackError: string) {
+  const response = await fetch(basicDataApiUrl(path), {
     method: 'GET',
     credentials: 'include',
     headers: authHeaders(),
   });
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, '字典项导出失败'));
+    throw new Error(await responseErrorMessage(response, fallbackError));
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

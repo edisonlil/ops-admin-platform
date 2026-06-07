@@ -115,6 +115,19 @@ def export_dictionary_items(
     )
 
 
+@router.get("/dictionary-types/{type_id}/items/import-template")
+def dictionary_item_import_template(
+    type_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:import")),
+) -> StreamingResponse:
+    stream, filename = services.dictionary_item_import_template(type_id=type_id, current_user=current_user)
+    return StreamingResponse(
+        stream,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 @router.post("/dictionary-types/{type_id}/items/import")
 async def import_dictionary_items(
     type_id: int,

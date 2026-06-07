@@ -16,6 +16,7 @@ from basic_data.domain.models import (
     REGION_LEVEL_PROVINCE,
     REGION_LEVELS,
     STATUS_ACTIVE,
+    STATUS_DISABLED,
     STATUSES,
 )
 from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
@@ -26,6 +27,41 @@ repository: BasicDataRepository | None = None
 DICTIONARY_RESOURCE = ResourceDescriptor(resource_key="basic-data.dictionary")
 REGION_RESOURCE = ResourceDescriptor(resource_key="basic-data.region")
 DICTIONARY_ITEM_CSV_COLUMNS = ("code", "value", "color", "sort_order", "status", "description", "extra_json")
+DICTIONARY_ITEM_CSV_LABELS = {
+    "code": "字典项编码",
+    "value": "字典项名称",
+    "color": "标签颜色",
+    "sort_order": "显示顺序",
+    "status": "状态",
+    "description": "备注",
+    "extra_json": "扩展信息(JSON)",
+}
+DICTIONARY_ITEM_CSV_HEADER = tuple(DICTIONARY_ITEM_CSV_LABELS[column] for column in DICTIONARY_ITEM_CSV_COLUMNS)
+DICTIONARY_ITEM_CSV_COLUMN_ALIASES = {
+    **{column: column for column in DICTIONARY_ITEM_CSV_COLUMNS},
+    **{label: column for column, label in DICTIONARY_ITEM_CSV_LABELS.items()},
+    "字典项值": "value",
+    "颜色": "color",
+    "排序": "sort_order",
+    "描述": "description",
+    "扩展信息": "extra_json",
+    "扩展JSON": "extra_json",
+    "扩展 JSON": "extra_json",
+}
+DICTIONARY_ITEM_STATUS_LABELS = {
+    STATUS_ACTIVE: "启用",
+    STATUS_DISABLED: "停用",
+}
+DICTIONARY_ITEM_STATUS_ALIASES = {
+    STATUS_ACTIVE: STATUS_ACTIVE,
+    STATUS_DISABLED: STATUS_DISABLED,
+    "启用": STATUS_ACTIVE,
+    "正常": STATUS_ACTIVE,
+    "有效": STATUS_ACTIVE,
+    "停用": STATUS_DISABLED,
+    "禁用": STATUS_DISABLED,
+    "无效": STATUS_DISABLED,
+}
 REGION_LEVEL_ALIASES = {
     "province": REGION_LEVEL_PROVINCE,
     "省": REGION_LEVEL_PROVINCE,
@@ -273,21 +309,42 @@ def export_dictionary_items(*, type_id: int, current_user: dict[str, Any]) -> tu
         raise BasicDataStorageNotReadyError(str(exc)) from exc
 
     output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=list(DICTIONARY_ITEM_CSV_COLUMNS))
+    writer = csv.DictWriter(output, fieldnames=list(DICTIONARY_ITEM_CSV_HEADER))
     writer.writeheader()
     for item in items:
         writer.writerow(
             {
-                "code": item.code,
-                "value": item.value,
-                "color": item.color,
-                "sort_order": item.sort_order,
-                "status": item.status,
-                "description": item.description,
-                "extra_json": json.dumps(item.extra, ensure_ascii=False, separators=(",", ":")),
+                DICTIONARY_ITEM_CSV_LABELS["code"]: item.code,
+                DICTIONARY_ITEM_CSV_LABELS["value"]: item.value,
+                DICTIONARY_ITEM_CSV_LABELS["color"]: item.color,
+                DICTIONARY_ITEM_CSV_LABELS["sort_order"]: item.sort_order,
+                DICTIONARY_ITEM_CSV_LABELS["status"]: dictionary_item_status_label(item.status),
+                DICTIONARY_ITEM_CSV_LABELS["description"]: item.description,
+                DICTIONARY_ITEM_CSV_LABELS["extra_json"]: json.dumps(item.extra, ensure_ascii=False, separators=(",", ":")),
             }
         )
     filename = f"{safe_export_name(dictionary_type.code or dictionary_type.name)}-dictionary-items.csv"
+    return io.BytesIO(output.getvalue().encode("utf-8-sig")), filename
+
+
+def dictionary_item_import_template(*, type_id: int, current_user: dict[str, Any]) -> tuple[io.BytesIO, str]:
+    tenant_id = current_tenant_id(current_user)
+    dictionary_type = ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=list(DICTIONARY_ITEM_CSV_HEADER))
+    writer.writeheader()
+    writer.writerow(
+        {
+            DICTIONARY_ITEM_CSV_LABELS["code"]: "gold",
+            DICTIONARY_ITEM_CSV_LABELS["value"]: "金牌客户",
+            DICTIONARY_ITEM_CSV_LABELS["color"]: "#D97706",
+            DICTIONARY_ITEM_CSV_LABELS["sort_order"]: 1,
+            DICTIONARY_ITEM_CSV_LABELS["status"]: "启用",
+            DICTIONARY_ITEM_CSV_LABELS["description"]: "用于标识高价值客户",
+            DICTIONARY_ITEM_CSV_LABELS["extra_json"]: '{"score":90}',
+        }
+    )
+    filename = f"{safe_export_name(dictionary_type.code or dictionary_type.name)}-字典项导入模板.csv"
     return io.BytesIO(output.getvalue().encode("utf-8-sig")), filename
 
 
@@ -779,13 +836,16 @@ def parse_dictionary_item_import_rows(*, content: bytes, filename: str) -> tuple
     rows: list[dict[str, Any]] = []
     if not reader.fieldnames:
         return rows, [{"row": None, "message": "import file has no header row"}]
-    supported_columns = set(DICTIONARY_ITEM_CSV_COLUMNS)
     for column in reader.fieldnames:
         normalized_column = str(column or "").strip()
-        if normalized_column and normalized_column not in supported_columns:
+        if normalized_column and not dictionary_item_import_column_key(normalized_column):
             warnings.append({"row": None, "message": f"ignored unsupported column: {normalized_column}"})
     for index, row in enumerate(reader, start=2):
-        normalized = {str(key or "").strip(): value for key, value in row.items() if key}
+        normalized: dict[str, Any] = {}
+        for key, value in row.items():
+            column_key = dictionary_item_import_column_key(str(key or "").strip())
+            if column_key:
+                normalized[column_key] = value
         if not any(str(value or "").strip() for value in normalized.values()):
             continue
         normalized["_row"] = index
@@ -805,16 +865,17 @@ def normalize_dictionary_item_import_rows(rows: list[dict[str, Any]]) -> tuple[l
             try:
                 parsed = json.loads(extra_text)
             except json.JSONDecodeError:
-                errors.append({"row": row_number, "message": "extra_json format is invalid"})
+                errors.append({"row": row_number, "message": "扩展信息(JSON)格式不正确"})
             if not isinstance(parsed, dict):
-                errors.append({"row": row_number, "message": "extra_json must be an object"})
+                errors.append({"row": row_number, "message": "扩展信息(JSON)必须是对象"})
             elif isinstance(parsed, dict):
                 extra = parsed
         try:
             sort_order = int(row.get("sort_order") or 0)
         except (TypeError, ValueError):
-            errors.append({"row": row_number, "message": "sort_order must be an integer"})
+            errors.append({"row": row_number, "message": "显示顺序必须是整数"})
             sort_order = 0
+        raw_status = str(row.get("status") or STATUS_ACTIVE).strip() or STATUS_ACTIVE
         normalized_rows.append(
             {
                 "row": row_number,
@@ -823,7 +884,7 @@ def normalize_dictionary_item_import_rows(rows: list[dict[str, Any]]) -> tuple[l
                 "color": str(row.get("color") or "").strip(),
                 "description": str(row.get("description") or "").strip(),
                 "extra": extra,
-                "status": str(row.get("status") or STATUS_ACTIVE).strip() or STATUS_ACTIVE,
+                "status": normalize_dictionary_item_status(raw_status),
                 "sort_order": sort_order,
             }
         )
@@ -848,20 +909,20 @@ def validate_dictionary_item_import_rows(
     for row in rows:
         code = str(row.get("code") or "")
         if not code:
-            errors.append({"row": row["row"], "message": "dictionary item code is required"})
+            errors.append({"row": row["row"], "message": "字典项编码不能为空"})
             continue
         if code in seen_codes:
-            errors.append({"row": row["row"], "message": f"duplicate code in import file: {code}"})
+            errors.append({"row": row["row"], "message": f"导入文件中字典项编码重复：{code}"})
         seen_codes.add(code)
         if not str(row.get("value") or "").strip():
-            errors.append({"row": row["row"], "message": "dictionary item value is required"})
+            errors.append({"row": row["row"], "message": "字典项名称不能为空"})
         if str(row.get("status") or "") not in STATUSES:
-            errors.append({"row": row["row"], "message": f"unsupported dictionary item status: {row.get('status')}"})
+            errors.append({"row": row["row"], "message": f"状态仅支持启用或停用：{row.get('status')}"})
         existing = existing_by_code.get(code)
         if existing and mode != "create_only":
             existing_row = repo().get_dictionary_item_row(tenant_id=tenant_id, item_id=existing.id)
             if not existing_row or not write_access.allows_record(existing_row, DICTIONARY_RESOURCE):
-                errors.append({"row": row["row"], "message": f"dictionary item is not writable: {code}"})
+                errors.append({"row": row["row"], "message": f"无权限更新字典项：{code}"})
     return errors
 
 
@@ -955,6 +1016,21 @@ def normalized_item_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "status": str(payload.get("status") or STATUS_ACTIVE),
         "sort_order": int(payload.get("sort_order") or 0),
     }
+
+
+def dictionary_item_import_column_key(column: str) -> str | None:
+    normalized = str(column or "").strip()
+    return DICTIONARY_ITEM_CSV_COLUMN_ALIASES.get(normalized)
+
+
+def normalize_dictionary_item_status(value: str) -> str:
+    normalized = str(value or "").strip()
+    return DICTIONARY_ITEM_STATUS_ALIASES.get(normalized, normalized)
+
+
+def dictionary_item_status_label(value: str) -> str:
+    normalized = normalize_dictionary_item_status(value)
+    return DICTIONARY_ITEM_STATUS_LABELS.get(normalized, normalized)
 
 
 def safe_export_name(value: str) -> str:
