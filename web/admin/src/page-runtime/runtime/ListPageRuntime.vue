@@ -169,7 +169,17 @@
             <h3 v-if="splitView.detail.title">{{ splitView.detail.title }}</h3>
             <p v-if="splitView.detail.description">{{ splitView.detail.description }}</p>
           </div>
-          <slot name="detail-filters" v-if="isSplitListView"></slot>
+          <AppFilterBar
+            v-if="isSplitListView && $slots['detail-filters']"
+            field-size="small"
+            show-submit
+            show-reset
+            class="app-list-page__detail-filter"
+            @submit="handleDetailFilterSubmit"
+            @reset="handleDetailFilterReset"
+          >
+            <slot name="detail-filters"></slot>
+          </AppFilterBar>
           <div class="app-list-page__pane-actions">
             <n-button
               v-for="action in splitView.detail.actions || []"
@@ -420,6 +430,7 @@
   const emit = defineEmits<{
     refresh: [state?: ListRuntimeState];
     filterReset: [];
+    detailFilterReset: [];
     sortChange: [state: TableSortState];
     runtimeChange: [state: ListRuntimeState];
   }>();
@@ -932,6 +943,15 @@
   function handleFilterReset() {
     emit('filterReset');
     refreshFromFirstPage();
+  }
+
+  async function handleDetailFilterSubmit() {
+    await handleSplitRefresh('detail');
+  }
+
+  function handleDetailFilterReset() {
+    emit('detailFilterReset');
+    void handleSplitRefresh('detail');
   }
 
   function getRuntimeColumns(view: CollectionViewSchema<Row>): TableColumnPreferenceSchema<Row>[] {
@@ -1670,6 +1690,11 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
+    min-width: 0;
+  }
+
+  .app-list-page__detail-filter {
+    flex: 1 1 320px;
     min-width: 0;
   }
 

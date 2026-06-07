@@ -1,6 +1,6 @@
 <template>
   <div class="basic-data-dictionary-page">
-    <ListPageRuntime :schema="dictionaryPage" :rows="typeRows" :loading="loadingTypes" @refresh="reloadAll" @filter-reset="resetFilters">
+    <ListPageRuntime :schema="dictionaryPage" :rows="typeRows" :loading="loadingTypes" @refresh="reloadAll" @filter-reset="resetFilters" @detail-filter-reset="resetItemFilters">
       <template #filters="{ submit }">
         <n-input
           v-model:value="typeKeyword"
@@ -20,35 +20,26 @@
         <n-input
           v-model:value="itemCode"
           clearable
-          size="small"
           placeholder="字典项编码"
-          style="width: 160px"
           @keyup.enter="reloadItems"
         />
         <n-input
           v-model:value="itemValue"
           clearable
-          size="small"
           placeholder="字典项值"
-          style="width: 180px"
           @keyup.enter="reloadItems"
         />
         <n-input
           v-model:value="itemKeyword"
           clearable
-          size="small"
           placeholder="备注关键字"
-          style="width: 180px"
           @keyup.enter="reloadItems"
         />
         <n-select
           v-model:value="itemStatus"
           clearable
-          size="small"
           placeholder="状态"
           :options="statusOptions"
-          style="width: 130px"
-          @update:value="reloadItems"
         />
       </template>
     </ListPageRuntime>
@@ -636,6 +627,13 @@
   function resetFilters() {
     typeKeyword.value = '';
     typeStatus.value = null;
+    itemKeyword.value = '';
+    itemCode.value = '';
+    itemValue.value = '';
+    itemStatus.value = null;
+  }
+
+  function resetItemFilters() {
     itemKeyword.value = '';
     itemCode.value = '';
     itemValue.value = '';
