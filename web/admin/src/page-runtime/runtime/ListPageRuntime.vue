@@ -66,7 +66,7 @@
       <slot name="filters" :submit="handleFilterSubmit" :reset="handleFilterReset"></slot>
     </AppFilterBar>
 
-    <AppPageToolbar v-if="hasPageToolbar" :selected-count="toolbarSelectedCount">
+    <AppPageToolbar v-if="hasPageToolbar">
       <template #left>
         <slot name="toolbar-left"></slot>
         <n-button
@@ -541,16 +541,6 @@
       hasBatchActions.value ||
       hasNonRefreshRightTools.value
   );
-  const toolbarSelectedCount = computed(() => {
-    if (props.schema.view.type === 'tabbed-list') {
-      const pane = tabbedPanes.value.find((entry) => entry.name === activeTab.value);
-      return pane ? getCheckedRowKeys(pane.view).length : 0;
-    }
-    if (props.schema.view.type === 'split-list') {
-      return splitView.value?.detail ? getCheckedRowKeys(splitView.value.detail.view).length : 0;
-    }
-    return getCheckedRowKeys(props.schema.view).length;
-  });
   const resolvedViewSchema = computed(() => {
     if (props.schema.view.type !== 'table') {
       return props.schema.view;
