@@ -352,6 +352,66 @@ class BasicDataTests(unittest.TestCase):
         )
         self.assertGreaterEqual(invalid["error_count"], 3)
 
+    def test_dictionary_item_import_decodes_gb18030_csv(self) -> None:
+        from basic_data.application import services
+
+        saved_type = services.save_dictionary_type(
+            {"code": "customer_level_gbk", "name": "客户等级GBK"},
+            self.current_user,
+        )["item"]
+        csv_content = (
+            "字典项编码,字典项名称,标签颜色,显示顺序,状态,备注,扩展信息(JSON)\n"
+            "gold,金牌客户,#D97706,1,启用,高价值客户,\n"
+            "silver,银牌客户,#94A3B8,2,停用,普通客户,\n"
+        ).encode("gb18030")
+        self.assertNotIn(b"customer_level", csv_content)
+
+        summary = services.import_dictionary_items(
+            type_id=int(saved_type["id"]),
+            content=csv_content,
+            filename="dictionary-items.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(summary["created_count"], 2)
+        self.assertEqual(summary["error_count"], 0)
+
+        items = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            status=None,
+            current_user=self.current_user,
+        )["items"]
+        self.assertEqual([item["code"] for item in items], ["gold", "silver"])
+        self.assertEqual(items[0]["value"], "金牌客户")
+        self.assertEqual(items[1]["description"], "普通客户")
+
+    def test_region_import_decodes_gb18030_csv(self) -> None:
+        from basic_data.application import services
+
+        csv_content = (
+            "code,parent_code,name,short_name,level,sort_order,status\n"
+            "310000,,上海市,上海,省,1,active\n"
+            "310100,310000,市辖区,辖区,市,2,active\n"
+        ).encode("gb18030")
+
+        summary = services.import_regions(
+            content=csv_content,
+            filename="regions.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(summary["created_count"], 2)
+        self.assertEqual(summary["error_count"], 0)
+
+        tree = services.list_region_tree(include_disabled=True, current_user=self.current_user)["items"]
+        self.assertEqual(tree[0]["name"], "上海市")
+        self.assertEqual(tree[0]["children"][0]["name"], "市辖区")
+
     def test_dictionary_service_without_data_policy_uses_tenant_scope(self) -> None:
         from authorization.application import services as authorization_services
         from basic_data.application import services

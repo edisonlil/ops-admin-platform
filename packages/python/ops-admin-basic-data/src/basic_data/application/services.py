@@ -810,10 +810,31 @@ def build_region_tree(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return roots
 
 
+_CSV_IMPORT_ENCODINGS: tuple[str, ...] = ("utf-8-sig", "utf-8", "gb18030")
+
+
+def _decode_csv_bytes(content: bytes) -> str:
+    """Best-effort decode of a CSV byte payload.
+
+    Tries UTF-8 (with BOM stripping) first, then falls back to GB18030, which is
+    a superset of GBK and GB2312 and covers CSVs produced by Windows + Chinese
+    Excel. If every strict decode fails we still return a latin-1 string so the
+    caller can surface a row-level error instead of a raw UnicodeDecodeError.
+    """
+    if not content:
+        return ""
+    for encoding in _CSV_IMPORT_ENCODINGS:
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("latin-1")
+
+
 def parse_region_import_rows(*, content: bytes, filename: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not filename.lower().endswith(".csv"):
         raise BasicDataDomainError("only csv region import is supported")
-    text = content.decode("utf-8-sig")
+    text = _decode_csv_bytes(content)
     reader = csv.DictReader(io.StringIO(text))
     warnings: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
@@ -830,7 +851,7 @@ def parse_region_import_rows(*, content: bytes, filename: str) -> tuple[list[dic
 def parse_dictionary_item_import_rows(*, content: bytes, filename: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not filename.lower().endswith(".csv"):
         raise BasicDataDomainError("only csv dictionary item import is supported")
-    text = content.decode("utf-8-sig")
+    text = _decode_csv_bytes(content)
     reader = csv.DictReader(io.StringIO(text))
     warnings: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
