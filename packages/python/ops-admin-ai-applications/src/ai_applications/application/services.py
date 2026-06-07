@@ -557,6 +557,7 @@ def stream_agent_message(
         trace_recorded = False
         stream_tool_marker_count = 0
         stream_recent_text = ""
+        streamed_tool_rounds = 0
         stream_messages = prepared["messages"]
         stream_rendered_prompt = prepared["rendered_prompt"]
         stream_tool_results: list[dict[str, Any]] = []
@@ -661,44 +662,26 @@ def stream_agent_message(
                     )
                     yield "data: [DONE]\n\n"
                     return
-            for event in gateway.stream_chat_completions(
-                model=prepared["model"],
-                messages=stream_messages,
-                temperature=prepared["temperature"],
-                response_format=prepared["response_format"],
-                extra_body=resolve_extra_body(prepared["app"], payload),
-                enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
-                correlation_id=trace_id,
-            ):
-                event_type, event_data = parse_sse_event(event)
-                if event_type == "error":
-                    error = RuntimeError(event_data.get("message") or "LLM stream failed")
-                    yield event
-                    continue
-                if event.strip() == "data: [DONE]":
-                    trace = finish("failed" if error else "success", error)
-                    yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
-                    yield emit_named(
-                        "final",
-                        {
-                            "trace_id": trace_id,
-                            "assistant_message": assistant_message,
-                            "object": "ai_application.agent.message.final",
-                        },
-                    )
-                    yield event
-                    break
-                content_delta = gateway.stream_event_content(event)
-                visible_delta = stream_event_visible_text(event)
-                if visible_delta:
-                    stream_tool_marker_count += raw_agent_tool_marker_count(visible_delta)
-                    stream_recent_text = (stream_recent_text + visible_delta)[-8000:]
-                    recent_tool_marker_count = raw_agent_tool_marker_count(stream_recent_text)
-                    if len("".join(answer_parts)) + len(visible_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
-                        boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
-                        answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
-                        yield agent_boundary_stream_event(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
-                        trace = finish("failed", boundary_error)
+            continue_stream = True
+            while continue_stream:
+                continue_stream = False
+                protocol_buffer = ""
+                for event in gateway.stream_chat_completions(
+                    model=prepared["model"],
+                    messages=stream_messages,
+                    temperature=prepared["temperature"],
+                    response_format=prepared["response_format"],
+                    extra_body=resolve_extra_body(prepared["app"], payload),
+                    enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+                    correlation_id=trace_id,
+                ):
+                    event_type, event_data = parse_sse_event(event)
+                    if event_type == "error":
+                        error = RuntimeError(event_data.get("message") or "LLM stream failed")
+                        yield event
+                        continue
+                    if event.strip() == "data: [DONE]":
+                        trace = finish("failed" if error else "success", error)
                         yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
                         yield emit_named(
                             "final",
@@ -708,9 +691,74 @@ def stream_agent_message(
                                 "object": "ai_application.agent.message.final",
                             },
                         )
-                        yield "data: [DONE]\n\n"
-                        return
-                    if solo_confirmation_requested(stream_recent_text):
+                        yield event
+                        break
+                    content_delta = gateway.stream_event_content(event)
+                    visible_delta = stream_event_visible_text(event)
+                    if not visible_delta:
+                        answer_parts.append(content_delta)
+                        yield event
+                        continue
+                    protocol_start = raw_agent_tool_protocol_start(visible_delta)
+                    protocol_fragment = visible_delta if protocol_buffer else ""
+                    safe_visible_delta = "" if protocol_buffer else visible_delta
+                    if protocol_start >= 0 and not protocol_buffer:
+                        safe_visible_delta = visible_delta[:protocol_start]
+                        protocol_fragment = visible_delta[protocol_start:]
+                    safe_content_delta = content_delta
+                    if protocol_fragment:
+                        if protocol_start >= 0 and content_delta and visible_delta == content_delta:
+                            safe_content_delta = content_delta[:protocol_start]
+                        elif protocol_buffer or protocol_start >= 0:
+                            safe_content_delta = ""
+                    if safe_visible_delta:
+                        stream_tool_marker_count += raw_agent_tool_marker_count(safe_visible_delta)
+                        stream_recent_text = (stream_recent_text + safe_visible_delta)[-8000:]
+                        recent_tool_marker_count = raw_agent_tool_marker_count(stream_recent_text)
+                        if len("".join(answer_parts)) + len(safe_visible_delta) > AGENT_STREAM_MAX_ANSWER_CHARS:
+                            boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                            answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                            yield agent_boundary_stream_event(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                            trace = finish("failed", boundary_error)
+                            yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                            yield emit_named(
+                                "final",
+                                {
+                                    "trace_id": trace_id,
+                                    "assistant_message": assistant_message,
+                                    "object": "ai_application.agent.message.final",
+                                },
+                            )
+                            yield "data: [DONE]\n\n"
+                            return
+                        if solo_confirmation_requested(stream_recent_text):
+                            boundary_error = agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                            answer_parts.append(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                            yield agent_boundary_stream_event(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                            trace = finish("failed", boundary_error)
+                            yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                            yield emit_named(
+                                "final",
+                                {
+                                    "trace_id": trace_id,
+                                    "assistant_message": assistant_message,
+                                    "object": "ai_application.agent.message.final",
+                                },
+                            )
+                            yield "data: [DONE]\n\n"
+                            return
+                        answer_parts.append(safe_content_delta)
+                        if protocol_fragment:
+                            yield agent_stream_delta_event(safe_visible_delta)
+                        else:
+                            yield event
+                    if not protocol_fragment:
+                        continue
+                    protocol_buffer += protocol_fragment
+                    protocol_status = streamed_tool_protocol_status(protocol_buffer)
+                    if protocol_status == "pending":
+                        continue
+                    if protocol_status == "confirmation":
                         boundary_error = agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
                         answer_parts.append(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
                         yield agent_boundary_stream_event(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
@@ -726,29 +774,79 @@ def stream_agent_message(
                         )
                         yield "data: [DONE]\n\n"
                         return
-                    if (
-                        stream_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
-                        or recent_tool_marker_count >= AGENT_TOOL_CALL_MARKER_LIMIT
-                        or raw_agent_tool_protocol_fragment_detected(stream_recent_text)
-                        or raw_agent_unsupported_tool_detected(stream_recent_text)
-                    ):
-                        boundary_error = agent_execution_boundary_error()
-                        answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
-                        yield agent_boundary_stream_event(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
-                        trace = finish("failed", boundary_error)
-                        yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
-                        yield emit_named(
-                            "final",
-                            {
-                                "trace_id": trace_id,
-                                "assistant_message": assistant_message,
-                                "object": "ai_application.agent.message.final",
-                            },
-                        )
-                        yield "data: [DONE]\n\n"
-                        return
-                answer_parts.append(content_delta)
-                yield event
+                    if protocol_status == "request":
+                        streamed_tool_rounds += 1
+                        if streamed_tool_rounds > 2:
+                            boundary_error = agent_execution_boundary_error()
+                            answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                            yield agent_boundary_stream_event(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                            trace = finish("failed", boundary_error)
+                            yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                            yield emit_named(
+                                "final",
+                                {
+                                    "trace_id": trace_id,
+                                    "assistant_message": assistant_message,
+                                    "object": "ai_application.agent.message.final",
+                                },
+                            )
+                            yield "data: [DONE]\n\n"
+                            return
+                        executed = execute_agent_tool_request(prepared, stream_messages, protocol_buffer, trace_id=trace_id)
+                        new_results = executed.get("agent_tool_results", [])
+                        new_messages = executed.get("agent_tool_messages", [])
+                        if new_results:
+                            stream_tool_results.extend(new_results)
+                            stream_tool_messages.extend(new_messages)
+                            yield emit_named(
+                                "agent_tool_result",
+                                {
+                                    "trace_id": trace_id,
+                                    "results": new_results,
+                                    "tool_messages": new_messages,
+                                    "object": "ai_application.agent.tools.result",
+                                },
+                            )
+                        if executed.get("boundary_answer"):
+                            boundary_answer = str(executed["boundary_answer"])
+                            boundary_error = executed.get("boundary_error")
+                            if not isinstance(boundary_error, Exception):
+                                boundary_error = agent_execution_boundary_error(boundary_answer)
+                            answer_parts.append(boundary_answer)
+                            yield agent_boundary_stream_event(boundary_answer)
+                            trace = finish("failed", boundary_error)
+                            yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                            yield emit_named(
+                                "final",
+                                {
+                                    "trace_id": trace_id,
+                                    "assistant_message": assistant_message,
+                                    "object": "ai_application.agent.message.final",
+                                },
+                            )
+                            yield "data: [DONE]\n\n"
+                            return
+                        stream_messages = executed["messages"]
+                        stream_rendered_prompt = executed["rendered_prompt"]
+                        stream_tool_marker_count = 0
+                        stream_recent_text = ""
+                        continue_stream = True
+                        break
+                    boundary_error = agent_execution_boundary_error()
+                    answer_parts.append(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                    yield agent_boundary_stream_event(AGENT_UNHANDLED_TOOL_CALL_MESSAGE)
+                    trace = finish("failed", boundary_error)
+                    yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                    yield emit_named(
+                        "final",
+                        {
+                            "trace_id": trace_id,
+                            "assistant_message": assistant_message,
+                            "object": "ai_application.agent.message.final",
+                        },
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
             if not trace_recorded:
                 trace = finish("failed" if error else "success", error)
                 yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
@@ -2050,6 +2148,13 @@ def raw_agent_tool_protocol_fragment_detected(text: str) -> bool:
     return any(fragment in lowered for fragment in AGENT_TOOL_PROTOCOL_FRAGMENTS)
 
 
+def raw_agent_tool_protocol_start(text: str) -> int:
+    lowered = str(text or "").lower()
+    positions = [lowered.find(fragment) for fragment in AGENT_TOOL_PROTOCOL_FRAGMENTS]
+    valid = [position for position in positions if position >= 0]
+    return min(valid) if valid else -1
+
+
 def raw_agent_unsupported_tool_detected(text: str) -> bool:
     compact = "".join(str(text or "").lower().split())
     return any(f'"name":"{tool_name}"' in compact or f'"tool":"{tool_name}"' in compact for tool_name in AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES)
@@ -2062,6 +2167,23 @@ def solo_confirmation_requested(text: str) -> bool:
 
 def agent_execution_boundary_error(message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE) -> AgentExecutionBoundaryError:
     return AgentExecutionBoundaryError(message)
+
+
+def streamed_tool_protocol_status(text: str) -> str:
+    if agent_tools.parse_tool_request(text).get("tool_calls"):
+        return "request"
+    if solo_confirmation_requested(text):
+        return "confirmation"
+    lowered = str(text or "").lower()
+    if raw_agent_unsupported_tool_detected(text):
+        return "unsupported"
+    if "</tool_call>" in lowered or "</tool_result>" in lowered:
+        return "unsupported"
+    if raw_agent_tool_marker_count(text) >= AGENT_TOOL_CALL_MARKER_LIMIT:
+        return "unsupported"
+    if len(text) > 24_000:
+        return "unsupported"
+    return "pending"
 
 
 def agent_execution_boundary_result(
@@ -2110,6 +2232,15 @@ def agent_boundary_stream_event(message: str) -> str:
         {
             "object": "chat.completion.chunk",
             "choices": [{"index": 0, "delta": {"content": message}, "finish_reason": None}],
+        }
+    )
+
+
+def agent_stream_delta_event(content: str) -> str:
+    return gateway.sse_data(
+        {
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
         }
     )
 
@@ -2255,6 +2386,60 @@ def agent_failed_model_run(
 
 def agent_file_tool_stream_preflight_required(prepared: dict[str, Any], payload: dict[str, Any]) -> bool:
     return agent_tools.stream_preflight_required(prepared.get("file_workspace"), payload)
+
+
+def execute_agent_tool_request(
+    prepared: dict[str, Any],
+    messages: list[dict[str, Any]],
+    request_text: str,
+    *,
+    trace_id: str,
+) -> dict[str, Any]:
+    request = agent_tools.parse_tool_request(request_text)
+    if not request.get("tool_calls"):
+        boundary = agent_boundary_run(prepared, answer=request_text, trace_id=trace_id)
+        return {
+            "messages": boundary["messages"],
+            "rendered_prompt": boundary["rendered_prompt"],
+            "agent_tool_results": boundary["agent_tool_results"],
+            "agent_tool_messages": boundary["agent_tool_messages"],
+            "boundary_answer": boundary["answer"],
+            "boundary_error": boundary["error"],
+        }
+    workspace = prepared.get("file_workspace")
+    if not workspace or not workspace.get("enabled"):
+        boundary = agent_boundary_run(prepared, answer=request_text, trace_id=trace_id)
+        return {
+            "messages": boundary["messages"],
+            "rendered_prompt": boundary["rendered_prompt"],
+            "agent_tool_results": boundary["agent_tool_results"],
+            "agent_tool_messages": boundary["agent_tool_messages"],
+            "boundary_answer": boundary["answer"],
+            "boundary_error": boundary["error"],
+        }
+    tool_results = agent_tools.execute_tool_calls(
+        workspace,
+        request["tool_calls"],
+        run_context=agent_tool_run_context(prepared),
+    )
+    tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
+    if agent_tools.contains_high_risk_result(tool_results):
+        boundary_answer = agent_tools.high_risk_failure_message(tool_results)
+        return {
+            "messages": messages,
+            "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages)),
+            "agent_tool_results": tool_results,
+            "agent_tool_messages": tool_messages,
+            "boundary_answer": boundary_answer,
+            "boundary_error": agent_execution_boundary_error(boundary_answer),
+        }
+    follow_up_messages = agent_tools.build_follow_up_messages(messages, request_text, tool_results)
+    return {
+        "messages": follow_up_messages,
+        "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
+        "agent_tool_results": tool_results,
+        "agent_tool_messages": tool_messages,
+    }
 
 
 def run_agent_file_tool_preflight(

@@ -26,6 +26,11 @@ function streamDeltaContent(payload: Record<string, any>) {
   return String(delta.content || delta.reasoning_content || '');
 }
 
+function sanitizeAssistantDelta(value: string) {
+  if (!value) return '';
+  return value.replace(/<tool_(call|result)>[\s\S]*?(<\/tool_\1>|$)/gi, '').replace(/\|?<tool_[^>]*>?/gi, '');
+}
+
 export function useAgentChat(appKey: () => string) {
   const conversations = ref<AgentConversation[]>([]);
   const messages = ref<AiAgentMessage[]>([]);
@@ -243,7 +248,7 @@ export function useAgentChat(appKey: () => string) {
             streamFailed = true;
             markAssistantFailed(localAssistantKey, errorText.value);
           } else {
-            appendAssistantContent(localAssistantKey, streamDeltaContent(payload));
+            appendAssistantContent(localAssistantKey, sanitizeAssistantDelta(streamDeltaContent(payload)));
           }
         }
       }

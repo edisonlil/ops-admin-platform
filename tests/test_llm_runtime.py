@@ -2783,6 +2783,71 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_stream_agent_message_executes_complete_native_tool_call_and_continues(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-native-tool-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-native-tool-agent", {"title": "native-tool"})
+
+                        stream_calls = {"count": 0}
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {"choices": [{"message": {"content": json.dumps({"tool_calls": []})}}], "usage": {}}
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            stream_calls["count"] += 1
+                            if stream_calls["count"] == 1:
+                                yield 'data: {"choices":[{"delta":{"content":"先看一下 "}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"<tool_call>"}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"{\\"name\\":\\"write_file\\",\\"arguments\\":{\\"path\\":\\"note.txt\\",\\"content\\":\\"hello\\"}}"}}]}\n\n'
+                                yield 'data: {"choices":[{"delta":{"content":"</tool_call>"}}]}\n\n'
+                                yield "data: [DONE]\n\n"
+                                return
+                            self.assertIn("Agent tool results", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"已写入完成"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-native-tool-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "write note", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-native-tool-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertEqual(stream_calls["count"], 2)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("先看一下", joined)
+            self.assertIn("已写入完成", joined)
+            self.assertNotIn("<tool_call>", joined)
+            self.assertTrue((workspace_root / "tenant_1" / "stream-native-tool-agent" / conversation["conversation_key"] / "note.txt").exists())
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "completed")
+            self.assertEqual(assistant_messages[-1]["content"], "先看一下 已写入完成")
+        finally:
+            self._unlink_db(db_path)
+
     def test_stream_agent_message_stops_split_tool_result_chunks(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
