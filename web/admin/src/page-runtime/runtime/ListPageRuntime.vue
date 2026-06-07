@@ -169,17 +169,6 @@
             <h3 v-if="splitView.detail.title">{{ splitView.detail.title }}</h3>
             <p v-if="splitView.detail.description">{{ splitView.detail.description }}</p>
           </div>
-          <AppFilterBar
-            v-if="isSplitListView && $slots['detail-filters']"
-            field-size="small"
-            show-submit
-            show-reset
-            class="app-list-page__detail-filter"
-            @submit="handleDetailFilterSubmit"
-            @reset="handleDetailFilterReset"
-          >
-            <slot name="detail-filters"></slot>
-          </AppFilterBar>
           <div class="app-list-page__pane-actions">
             <n-button
               v-for="action in splitView.detail.actions || []"
@@ -203,6 +192,17 @@
             </n-button>
           </div>
         </div>
+        <AppFilterBar
+          v-if="isSplitListView && $slots['detail-filters']"
+          field-size="small"
+          show-submit
+          show-reset
+          class="app-list-page__detail-filter"
+          @submit="handleDetailFilterSubmit"
+          @reset="handleDetailFilterReset"
+        >
+          <slot name="detail-filters"></slot>
+        </AppFilterBar>
         <AppCollectionView
           :schema="resolveTableViewSchema(splitView.detail.view, getSplitRowOffset('detail'))"
           :rows="getPagedSplitRows('detail')"
@@ -1694,7 +1694,8 @@
   }
 
   .app-list-page__detail-filter {
-    flex: 1 1 320px;
+    display: block;
+    width: 100%;
     min-width: 0;
   }
 
