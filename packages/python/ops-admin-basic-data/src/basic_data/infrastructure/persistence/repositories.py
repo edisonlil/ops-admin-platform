@@ -304,6 +304,34 @@ def list_dictionary_items(
     return [row_to_dictionary_item(dict(row)) for row in rows], int(total_row["total"] if total_row else 0)
 
 
+def list_all_dictionary_items(
+    *,
+    tenant_id: int,
+    type_id: int,
+    include_disabled: bool = True,
+    data_scope: DataAccessPredicate | None = None,
+) -> list[DictionaryItem]:
+    where = ["i.tenant_id = ?", "i.type_id = ?", "i.deleted = 0"]
+    params: list[Any] = [tenant_id, type_id]
+    append_data_scope(where, params, data_scope, DICTIONARY_RESOURCE, alias="i")
+    if not include_disabled:
+        where.append("i.status = ?")
+        params.append(STATUS_ACTIVE)
+    with connect(database_target(), readonly=True) as conn:
+        require_basic_data_schema(conn)
+        rows = conn.execute(
+            f"""
+            SELECT i.*, t.code AS type_code
+            FROM business_dictionary_items i
+            JOIN business_dictionary_types t ON t.id = i.type_id AND t.tenant_id = i.tenant_id
+            WHERE {" AND ".join(where)}
+            ORDER BY i.sort_order ASC, i.id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [row_to_dictionary_item(dict(row)) for row in rows]
+
+
 def get_dictionary_item(*, tenant_id: int, item_id: int) -> DictionaryItem | None:
     with connect(database_target(), readonly=True) as conn:
         require_basic_data_schema(conn)

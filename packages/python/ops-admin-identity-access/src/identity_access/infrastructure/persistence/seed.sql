@@ -326,6 +326,14 @@ SELECT 'basic-data:dictionary:manage', 'Manage business dictionaries', 'Create, 
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:manage');
 
 INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:dictionary:import', '导入业务字典项', '导入租户业务字典项 CSV 数据'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:import');
+
+INSERT INTO permissions (code, name, description)
+SELECT 'basic-data:dictionary:export', '导出业务字典项', '导出租户业务字典项 CSV 数据'
+WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:dictionary:export');
+
+INSERT INTO permissions (code, name, description)
 SELECT 'basic-data:region:read', 'Read regions', 'View and consume tenant regions'
 WHERE NOT EXISTS (SELECT 1 FROM permissions WHERE code = 'basic-data:region:read');
 
@@ -1080,6 +1088,14 @@ WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-update'
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'basic-data-items-delete', 'tenant', '删除字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:manage', 8416, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-delete');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-items-import', 'tenant', '导入字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:import', 8417, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-import');
+
+INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
+SELECT 'basic-data-items-export', 'tenant', '导出字典项', 'action', '', '', '', '', 'basic-data-dictionaries', 'basic-data:dictionary:export', 8418, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM menus WHERE menu_key = 'basic-data-items-export');
 
 INSERT INTO menus (menu_key, menu_scope, label, menu_type, path, route_name, component, icon, parent_key, permission_code, sort_order, is_visible)
 SELECT 'basic-data-regions', 'tenant', '区域管理', 'page', '/basic-data/regions', 'basic-data-regions', '/basic-data/regions/index', 'environment', 'basic-data', 'basic-data:region:read', 842, TRUE

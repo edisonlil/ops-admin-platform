@@ -71,6 +71,8 @@ class BasicDataTests(unittest.TestCase):
             "permissions": [
                 "basic-data:dictionary:read",
                 "basic-data:dictionary:manage",
+                "basic-data:dictionary:import",
+                "basic-data:dictionary:export",
                 "basic-data:region:read",
                 "basic-data:region:manage",
                 "basic-data:region:import",
@@ -249,6 +251,99 @@ class BasicDataTests(unittest.TestCase):
         page = services.list_dictionary_types(page=1, page_size=20, keyword="", status=None, category="", current_user=other_user)
 
         self.assertEqual(page["pagination"]["total"], 0)
+
+    def test_dictionary_item_import_export_supports_dry_run_upsert_and_validation(self) -> None:
+        from basic_data.application import services
+
+        saved_type = services.save_dictionary_type(
+            {"code": "customer_level", "name": "客户等级"},
+            self.current_user,
+        )["item"]
+        csv_content = (
+            "code,value,color,sort_order,status,description,extra_json\n"
+            'gold,G,#D97706,1,active,金牌客户,"{""score"":90}"\n'
+            "silver,S,#94A3B8,2,disabled,银牌客户,\n"
+        ).encode("utf-8")
+
+        dry_run = services.import_dictionary_items(
+            type_id=int(saved_type["id"]),
+            content=csv_content,
+            filename="dictionary-items.csv",
+            dry_run=True,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(dry_run["created_count"], 2)
+        self.assertEqual(dry_run["error_count"], 0)
+        empty_items = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual(empty_items["pagination"]["total"], 0)
+
+        imported = services.import_dictionary_items(
+            type_id=int(saved_type["id"]),
+            content=csv_content,
+            filename="dictionary-items.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(imported["created_count"], 2)
+        items = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="",
+            status=None,
+            current_user=self.current_user,
+        )
+        self.assertEqual([item["code"] for item in items["items"]], ["gold", "silver"])
+        self.assertEqual(items["items"][0]["extra"], {"score": 90})
+
+        update_content = (
+            "code,value,color,sort_order,status,description,extra_json\n"
+            "gold,VIP,#059669,3,active,已升级,\n"
+        ).encode("utf-8")
+        updated = services.import_dictionary_items(
+            type_id=int(saved_type["id"]),
+            content=update_content,
+            filename="dictionary-items.csv",
+            dry_run=False,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertEqual(updated["updated_count"], 1)
+        gold = services.list_dictionary_items(
+            type_id=int(saved_type["id"]),
+            page=1,
+            page_size=20,
+            keyword="VIP",
+            status=None,
+            current_user=self.current_user,
+        )["items"][0]
+        self.assertEqual(gold["code"], "gold")
+        self.assertEqual(gold["value"], "VIP")
+
+        stream, filename = services.export_dictionary_items(type_id=int(saved_type["id"]), current_user=self.current_user)
+        exported_text = stream.read().decode("utf-8-sig")
+        self.assertEqual(filename, "customer_level-dictionary-items.csv")
+        self.assertIn("code,value,color,sort_order,status,description,extra_json", exported_text)
+        self.assertIn("gold,VIP,#059669,3,active,已升级,", exported_text)
+
+        invalid = services.import_dictionary_items(
+            type_id=int(saved_type["id"]),
+            content=b"code,value,status,extra_json\nbad,,inactive,[]\nbad,duplicate,active,{}\n",
+            filename="dictionary-items.csv",
+            dry_run=True,
+            mode="upsert",
+            current_user=self.current_user,
+        )
+        self.assertGreaterEqual(invalid["error_count"], 3)
 
     def test_dictionary_service_without_data_policy_uses_tenant_scope(self) -> None:
         from authorization.application import services as authorization_services
@@ -449,6 +544,37 @@ class BasicDataTests(unittest.TestCase):
 
         tree_response = self.request("GET", "/api/basic-data/regions/tree")
         self.assertEqual(tree_response.json()["data"]["items"][0]["path"], "/310000/")
+
+    def test_dictionary_item_http_import_and_export_endpoints(self) -> None:
+        type_response = self.request(
+            "POST",
+            "/api/basic-data/dictionary-types",
+            json={"code": "ticket_status", "name": "工单状态"},
+        )
+        self.assertEqual(type_response.status_code, 200)
+        type_id = int(type_response.json()["data"]["item"]["id"])
+        content = "code,value,color,sort_order,status,description,extra_json\nopen,待处理,#2563EB,1,active,待处理工单,{}\n".encode("utf-8")
+
+        dry_run_response = self.request(
+            "POST",
+            f"/api/basic-data/dictionary-types/{type_id}/items/import?dry_run=true",
+            files={"upload": ("dictionary-items.csv", content, "text/csv")},
+        )
+        self.assertEqual(dry_run_response.status_code, 200)
+        self.assertEqual(dry_run_response.json()["data"]["created_count"], 1)
+
+        import_response = self.request(
+            "POST",
+            f"/api/basic-data/dictionary-types/{type_id}/items/import?dry_run=false",
+            files={"upload": ("dictionary-items.csv", content, "text/csv")},
+        )
+        self.assertEqual(import_response.status_code, 200)
+        self.assertEqual(import_response.json()["data"]["created_count"], 1)
+
+        export_response = self.request("GET", f"/api/basic-data/dictionary-types/{type_id}/items/export")
+        self.assertEqual(export_response.status_code, 200)
+        self.assertIn("attachment", export_response.headers.get("content-disposition", ""))
+        self.assertIn("open,待处理,#2563EB,1,active,待处理工单,{}", export_response.content.decode("utf-8-sig"))
 
     def test_missing_schema_returns_operational_error(self) -> None:
         from basic_data.infrastructure.persistence.bootstrap import require_basic_data_schema

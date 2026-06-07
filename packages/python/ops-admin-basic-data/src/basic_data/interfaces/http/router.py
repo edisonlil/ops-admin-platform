@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 
 from basic_data.application import services
 from basic_data.domain.exceptions import BasicDataDomainError, BasicDataNotFoundError, BasicDataStorageNotReadyError
@@ -98,6 +100,40 @@ def create_dictionary_item(
     current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:manage")),
 ) -> dict[str, Any]:
     return ok_or_error(lambda: services.save_dictionary_item(type_id, payload.model_dump(), current_user))
+
+
+@router.get("/dictionary-types/{type_id}/items/export")
+def export_dictionary_items(
+    type_id: int,
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:export")),
+) -> StreamingResponse:
+    stream, filename = services.export_dictionary_items(type_id=type_id, current_user=current_user)
+    return StreamingResponse(
+        stream,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.post("/dictionary-types/{type_id}/items/import")
+async def import_dictionary_items(
+    type_id: int,
+    upload: UploadFile = File(...),
+    dry_run: bool = Query(default=True),
+    mode: str = Query(default="upsert"),
+    current_user: dict[str, Any] = Depends(auth.require_permission("basic-data:dictionary:import")),
+) -> dict[str, Any]:
+    content = await upload.read()
+    return ok_or_error(
+        lambda: services.import_dictionary_items(
+            type_id=type_id,
+            content=content,
+            filename=upload.filename or "dictionary-items.csv",
+            dry_run=dry_run,
+            mode=mode,
+            current_user=current_user,
+        )
+    )
 
 
 @router.put("/dictionary-items/{item_id}")

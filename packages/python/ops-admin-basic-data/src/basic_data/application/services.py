@@ -16,6 +16,7 @@ from basic_data.domain.models import (
     REGION_LEVEL_PROVINCE,
     REGION_LEVELS,
     STATUS_ACTIVE,
+    STATUSES,
 )
 from system.application.data_access import ResourceDescriptor, data_access_for, data_owner_fields, ensure_data_access_record
 from system.application.sorting import InvalidSortError
@@ -24,6 +25,7 @@ from system.application.sorting import InvalidSortError
 repository: BasicDataRepository | None = None
 DICTIONARY_RESOURCE = ResourceDescriptor(resource_key="basic-data.dictionary")
 REGION_RESOURCE = ResourceDescriptor(resource_key="basic-data.region")
+DICTIONARY_ITEM_CSV_COLUMNS = ("code", "value", "color", "sort_order", "status", "description", "extra_json")
 REGION_LEVEL_ALIASES = {
     "province": REGION_LEVEL_PROVINCE,
     "省": REGION_LEVEL_PROVINCE,
@@ -255,6 +257,124 @@ def list_items_by_type_code(*, type_code: str, active_only: bool, current_user: 
     except RuntimeError as exc:
         raise BasicDataStorageNotReadyError(str(exc)) from exc
     return {"items": [item.to_dict() for item in items]}
+
+
+def export_dictionary_items(*, type_id: int, current_user: dict[str, Any]) -> tuple[io.BytesIO, str]:
+    tenant_id = current_tenant_id(current_user)
+    dictionary_type = ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
+    try:
+        items = repo().list_all_dictionary_items(
+            tenant_id=tenant_id,
+            type_id=type_id,
+            include_disabled=True,
+            data_scope=data_access_for(current_user, DICTIONARY_RESOURCE).read(),
+        )
+    except RuntimeError as exc:
+        raise BasicDataStorageNotReadyError(str(exc)) from exc
+
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=list(DICTIONARY_ITEM_CSV_COLUMNS))
+    writer.writeheader()
+    for item in items:
+        writer.writerow(
+            {
+                "code": item.code,
+                "value": item.value,
+                "color": item.color,
+                "sort_order": item.sort_order,
+                "status": item.status,
+                "description": item.description,
+                "extra_json": json.dumps(item.extra, ensure_ascii=False, separators=(",", ":")),
+            }
+        )
+    filename = f"{safe_export_name(dictionary_type.code or dictionary_type.name)}-dictionary-items.csv"
+    return io.BytesIO(output.getvalue().encode("utf-8-sig")), filename
+
+
+def import_dictionary_items(
+    *,
+    type_id: int,
+    content: bytes,
+    filename: str,
+    dry_run: bool,
+    mode: str,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    rows, warnings = parse_dictionary_item_import_rows(content=content, filename=filename)
+    mode = mode if mode in {"upsert", "create_only"} else "upsert"
+    tenant_id = current_tenant_id(current_user)
+    ensure_dictionary_type_exists(tenant_id=tenant_id, type_id=type_id)
+    summary: dict[str, Any] = {
+        "created_count": 0,
+        "updated_count": 0,
+        "skipped_count": 0,
+        "error_count": 0,
+        "errors": [],
+        "warnings": warnings,
+        "dry_run": dry_run,
+        "mode": mode,
+    }
+    if not rows:
+        summary["warnings"].append({"row": None, "message": "import file has no rows"})
+        return summary
+    normalized_rows, normalize_errors = normalize_dictionary_item_import_rows(rows)
+    errors = [
+        *normalize_errors,
+        *validate_dictionary_item_import_rows(
+            tenant_id=tenant_id,
+            type_id=type_id,
+            rows=normalized_rows,
+            mode=mode,
+            current_user=current_user,
+        ),
+    ]
+    if errors:
+        summary["errors"] = errors
+        summary["error_count"] = len(errors)
+        return summary
+
+    existing_by_code = {item.code: item for item in repo().list_all_dictionary_items(tenant_id=tenant_id, type_id=type_id, include_disabled=True)}
+    for row in normalized_rows:
+        existing = existing_by_code.get(row["code"])
+        if existing and mode == "create_only":
+            summary["skipped_count"] += 1
+            continue
+        payload = {
+            "id": existing.id if existing else 0,
+            "code": row["code"],
+            "value": row["value"],
+            "color": row["color"],
+            "description": row["description"],
+            "extra": row["extra"],
+            "status": row["status"],
+            "sort_order": row["sort_order"],
+        }
+        if existing:
+            summary["updated_count"] += 1
+        else:
+            summary["created_count"] += 1
+        if dry_run:
+            continue
+        if existing:
+            saved = update_dictionary_item(existing.id, payload, current_user)["item"]
+        else:
+            saved = save_dictionary_item(type_id, payload, current_user)["item"]
+        existing_by_code[row["code"]] = DictionaryItem(
+            id=int(saved["id"]),
+            tenant_id=tenant_id,
+            type_id=type_id,
+            type_code=str(saved.get("type_code") or ""),
+            code=str(saved.get("code") or ""),
+            value=str(saved.get("value") or ""),
+            color=str(saved.get("color") or ""),
+            description=str(saved.get("description") or ""),
+            extra=saved.get("extra") if isinstance(saved.get("extra"), dict) else {},
+            status=str(saved.get("status") or STATUS_ACTIVE),
+            sort_order=int(saved.get("sort_order") or 0),
+            create_time=str(saved.get("create_time") or ""),
+            update_time=str(saved.get("update_time") or ""),
+        )
+    return summary
 
 
 def list_regions(
@@ -650,6 +770,101 @@ def parse_region_import_rows(*, content: bytes, filename: str) -> tuple[list[dic
     return rows, warnings
 
 
+def parse_dictionary_item_import_rows(*, content: bytes, filename: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not filename.lower().endswith(".csv"):
+        raise BasicDataDomainError("only csv dictionary item import is supported")
+    text = content.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    warnings: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    if not reader.fieldnames:
+        return rows, [{"row": None, "message": "import file has no header row"}]
+    supported_columns = set(DICTIONARY_ITEM_CSV_COLUMNS)
+    for column in reader.fieldnames:
+        normalized_column = str(column or "").strip()
+        if normalized_column and normalized_column not in supported_columns:
+            warnings.append({"row": None, "message": f"ignored unsupported column: {normalized_column}"})
+    for index, row in enumerate(reader, start=2):
+        normalized = {str(key or "").strip(): value for key, value in row.items() if key}
+        if not any(str(value or "").strip() for value in normalized.values()):
+            continue
+        normalized["_row"] = index
+        rows.append(normalized)
+    return rows, warnings
+
+
+def normalize_dictionary_item_import_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized_rows: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for row in rows:
+        row_number = int(row.get("_row") or 0)
+        extra: dict[str, Any] = {}
+        extra_text = str(row.get("extra_json") or "").strip()
+        if extra_text:
+            parsed: Any = {}
+            try:
+                parsed = json.loads(extra_text)
+            except json.JSONDecodeError:
+                errors.append({"row": row_number, "message": "extra_json format is invalid"})
+            if not isinstance(parsed, dict):
+                errors.append({"row": row_number, "message": "extra_json must be an object"})
+            elif isinstance(parsed, dict):
+                extra = parsed
+        try:
+            sort_order = int(row.get("sort_order") or 0)
+        except (TypeError, ValueError):
+            errors.append({"row": row_number, "message": "sort_order must be an integer"})
+            sort_order = 0
+        normalized_rows.append(
+            {
+                "row": row_number,
+                "code": str(row.get("code") or "").strip(),
+                "value": str(row.get("value") or "").strip(),
+                "color": str(row.get("color") or "").strip(),
+                "description": str(row.get("description") or "").strip(),
+                "extra": extra,
+                "status": str(row.get("status") or STATUS_ACTIVE).strip() or STATUS_ACTIVE,
+                "sort_order": sort_order,
+            }
+        )
+    return normalized_rows, errors
+
+
+def validate_dictionary_item_import_rows(
+    *,
+    tenant_id: int,
+    type_id: int,
+    rows: list[dict[str, Any]],
+    mode: str,
+    current_user: dict[str, Any],
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    existing_by_code = {
+        item.code: item
+        for item in repo().list_all_dictionary_items(tenant_id=tenant_id, type_id=type_id, include_disabled=True)
+    }
+    write_access = data_access_for(current_user, DICTIONARY_RESOURCE).write()
+    for row in rows:
+        code = str(row.get("code") or "")
+        if not code:
+            errors.append({"row": row["row"], "message": "dictionary item code is required"})
+            continue
+        if code in seen_codes:
+            errors.append({"row": row["row"], "message": f"duplicate code in import file: {code}"})
+        seen_codes.add(code)
+        if not str(row.get("value") or "").strip():
+            errors.append({"row": row["row"], "message": "dictionary item value is required"})
+        if str(row.get("status") or "") not in STATUSES:
+            errors.append({"row": row["row"], "message": f"unsupported dictionary item status: {row.get('status')}"})
+        existing = existing_by_code.get(code)
+        if existing and mode != "create_only":
+            existing_row = repo().get_dictionary_item_row(tenant_id=tenant_id, item_id=existing.id)
+            if not existing_row or not write_access.allows_record(existing_row, DICTIONARY_RESOURCE):
+                errors.append({"row": row["row"], "message": f"dictionary item is not writable: {code}"})
+    return errors
+
+
 def normalize_region_import_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -740,6 +955,11 @@ def normalized_item_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "status": str(payload.get("status") or STATUS_ACTIVE),
         "sort_order": int(payload.get("sort_order") or 0),
     }
+
+
+def safe_export_name(value: str) -> str:
+    name = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in str(value or "").strip())
+    return name.strip("-") or "dictionary"
 
 
 def current_tenant_id(current_user: dict[str, Any]) -> int:

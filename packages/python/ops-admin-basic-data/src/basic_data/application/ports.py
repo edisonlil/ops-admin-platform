@@ -59,6 +59,15 @@ class BasicDataRepository(Protocol):
         data_scope: DataAccessPredicate | None = None,
     ) -> tuple[list[DictionaryItem], int]: ...
 
+    def list_all_dictionary_items(
+        self,
+        *,
+        tenant_id: int,
+        type_id: int,
+        include_disabled: bool = True,
+        data_scope: DataAccessPredicate | None = None,
+    ) -> list[DictionaryItem]: ...
+
     def get_dictionary_item(self, *, tenant_id: int, item_id: int) -> DictionaryItem | None: ...
 
     def get_dictionary_item_row(self, *, tenant_id: int, item_id: int) -> dict[str, Any] | None: ...

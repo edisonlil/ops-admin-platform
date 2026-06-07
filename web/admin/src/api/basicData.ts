@@ -1,4 +1,6 @@
 import { Alova } from '@/utils/http/alova/index';
+import { useGlobSetting } from '@/hooks/setting';
+import { useUser } from '@/store/modules/user';
 
 export interface BasicDataPagination {
   page: number;
@@ -87,6 +89,8 @@ export interface RegionImportSummary {
   dry_run: boolean;
   mode: string;
 }
+
+export type DictionaryItemImportSummary = RegionImportSummary;
 
 export interface DictionaryTypePayload {
   id?: number;
@@ -177,6 +181,37 @@ export function deleteDictionaryItem(itemId: number) {
   return Alova.Delete<{ id: number; deleted: boolean }>(`/basic-data/dictionary-items/${itemId}`);
 }
 
+export function importDictionaryItems(typeId: number, file: File, options: { dry_run?: boolean; mode?: string } = {}) {
+  const form = new FormData();
+  form.append('upload', file);
+  return Alova.Post<DictionaryItemImportSummary>(`/basic-data/dictionary-types/${typeId}/items/import`, form, {
+    params: withNoCacheParams({
+      dry_run: options.dry_run !== false,
+      mode: options.mode || 'upsert',
+    }),
+  });
+}
+
+export async function downloadDictionaryItems(typeId: number, filename: string) {
+  const response = await fetch(basicDataApiUrl(`/basic-data/dictionary-types/${typeId}/items/export`), {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, '字典项导出失败'));
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function getRegions(
   params: {
     page?: number;
@@ -242,4 +277,28 @@ export function importRegions(file: File, options: { dry_run?: boolean; mode?: s
       mode: options.mode || 'upsert',
     }),
   });
+}
+
+function authHeaders() {
+  const token = useUser().getToken;
+  return token
+    ? {
+        token,
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = await response.clone().json();
+    return payload?.message || payload?.detail || fallback;
+  } catch {
+    return response.statusText || fallback;
+  }
+}
+
+function basicDataApiUrl(path: string) {
+  const { apiUrl, urlPrefix } = useGlobSetting();
+  return `${apiUrl || ''}${urlPrefix || ''}${path}`;
 }

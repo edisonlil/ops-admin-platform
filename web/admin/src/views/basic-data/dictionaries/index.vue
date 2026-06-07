@@ -102,26 +102,64 @@
         </template>
       </n-drawer-content>
     </n-drawer>
+
+    <n-drawer v-model:show="itemImportVisible" width="640">
+      <n-drawer-content title="导入字典项">
+        <n-space vertical :size="16">
+          <n-alert type="info" :show-icon="false">
+            CSV 字段：code,value,color,sort_order,status,description,extra_json。导入范围为当前选中的业务字典，code 相同的字典项会按导入模式更新或跳过。
+          </n-alert>
+          <n-upload :max="1" accept=".csv" :default-upload="false" @change="handleImportFileChange">
+            <n-upload-dragger>
+              <div class="basic-data-dictionary-page__upload-title">选择 CSV 文件</div>
+              <div class="basic-data-dictionary-page__upload-subtitle">先校验，再确认导入</div>
+            </n-upload-dragger>
+          </n-upload>
+          <n-space>
+            <n-button :disabled="!itemImportFile" :loading="importingItems" @click="previewImportItems">校验导入</n-button>
+            <n-button type="primary" :disabled="!canConfirmItemImport" :loading="importingItems" @click="confirmImportItems">确认导入</n-button>
+          </n-space>
+          <n-descriptions v-if="itemImportSummary" bordered size="small" :column="4">
+            <n-descriptions-item label="新增">{{ itemImportSummary.created_count }}</n-descriptions-item>
+            <n-descriptions-item label="更新">{{ itemImportSummary.updated_count }}</n-descriptions-item>
+            <n-descriptions-item label="跳过">{{ itemImportSummary.skipped_count }}</n-descriptions-item>
+            <n-descriptions-item label="错误">{{ itemImportSummary.error_count }}</n-descriptions-item>
+          </n-descriptions>
+          <n-alert v-if="itemImportSummary?.errors?.length" type="error" title="错误">
+            <div v-for="item in itemImportSummary.errors" :key="`error-${item.row}-${item.message}`">
+              第 {{ item.row || '-' }} 行：{{ item.message }}
+            </div>
+          </n-alert>
+          <n-alert v-if="itemImportSummary?.warnings?.length" type="warning" title="提示">
+            <div v-for="item in itemImportSummary.warnings" :key="`warning-${item.row}-${item.message}`">
+              第 {{ item.row || '-' }} 行：{{ item.message }}
+            </div>
+          </n-alert>
+        </n-space>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
 <script lang="ts" setup>
   import { computed, h, reactive, ref, watch } from 'vue';
   import { useMessage } from 'naive-ui';
-  import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption } from 'naive-ui';
+  import type { DataTableColumns, FormInst, FormRules, SelectOption, TreeOption, UploadFileInfo } from 'naive-ui';
   import AppStatusTag from '@/components/Application/AppStatusTag.vue';
   import AppTableActions from '@/components/Application/AppTableActions.vue';
   import { defineListPage, ListPageRuntime, runtimeListParams, type ListRuntimeState } from '@/page-runtime';
   import { usePermission } from '@/hooks/web/usePermission';
-  import { formatToDateTime } from '@/utils/dateUtil';
   import {
     deleteDictionaryItem,
     deleteDictionaryType,
+    downloadDictionaryItems,
     getDictionaryItems,
     getDictionaryTypes,
+    importDictionaryItems,
     saveDictionaryItem,
     saveDictionaryType,
     type DictionaryItem,
+    type DictionaryItemImportSummary,
     type DictionaryType,
   } from '@/api/basicData';
 
@@ -131,8 +169,11 @@
   const savingType = ref(false);
   const loadingItems = ref(false);
   const savingItem = ref(false);
+  const importingItems = ref(false);
+  const exportingItems = ref(false);
   const typeDrawerVisible = ref(false);
   const itemFormVisible = ref(false);
+  const itemImportVisible = ref(false);
   const typeFormRef = ref<FormInst | null>(null);
   const itemFormRef = ref<FormInst | null>(null);
   const typeRows = ref<DictionaryType[]>([]);
@@ -146,6 +187,8 @@
   const itemStatus = ref<string | null>(null);
   const itemExtraText = ref('{}');
   const itemRuntimeState = ref<ListRuntimeState>({});
+  const itemImportFile = ref<File | null>(null);
+  const itemImportSummary = ref<DictionaryItemImportSummary | null>(null);
 
   const typeForm = reactive<Partial<DictionaryType>>({
     parent_id: null,
@@ -212,6 +255,7 @@
   const activeTypeDescription = computed(() =>
     activeType.value ? `${activeType.value.code} / ${activeType.value.category || 'general'}` : '请选择左侧业务字典'
   );
+  const canConfirmItemImport = computed(() => Boolean(itemImportFile.value && itemImportSummary.value && itemImportSummary.value.error_count === 0));
 
   const itemColumns: DataTableColumns<DictionaryItem> = [
     { title: '编码', key: 'code', width: 160 },
@@ -321,6 +365,16 @@
               activeType.value && hasPermission(['basic-data:dictionary:manage'])
                 ? { key: 'create-item', label: '新建字典项', type: 'primary', onClick: () => openCreateItem() }
                 : undefined,
+            actions: activeType.value
+              ? [
+                  ...(hasPermission(['basic-data:dictionary:import'])
+                    ? [{ key: 'import-items', label: '导入', onClick: () => openImportItems() }]
+                    : []),
+                  ...(hasPermission(['basic-data:dictionary:export'])
+                    ? [{ key: 'export-items', label: '导出', loading: exportingItems.value, onClick: () => exportItems() }]
+                    : []),
+                ]
+              : [],
             view: {
               type: 'table',
               columns: itemColumns,
@@ -410,6 +464,13 @@
     itemFormVisible.value = true;
   }
 
+  function openImportItems() {
+    if (!activeType.value) return;
+    itemImportFile.value = null;
+    itemImportSummary.value = null;
+    itemImportVisible.value = true;
+  }
+
   function openEditItem(row: DictionaryItem) {
     Object.assign(itemForm, row);
     itemForm.color = normalizeColorValue(row.color);
@@ -469,6 +530,44 @@
     await deleteDictionaryItem(row.id);
     message.success('字典项已删除');
     await reloadItems();
+  }
+
+  function handleImportFileChange(options: { fileList: UploadFileInfo[] }) {
+    itemImportFile.value = (options.fileList[0]?.file as File | undefined) || null;
+    itemImportSummary.value = null;
+  }
+
+  async function previewImportItems() {
+    if (!activeType.value || !itemImportFile.value) return;
+    importingItems.value = true;
+    try {
+      itemImportSummary.value = await importDictionaryItems(activeType.value.id, itemImportFile.value, { dry_run: true });
+    } finally {
+      importingItems.value = false;
+    }
+  }
+
+  async function confirmImportItems() {
+    if (!activeType.value || !itemImportFile.value) return;
+    importingItems.value = true;
+    try {
+      itemImportSummary.value = await importDictionaryItems(activeType.value.id, itemImportFile.value, { dry_run: false });
+      message.success('字典项导入完成');
+      await reloadItems();
+    } finally {
+      importingItems.value = false;
+    }
+  }
+
+  async function exportItems() {
+    if (!activeType.value) return;
+    exportingItems.value = true;
+    try {
+      await downloadDictionaryItems(activeType.value.id, `${safeFileName(activeType.value.code || activeType.value.name)}-字典项.csv`);
+      message.success('字典项导出已开始');
+    } finally {
+      exportingItems.value = false;
+    }
   }
 
   async function reloadAll() {
@@ -596,6 +695,11 @@
     return normalizeColorValue(value) || '#CBD5E1';
   }
 
+  function safeFileName(value: string) {
+    const name = String(value || '').trim().replace(/[\\/:*?"<>|]/g, '-');
+    return name || '业务字典';
+  }
+
   reloadTypes();
 </script>
 
@@ -628,5 +732,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .basic-data-dictionary-page__upload-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .basic-data-dictionary-page__upload-subtitle {
+    margin-top: 4px;
+    color: var(--app-text-color-3, #64748b);
+    font-size: 12px;
   }
 </style>
