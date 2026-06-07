@@ -20,6 +20,9 @@ DEFAULT_CPUS = "1"
 DEFAULT_PIDS_LIMIT = "64"
 DEFAULT_USER = "65534:65534"
 MAX_STDOUT_CHARS = 200_000
+MAX_WORKSPACE_FILES = 80
+MAX_WORKSPACE_FILE_BYTES = 1024 * 1024
+INTERNAL_WORKSPACE_NAMES = {"input.json", "output.json", "runner.py"}
 
 
 class DockerSkillSandboxRunner:
@@ -66,7 +69,7 @@ class DockerSkillSandboxRunner:
                 "--output",
                 "/workspace/output.json",
             ]
-            return self._run_container(workspace, command)
+            return self._run_container(workspace, command, entrypoint=entrypoint, return_workspace_files=return_workspace_files(request))
 
     def _run_shell(self, request: dict[str, Any]) -> dict[str, Any]:
         entrypoint = safe_entrypoint(request, default_name="main.sh")
@@ -84,9 +87,16 @@ class DockerSkillSandboxRunner:
                 "--output",
                 "/workspace/output.json",
             ]
-            return self._run_container(workspace, command)
+            return self._run_container(workspace, command, entrypoint=entrypoint, return_workspace_files=return_workspace_files(request))
 
-    def _run_container(self, workspace: Path, command: list[str]) -> dict[str, Any]:
+    def _run_container(
+        self,
+        workspace: Path,
+        command: list[str],
+        *,
+        entrypoint: Path,
+        return_workspace_files: bool,
+    ) -> dict[str, Any]:
         docker_command = [
             self.docker_binary,
             "run",
@@ -144,8 +154,14 @@ class DockerSkillSandboxRunner:
                 or f"skill sandbox exited with code {completed.returncode}"
             )
         if output_payload:
-            return normalize_runner_output(output_payload)
-        return {"status": "success", "output": {"stdout": stdout, "stderr": stderr}}
+            normalized = normalize_runner_output(output_payload)
+            if return_workspace_files:
+                normalized["output"]["workspace_files"] = collect_workspace_files(workspace, entrypoint=entrypoint)
+            return normalized
+        output = {"stdout": stdout, "stderr": stderr}
+        if return_workspace_files:
+            output["workspace_files"] = collect_workspace_files(workspace, entrypoint=entrypoint)
+        return {"status": "success", "output": output}
 
 
 def write_common_inputs(workspace: Path, request: dict[str, Any]) -> None:
@@ -157,6 +173,7 @@ def write_common_inputs(workspace: Path, request: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     runner_path.write_text(RUNNER_SCRIPT, encoding="utf-8")
+    materialize_workspace_files(workspace, request.get("workspace_files") if isinstance(request.get("workspace_files"), list) else [])
     chmod_best_effort(input_path, 0o644)
     chmod_best_effort(runner_path, 0o644)
 
@@ -198,6 +215,58 @@ def safe_archive_path(name: str) -> Path:
     if not normalized or any(part in {"", ".", ".."} or ":" in part for part in path.parts):
         raise SkillRuntimeError("skill package contains unsafe path")
     return Path(*path.parts)
+
+
+def materialize_workspace_files(workspace: Path, files: list[Any]) -> None:
+    for item in files[:MAX_WORKSPACE_FILES]:
+        if not isinstance(item, dict):
+            continue
+        raw_path = str(item.get("path") or "").strip()
+        content = item.get("content")
+        if not raw_path or not isinstance(content, str):
+            continue
+        path = safe_archive_path(raw_path)
+        if path.name in INTERNAL_WORKSPACE_NAMES or path.parts[0] == ".skill_deps":
+            continue
+        encoded = content.encode("utf-8")
+        if len(encoded) > MAX_WORKSPACE_FILE_BYTES:
+            continue
+        target = workspace / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(encoded)
+        chmod_best_effort(target, 0o644)
+
+
+def return_workspace_files(request: dict[str, Any]) -> bool:
+    value = request.get("return_workspace_files")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def collect_workspace_files(workspace: Path, *, entrypoint: Path) -> list[dict[str, Any]]:
+    files: list[dict[str, Any]] = []
+    root = workspace.resolve()
+    entrypoint_posix = entrypoint.as_posix()
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+        if not path.is_file():
+            continue
+        try:
+            relative = path.resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if relative == entrypoint_posix or path.name in INTERNAL_WORKSPACE_NAMES or relative.startswith(".skill_deps/"):
+            continue
+        if path.stat().st_size > MAX_WORKSPACE_FILE_BYTES:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        files.append({"path": relative, "content": content})
+        if len(files) >= MAX_WORKSPACE_FILES:
+            break
+    return files
 
 
 def safe_entrypoint(request: dict[str, Any], *, default_name: str) -> Path:

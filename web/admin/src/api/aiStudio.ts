@@ -271,6 +271,17 @@ export interface AiSkillRunResult {
   skill: Record<string, unknown>;
 }
 
+export interface AiAgentToolRunResult {
+  index?: number;
+  tool: string;
+  status: string;
+  arguments?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  error_code?: string;
+  error_message?: string;
+  elapsed_ms?: number;
+}
+
 export interface AiRunResult {
   answer: string;
   trace_id: string;
@@ -278,6 +289,7 @@ export interface AiRunResult {
   trace?: RuntimeTrace;
   skill_plan?: AiSkillPlan;
   skill_results?: AiSkillRunResult[];
+  agent_tool_results?: AiAgentToolRunResult[];
 }
 
 export interface PlatformCapabilityModelOptions {
@@ -387,6 +399,7 @@ export function sendAiApplicationAgentMessage(appKey: string, conversationKey: s
     trace_id: string;
     usage: Record<string, unknown>;
     trace?: RuntimeTrace;
+    agent_tool_results?: AiAgentToolRunResult[];
   }>(`/ai-applications/${appKey}/agent/conversations/${conversationKey}/messages`, payload);
 }
 

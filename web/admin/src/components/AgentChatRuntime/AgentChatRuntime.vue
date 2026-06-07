@@ -33,9 +33,9 @@
           <div class="agent-config-row">
             <div>
               <strong>可用工具</strong>
-              <span>待接入</span>
+              <span>文件、Python、Shell、Skills</span>
             </div>
-            <n-button size="small" secondary disabled>配置</n-button>
+            <n-button size="small" secondary disabled>自动</n-button>
           </div>
           <div class="agent-config-row">
             <div>
@@ -150,7 +150,18 @@
         <dt v-if="traceState.trace.error_message">错误</dt>
         <dd v-if="traceState.trace.error_message">{{ traceState.trace.error_message }}</dd>
       </dl>
-      <div v-if="traceState?.skill_plan || traceState?.skill_results?.length" class="agent-skill-trace">
+      <div v-if="traceState?.skill_plan || traceState?.skill_results?.length || traceState?.agent_tool_results?.length" class="agent-skill-trace">
+        <section v-if="traceState?.agent_tool_results?.length">
+          <strong>工具调用</strong>
+          <span>{{ traceState.agent_tool_results.length }} 次执行</span>
+        </section>
+        <details v-for="item in traceState?.agent_tool_results || []" :key="agentToolTraceKey(item)" open>
+          <summary>
+            <span>{{ agentToolTitle(item) }}</span>
+            <small :class="`is-${agentToolStatus(item)}`">{{ agentToolStatusLabel(item) }}</small>
+          </summary>
+          <p>{{ agentToolSummary(item) }}</p>
+        </details>
         <section v-if="traceState.skill_plan">
           <strong>Skill 计划</strong>
           <span>{{ traceState.skill_plan.skills.length }} 个可用，{{ traceState.skill_plan.planned_calls.length }} 个自动调用</span>
@@ -292,6 +303,44 @@
   function skillTraceSummary(item: Record<string, unknown>) {
     const skill = skillTracePayload(item);
     return String(skill.summary || skill.error_message || '');
+  }
+
+  function agentToolTraceKey(item: Record<string, unknown>) {
+    return `${String(item.tool || 'tool')}-${String(item.index || 0)}-${String(item.elapsed_ms || 0)}`;
+  }
+
+  function agentToolTitle(item: Record<string, unknown>) {
+    return String(item.tool || '工具调用');
+  }
+
+  function agentToolStatus(item: Record<string, unknown>) {
+    return String(item.status || '').toLowerCase() || 'unknown';
+  }
+
+  function agentToolStatusLabel(item: Record<string, unknown>) {
+    const status = agentToolStatus(item);
+    if (status === 'success') return '完成';
+    if (status === 'failed') return '失败';
+    return status;
+  }
+
+  function agentToolSummary(item: Record<string, unknown>) {
+    if (item.error_message) return String(item.error_message);
+    const output = item.output && typeof item.output === 'object' && !Array.isArray(item.output) ? (item.output as Record<string, unknown>) : {};
+    const changes = Array.isArray(output.workspace_changes) ? output.workspace_changes : [];
+    if (changes.length) {
+      return `生成或更新 ${changes.length} 个文件`;
+    }
+    if (typeof output.stdout === 'string' && output.stdout.trim()) {
+      return output.stdout.trim().slice(0, 160);
+    }
+    if (typeof output.content === 'string' && output.content.trim()) {
+      return output.content.trim().slice(0, 160);
+    }
+    if (typeof item.elapsed_ms === 'number') {
+      return `耗时 ${item.elapsed_ms} ms`;
+    }
+    return '已执行';
   }
 
   function clampNumber(value: number, min: number, max: number) {
@@ -715,6 +764,14 @@
     margin: 8px 0 0;
     color: var(--app-text-color-2);
     font-size: 12px;
+  }
+
+  .agent-skill-trace small.is-success {
+    color: var(--app-success-color, #18a058);
+  }
+
+  .agent-skill-trace small.is-failed {
+    color: var(--app-error-color, #d03050);
   }
 
   @media (max-width: 1180px) {

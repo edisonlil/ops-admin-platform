@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from ai_assets.application import services as prompt_asset_services
 from ai_applications.application import agent_file_tools
+from ai_applications.application import agent_tools
 from ai_applications.application import skill_runtime
 from ai_applications.application.ports import AIApplicationsRepository
 from ai_runtime_core.prompt_runtime import media_content_parts
@@ -92,11 +93,27 @@ AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES = (
 AGENT_TOOL_CALL_MARKERS = ("<tool_call", "</tool_call", "<tool_result", "</tool_result", "minimax[>|")
 AGENT_TOOL_PROTOCOL_FRAGMENTS = ("<tool_", "</tool_", "|<tool_", "minimax[>")
 AGENT_UNHANDLED_TOOL_CALL_MESSAGE = (
-    "模型输出了未开放的原生工具调用（例如 bash/run_command/tool_call/tool_result），本次运行已停止，避免继续循环。"
-    "当前 Agent 只支持文件工作区工具：list_files、find_files、read_file、write_file、append_file、search_files；"
-    "如需执行脚本，请通过已配置的 Skill sandbox 能力运行。"
+    "模型输出了未被当前流式阶段接管的原生工具协议，本次运行已停止，避免继续循环。"
+    "Agent 工具需要通过平台 tool_calls JSON 协议执行，当前支持文件工作区、shell.run 和 python.run；"
+    "脚本能力会通过已配置的 sandbox runner 运行。"
 )
 AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE = "模型输出超过 Agent 单次流式回答上限，本次运行已停止，避免长时间占用会话。"
+SOLO_CONFIRMATION_BOUNDARY_MESSAGE = (
+    "Solo 模式不支持用户确认式工具调用；模型应自行评估风险，风险可控则自动执行，"
+    "高风险则中断任务并说明原因。"
+)
+SOLO_CONFIRMATION_MARKERS = (
+    "请确认",
+    "请您确认",
+    "待执行操作",
+    "是否需要我",
+    "是否执行",
+    "需要我直接执行",
+    "please confirm",
+    "awaiting confirmation",
+    "should i execute",
+    "do you want me to run",
+)
 
 repository: AIApplicationsRepository | None = None
 
@@ -477,7 +494,7 @@ def send_agent_message(
                 "skills": skill_runtime.toolbox_snapshot(prepared["skill_plan"]),
                 "planned_calls": skill_runtime.skill_calls_snapshot(prepared["skill_plan"].planned_calls),
             },
-            "agent_file_workspace": agent_file_tools.snapshot(prepared.get("file_workspace")),
+            "agent_file_workspace": agent_tools.snapshot(prepared.get("file_workspace")),
             "agent_tool_results": agent_run.get("agent_tool_results", []),
             "assistant_message": assistant_message,
             "answer": answer,
@@ -622,7 +639,7 @@ def stream_agent_message(
                             "trace_id": trace_id,
                             "results": stream_tool_results,
                             "tool_messages": stream_tool_messages,
-                            "object": "ai_application.agent.file_tools.result",
+                            "object": "ai_application.agent.tools.result",
                         },
                     )
                 if preflight.get("boundary_answer"):
@@ -681,6 +698,22 @@ def stream_agent_message(
                         boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         yield agent_boundary_stream_event(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        trace = finish("failed", boundary_error)
+                        yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
+                        yield emit_named(
+                            "final",
+                            {
+                                "trace_id": trace_id,
+                                "assistant_message": assistant_message,
+                                "object": "ai_application.agent.message.final",
+                            },
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
+                    if solo_confirmation_requested(stream_recent_text):
+                        boundary_error = agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                        answer_parts.append(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                        yield agent_boundary_stream_event(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
                         trace = finish("failed", boundary_error)
                         yield emit_named("trace", {"trace_id": trace_id, "trace": trace, "object": "ai_application.agent.run.trace"})
                         yield emit_named(
@@ -928,34 +961,35 @@ def execute_single_turn_application(
     usage: dict[str, Any] = {}
 
     try:
-        response = gateway.chat_completions(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            response_format=response_format,
-            extra_body=resolve_extra_body(app_for_run, payload),
-            enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
-            correlation_id=trace_id,
-        )
-        answer = extract_answer(response)
-        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        single_turn_run = run_single_turn_model_with_tools(prepared, payload, trace_id=trace_id)
+        answer = single_turn_run["answer"]
+        usage = single_turn_run["usage"]
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        run_error = single_turn_run.get("error") if isinstance(single_turn_run.get("error"), Exception) else None
+        run_status = str(single_turn_run.get("status") or "success")
         trace = record_trace(
             trace_id=trace_id,
             app=app_for_run,
             caller_type=caller_type,
             caller_key=caller_key,
             model=model,
-            status="success",
+            status=run_status,
             variables=variables,
-            messages=messages,
-            rendered_prompt=rendered_prompt,
+            messages=single_turn_run["messages"],
+            rendered_prompt=single_turn_run["rendered_prompt"],
             answer=answer,
             usage=usage,
             elapsed_ms=elapsed_ms,
+            error=run_error,
             prompt_refs=prompt_refs,
         )
-        return {"answer": answer, "trace_id": trace_id, "usage": usage, "trace": trace}
+        return {
+            "answer": answer,
+            "trace_id": trace_id,
+            "usage": usage,
+            "trace": trace,
+            "agent_tool_results": single_turn_run.get("agent_tool_results", []),
+        }
     except gateway.LLMRoutingError as exc:
         trace = record_trace(
             trace_id=trace_id,
@@ -1394,9 +1428,23 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
     skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
     variables = skill_runtime.merge_skill_results_into_variables(variables, skill_plan, skill_results)
     validate_variables(app_for_run, variables)
+    collected_files = skill_runtime.collect_files(payload, variables)
+    if single_turn_tools_requested(app_for_run, payload, collected_files):
+        try:
+            file_workspace = agent_file_tools.prepare_workspace(
+                app_for_run,
+                {"conversation_key": f"single_turn_{uuid.uuid4().hex}"},
+                payload,
+                collected_files,
+            )
+        except agent_file_tools.AgentFileToolError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    else:
+        file_workspace = {"enabled": False}
 
     messages = render_messages(app_for_run, variables)
     messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results)
+    messages = append_developer_context_message(messages, agent_tools.build_prompt(file_workspace))
     rendered_prompt = gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages))
     return {
         "app": app_for_run,
@@ -1410,7 +1458,26 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         "prompt_refs": prompt_refs,
         "skill_plan": skill_plan,
         "skill_results": skill_results,
+        "file_workspace": file_workspace,
     }
+
+
+def single_turn_tools_requested(app: dict[str, Any], payload: dict[str, Any], files: list[dict[str, Any]]) -> bool:
+    for key in ("file_tools_enabled", "agent_tools_enabled", "tool_preflight", "agent_tool_preflight", "file_tool_preflight"):
+        request_value = agent_file_tools.optional_bool(payload.get(key))
+        if request_value is not None:
+            return request_value
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
+    agent_tool_config = runtime_config.get("agent_tools") if isinstance(runtime_config.get("agent_tools"), dict) else {}
+    for key in ("enabled", "preflight"):
+        config_value = agent_file_tools.optional_bool(agent_tool_config.get(key))
+        if config_value is not None:
+            return config_value
+    file_tool_config = runtime_config.get("file_tools") if isinstance(runtime_config.get("file_tools"), dict) else {}
+    config_value = agent_file_tools.optional_bool(file_tool_config.get("enabled"))
+    if config_value is not None:
+        return config_value
+    return bool(files)
 
 
 def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str, caller_key: str | None = None) -> Any:
@@ -1434,6 +1501,8 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
         trace_recorded = False
         stream_tool_marker_count = 0
         stream_recent_text = ""
+        stream_messages = messages
+        stream_rendered_prompt = rendered_prompt
 
         def finish_trace(status: str, trace_error: Exception | None) -> dict[str, Any]:
             nonlocal trace_recorded
@@ -1446,8 +1515,8 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
                 model=model,
                 status=status,
                 variables=variables,
-                messages=messages,
-                rendered_prompt=rendered_prompt,
+                messages=stream_messages,
+                rendered_prompt=stream_rendered_prompt,
                 answer="".join(answer_parts),
                 usage={},
                 elapsed_ms=int((time.perf_counter() - started_at) * 1000),
@@ -1481,9 +1550,33 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
                 }
             ).replace("data: ", "event: skill_result\ndata: ", 1)
         try:
+            if single_turn_tool_stream_preflight_required(prepared, payload):
+                preflight = run_single_turn_tool_preflight(prepared, payload, trace_id=trace_id)
+                stream_tool_results = preflight.get("agent_tool_results", [])
+                if stream_tool_results:
+                    stream_messages = preflight["messages"]
+                    stream_rendered_prompt = preflight["rendered_prompt"]
+                    yield gateway.sse_data(
+                        {
+                            "trace_id": trace_id,
+                            "results": stream_tool_results,
+                            "object": "ai_application.agent.tools.result",
+                        }
+                    ).replace("data: ", "event: agent_tool_result\ndata: ", 1)
+                if preflight.get("boundary_answer"):
+                    boundary_answer = str(preflight["boundary_answer"])
+                    boundary_error = preflight.get("error")
+                    if not isinstance(boundary_error, Exception):
+                        boundary_error = agent_execution_boundary_error(boundary_answer)
+                    answer_parts.append(boundary_answer)
+                    yield tool_call_blocked_event(trace_id, boundary_answer)
+                    trace = finish_trace("failed", boundary_error)
+                    yield trace_event(trace)
+                    yield "data: [DONE]\n\n"
+                    return
             for event in gateway.stream_chat_completions(
                 model=model,
-                messages=messages,
+                messages=stream_messages,
                 temperature=temperature,
                 response_format=response_format,
                 extra_body=resolve_extra_body(app, payload),
@@ -1510,6 +1603,14 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
                         boundary_error = agent_execution_boundary_error(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         answer_parts.append(AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
                         yield tool_call_blocked_event(trace_id, AGENT_STREAM_LENGTH_BOUNDARY_MESSAGE)
+                        trace = finish_trace("failed", boundary_error)
+                        yield trace_event(trace)
+                        yield "data: [DONE]\n\n"
+                        return
+                    if solo_confirmation_requested(stream_recent_text):
+                        boundary_error = agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                        answer_parts.append(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+                        yield tool_call_blocked_event(trace_id, SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
                         trace = finish_trace("failed", boundary_error)
                         yield trace_event(trace)
                         yield "data: [DONE]\n\n"
@@ -1545,6 +1646,205 @@ def stream_single_turn_application(prepared: dict[str, Any], *, caller_type: str
             yield "data: [DONE]\n\n"
 
     return events()
+
+
+def run_single_turn_model_with_tools(prepared: dict[str, Any], payload: dict[str, Any], *, trace_id: str) -> dict[str, Any]:
+    response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=prepared["messages"],
+        temperature=prepared["temperature"],
+        response_format=prepared["response_format"],
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+        correlation_id=trace_id,
+    )
+    first_answer = extract_answer(response)
+    first_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+    request = agent_tools.parse_tool_request(first_answer)
+    workspace = prepared.get("file_workspace")
+    if not workspace or not workspace.get("enabled") or not request.get("tool_calls"):
+        answer = agent_tools.protocol_final_answer(first_answer) or first_answer
+        if solo_confirmation_requested(answer):
+            return single_turn_failed_model_run(prepared, message=SOLO_CONFIRMATION_BOUNDARY_MESSAGE, usage=first_usage)
+        return {
+            "answer": answer,
+            "usage": first_usage,
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [],
+            "status": "success",
+        }
+
+    tool_results = agent_tools.execute_tool_calls(
+        workspace,
+        request["tool_calls"],
+        run_context=single_turn_tool_run_context(prepared),
+    )
+    if agent_tools.contains_high_risk_result(tool_results):
+        return single_turn_failed_model_run(
+            prepared,
+            message=agent_tools.high_risk_failure_message(tool_results),
+            usage=first_usage,
+            tool_results=tool_results,
+        )
+    follow_up_messages = agent_tools.build_follow_up_messages(prepared["messages"], first_answer, tool_results)
+    follow_up_response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=follow_up_messages,
+        temperature=prepared["temperature"],
+        response_format=prepared["response_format"],
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=payload.get("enable_think_output") if "enable_think_output" in payload else None,
+        correlation_id=f"{trace_id}_final",
+    )
+    final_answer = extract_answer(follow_up_response)
+    follow_up_usage = follow_up_response.get("usage") if isinstance(follow_up_response.get("usage"), dict) else {}
+    usage = agent_tools.merge_usage(first_usage, follow_up_usage)
+    if raw_agent_tool_marker_count(final_answer) > 0 or raw_agent_unsupported_tool_detected(final_answer) or agent_tools.parse_tool_request(final_answer).get("tool_calls"):
+        return single_turn_failed_model_run(
+            prepared,
+            message=AGENT_UNHANDLED_TOOL_CALL_MESSAGE,
+            usage=usage,
+            messages=follow_up_messages,
+            tool_results=tool_results,
+        )
+    if solo_confirmation_requested(final_answer):
+        return single_turn_failed_model_run(
+            prepared,
+            message=SOLO_CONFIRMATION_BOUNDARY_MESSAGE,
+            usage=usage,
+            messages=follow_up_messages,
+            tool_results=tool_results,
+        )
+    return {
+        "answer": final_answer,
+        "usage": usage,
+        "messages": follow_up_messages,
+        "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
+        "agent_tool_results": tool_results,
+        "status": "success",
+    }
+
+
+def single_turn_failed_model_run(
+    prepared: dict[str, Any],
+    *,
+    message: str,
+    usage: dict[str, Any],
+    messages: list[dict[str, Any]] | None = None,
+    tool_results: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    run_messages = messages or prepared["messages"]
+    rendered_prompt = (
+        prepared["rendered_prompt"]
+        if run_messages is prepared["messages"]
+        else gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(run_messages))
+    )
+    return {
+        "answer": message,
+        "usage": usage,
+        "messages": run_messages,
+        "rendered_prompt": rendered_prompt,
+        "agent_tool_results": tool_results or [],
+        "status": "failed",
+        "error": agent_execution_boundary_error(message),
+    }
+
+
+def single_turn_tool_stream_preflight_required(prepared: dict[str, Any], payload: dict[str, Any]) -> bool:
+    workspace = prepared.get("file_workspace")
+    if not workspace or not workspace.get("enabled"):
+        return False
+    request_value = agent_file_tools.optional_bool(payload.get("tool_preflight"))
+    if request_value is not None:
+        return request_value
+    request_value = agent_file_tools.optional_bool(payload.get("agent_tool_preflight"))
+    if request_value is not None:
+        return request_value
+    runtime_config = prepared.get("app", {}).get("runtime_config") if isinstance(prepared.get("app"), dict) else {}
+    if not isinstance(runtime_config, dict):
+        runtime_config = {}
+    tool_config = runtime_config.get("agent_tools") if isinstance(runtime_config.get("agent_tools"), dict) else {}
+    config_value = agent_file_tools.optional_bool(tool_config.get("preflight"))
+    if config_value is not None:
+        return config_value
+    return bool(workspace.get("uploads"))
+
+
+def run_single_turn_tool_preflight(prepared: dict[str, Any], payload: dict[str, Any], *, trace_id: str) -> dict[str, Any]:
+    response = gateway.chat_completions(
+        model=prepared["model"],
+        messages=[
+            *prepared["messages"],
+            {
+                "role": "user",
+                "content": (
+                    "If tools are needed to complete the user's single-turn task, return tool_calls JSON now. "
+                    "Use file tools, shell.run, or python.run only. "
+                    "Otherwise return {\"tool_calls\":[]}."
+                ),
+            },
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+        extra_body=resolve_extra_body(prepared["app"], payload),
+        enable_think_output=False,
+        correlation_id=f"{trace_id}_tools",
+    )
+    preflight_answer = extract_answer(response)
+    request = agent_tools.parse_tool_request(preflight_answer)
+    if solo_confirmation_requested(preflight_answer):
+        boundary_error = agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE)
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [],
+            "status": "failed",
+            "error": boundary_error,
+            "boundary_answer": SOLO_CONFIRMATION_BOUNDARY_MESSAGE,
+        }
+    if raw_agent_tool_marker_count(preflight_answer) > 0 and not request.get("tool_calls"):
+        boundary_error = agent_execution_boundary_error()
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [agent_execution_boundary_result(answer=preflight_answer)],
+            "status": "failed",
+            "error": boundary_error,
+            "boundary_answer": AGENT_UNHANDLED_TOOL_CALL_MESSAGE,
+        }
+    if not request.get("tool_calls"):
+        return {"messages": prepared["messages"], "rendered_prompt": prepared["rendered_prompt"], "agent_tool_results": []}
+    tool_results = agent_tools.execute_tool_calls(
+        prepared["file_workspace"],
+        request["tool_calls"],
+        run_context=single_turn_tool_run_context(prepared),
+    )
+    if agent_tools.contains_high_risk_result(tool_results):
+        boundary_answer = agent_tools.high_risk_failure_message(tool_results)
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": tool_results,
+            "status": "failed",
+            "error": agent_execution_boundary_error(boundary_answer),
+            "boundary_answer": boundary_answer,
+        }
+    messages = agent_tools.build_follow_up_messages(prepared["messages"], preflight_answer, tool_results)
+    return {
+        "messages": messages,
+        "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages)),
+        "agent_tool_results": tool_results,
+    }
+
+
+def single_turn_tool_run_context(prepared: dict[str, Any]) -> dict[str, Any]:
+    app = prepared.get("app") if isinstance(prepared.get("app"), dict) else {}
+    return {
+        "tenant_id": int(app.get("tenant_id") or 0),
+        "app_key": str(app.get("app_key") or ""),
+        "conversation_key": "single_turn",
+    }
 
 
 def require_agent_application(app_key: str, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1724,7 +2024,7 @@ def build_agent_messages(
             messages.append({"role": role, "content": content})
     if skill_plan is not None:
         messages = skill_runtime.append_skill_context_messages(messages, skill_plan, skill_results or [])
-    file_tool_prompt = agent_file_tools.build_prompt(file_workspace)
+    file_tool_prompt = agent_tools.build_prompt(file_workspace)
     if file_tool_prompt:
         messages.append({"role": "developer", "content": file_tool_prompt})
     for item in history:
@@ -1753,6 +2053,11 @@ def raw_agent_tool_protocol_fragment_detected(text: str) -> bool:
 def raw_agent_unsupported_tool_detected(text: str) -> bool:
     compact = "".join(str(text or "").lower().split())
     return any(f'"name":"{tool_name}"' in compact or f'"tool":"{tool_name}"' in compact for tool_name in AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES)
+
+
+def solo_confirmation_requested(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(marker.lower() in lowered for marker in SOLO_CONFIRMATION_MARKERS)
 
 
 def agent_execution_boundary_error(message: str = AGENT_UNHANDLED_TOOL_CALL_MESSAGE) -> AgentExecutionBoundaryError:
@@ -1837,8 +2142,8 @@ def run_agent_model_with_file_tools(
     )
     first_answer = extract_answer(response)
     first_usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
-    request = agent_file_tools.parse_tool_request(first_answer)
-    if raw_agent_unsupported_tool_detected(first_answer):
+    request = agent_tools.parse_tool_request(first_answer)
+    if raw_agent_tool_marker_count(first_answer) > 0 and not request.get("tool_calls"):
         boundary = agent_boundary_run(prepared, answer=first_answer, trace_id=trace_id)
         boundary["usage"] = first_usage
         return boundary
@@ -1847,8 +2152,15 @@ def run_agent_model_with_file_tools(
             boundary = agent_boundary_run(prepared, answer=first_answer, trace_id=trace_id)
             boundary["usage"] = first_usage
             return boundary
+        answer = agent_tools.protocol_final_answer(first_answer) or first_answer
+        if solo_confirmation_requested(answer):
+            return agent_failed_model_run(
+                prepared,
+                message=SOLO_CONFIRMATION_BOUNDARY_MESSAGE,
+                usage=first_usage,
+            )
         return {
-            "answer": agent_file_tools.protocol_final_answer(first_answer) or first_answer,
+            "answer": answer,
             "usage": first_usage,
             "messages": prepared["messages"],
             "rendered_prompt": prepared["rendered_prompt"],
@@ -1857,9 +2169,21 @@ def run_agent_model_with_file_tools(
             "status": "success",
         }
 
-    tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
+    tool_results = agent_tools.execute_tool_calls(
+        prepared["file_workspace"],
+        request["tool_calls"],
+        run_context=agent_tool_run_context(prepared),
+    )
     tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
-    follow_up_messages = agent_file_tools.build_follow_up_messages(prepared["messages"], first_answer, tool_results)
+    if agent_tools.contains_high_risk_result(tool_results):
+        return agent_failed_model_run(
+            prepared,
+            message=agent_tools.high_risk_failure_message(tool_results),
+            usage=first_usage,
+            tool_results=tool_results,
+            tool_messages=tool_messages,
+        )
+    follow_up_messages = agent_tools.build_follow_up_messages(prepared["messages"], first_answer, tool_results)
     follow_up_response = gateway.chat_completions(
         model=prepared["model"],
         messages=follow_up_messages,
@@ -1871,9 +2195,29 @@ def run_agent_model_with_file_tools(
     )
     final_answer = extract_answer(follow_up_response)
     follow_up_usage = follow_up_response.get("usage") if isinstance(follow_up_response.get("usage"), dict) else {}
+    if raw_agent_tool_marker_count(final_answer) > 0 or raw_agent_unsupported_tool_detected(final_answer) or agent_tools.parse_tool_request(final_answer).get("tool_calls"):
+        return {
+            "answer": AGENT_UNHANDLED_TOOL_CALL_MESSAGE,
+            "usage": agent_tools.merge_usage(first_usage, follow_up_usage),
+            "messages": follow_up_messages,
+            "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
+            "agent_tool_results": tool_results,
+            "agent_tool_messages": tool_messages,
+            "status": "failed",
+            "error": agent_execution_boundary_error(),
+        }
+    if solo_confirmation_requested(final_answer):
+        return agent_failed_model_run(
+            prepared,
+            message=SOLO_CONFIRMATION_BOUNDARY_MESSAGE,
+            usage=agent_tools.merge_usage(first_usage, follow_up_usage),
+            messages=follow_up_messages,
+            tool_results=tool_results,
+            tool_messages=tool_messages,
+        )
     return {
         "answer": final_answer,
-        "usage": agent_file_tools.merge_usage(first_usage, follow_up_usage),
+        "usage": agent_tools.merge_usage(first_usage, follow_up_usage),
         "messages": follow_up_messages,
         "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(follow_up_messages)),
         "agent_tool_results": tool_results,
@@ -1882,8 +2226,35 @@ def run_agent_model_with_file_tools(
     }
 
 
+def agent_failed_model_run(
+    prepared: dict[str, Any],
+    *,
+    message: str,
+    usage: dict[str, Any],
+    messages: list[dict[str, Any]] | None = None,
+    tool_results: list[dict[str, Any]] | None = None,
+    tool_messages: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    run_messages = messages or prepared["messages"]
+    rendered_prompt = (
+        prepared["rendered_prompt"]
+        if run_messages is prepared["messages"]
+        else gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(run_messages))
+    )
+    return {
+        "answer": message,
+        "usage": usage,
+        "messages": run_messages,
+        "rendered_prompt": rendered_prompt,
+        "agent_tool_results": tool_results or [],
+        "agent_tool_messages": tool_messages or [],
+        "status": "failed",
+        "error": agent_execution_boundary_error(message),
+    }
+
+
 def agent_file_tool_stream_preflight_required(prepared: dict[str, Any], payload: dict[str, Any]) -> bool:
-    return agent_file_tools.stream_preflight_required(prepared.get("file_workspace"), payload)
+    return agent_tools.stream_preflight_required(prepared.get("file_workspace"), payload)
 
 
 def run_agent_file_tool_preflight(
@@ -1894,7 +2265,17 @@ def run_agent_file_tool_preflight(
 ) -> dict[str, Any]:
     response = gateway.chat_completions(
         model=prepared["model"],
-        messages=[*prepared["messages"], {"role": "user", "content": "If file tools are needed, return tool_calls JSON now. Otherwise return {\"tool_calls\":[]}."}],
+        messages=[
+            *prepared["messages"],
+            {
+                "role": "user",
+                "content": (
+                    "If Agent tools are needed, return tool_calls JSON now. "
+                    "Use file tools, shell.run, or python.run only. "
+                    "Otherwise return {\"tool_calls\":[]}."
+                ),
+            },
+        ],
         temperature=0,
         response_format={"type": "json_object"},
         extra_body=resolve_extra_body(prepared["app"], payload),
@@ -1902,8 +2283,17 @@ def run_agent_file_tool_preflight(
         correlation_id=f"{trace_id}_file_tools",
     )
     preflight_answer = extract_answer(response)
-    request = agent_file_tools.parse_tool_request(preflight_answer)
-    if raw_agent_unsupported_tool_detected(preflight_answer):
+    request = agent_tools.parse_tool_request(preflight_answer)
+    if solo_confirmation_requested(preflight_answer):
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": [],
+            "agent_tool_messages": [],
+            "boundary_answer": SOLO_CONFIRMATION_BOUNDARY_MESSAGE,
+            "boundary_error": agent_execution_boundary_error(SOLO_CONFIRMATION_BOUNDARY_MESSAGE),
+        }
+    if raw_agent_tool_marker_count(preflight_answer) > 0 and not request.get("tool_calls"):
         boundary = agent_boundary_run(prepared, answer=preflight_answer, trace_id=trace_id)
         return {
             "messages": boundary["messages"],
@@ -1930,9 +2320,23 @@ def run_agent_file_tool_preflight(
             "agent_tool_results": [],
             "agent_tool_messages": [],
         }
-    tool_results = agent_file_tools.execute_tool_calls(prepared["file_workspace"], request["tool_calls"])
+    tool_results = agent_tools.execute_tool_calls(
+        prepared["file_workspace"],
+        request["tool_calls"],
+        run_context=agent_tool_run_context(prepared),
+    )
     tool_messages = persist_agent_file_tool_messages(prepared, tool_results, trace_id=trace_id)
-    messages = agent_file_tools.build_follow_up_messages(prepared["messages"], preflight_answer, tool_results)
+    if agent_tools.contains_high_risk_result(tool_results):
+        boundary_answer = agent_tools.high_risk_failure_message(tool_results)
+        return {
+            "messages": prepared["messages"],
+            "rendered_prompt": prepared["rendered_prompt"],
+            "agent_tool_results": tool_results,
+            "agent_tool_messages": tool_messages,
+            "boundary_answer": boundary_answer,
+            "boundary_error": agent_execution_boundary_error(boundary_answer),
+        }
+    messages = agent_tools.build_follow_up_messages(prepared["messages"], preflight_answer, tool_results)
     return {
         "messages": messages,
         "rendered_prompt": gateway.prompt_from_messages(prompt=None, messages=gateway.messages_as_text_messages(messages)),
@@ -1941,11 +2345,21 @@ def run_agent_file_tool_preflight(
     }
 
 
+def agent_tool_run_context(prepared: dict[str, Any]) -> dict[str, Any]:
+    app = prepared.get("app") if isinstance(prepared.get("app"), dict) else {}
+    conversation = prepared.get("conversation") if isinstance(prepared.get("conversation"), dict) else {}
+    return {
+        "tenant_id": int(app.get("tenant_id") or 0),
+        "app_key": str(app.get("app_key") or ""),
+        "conversation_key": str(conversation.get("conversation_key") or ""),
+    }
+
+
 def persist_agent_file_tool_messages(prepared: dict[str, Any], tool_results: list[dict[str, Any]], *, trace_id: str) -> list[dict[str, Any]]:
     if not tool_results:
         return []
     status = "failed" if any(result.get("status") != "success" for result in tool_results) else "completed"
-    content = "Agent file tool results:\n" + json_dump(tool_results)
+    content = "Agent tool results:\n" + json_dump(tool_results)
     database_target = require_database()
     try:
         with connect(database_target, readonly=False) as conn:
@@ -1961,7 +2375,7 @@ def persist_agent_file_tool_messages(prepared: dict[str, Any], tool_results: lis
                         "content": content,
                         "status": status,
                         "trace_id": trace_id,
-                        "metadata": {"agent_file_tool_results": tool_results},
+                        "metadata": {"agent_tool_results": tool_results, "agent_file_tool_results": tool_results},
                     },
                 )
             ]
@@ -2258,6 +2672,18 @@ def render_messages(app: dict[str, Any], variables: dict[str, Any]) -> list[dict
     if not messages:
         raise HTTPException(status_code=422, detail="Prompt content is required")
     return messages
+
+
+def append_developer_context_message(messages: list[dict[str, Any]], content: str) -> list[dict[str, Any]]:
+    if not str(content or "").strip():
+        return messages
+    insert_at = 0
+    for index, message in enumerate(messages):
+        role = str(message.get("role") or "")
+        if role not in {"system", "developer"}:
+            break
+        insert_at = index + 1
+    return [*messages[:insert_at], {"role": "developer", "content": content}, *messages[insert_at:]]
 
 
 def render_message_content(role: str, text: str, variables: dict[str, Any]) -> str | list[dict[str, Any]]:

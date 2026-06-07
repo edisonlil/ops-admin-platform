@@ -79,6 +79,17 @@ def configure_sandbox_runner(runner: SkillSandboxRunner | None) -> None:
     _sandbox_runner = runner or UnavailableSkillSandboxRunner()
 
 
+def run_sandbox_request(request: dict[str, Any]) -> dict[str, Any]:
+    response = _sandbox_runner.run(request)
+    if not isinstance(response, dict):
+        raise SkillRuntimeError("skill sandbox runner returned invalid result")
+    status = str(response.get("status") or "success")
+    if status != "success":
+        raise SkillRuntimeError(str(response.get("error_message") or "skill sandbox runner failed"))
+    output = response.get("output")
+    return output if isinstance(output, dict) else {"result": output}
+
+
 def configure_llm_task_runner(runner: SkillLLMTaskRunner | None) -> None:
     global _llm_task_runner
     _llm_task_runner = runner or UnavailableSkillLLMTaskRunner()
@@ -384,8 +395,9 @@ def build_toolbox_prompt(plan: SkillRuntimePlan) -> str:
         )
     return (
         "Available Skills toolbox. Prefer already executed and injected skill results. "
-        "If more tool calls are needed, state the skill_key, input, and reason in the final answer; "
-        "script-capable skills are executed through the sandbox runner port.\n"
+        "Do not ask the user to confirm pending skill calls in solo execution mode. "
+        "If a required skill has not been executed, complete the task with available context or report a clear failure reason. "
+        "Script-capable skills are executed through the sandbox runner port.\n"
         f"{json.dumps(items, ensure_ascii=False, indent=2)}"
     )
 
@@ -695,14 +707,7 @@ def execute_sandbox_skill(
         "runtime_config": descriptor.runtime_config,
         "runtime_constraints": descriptor.runtime_constraints,
     }
-    response = _sandbox_runner.run(request)
-    if not isinstance(response, dict):
-        raise SkillRuntimeError("skill sandbox runner returned invalid result")
-    status = str(response.get("status") or "success")
-    if status != "success":
-        raise SkillRuntimeError(str(response.get("error_message") or "skill sandbox runner failed"))
-    output = response.get("output")
-    return output if isinstance(output, dict) else {"result": output}
+    return run_sandbox_request(request)
 
 
 def execute_llm_task_skill(

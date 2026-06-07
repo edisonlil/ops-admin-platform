@@ -1114,7 +1114,194 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertNotIn('"name":"bash"', joined)
             self.assertTrue(joined.rstrip().endswith("data: [DONE]"))
             self.assertEqual(traces[0]["status"], "failed")
-            self.assertIn("未开放", traces[0]["answer"])
+            self.assertIn("未被当前流式阶段接管", traces[0]["answer"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_single_turn_application_executes_tool_preflight_for_uploaded_files(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        test_case = self
+
+        class FakeSandboxRunner:
+            def run(self, request: dict[str, object]) -> dict[str, object]:
+                test_case.assertEqual(request["runtime_kind"], "sandbox_python")
+                test_case.assertIn("print('quiz ready')", str(request["content"]))
+                return {
+                    "status": "success",
+                    "output": {
+                        "stdout": "quiz ready\n",
+                        "workspace_files": [{"path": "quiz.html", "content": "<html>quiz</html>"}],
+                    },
+                }
+
+        previous_runner = ai_applications.skill_runtime._sandbox_runner
+        ai_applications.skill_runtime.configure_sandbox_runner(FakeSandboxRunner())
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        ai_applications.save_ai_application(self._sample_ai_application("single-tool"))
+                        calls: list[list[dict[str, object]]] = []
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            calls.append(messages)
+                            if len(calls) == 1:
+                                self.assertIn("Agent execution tools", str(messages[-2]["content"]))
+                                return {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": json.dumps(
+                                                    {"tool_calls": [{"tool": "python.run", "arguments": {"code": "print('quiz ready')"}}]}
+                                                )
+                                            }
+                                        }
+                                    ],
+                                    "usage": {"total_tokens": 1},
+                                }
+                            self.assertIn("quiz.html", str(messages[-1]["content"]))
+                            return {"choices": [{"message": {"content": "generated quiz"}}], "usage": {"total_tokens": 2}}
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.run_draft_application(
+                                "single-tool",
+                                {
+                                    "variables": {"question": "make quiz"},
+                                    "files": [{"name": "content.txt", "mime_type": "text/plain", "text": "lesson"}],
+                                },
+                            )
+
+            self.assertEqual(result["answer"], "generated quiz")
+            self.assertEqual(result["usage"]["total_tokens"], 3)
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "python.run")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "success")
+            self.assertTrue(any("single_turn_" in str(path) for path in workspace_root.rglob("quiz.html")))
+        finally:
+            ai_applications.skill_runtime.configure_sandbox_runner(previous_runner)
+            self._unlink_db(db_path)
+
+    def test_single_turn_stream_emits_agent_tool_result_for_preflight(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+
+        class FakeSandboxRunner:
+            def run(self, request: dict[str, object]) -> dict[str, object]:
+                return {"status": "success", "output": {"stdout": "ready\n"}}
+
+        previous_runner = ai_applications.skill_runtime._sandbox_runner
+        ai_applications.skill_runtime.configure_sandbox_runner(FakeSandboxRunner())
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        ai_applications.save_ai_application(self._sample_ai_application("single-stream-tool"))
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": json.dumps(
+                                                {"tool_calls": [{"tool": "python.run", "arguments": {"code": "print('ready')"}}]}
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertIn("Agent tool results", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"final"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_draft_application(
+                                        "single-stream-tool",
+                                        {
+                                            "variables": {"question": "make quiz"},
+                                            "files": [{"name": "content.txt", "mime_type": "text/plain", "text": "lesson"}],
+                                        },
+                                    )
+                                )
+
+            joined = "".join(events)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn('"tool": "python.run"', joined)
+            self.assertIn('"content":"final"', joined)
+            self.assertNotIn("<tool_call>", joined)
+        finally:
+            ai_applications.skill_runtime.configure_sandbox_runner(previous_runner)
+            self._unlink_db(db_path)
+
+    def test_single_turn_stream_blocks_high_risk_tool_preflight(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        ai_applications.save_ai_application(self._sample_ai_application("single-stream-risk"))
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": json.dumps(
+                                                {"tool_calls": [{"tool": "shell.run", "arguments": {"command": "rm -rf /"}}]}
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=AssertionError("main stream should not run after high-risk preflight"),
+                            ):
+                                events = list(
+                                    ai_applications.stream_draft_application(
+                                        "single-stream-risk",
+                                        {
+                                            "variables": {"question": "delete everything"},
+                                            "files": [{"name": "content.txt", "mime_type": "text/plain", "text": "lesson"}],
+                                        },
+                                    )
+                                )
+                        traces = ai_applications.list_prompt_runtime_traces()["items"]
+
+            joined = "".join(events)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("AgentToolRiskError", joined)
+            self.assertIn("event: tool_call_blocked", joined)
+            self.assertIn("风险过高", joined)
+            self.assertEqual(traces[0]["status"], "failed")
+            self.assertIn("风险过高", traces[0]["answer"])
         finally:
             self._unlink_db(db_path)
 
@@ -1810,7 +1997,7 @@ class LLMRuntimeTests(unittest.TestCase):
                                     ],
                                     "usage": {"total_tokens": 2},
                                 }
-                            self.assertIn("Agent file tool results", str(messages[-1]["content"]))
+                            self.assertIn("Agent tool results", str(messages[-1]["content"]))
                             return {"choices": [{"message": {"content": "file is ready"}}], "usage": {"total_tokens": 3}}
 
                         with mock.patch(
@@ -1836,6 +2023,150 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertTrue(any(item["role"] == "tool" and item["metadata"].get("agent_file_tool_results") for item in messages))
             self.assertEqual(result["agent_file_workspace"]["uploads"][0]["path"], "uploads/source.txt")
         finally:
+            self._unlink_db(db_path)
+
+    def test_agent_application_executes_shell_tool_through_sandbox(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        test_case = self
+
+        class FakeSandboxRunner:
+            def run(self, request: dict[str, object]) -> dict[str, object]:
+                self_request = request
+                test_case.assertEqual(self_request["runtime_kind"], "sandbox_shell")
+                test_case.assertEqual(self_request["content"], "cat uploads/source.txt > result.txt")
+                workspace_files = self_request.get("workspace_files")
+                test_case.assertIsInstance(workspace_files, list)
+                test_case.assertTrue(any(item.get("path") == "uploads/source.txt" for item in workspace_files if isinstance(item, dict)))
+                return {
+                    "status": "success",
+                    "output": {
+                        "stdout": "",
+                        "stderr": "",
+                        "returncode": 0,
+                        "workspace_files": [{"path": "result.txt", "content": "copied text"}],
+                    },
+                }
+
+        self_runner = FakeSandboxRunner()
+        previous_runner = ai_applications.skill_runtime._sandbox_runner
+        ai_applications.skill_runtime.configure_sandbox_runner(self_runner)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("shell-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("shell-agent", {"title": "shell"})
+
+                        calls: list[list[dict[str, object]]] = []
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            calls.append(messages)
+                            if len(calls) == 1:
+                                return {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": '<tool_call>{"name":"bash","arguments":{"cmd":"cat uploads/source.txt > result.txt"}}</tool_call>'
+                                            }
+                                        }
+                                    ],
+                                    "usage": {"total_tokens": 1},
+                                }
+                            self.assertIn("shell.run", str(messages[-1]["content"]))
+                            self.assertIn("copied text", str(messages[-1]["content"]))
+                            return {"choices": [{"message": {"content": "shell done"}}], "usage": {"total_tokens": 2}}
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "shell-agent",
+                                conversation["conversation_key"],
+                                {
+                                    "content": "copy uploaded text",
+                                    "variables": {},
+                                    "files": [{"name": "source.txt", "mime_type": "text/plain", "text": "uploaded text"}],
+                                },
+                            )
+
+            self.assertEqual(result["answer"], "shell done")
+            self.assertEqual(result["trace"]["status"], "success")
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "shell.run")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "success")
+            result_path = workspace_root / "tenant_1" / "shell-agent" / conversation["conversation_key"] / "result.txt"
+            self.assertEqual(result_path.read_text(encoding="utf-8"), "copied text")
+        finally:
+            ai_applications.skill_runtime.configure_sandbox_runner(previous_runner)
+            self._unlink_db(db_path)
+
+    def test_agent_application_executes_python_tool_through_sandbox(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        test_case = self
+
+        class FakeSandboxRunner:
+            def run(self, request: dict[str, object]) -> dict[str, object]:
+                test_case.assertEqual(request["runtime_kind"], "sandbox_python")
+                test_case.assertIn("print(1 + 1)", str(request["content"]))
+                return {"status": "success", "output": {"stdout": "2\n"}}
+
+        previous_runner = ai_applications.skill_runtime._sandbox_runner
+        ai_applications.skill_runtime.configure_sandbox_runner(FakeSandboxRunner())
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("python-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("python-agent", {"title": "python"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            if len(messages) < 4:
+                                return {
+                                    "choices": [
+                                        {
+                                            "message": {
+                                                "content": json.dumps(
+                                                    {"tool_calls": [{"tool": "python.run", "arguments": {"code": "print(1 + 1)"}}]}
+                                                )
+                                            }
+                                        }
+                                    ],
+                                    "usage": {},
+                                }
+                            self.assertIn("2", str(messages[-1]["content"]))
+                            return {"choices": [{"message": {"content": "python done"}}], "usage": {}}
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "python-agent",
+                                conversation["conversation_key"],
+                                {"content": "calculate", "variables": {}},
+                            )
+
+            self.assertEqual(result["answer"], "python done")
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "python.run")
+            self.assertEqual(result["agent_tool_results"][0]["output"]["stdout"], "2\n")
+        finally:
+            ai_applications.skill_runtime.configure_sandbox_runner(previous_runner)
             self._unlink_db(db_path)
 
     def test_agent_file_tools_reject_workspace_escape(self) -> None:
@@ -1896,7 +2227,7 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
-    def test_agent_message_records_boundary_for_native_tool_call_text(self) -> None:
+    def test_agent_message_reports_shell_tool_failure_when_sandbox_unavailable(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
         self._initialize_llm_db(db_path)
@@ -1911,7 +2242,15 @@ class LLMRuntimeTests(unittest.TestCase):
                         ai_applications.save_ai_application(payload)
                         conversation = ai_applications.create_agent_conversation("native-tool-agent", {"title": "native-tool"})
 
+                        calls: list[list[dict[str, object]]] = []
+
                         def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            calls.append(messages)
+                            if len(calls) > 1:
+                                self.assertIn("SkillRuntimeError", str(messages[-1]["content"]))
+                                return {"choices": [{"message": {"content": "sandbox unavailable"}}], "usage": {}}
                             return {
                                 "choices": [
                                     {
@@ -1934,17 +2273,108 @@ class LLMRuntimeTests(unittest.TestCase):
                             )
                         messages = ai_applications.list_agent_messages("native-tool-agent", conversation["conversation_key"])["items"]
 
-            self.assertIn("未开放的原生工具调用", result["answer"])
-            self.assertEqual(result["assistant_message"]["status"], "failed")
-            self.assertEqual(result["trace"]["status"], "failed")
-            self.assertEqual(result["trace"]["error_code"], "AgentExecutionBoundaryError")
+            self.assertIn("sandbox", result["answer"].lower())
+            self.assertEqual(result["assistant_message"]["status"], "completed")
+            self.assertEqual(result["trace"]["status"], "success")
             self.assertEqual(result["usage"]["total_tokens"], 9)
-            self.assertEqual(result["agent_tool_results"][0]["error_code"], "UNSUPPORTED_AGENT_TOOL")
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "shell.run")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "failed")
+            self.assertEqual(result["agent_tool_results"][0]["error_code"], "SkillRuntimeError")
             self.assertTrue(any(item["role"] == "tool" and item["status"] == "failed" for item in messages))
         finally:
             self._unlink_db(db_path)
 
-    def test_agent_message_does_not_block_plain_python_text(self) -> None:
+    def test_agent_message_blocks_high_risk_shell_tool_without_followup(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("risk-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("risk-agent", {"title": "risk"})
+
+                        calls: list[list[dict[str, object]]] = []
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            calls.append(messages)
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": json.dumps(
+                                                {"tool_calls": [{"tool": "shell.run", "arguments": {"command": "rm -rf /"}}]}
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {"total_tokens": 4},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "risk-agent",
+                                conversation["conversation_key"],
+                                {"content": "delete everything", "variables": {}},
+                            )
+                        messages = ai_applications.list_agent_messages("risk-agent", conversation["conversation_key"])["items"]
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(result["assistant_message"]["status"], "failed")
+            self.assertEqual(result["trace"]["status"], "failed")
+            self.assertIn("风险过高", result["answer"])
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "shell.run")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "failed")
+            self.assertEqual(result["agent_tool_results"][0]["error_code"], "AgentToolRiskError")
+            self.assertEqual(result["agent_tool_results"][0]["risk"]["level"], "high")
+            tool_messages = [item for item in messages if item["role"] == "tool"]
+            self.assertEqual(tool_messages[-1]["status"], "failed")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_agent_message_fails_when_model_asks_for_solo_confirmation(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("confirm-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("confirm-agent", {"title": "confirm"})
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            return_value={"choices": [{"message": {"content": "请确认是否执行这个 shell 命令？"}}], "usage": {}},
+                        ):
+                            result = ai_applications.send_agent_message(
+                                "confirm-agent",
+                                conversation["conversation_key"],
+                                {"content": "run it", "variables": {}},
+                            )
+
+            self.assertEqual(result["assistant_message"]["status"], "failed")
+            self.assertEqual(result["trace"]["status"], "failed")
+            self.assertIn("Solo 模式不支持用户确认式工具调用", result["answer"])
+            self.assertEqual(result["agent_tool_results"], [])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_agent_message_treats_plain_python_json_as_tool_request(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
         self._initialize_llm_db(db_path)
@@ -1981,10 +2411,11 @@ class LLMRuntimeTests(unittest.TestCase):
                                 {"content": "show python example", "variables": {}},
                             )
 
-            self.assertEqual(result["assistant_message"]["status"], "completed")
-            self.assertEqual(result["trace"]["status"], "success")
-            self.assertEqual(result["agent_tool_results"], [])
-            self.assertIn('"name":"python"', result["answer"])
+            self.assertEqual(result["assistant_message"]["status"], "failed")
+            self.assertEqual(result["trace"]["status"], "failed")
+            self.assertEqual(result["agent_tool_results"][0]["tool"], "python.run")
+            self.assertEqual(result["agent_tool_results"][0]["status"], "failed")
+            self.assertIn("未被当前流式阶段接管", result["answer"])
         finally:
             self._unlink_db(db_path)
 
@@ -2025,10 +2456,17 @@ class LLMRuntimeTests(unittest.TestCase):
                                 "usage": {},
                             }
 
+                        def fake_stream_chat_completions_after_failed_tool(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertIn("SkillRuntimeError", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"sandbox unavailable"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
                         def fake_stream_chat_completions(**kwargs: object) -> object:
                             messages = kwargs["messages"]
                             assert isinstance(messages, list)
-                            self.assertIn("Agent file tool results", str(messages[-1]["content"]))
+                            self.assertIn("Agent tool results", str(messages[-1]["content"]))
                             yield 'data: {"choices":[{"delta":{"content":"stream "}}]}\n\n'
                             yield 'data: {"choices":[{"delta":{"content":"done"}}]}\n\n'
                             yield "data: [DONE]\n\n"
@@ -2059,7 +2497,7 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
-    def test_stream_agent_message_stops_when_preflight_emits_native_tool_call(self) -> None:
+    def test_stream_agent_message_reports_shell_tool_failure_when_sandbox_unavailable(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
         self._initialize_llm_db(db_path)
@@ -2087,13 +2525,20 @@ class LLMRuntimeTests(unittest.TestCase):
                                 "usage": {},
                             }
 
+                        def fake_stream_chat_completions_after_failed_tool(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertIn("SkillRuntimeError", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"sandbox unavailable"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
                         with mock.patch(
                             "ai_applications.application.services.gateway.chat_completions",
                             side_effect=fake_chat_completions,
                         ):
                             with mock.patch(
                                 "ai_applications.application.services.gateway.stream_chat_completions",
-                                side_effect=AssertionError("main stream should not run after boundary"),
+                                side_effect=fake_stream_chat_completions_after_failed_tool,
                             ):
                                 events = list(
                                     ai_applications.stream_agent_message(
@@ -2105,19 +2550,19 @@ class LLMRuntimeTests(unittest.TestCase):
                         messages = ai_applications.list_agent_messages("stream-boundary-agent", conversation["conversation_key"])["items"]
 
             joined = "".join(events)
-            self.assertIn("未开放的原生工具调用", joined)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("SkillRuntimeError", joined)
             self.assertTrue(any(event.startswith("event: final\n") for event in events))
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
-            self.assertEqual(assistant_messages[-1]["status"], "failed")
-            self.assertEqual(assistant_messages[-1]["error_code"], "AgentExecutionBoundaryError")
-            self.assertIn("未开放的原生工具调用", assistant_messages[-1]["content"])
+            self.assertEqual(assistant_messages[-1]["status"], "completed")
+            self.assertIn("sandbox unavailable", assistant_messages[-1]["content"])
             tool_messages = [item for item in messages if item["role"] == "tool"]
             self.assertEqual(tool_messages[-1]["status"], "failed")
-            self.assertEqual(tool_messages[-1]["metadata"]["agent_file_tool_results"][0]["error_code"], "UNSUPPORTED_AGENT_TOOL")
+            self.assertEqual(tool_messages[-1]["metadata"]["agent_tool_results"][0]["error_code"], "SkillRuntimeError")
         finally:
             self._unlink_db(db_path)
 
-    def test_stream_agent_message_stops_when_preflight_emits_run_command_tool_result(self) -> None:
+    def test_stream_agent_message_reports_run_command_tool_failure_when_sandbox_unavailable(self) -> None:
         db_path = self._temporary_db_path()
         workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
         self._initialize_llm_db(db_path)
@@ -2147,13 +2592,20 @@ class LLMRuntimeTests(unittest.TestCase):
                                 "usage": {},
                             }
 
+                        def fake_stream_chat_completions_after_failed_tool(**kwargs: object) -> object:
+                            messages = kwargs["messages"]
+                            assert isinstance(messages, list)
+                            self.assertIn("SkillRuntimeError", str(messages[-1]["content"]))
+                            yield 'data: {"choices":[{"delta":{"content":"sandbox unavailable"}}]}\n\n'
+                            yield "data: [DONE]\n\n"
+
                         with mock.patch(
                             "ai_applications.application.services.gateway.chat_completions",
                             side_effect=fake_chat_completions,
                         ):
                             with mock.patch(
                                 "ai_applications.application.services.gateway.stream_chat_completions",
-                                side_effect=AssertionError("main stream should not run after run_command boundary"),
+                                side_effect=fake_stream_chat_completions_after_failed_tool,
                             ):
                                 events = list(
                                     ai_applications.stream_agent_message(
@@ -2165,10 +2617,117 @@ class LLMRuntimeTests(unittest.TestCase):
                         messages = ai_applications.list_agent_messages("stream-run-command-agent", conversation["conversation_key"])["items"]
 
             joined = "".join(events)
-            self.assertIn("run_command", joined)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("SkillRuntimeError", joined)
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "completed")
+            self.assertIn("sandbox unavailable", assistant_messages[-1]["content"])
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_blocks_high_risk_tool_preflight(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-risk-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-risk-agent", {"title": "risk"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {
+                                "choices": [
+                                    {
+                                        "message": {
+                                            "content": json.dumps(
+                                                {"tool_calls": [{"tool": "shell.run", "arguments": {"command": "rm -rf /"}}]}
+                                            )
+                                        }
+                                    }
+                                ],
+                                "usage": {},
+                            }
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=AssertionError("main stream should not run after high-risk preflight"),
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-risk-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "delete everything", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-risk-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("event: agent_tool_result", joined)
+            self.assertIn("AgentToolRiskError", joined)
+            self.assertIn("风险过高", joined)
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["status"], "failed")
-            self.assertIn("run_command", assistant_messages[-1]["content"])
+            self.assertIn("风险过高", assistant_messages[-1]["content"])
+            tool_messages = [item for item in messages if item["role"] == "tool"]
+            self.assertEqual(tool_messages[-1]["metadata"]["agent_tool_results"][0]["risk"]["level"], "high")
+        finally:
+            self._unlink_db(db_path)
+
+    def test_stream_agent_message_fails_when_model_asks_for_solo_confirmation(self) -> None:
+        db_path = self._temporary_db_path()
+        workspace_root = Path(".tmp/test-agent-workspaces") / uuid.uuid4().hex
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch.dict("os.environ", {"OPS_ADMIN_AGENT_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+                with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                    with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                        payload = self._sample_ai_application("stream-confirm-agent")
+                        payload["app_type"] = "agent"
+                        payload["user_prompt_template"] = ""
+                        payload["variables_schema"] = {}
+                        ai_applications.save_ai_application(payload)
+                        conversation = ai_applications.create_agent_conversation("stream-confirm-agent", {"title": "confirm"})
+
+                        def fake_chat_completions(**kwargs: object) -> dict[str, object]:
+                            return {"choices": [{"message": {"content": json.dumps({"tool_calls": []})}}], "usage": {}}
+
+                        def fake_stream_chat_completions(**kwargs: object) -> object:
+                            yield 'data: {"choices":[{"delta":{"content":"请确认是否执行这个 shell 命令？"}}]}\n\n'
+                            raise AssertionError("stream should stop after solo confirmation boundary")
+
+                        with mock.patch(
+                            "ai_applications.application.services.gateway.chat_completions",
+                            side_effect=fake_chat_completions,
+                        ):
+                            with mock.patch(
+                                "ai_applications.application.services.gateway.stream_chat_completions",
+                                side_effect=fake_stream_chat_completions,
+                            ):
+                                events = list(
+                                    ai_applications.stream_agent_message(
+                                        "stream-confirm-agent",
+                                        conversation["conversation_key"],
+                                        {"content": "run it", "variables": {}},
+                                    )
+                                )
+                        messages = ai_applications.list_agent_messages("stream-confirm-agent", conversation["conversation_key"])["items"]
+
+            joined = "".join(events)
+            self.assertIn("Solo 模式不支持用户确认式工具调用", joined)
+            self.assertNotIn("请确认是否执行这个 shell 命令？", joined)
+            assistant_messages = [item for item in messages if item["role"] == "assistant"]
+            self.assertEqual(assistant_messages[-1]["status"], "failed")
+            self.assertIn("Solo 模式不支持用户确认式工具调用", assistant_messages[-1]["content"])
         finally:
             self._unlink_db(db_path)
 
@@ -2216,11 +2775,11 @@ class LLMRuntimeTests(unittest.TestCase):
 
             joined = "".join(events)
             self.assertIn("步骤1", joined)
-            self.assertIn("未开放的原生工具调用", joined)
+            self.assertIn("未被当前流式阶段接管", joined)
             self.assertTrue(joined.rstrip().endswith("data: [DONE]"))
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["status"], "failed")
-            self.assertIn("未开放的原生工具调用", assistant_messages[-1]["content"])
+            self.assertIn("未被当前流式阶段接管", assistant_messages[-1]["content"])
         finally:
             self._unlink_db(db_path)
 
@@ -2274,7 +2833,7 @@ class LLMRuntimeTests(unittest.TestCase):
             self.assertIn("run_command", joined)
             assistant_messages = [item for item in messages if item["role"] == "assistant"]
             self.assertEqual(assistant_messages[-1]["status"], "failed")
-            self.assertIn("run_command", assistant_messages[-1]["content"])
+            self.assertIn("未被当前流式阶段接管", assistant_messages[-1]["content"])
         finally:
             self._unlink_db(db_path)
 

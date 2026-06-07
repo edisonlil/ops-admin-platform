@@ -225,6 +225,16 @@ export function useAgentChat(appKey: () => string) {
                 { trace_id: payload.trace_id, skill: isRecord(payload.skill) ? payload.skill : {} },
               ],
             };
+          } else if (event === 'agent_tool_result') {
+            const current = traceState.value || { trace_id: String(payload.trace_id || '') };
+            traceState.value = {
+              ...current,
+              trace_id: String(payload.trace_id || current.trace_id || ''),
+              agent_tool_results: [
+                ...(current.agent_tool_results || []),
+                ...(Array.isArray(payload.results) ? payload.results : []),
+              ],
+            };
           } else if (event === 'final' && payload.assistant_message) {
             receivedFinalMessage = true;
             upsertMessage(payload.assistant_message as AiAgentMessage);

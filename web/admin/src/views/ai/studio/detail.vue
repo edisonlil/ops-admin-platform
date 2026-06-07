@@ -1044,7 +1044,21 @@
 
             <n-collapse class="preview-collapse" arrow-placement="right">
               <n-collapse-item title="Skills" name="skills">
-                <div v-if="skillTraceItems.length || skillTracePlan" class="skill-trace-list">
+                <div v-if="skillTraceItems.length || skillTracePlan || agentToolTraceItems.length" class="skill-trace-list">
+                  <section v-if="agentToolTraceItems.length" class="skill-trace-plan">
+                    <strong>工具调用</strong>
+                    <span>{{ agentToolTraceItems.length }} 次执行</span>
+                  </section>
+                  <details v-for="item in agentToolTraceItems" :key="agentToolTraceKey(item)" class="skill-trace-item" open>
+                    <summary>
+                      <span>{{ agentToolTitle(item) }}</span>
+                      <n-tag size="small" :type="agentToolStatus(item) === 'success' ? 'success' : 'error'">
+                        {{ agentToolStatusLabel(item) }}
+                      </n-tag>
+                    </summary>
+                    <p v-if="agentToolSummary(item)">{{ agentToolSummary(item) }}</p>
+                    <CodePreview :value="stringifyJson(item)" language="json" :min-height="120" :max-height="260" />
+                  </details>
                   <section v-if="skillTracePlan" class="skill-trace-plan">
                     <strong>计划</strong>
                     <span>{{ skillTracePlan.skills?.length || 0 }} 个可用 Skill，{{ skillTracePlan.planned_calls?.length || 0 }} 个自动调用</span>
@@ -1942,6 +1956,7 @@ result = [
   const previewRenderedOutput = computed(() => renderAnswer(previewAnswerText.value, selectedOutputFormat.value));
   const skillTracePlan = computed(() => runResult.value?.skill_plan || null);
   const skillTraceItems = computed(() => runResult.value?.skill_results || []);
+  const agentToolTraceItems = computed(() => runResult.value?.agent_tool_results || []);
   const htmlPreviewSrcdoc = computed(() =>
     allowHtmlScripts.value ? previewRenderedOutput.value.rawContent || previewRenderedOutput.value.content : previewRenderedOutput.value.content
   );
@@ -3625,6 +3640,17 @@ result = [
           };
           continue;
         }
+        if (parsed.type === 'agent_tool_result') {
+          runResult.value = {
+            ...(runResult.value || { answer: content, trace_id: payloadData.trace_id || '', usage: {} }),
+            trace_id: payloadData.trace_id || runResult.value?.trace_id || '',
+            agent_tool_results: [
+              ...(runResult.value?.agent_tool_results || []),
+              ...(Array.isArray(payloadData.results) ? payloadData.results : []),
+            ],
+          };
+          continue;
+        }
         if (parsed.type === 'tool_call_blocked') {
           toolCallBlockedNotice.value = String(payloadData.message || '模型请求了当前应用未开放的工具调用，已停止本次输出。');
           streamThinkText.value = '模型请求了当前应用未开放的工具调用，系统已拦截并停止继续输出。';
@@ -3835,6 +3861,36 @@ result = [
   function skillTraceSummary(item: Record<string, unknown>) {
     const skill = skillTracePayload(item);
     return String(skill.summary || skill.error_message || '');
+  }
+
+  function agentToolTraceKey(item: Record<string, unknown>) {
+    return `${String(item.tool || 'tool')}-${String(item.index || 0)}-${String(item.elapsed_ms || 0)}`;
+  }
+
+  function agentToolTitle(item: Record<string, unknown>) {
+    return String(item.tool || '工具调用');
+  }
+
+  function agentToolStatus(item: Record<string, unknown>) {
+    return String(item.status || '').toLowerCase() || 'unknown';
+  }
+
+  function agentToolStatusLabel(item: Record<string, unknown>) {
+    const status = agentToolStatus(item);
+    if (status === 'success') return '完成';
+    if (status === 'failed') return '失败';
+    return status;
+  }
+
+  function agentToolSummary(item: Record<string, unknown>) {
+    if (item.error_message) return String(item.error_message);
+    const output = asSchemaRecord(item.output) || {};
+    const changes = Array.isArray(output.workspace_changes) ? output.workspace_changes : [];
+    if (changes.length) return `生成或更新 ${changes.length} 个文件`;
+    if (typeof output.stdout === 'string' && output.stdout.trim()) return output.stdout.trim().slice(0, 160);
+    if (typeof output.content === 'string' && output.content.trim()) return output.content.trim().slice(0, 160);
+    if (typeof item.elapsed_ms === 'number') return `耗时 ${item.elapsed_ms} ms`;
+    return '已执行';
   }
 
   function normalizeOutputFormat(value: unknown): OutputFormat {
