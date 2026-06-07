@@ -12,8 +12,10 @@
         :loading="loading"
         :row-key="resolvedRowKey"
         :scroll-x="schema.scrollX"
+        :checked-row-keys="checkedRowKeys"
         :remote="schema.sort?.remote"
         v-bind="resolvedTableProps"
+        @update:checked-row-keys="handleCheckedRowKeysUpdate"
         @update:sorter="handleSorterUpdate"
       >
         <template #[name]="slotProps" v-for="(_, name) in $slots" :key="name">
@@ -98,15 +100,18 @@
       rows?: Row[];
       loading?: boolean;
       sortState?: TableSortState;
+      checkedRowKeys?: Array<string | number>;
     }>(),
     {
       rows: () => [],
       loading: false,
+      checkedRowKeys: () => [],
     }
   );
   const emit = defineEmits<{
     sortChange: [state: TableSortState];
     columnResize: [payload: TableColumnResizePayload<Row>];
+    checkedRowKeysChange: [keys: Array<string | number>];
   }>();
 
   const viewDefinition = computed(() => getCollectionViewDefinition(props.schema.type));
@@ -237,6 +242,18 @@
     () => props.schema.type,
     () => nextTick(updateTableViewportWidth)
   );
+  watch(
+    () => [props.rows, props.checkedRowKeys] as const,
+    ([rows, checkedRowKeys]) => {
+      if (props.schema.type !== 'table' || !checkedRowKeys?.length) return;
+      const visibleRowKeys = new Set((rows || []).map((row) => resolvedRowKey.value(row)));
+      const nextKeys = checkedRowKeys.filter((key) => visibleRowKeys.has(key));
+      if (nextKeys.length !== checkedRowKeys.length) {
+        emit('checkedRowKeysChange', nextKeys);
+      }
+    },
+    { deep: false }
+  );
 
   function resolveItemKey(row: Row, index: number) {
     const key = props.schema.itemKey || props.schema.rowKey || 'id';
@@ -246,6 +263,10 @@
 
   function handleTreeSelectedKeys(keys: Array<string | number>) {
     props.schema.onUpdateSelectedKeys?.(keys);
+  }
+
+  function handleCheckedRowKeysUpdate(keys: Array<string | number>) {
+    emit('checkedRowKeysChange', keys);
   }
 
   function showTreeContextMenu(event: MouseEvent, node: TreeRenderProps['option']) {

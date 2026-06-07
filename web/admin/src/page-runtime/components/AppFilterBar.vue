@@ -2,7 +2,7 @@
   <section
     v-if="$slots.default"
     class="app-filter-bar"
-    :class="fieldSizeClass"
+    :class="[fieldSizeClass, layoutClass]"
   >
     <div class="app-filter-bar__fields">
       <slot></slot>
@@ -35,6 +35,7 @@
   const props = withDefaults(
     defineProps<{
       fieldSize?: FilterBarFieldSize;
+      layout?: 'default' | 'compact-grid';
       showSubmit?: boolean;
       showReset?: boolean;
       submitLabel?: string;
@@ -45,6 +46,7 @@
     }>(),
     {
       fieldSize: 'default',
+      layout: 'default',
       showSubmit: false,
       showReset: false,
       submitLabel: '查询',
@@ -62,6 +64,7 @@
 
   const showActions = computed(() => props.showSubmit || props.showReset);
   const fieldSizeClass = computed(() => `app-filter-bar--${props.fieldSize}`);
+  const layoutClass = computed(() => `app-filter-bar--layout-${props.layout}`);
 </script>
 
 <style lang="less" scoped>
@@ -127,6 +130,34 @@
     flex: 0 0 auto;
   }
 
+  .app-filter-bar--layout-compact-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+
+    .app-filter-bar__fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+      align-items: center;
+      width: 100%;
+
+      :deep(> .n-input),
+      :deep(> .n-input-number),
+      :deep(> .n-select),
+      :deep(> .n-date-picker),
+      :deep(> .n-time-picker) {
+        width: 100%;
+        min-width: 0;
+      }
+    }
+
+    .app-filter-bar__actions {
+      flex-wrap: nowrap;
+      justify-content: flex-end;
+      padding-left: 4px;
+    }
+  }
+
   @media (max-width: 640px) {
     .app-filter-bar__fields,
     .app-filter-bar__actions {
@@ -146,6 +177,14 @@
 
     .app-filter-bar__actions {
       justify-content: flex-start;
+    }
+
+    .app-filter-bar--layout-compact-grid {
+      grid-template-columns: minmax(0, 1fr);
+
+      .app-filter-bar__actions {
+        padding-left: 0;
+      }
     }
   }
 </style>

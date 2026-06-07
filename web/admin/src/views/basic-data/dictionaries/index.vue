@@ -412,7 +412,7 @@
               type: 'table',
               columns: itemColumns,
               sort: { remote: true },
-              rowKey: (row) => row.id,
+              rowKey: (row) => Number(row.id),
               scrollX: 1160,
               tableProps: { size: 'small' },
               columnRuntime: {

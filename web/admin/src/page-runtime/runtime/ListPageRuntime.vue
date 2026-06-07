@@ -66,7 +66,7 @@
       <slot name="filters" :submit="handleFilterSubmit" :reset="handleFilterReset"></slot>
     </AppFilterBar>
 
-    <AppPageToolbar v-if="hasPageToolbar">
+    <AppPageToolbar v-if="hasPageToolbar" :selected-count="toolbarSelectedCount">
       <template #left>
         <slot name="toolbar-left"></slot>
         <n-button
@@ -143,7 +143,11 @@
           :rows="getPagedSplitRows('master')"
           :loading="splitView.master.loading || false"
           :sort-state="getSplitSortState('master')"
+          :checked-row-keys="getCheckedRowKeys(splitView.master.view)"
           @sort-change="(state) => handleSplitSortChange('master', state)"
+          @checked-row-keys-change="
+            (keys) => updateCheckedRowKeys(splitView.master.view, keys)
+          "
           @column-resize="
             (payload) => handleColumnResize(splitView.master.view, payload.columnKey, payload.width)
           "
@@ -195,6 +199,7 @@
         <AppFilterBar
           v-if="isSplitListView && $slots['detail-filters']"
           field-size="small"
+          layout="compact-grid"
           show-submit
           show-reset
           class="app-list-page__detail-filter"
@@ -208,12 +213,23 @@
           :rows="getPagedSplitRows('detail')"
           :loading="splitView.detail.loading || false"
           :sort-state="getSplitSortState('detail')"
+          :checked-row-keys="getCheckedRowKeys(splitView.detail.view)"
           @sort-change="(state) => handleSplitSortChange('detail', state)"
+          @checked-row-keys-change="
+            (keys) => updateCheckedRowKeys(splitView.detail.view, keys)
+          "
           @column-resize="
             (payload) => handleColumnResize(splitView.detail.view, payload.columnKey, payload.width)
           "
         >
           <template v-if="splitView.detail.view.type === 'table'" #table-tools>
+            <span
+              v-if="getCheckedRowKeys(splitView.detail.view).length"
+              class="app-list-page__table-selection"
+            >
+              已选择 {{ getCheckedRowKeys(splitView.detail.view).length }} 项
+            </span>
+            <span class="app-list-page__table-tools-spacer"></span>
             <n-button
               v-if="hasToolbarRefresh"
               size="tiny"
@@ -279,12 +295,21 @@
               :rows="getPagedPaneRows(pane)"
               :loading="pane.loading || false"
               :sort-state="getPaneSortState(pane.name)"
+              :checked-row-keys="getCheckedRowKeys(pane.view)"
               @sort-change="(state) => handlePaneSortChange(pane, state)"
+              @checked-row-keys-change="(keys) => updateCheckedRowKeys(pane.view, keys)"
               @column-resize="
                 (payload) => handleColumnResize(pane.view, payload.columnKey, payload.width)
               "
             >
               <template v-if="pane.view.type === 'table'" #table-tools>
+                <span
+                  v-if="getCheckedRowKeys(pane.view).length"
+                  class="app-list-page__table-selection"
+                >
+                  已选择 {{ getCheckedRowKeys(pane.view).length }} 项
+                </span>
+                <span class="app-list-page__table-tools-spacer"></span>
                 <n-button
                   v-if="hasToolbarRefresh"
                   size="tiny"
@@ -322,12 +347,21 @@
       :rows="pagedRows"
       :loading="loading"
       :sort-state="sortState"
+      :checked-row-keys="getCheckedRowKeys(props.schema.view)"
       @sort-change="handleSortChange"
+      @checked-row-keys-change="(keys) => updateCheckedRowKeys(props.schema.view, keys)"
       @column-resize="
         (payload) => handleColumnResize(props.schema.view, payload.columnKey, payload.width)
       "
     >
       <template v-if="hasRuntimeTableTools" #table-tools>
+        <span
+          v-if="getCheckedRowKeys(props.schema.view).length"
+          class="app-list-page__table-selection"
+        >
+          已选择 {{ getCheckedRowKeys(props.schema.view).length }} 项
+        </span>
+        <span class="app-list-page__table-tools-spacer"></span>
         <n-button v-if="hasToolbarRefresh" size="tiny" quaternary @click="handleRefresh"
           >刷新</n-button
         >
@@ -459,6 +493,7 @@
   const visibleColumnState = ref<Record<string, string[]>>({});
   const columnOrderState = ref<Record<string, string[]>>({});
   const columnWidthState = ref<Record<string, Record<string, number>>>({});
+  const checkedRowKeyState = ref<Record<string, Array<string | number>>>({});
   const remotePreferenceLoaded = ref<Record<string, boolean>>({});
   const remotePreferenceLoading = ref<Record<string, boolean>>({});
   const columnPreferenceRevision = ref<Record<string, number>>({});
@@ -506,6 +541,16 @@
       hasBatchActions.value ||
       hasNonRefreshRightTools.value
   );
+  const toolbarSelectedCount = computed(() => {
+    if (props.schema.view.type === 'tabbed-list') {
+      const pane = tabbedPanes.value.find((entry) => entry.name === activeTab.value);
+      return pane ? getCheckedRowKeys(pane.view).length : 0;
+    }
+    if (props.schema.view.type === 'split-list') {
+      return splitView.value?.detail ? getCheckedRowKeys(splitView.value.detail.view).length : 0;
+    }
+    return getCheckedRowKeys(props.schema.view).length;
+  });
   const resolvedViewSchema = computed(() => {
     if (props.schema.view.type !== 'table') {
       return props.schema.view;
@@ -910,6 +955,19 @@
 
   function getSplitSortState(name: 'master' | 'detail') {
     return splitSortState.value[name] || {};
+  }
+
+  function getCheckedRowKeys(view: CollectionViewSchema<Row>): Array<string | number> {
+    if (view.type !== 'table' || view.selectable === false) return [];
+    return checkedRowKeyState.value[getViewStorageKey(view)] || [];
+  }
+
+  function updateCheckedRowKeys(view: CollectionViewSchema<Row>, keys: Array<string | number>) {
+    if (view.type !== 'table' || view.selectable === false) return;
+    checkedRowKeyState.value = {
+      ...checkedRowKeyState.value,
+      [getViewStorageKey(view)]: keys,
+    };
   }
 
   function emitRuntimeChange() {
@@ -1694,9 +1752,21 @@
   }
 
   .app-list-page__detail-filter {
-    display: block;
     width: 100%;
     min-width: 0;
+  }
+
+  .app-list-page__table-selection {
+    flex: 0 0 auto;
+    color: var(--app-text-color);
+    font-size: var(--app-font-size-sm);
+    font-weight: 650;
+    line-height: 1;
+  }
+
+  .app-list-page__table-tools-spacer {
+    flex: 1 1 auto;
+    min-width: 8px;
   }
 
   @media (max-width: 900px) {
