@@ -327,11 +327,13 @@ def run_python_tool(workspace_path: Path, arguments: dict[str, Any], *, run_cont
 
 
 def sandbox_request(workspace_path: Path, base: dict[str, Any]) -> dict[str, Any]:
+    runtime_config = base.get("runtime_config") if isinstance(base.get("runtime_config"), dict) else {}
     return {
         **base,
+        "conversation_workspace": str(workspace_path.resolve()),
         "workspace_files": workspace_snapshot(workspace_path),
         "return_workspace_files": True,
-        "runtime_config": {"entrypoint": base.get("entrypoint")},
+        "runtime_config": runtime_config or {"entrypoint": base.get("entrypoint")},
         "runtime_constraints": {"network": "enabled"},
     }
 

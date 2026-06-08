@@ -2055,10 +2055,12 @@ def execute_single_turn_stream_tool_request(
 
 def single_turn_tool_run_context(prepared: dict[str, Any]) -> dict[str, Any]:
     app = prepared.get("app") if isinstance(prepared.get("app"), dict) else {}
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
     return {
         "tenant_id": int(app.get("tenant_id") or 0),
         "app_key": str(app.get("app_key") or ""),
         "conversation_key": "single_turn",
+        "runtime_config": runtime_config,
     }
 
 
@@ -2664,10 +2666,12 @@ def run_agent_file_tool_preflight(
 def agent_tool_run_context(prepared: dict[str, Any]) -> dict[str, Any]:
     app = prepared.get("app") if isinstance(prepared.get("app"), dict) else {}
     conversation = prepared.get("conversation") if isinstance(prepared.get("conversation"), dict) else {}
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
     return {
         "tenant_id": int(app.get("tenant_id") or 0),
         "app_key": str(app.get("app_key") or ""),
         "conversation_key": str(conversation.get("conversation_key") or ""),
+        "runtime_config": runtime_config,
     }
 
 

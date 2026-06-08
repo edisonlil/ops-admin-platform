@@ -8,6 +8,7 @@ import zipfile
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import PurePosixPath
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from fastapi import HTTPException
@@ -71,6 +72,7 @@ class UnavailableSkillLLMTaskRunner:
 
 
 _sandbox_runner: SkillSandboxRunner = UnavailableSkillSandboxRunner()
+_sandbox_runner_resolver: Callable[[dict[str, Any]], SkillSandboxRunner] | None = None
 _llm_task_runner: SkillLLMTaskRunner = UnavailableSkillLLMTaskRunner()
 
 
@@ -79,8 +81,21 @@ def configure_sandbox_runner(runner: SkillSandboxRunner | None) -> None:
     _sandbox_runner = runner or UnavailableSkillSandboxRunner()
 
 
+def configure_sandbox_runner_resolver(
+    resolver: Callable[[dict[str, Any]], SkillSandboxRunner] | None,
+) -> None:
+    global _sandbox_runner_resolver
+    _sandbox_runner_resolver = resolver
+
+
+def resolve_sandbox_runner(request: dict[str, Any]) -> SkillSandboxRunner:
+    if _sandbox_runner_resolver is not None:
+        return _sandbox_runner_resolver(request)
+    return _sandbox_runner
+
+
 def run_sandbox_request(request: dict[str, Any]) -> dict[str, Any]:
-    response = _sandbox_runner.run(request)
+    response = resolve_sandbox_runner(request).run(request)
     if not isinstance(response, dict):
         raise SkillRuntimeError("skill sandbox runner returned invalid result")
     status = str(response.get("status") or "success")
@@ -169,6 +184,7 @@ class SkillRuntimePlan:
     app_key: str
     app_type: str
     tenant_id: int
+    app_runtime_config: dict[str, Any] = field(default_factory=dict)
     toolbox: list[SkillDescriptor] = field(default_factory=list)
     required_calls: list[SkillCall] = field(default_factory=list)
     manual_calls: list[SkillCall] = field(default_factory=list)
@@ -199,10 +215,12 @@ def prepare_skill_runtime(
         if descriptor.binding.mode == "required"
     ]
     manual_calls = normalize_skill_calls(payload.get("skill_calls") or payload.get("skills") or [])
+    runtime_config = app.get("runtime_config") if isinstance(app.get("runtime_config"), dict) else {}
     return SkillRuntimePlan(
         app_key=str(app.get("app_key") or ""),
         app_type=app_type,
         tenant_id=tenant_id,
+        app_runtime_config=runtime_config,
         toolbox=toolbox,
         required_calls=required_calls,
         manual_calls=manual_calls,
@@ -705,6 +723,7 @@ def execute_sandbox_skill(
         "package_files": descriptor.resolved.get("package_files") if isinstance(descriptor.resolved.get("package_files"), list) else [],
         "input": input_payload,
         "runtime_config": descriptor.runtime_config,
+        "app_runtime_config": plan.app_runtime_config,
         "runtime_constraints": descriptor.runtime_constraints,
     }
     return run_sandbox_request(request)

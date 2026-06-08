@@ -3,10 +3,11 @@ from __future__ import annotations
 import base64
 import fnmatch
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
+
+from ai_applications.application.sandbox_settings import resolve_agent_workspace_root
 
 
 TOOL_NAMES = {"list_files", "find_files", "read_file", "write_file", "append_file", "search_files"}
@@ -90,8 +91,7 @@ def prepare_workspace(
 
 
 def workspace_path(app: dict[str, Any], conversation: dict[str, Any]) -> Path:
-    configured_root = os.environ.get("OPS_ADMIN_AGENT_WORKSPACE_ROOT", "").strip()
-    root = Path(configured_root) if configured_root else Path(".tmp") / "ai-agent-workspaces"
+    root = Path(resolve_agent_workspace_root(app))
     tenant_part = safe_workspace_part(f"tenant_{app.get('tenant_id') or 0}", fallback="tenant_0")
     app_part = safe_workspace_part(app.get("app_key"), fallback="app")
     conversation_part = safe_workspace_part(conversation.get("conversation_key"), fallback="conversation")
