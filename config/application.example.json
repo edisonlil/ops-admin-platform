@@ -8,5 +8,26 @@
       "public_api_base_url": "http://192.168.1.100:8000",
       "public_api_url_prefix": "/api"
     }
+  },
+  "ai_applications": {
+    "skill_sandbox": {
+      "mode": "directory",
+      "directory": {
+        "root": ".tmp/skill-sandboxes",
+        "timeout_seconds": 60,
+        "python": "python",
+        "keep_workspace": false
+      },
+      "docker": {
+        "enabled": false,
+        "image": "python:3.11-slim",
+        "timeout_seconds": 30,
+        "network": "bridge",
+        "user": "65534:65534"
+      },
+      "agent_workspace": {
+        "root": ".tmp/ai-agent-workspaces"
+      }
+    }
   }
 }
