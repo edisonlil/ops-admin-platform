@@ -2277,6 +2277,20 @@ def raw_agent_unsupported_tool_detected(text: str) -> bool:
     return any(f'"name":"{tool_name}"' in compact or f'"tool":"{tool_name}"' in compact for tool_name in AGENT_UNSUPPORTED_NATIVE_TOOL_NAMES)
 
 
+def sanitize_agent_protocol_preview(text: str, *, limit: int = 2000) -> str:
+    content = str(text or "")
+    if not content:
+        return ""
+    start = raw_agent_tool_protocol_start(content)
+    if start < 0:
+        return content[:limit]
+    prefix = content[:start].strip()
+    redacted = "[native tool protocol redacted]"
+    if prefix:
+        return f"{prefix} {redacted}"[:limit]
+    return redacted[:limit]
+
+
 def solo_confirmation_requested(text: str) -> bool:
     lowered = str(text or "").lower()
     return any(marker.lower() in lowered for marker in SOLO_CONFIRMATION_MARKERS)
@@ -2317,7 +2331,7 @@ def agent_execution_boundary_result(
         "arguments": {},
         "error_code": "UNSUPPORTED_AGENT_TOOL",
         "error_message": message,
-        "output": {"raw_preview": str(answer or "")[:2000]},
+        "output": {"raw_preview": sanitize_agent_protocol_preview(answer)},
         "elapsed_ms": 0,
     }
 
