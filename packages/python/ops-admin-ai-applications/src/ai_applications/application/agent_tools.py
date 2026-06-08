@@ -87,7 +87,8 @@ def build_prompt(workspace: dict[str, Any] | None) -> str:
         "Agent execution tools are available through the same JSON tool_calls protocol. "
         "Use shell.run for shell commands and python.run for Python scripts when needed. "
         "Solo execution has no user confirmation step: evaluate risk yourself, call tools automatically when risk is acceptable, "
-        "and stop with a failure reason when the requested action is high-risk.\n"
+        "and stop with a failure reason when the requested action is high-risk. "
+        "Bound sandbox skill packages are materialized into the workspace; python.run may import modules such as scripts.* from relative paths.\n"
         f"{json_dump(payload)}"
     )
 

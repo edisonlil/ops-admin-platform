@@ -175,3 +175,35 @@ def test_parse_planned_skill_calls_filters_to_auto_candidates(monkeypatch) -> No
     assert len(calls) == 1
     assert calls[0].skill_key == "logs"
     assert calls[0].input == {"q": "x"}
+
+
+def test_materialize_toolbox_packages_extracts_sandbox_scripts(tmp_path) -> None:
+    package = BytesIO()
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("scripts/pypdf_cli.py", "def main(argv): return {'argv': argv}")
+        archive.writestr("SKILL.md", "name: pdf-tool")
+    encoded = base64.b64encode(package.getvalue()).decode("ascii")
+    plan = skill_runtime.SkillRuntimePlan(
+        app_key="pdf-agent",
+        app_type="agent",
+        tenant_id=1,
+        toolbox=[
+            skill_runtime.SkillDescriptor(
+                binding=skill_runtime.SkillBinding(skill_key="pdf-tool", alias="pdf"),
+                resolved={"package_data_base64": encoded},
+                manifest={"runtime": {"kind": "sandbox_python"}},
+                runtime_config={},
+                runtime_constraints={},
+                runtime_kind="sandbox_python",
+                executor_key="",
+                content="",
+                version="1.0.0",
+            )
+        ],
+    )
+
+    materialized = skill_runtime.materialize_toolbox_packages(tmp_path, plan)
+
+    script_path = tmp_path / "scripts" / "pypdf_cli.py"
+    assert script_path.exists()
+    assert "scripts/pypdf_cli.py" in materialized

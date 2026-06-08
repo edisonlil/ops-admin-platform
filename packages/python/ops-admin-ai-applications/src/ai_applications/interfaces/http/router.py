@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
-from ai_applications.application import services
+from ai_applications.application import runtime_files, services
 from ai_applications.interfaces.http.dtos import (
     AIAgentConversationRequest,
     AIAgentMessageRequest,
@@ -155,6 +155,33 @@ def import_ai_application_workflow(
     current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:manage")),
 ) -> dict[str, Any]:
     return ok(services.import_ai_application_workflow(app_key, payload.model_dump(), current_user=current_user))
+
+
+@router.post("/ai-studio/runtime-files/upload", dependencies=[Depends(auth.require_permission("ai_applications:run"))])
+def upload_ai_studio_runtime_file(
+    upload: UploadFile = File(...),
+    app_key: str | None = Form(default=None),
+    variable_key: str | None = Form(default=None),
+    variable_type: str | None = Form(default=None),
+    visibility: str = Form(default="tenant"),
+    current_user: dict[str, Any] = Depends(auth.require_permission("ai_applications:run")),
+) -> dict[str, Any]:
+    metadata = {
+        "source": "ai_application_runtime",
+        "app_key": str(app_key or "").strip(),
+        "variable_key": str(variable_key or "").strip(),
+        "variable_type": str(variable_type or "").strip(),
+    }
+    return ok(
+        runtime_files.upload_runtime_variable_file(
+            current_user=current_user,
+            filename=upload.filename or "upload.bin",
+            content_type=upload.content_type or "application/octet-stream",
+            stream=upload.file,
+            visibility=visibility,
+            metadata={key: value for key, value in metadata.items() if value},
+        )
+    )
 
 
 @router.post("/ai-applications/{app_key}/run-draft", dependencies=[Depends(auth.require_permission("ai_applications:run"))])

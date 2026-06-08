@@ -624,3 +624,35 @@ function normalizePathPart(value: string) {
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
+
+export interface AiRuntimeFileUploadResult {
+  file_id: number;
+  file_ref: string | null;
+  sha256: string;
+  name: string;
+  mime_type: string;
+  size: number;
+  storage_status: string;
+}
+
+export function uploadAiStudioRuntimeFile(payload: {
+  file: File;
+  app_key?: string;
+  variable_key?: string;
+  variable_type?: string;
+  visibility?: string;
+}) {
+  const form = new FormData();
+  form.append('upload', payload.file);
+  if (payload.app_key) {
+    form.append('app_key', payload.app_key);
+  }
+  if (payload.variable_key) {
+    form.append('variable_key', payload.variable_key);
+  }
+  if (payload.variable_type) {
+    form.append('variable_type', payload.variable_type);
+  }
+  form.append('visibility', payload.visibility || 'tenant');
+  return Alova.Post<AiRuntimeFileUploadResult>('/ai-studio/runtime-files/upload', form);
+}

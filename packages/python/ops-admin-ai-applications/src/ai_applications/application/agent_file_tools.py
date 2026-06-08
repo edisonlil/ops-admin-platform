@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_applications.application.sandbox_settings import resolve_agent_workspace_root
+from ai_applications.application.skill_runtime import SkillRuntimeError, SkillRuntimePlan, materialize_toolbox_packages
 
 
 TOOL_NAMES = {"list_files", "find_files", "read_file", "write_file", "append_file", "search_files"}
@@ -74,6 +75,8 @@ def prepare_workspace(
     conversation: dict[str, Any],
     payload: dict[str, Any],
     files: list[dict[str, Any]],
+    *,
+    skill_plan: SkillRuntimePlan | None = None,
 ) -> dict[str, Any]:
     if not enabled(app, payload):
         return {"enabled": False}
@@ -82,11 +85,18 @@ def prepare_workspace(
         workspace.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise AgentFileToolError(f"agent file workspace unavailable: {exc}") from exc
+    skill_packages: list[str] = []
+    if skill_plan is not None:
+        try:
+            skill_packages = materialize_toolbox_packages(workspace, skill_plan)
+        except SkillRuntimeError as exc:
+            raise AgentFileToolError(f"agent skill package materialization failed: {exc}") from exc
     return {
         "enabled": True,
         "path": workspace,
         "display_path": "/workspace",
         "uploads": materialize_uploads(workspace, files),
+        "skill_packages": skill_packages,
     }
 
 

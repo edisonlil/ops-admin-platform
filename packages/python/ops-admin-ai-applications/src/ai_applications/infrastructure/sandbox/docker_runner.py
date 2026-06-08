@@ -345,6 +345,11 @@ def main() -> int:
     with open(args.input, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
     install_requirements()
+    workspace_dir = os.path.dirname(os.path.abspath(args.script)) if args.script else os.getcwd()
+    if workspace_dir and workspace_dir not in sys.path:
+        sys.path.insert(0, workspace_dir)
+    if workspace_dir:
+        os.chdir(workspace_dir)
     if args.shell:
         completed = subprocess.run(
             ["sh", args.shell],

@@ -1512,8 +1512,8 @@
     type AiApplication,
     type AiApplicationRunLog,
     type AiRunResult,
+    uploadAiStudioRuntimeFile,
   } from '@/api/aiStudio';
-  import { uploadManagedFile } from '@/api/fileManagement';
   import { useUser } from '@/store/modules/user';
 
   interface RuntimeVariableField {
@@ -3483,9 +3483,12 @@ result = [
       if (!options.append) runtimeVariableValues[field.key] = null;
       return;
     }
-    const oversizedFile = uploadFiles.find((file) => file.size > maxMediaVariableBytes(field));
+    const maxBytes = maxMediaVariableBytes(field);
+    const oversizedFile = Number.isFinite(maxBytes)
+      ? uploadFiles.find((file) => file.size > maxBytes)
+      : undefined;
     if (oversizedFile) {
-      message.warning(`${oversizedFile.name || field.label} 文件过大，请选择 ${formatBytes(maxMediaVariableBytes(field))} 以内的文件`);
+      message.warning(`${oversizedFile.name || field.label} 文件过大，请选择 ${formatBytes(maxBytes)} 以内的文件`);
       runtimeVariableValues[field.key] = null;
       return;
     }
@@ -3516,7 +3519,11 @@ result = [
   async function buildRuntimeMediaVariableValue(field: RuntimeVariableField, uploadFile: File): Promise<RuntimeMediaVariableValue> {
     const text = await readTextPreviewIfSupported(uploadFile);
     const modelImage = field.type === 'image' ? await buildModelImageDataUrl(uploadFile) : null;
-    const dataUrl = modelImage?.dataUrl || (isBinaryRuntimeMediaField(field) ? await readFileAsDataUrl(uploadFile) : '');
+    const inlineDataUrlLimit = 4 * 1024 * 1024;
+    const shouldInlineDataUrl =
+      Boolean(modelImage?.dataUrl) ||
+      (isBinaryRuntimeMediaField(field) && uploadFile.size <= inlineDataUrlLimit);
+    const dataUrl = modelImage?.dataUrl || (shouldInlineDataUrl ? await readFileAsDataUrl(uploadFile) : '');
     const baseValue: RuntimeMediaVariableValue = {
       type: field.type as RuntimeMediaVariableValue['type'],
       name: uploadFile.name,
@@ -3527,23 +3534,19 @@ result = [
       ...(text ? { text } : {}),
     };
     try {
-      const uploaded = await uploadManagedFile({
+      const item = await uploadAiStudioRuntimeFile({
         file: uploadFile,
+        app_key: form.app_key,
+        variable_key: field.key,
+        variable_type: field.type,
         visibility: 'tenant',
-        metadata: {
-          source: 'ai_application_runtime',
-          variable_key: field.key,
-          variable_type: field.type,
-        },
       });
-      const item = uploaded.item;
       return {
         ...baseValue,
-        file_ref: `file_${item.id}`,
-        file_id: item.id,
+        file_ref: item.file_ref,
+        file_id: item.file_id,
         sha256: item.sha256,
-        preview_url: `/files/${item.id}/preview`,
-        storage_status: 'stored',
+        storage_status: item.storage_status || 'stored',
         redacted: true,
       };
     } catch (uploadError) {
@@ -4527,7 +4530,7 @@ result = [
     if (field.type === 'audio') return 'audio/*';
     if (field.type === 'video') return 'video/*';
     if (field.type === 'file')
-      return '.txt,.text,.md,.json,.jsonl,.ndjson,.csv,.xml,.yaml,.yml,.toml,.log,.pdf,.docx,.xlsx,text/*,application/json,application/ld+json,application/log,application/markdown,application/toml,application/x-ndjson,application/x-yaml,application/xml,application/yaml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      return '.txt,.text,.md,.json,.jsonl,.ndjson,.csv,.xml,.yaml,.yml,.toml,.log,.har,.pdf,.docx,.xlsx,text/*,application/json,application/ld+json,application/log,application/markdown,application/toml,application/x-ndjson,application/x-yaml,application/xml,application/yaml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     return '';
   }
 
@@ -4552,11 +4555,8 @@ result = [
     return '支持文本、PDF、DOCX、XLSX 提取内容后传入 Workflow';
   }
 
-  function maxMediaVariableBytes(field: RuntimeVariableField) {
-    if (field.type === 'image') return 8 * 1024 * 1024;
-    if (field.type === 'audio') return 20 * 1024 * 1024;
-    if (field.type === 'video') return 32 * 1024 * 1024;
-    return 10 * 1024 * 1024;
+  function maxMediaVariableBytes(_field: RuntimeVariableField) {
+    return Number.POSITIVE_INFINITY;
   }
 
   function isBinaryRuntimeMediaField(field: RuntimeVariableField) {
@@ -4648,7 +4648,7 @@ result = [
     const textLike =
       file.type.startsWith('text/') ||
       /^(application\/(json|ld\+json|log|markdown|toml|x-ndjson|x-yaml|xml|yaml))$/i.test(file.type || '') ||
-      /\.(txt|text|md|json|jsonl|ndjson|csv|xml|yaml|yml|toml|log)$/i.test(file.name || '');
+      /\.(txt|text|md|json|jsonl|ndjson|csv|xml|yaml|yml|toml|log|har)$/i.test(file.name || '');
     if (!textLike || file.size > 512 * 1024) return Promise.resolve('');
     return file
       .arrayBuffer()

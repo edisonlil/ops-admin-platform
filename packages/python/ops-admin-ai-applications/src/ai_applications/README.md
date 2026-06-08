@@ -103,6 +103,12 @@ Skill packages may declare `requirements.txt` or `scripts/requirements.txt`; the
 
 Without any sandbox being configured, script skills fail with a clear runtime error while prompt-context, LLM-task, and built-in skills still work.
 
+## Runtime File Upload
+
+AI Studio runtime variables may upload binary inputs for workflow or multimodal runs. The upload HTTP endpoint lives in `ai_applications` (`POST /api/ai-studio/runtime-files/upload`) and delegates through the `RuntimeFileUploadPort`. The composition layer in `api/ai_applications_composition.py` wires the default adapter to `file_management` when that module is installed.
+
+`ai_applications` stores only normalized references such as `file_ref` and `file_id`; it must not import `file_management` directly.
+
 ## Agent File Workspace
 
 Agent conversations include default file workspace tools for reading, writing, listing, finding, and searching files. The model requests these tools by returning `tool_calls` JSON; the application service executes the calls inside the conversation workspace, records the tool result as an agent `tool` message, and feeds the result back to the model.

@@ -7,7 +7,7 @@ import time
 import zipfile
 from dataclasses import dataclass, field
 from io import BytesIO
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -595,6 +595,44 @@ def normalize_skill_calls(raw_calls: Any) -> list[SkillCall]:
             )
         )
     return calls
+
+
+def materialize_toolbox_packages(workspace: Path, plan: SkillRuntimePlan) -> list[str]:
+    materialized: list[str] = []
+    for descriptor in plan.toolbox:
+        if descriptor.runtime_kind not in SANDBOX_RUNTIME_KINDS:
+            continue
+        package_data = str(descriptor.resolved.get("package_data_base64") or "")
+        if not package_data:
+            continue
+        try:
+            package_bytes = base64.b64decode(package_data)
+        except ValueError:
+            continue
+        try:
+            with zipfile.ZipFile(BytesIO(package_bytes)) as archive:
+                for info in archive.infolist():
+                    if info.is_dir():
+                        continue
+                    try:
+                        relative = safe_skill_package_path(info.filename)
+                    except SkillRuntimeError:
+                        continue
+                    target = workspace / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(archive.read(info))
+                    materialized.append(relative.as_posix())
+        except zipfile.BadZipFile:
+            continue
+    return materialized
+
+
+def safe_skill_package_path(name: str) -> Path:
+    normalized = str(name or "").replace("\\", "/").strip("/")
+    path = Path(normalized)
+    if not normalized or any(part in {"", ".", ".."} or ":" in part for part in path.parts):
+        raise SkillRuntimeError("skill package contains unsafe path")
+    return Path(*path.parts)
 
 
 def collect_files(payload: dict[str, Any], variables: dict[str, Any]) -> list[dict[str, Any]]:

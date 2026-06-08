@@ -1534,6 +1534,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
                 {"conversation_key": f"single_turn_{uuid.uuid4().hex}"},
                 payload,
                 collected_files,
+                skill_plan=skill_plan,
             )
         except agent_file_tools.AgentFileToolError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -2151,6 +2152,7 @@ def prepare_agent_run(
             conversation,
             payload,
             skill_runtime.collect_files(payload, variables),
+            skill_plan=skill_plan,
         )
     except agent_file_tools.AgentFileToolError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
