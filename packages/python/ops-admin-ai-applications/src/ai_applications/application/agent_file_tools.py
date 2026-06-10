@@ -17,7 +17,6 @@ MAX_CALLS = 8
 MAX_READ_CHARS = 100_000
 DEFAULT_READ_CHARS = 20_000
 MAX_WRITE_BYTES = 2 * 1024 * 1024
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_SEARCH_MATCHES = 100
 TEXT_EXTENSIONS = {
     ".cfg",
@@ -128,9 +127,6 @@ def materialize_uploads(workspace: Path, files: list[dict[str, Any]]) -> list[di
             if data is None:
                 uploads.append({"name": name, "path": relative_path, "status": "skipped", "reason": "no_inline_content"})
                 continue
-            if len(data) > MAX_UPLOAD_BYTES:
-                uploads.append({"name": name, "path": relative_path, "status": "skipped", "reason": "too_large", "size": len(data)})
-                continue
             target = unique_upload_path(uploads_dir, name)
             target.write_bytes(data)
             target_path = relative_path_for(workspace, target)
@@ -204,6 +200,7 @@ def build_prompt(workspace: dict[str, Any] | None) -> str:
     payload = {
         "workspace": workspace.get("display_path") or "/workspace",
         "path_policy": "All paths are relative to the workspace. Absolute paths, drive letters, and '..' are rejected.",
+        "upload_policy": "Only uploaded_files with status=ready exist in the workspace. If an uploaded file is skipped or failed, do not reference its path with tools.",
         "shell_policy": "When using shell.run, use shell_path when provided, or quote every path with spaces, Chinese characters, or shell metacharacters such as &, (), [], $, !, and ;.",
         "tools": {
             "list_files": {"path": ".", "pattern": "*", "recursive": False, "max_items": 100},
