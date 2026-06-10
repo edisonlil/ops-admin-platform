@@ -3159,6 +3159,78 @@ class LLMRuntimeTests(unittest.TestCase):
         finally:
             self._unlink_db(db_path)
 
+    def test_workflow_file_extract_node_reads_uploaded_file_ref_content(self) -> None:
+        db_path = self._temporary_db_path()
+        self._initialize_llm_db(db_path)
+        try:
+            with mock.patch("llm_runtime.application.services.resolve_db_path", return_value=db_path):
+                with mock.patch("ai_applications.application.services.require_database", return_value=db_path):
+                    payload = self._sample_ai_application("file-ref-workflow")
+                    payload["app_type"] = "workflow"
+                    payload["variables_schema"] = {"type": "object", "required": ["document"]}
+                    payload["runtime_config"] = {
+                        "workflow": {
+                            "nodes": [
+                                {"id": "start", "type": "start", "data": {}},
+                                {
+                                    "id": "file_extract_1",
+                                    "type": "file_extract",
+                                    "data": {
+                                        "input": "{{document}}",
+                                        "output_key": "file_content",
+                                        "max_chars": 1000,
+                                    },
+                                },
+                                {"id": "end", "type": "end", "data": {"output": "{{file_content.text}}" }},
+                            ],
+                            "edges": [
+                                {"source": "start", "target": "file_extract_1"},
+                                {"source": "file_extract_1", "target": "end"},
+                            ],
+                        }
+                    }
+                    ai_applications.save_ai_application(payload)
+
+                    class FakeRuntimeFileReadPort:
+                        def read_runtime_file(self, **kwargs: object) -> dict[str, object]:
+                            return {
+                                "file_id": kwargs.get("file_id") or 501,
+                                "file_ref": kwargs.get("file_ref") or "file_501",
+                                "name": "meeting.txt",
+                                "mime_type": "text/plain",
+                                "size": 24,
+                                "text": "source: meeting notes",
+                            }
+
+                    with mock.patch(
+                        "ai_applications.application.runtime_files.runtime_file_read_port",
+                        return_value=FakeRuntimeFileReadPort(),
+                    ):
+                        result = ai_applications.run_draft_application(
+                            "file-ref-workflow",
+                            {
+                                "variables": {
+                                    "document": {
+                                        "type": "file",
+                                        "name": "meeting.txt",
+                                        "mime_type": "text/plain",
+                                        "size": 24,
+                                        "file_ref": "file_501",
+                                        "file_id": 501,
+                                    }
+                                }
+                            },
+                            current_user={"id": 1, "tenant_id": 1, "current_tenant": {"id": 1}},
+                        )
+
+            self.assertEqual(result["answer"], "source: meeting notes")
+            workflow_trace = result["trace"]["rendered_messages"][-1]["content"]["workflow"]
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["file_count"], 1)
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["files"][0]["file_ref"], "file_501")
+            self.assertEqual(workflow_trace["nodes"][1]["output"]["text"], "source: meeting notes")
+        finally:
+            self._unlink_db(db_path)
+
     def test_workflow_node_system_prompt_is_not_truncated_when_saved(self) -> None:
         db_path = self._temporary_db_path()
         self._initialize_llm_db(db_path)

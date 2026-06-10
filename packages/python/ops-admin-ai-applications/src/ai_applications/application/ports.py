@@ -25,3 +25,16 @@ class RuntimeFileUploadPort(Protocol):
     ) -> dict[str, Any]:
         ...
 
+
+class RuntimeFileReadPort(Protocol):
+    """按 file_ref/file_id 读取运行变量文件内容；用于 Workflow 等运行时回填文件正文。"""
+
+    def read_runtime_file(
+        self,
+        *,
+        current_user: dict[str, Any],
+        file_id: int | None,
+        file_ref: str | None,
+    ) -> dict[str, Any]:
+        ...
+

@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from ai_assets.application import services as prompt_asset_services
 from ai_applications.application import agent_file_tools
 from ai_applications.application import agent_tools
+from ai_applications.application import runtime_files
 from ai_applications.application import skill_runtime
 from ai_applications.application.ports import AIApplicationsRepository
 from ai_runtime_core.prompt_runtime import media_content_parts
@@ -1211,6 +1212,7 @@ def execute_workflow_application(
             variables,
             llm_executor=llm_executor,
             sql_executor=sql_executor,
+            file_extractor=lambda request: runtime_files.workflow_file_extractor(request, current_user=current_user),
         )
         answer = workflow_result.answer
         usage = workflow_result.usage
@@ -1334,6 +1336,7 @@ def stream_workflow_application(
                 variables,
                 llm_executor=llm_executor,
                 sql_executor=sql_executor,
+                file_extractor=lambda request: runtime_files.workflow_file_extractor(request, current_user=current_user),
             ):
                 event_name = str(workflow_event.get("event") or "")
                 node = workflow_event.get("node")
