@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import json
+import shlex
 import time
 from pathlib import Path
 from typing import Any
@@ -132,10 +133,12 @@ def materialize_uploads(workspace: Path, files: list[dict[str, Any]]) -> list[di
                 continue
             target = unique_upload_path(uploads_dir, name)
             target.write_bytes(data)
+            target_path = relative_path_for(workspace, target)
             uploads.append(
                 {
                     "name": target.name,
-                    "path": relative_path_for(workspace, target),
+                    "path": target_path,
+                    "shell_path": shlex.quote(target_path),
                     "status": "ready",
                     "size": len(data),
                     "mime_type": str(item.get("mime_type") or item.get("content_type") or ""),
@@ -190,13 +193,18 @@ def build_prompt(workspace: dict[str, Any] | None) -> str:
     if not workspace or not workspace.get("enabled"):
         return ""
     uploads = [
-        {key: upload.get(key) for key in ("name", "path", "status", "size", "mime_type", "reason") if upload.get(key) not in (None, "")}
+        {
+            key: upload.get(key)
+            for key in ("name", "path", "shell_path", "status", "size", "mime_type", "reason")
+            if upload.get(key) not in (None, "")
+        }
         for upload in workspace.get("uploads", [])
         if isinstance(upload, dict)
     ]
     payload = {
         "workspace": workspace.get("display_path") or "/workspace",
         "path_policy": "All paths are relative to the workspace. Absolute paths, drive letters, and '..' are rejected.",
+        "shell_policy": "When using shell.run, use shell_path when provided, or quote every path with spaces, Chinese characters, or shell metacharacters such as &, (), [], $, !, and ;.",
         "tools": {
             "list_files": {"path": ".", "pattern": "*", "recursive": False, "max_items": 100},
             "find_files": {"path": ".", "pattern": "*.md", "recursive": True, "max_items": 100},

@@ -142,6 +142,46 @@ def test_directory_runner_extracts_package_payload(monkeypatch, tmp_path) -> Non
     assert "input['name']" in captured["script"]
 
 
+def test_directory_runner_materializes_base64_workspace_files(monkeypatch, tmp_path) -> None:
+    captured: dict = {}
+    filename = "uploads/一线技术服务群风险预警&SLA告警方案.pdf"
+    pdf_bytes = b"%PDF-1.7\n" + (b"x" * (1024 * 1024 + 1)) + b"\n%%EOF"
+
+    def fake_run(command, **kwargs):
+        workspace = Path(kwargs["cwd"])
+        uploaded = workspace / filename
+        captured["exists"] = uploaded.exists()
+        captured["content"] = uploaded.read_bytes() if uploaded.exists() else b""
+        output_idx = command.index("--output") + 1
+        Path(command[output_idx]).write_text(
+            json.dumps({"status": "success", "output": {"answer": "ok"}}),
+            encoding="utf-8",
+        )
+        return _Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner = DirectorySkillSandboxRunner(sandbox_root=tmp_path)
+
+    result = runner.run(
+        {
+            "runtime_kind": "sandbox_shell",
+            "entrypoint": "main.sh",
+            "content": "ls uploads",
+            "input": {},
+            "workspace_files": [
+                {
+                    "path": filename,
+                    "base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                }
+            ],
+        }
+    )
+
+    assert result == {"status": "success", "output": {"answer": "ok"}}
+    assert captured["exists"] is True
+    assert captured["content"] == pdf_bytes
+
+
 # ---------------------------------------------------------------------------
 # Safety / error paths
 # ---------------------------------------------------------------------------

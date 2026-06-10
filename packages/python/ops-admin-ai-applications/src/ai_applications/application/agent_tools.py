@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -27,8 +28,8 @@ PYTHON_TOOL_NAMES = {"python", "python.run", "python_exec", "run_python"}
 SUPPORTED_TOOL_NAMES = agent_file_tools.TOOL_NAMES | SHELL_TOOL_NAMES | PYTHON_TOOL_NAMES
 MAX_TOOL_CALLS = agent_file_tools.MAX_CALLS
 MAX_COMMAND_CHARS = 20_000
-MAX_INLINE_WORKSPACE_FILES = 40
-MAX_INLINE_WORKSPACE_FILE_BYTES = 512_000
+MAX_INLINE_WORKSPACE_FILES = 120
+MAX_INLINE_WORKSPACE_FILE_BYTES = agent_file_tools.MAX_UPLOAD_BYTES
 HIGH_RISK_PATTERNS = (
     r"\brm\s+(-[a-z]*[rf][a-z]*|-[a-z]*[fr][a-z]*)\s+(?:/|/\*|\*|\.|\./\*|\../\*|~)(?:\s|$|[;&|])",
     r"\b(del|erase)\s+(/s|/q|/f)",
@@ -353,23 +354,38 @@ def workspace_snapshot(workspace_path: Path) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
     if not root.exists():
         return files
-    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+    paths = [path for path in root.rglob("*") if path.is_file()]
+    for path in sorted(paths, key=lambda item: workspace_snapshot_sort_key(root, item)):
         if not path.is_file():
             continue
         try:
             relative = path.resolve().relative_to(root).as_posix()
         except ValueError:
             continue
-        if path.stat().st_size > MAX_INLINE_WORKSPACE_FILE_BYTES:
+        data = path.read_bytes()
+        if len(data) > MAX_INLINE_WORKSPACE_FILE_BYTES:
             continue
         try:
-            content = path.read_text(encoding="utf-8")
+            content = data.decode("utf-8")
         except UnicodeDecodeError:
-            continue
-        files.append({"path": relative, "content": content})
+            files.append({"path": relative, "base64": base64.b64encode(data).decode("ascii")})
+        else:
+            files.append({"path": relative, "content": content})
         if len(files) >= MAX_INLINE_WORKSPACE_FILES:
             break
     return files
+
+
+def workspace_snapshot_sort_key(root: Path, path: Path) -> tuple[int, str]:
+    try:
+        relative = path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return (99, path.as_posix())
+    if relative.startswith("uploads/"):
+        return (0, relative)
+    if relative.startswith("scripts/") or relative == "SKILL.md":
+        return (1, relative)
+    return (2, relative)
 
 
 def apply_workspace_files(workspace_path: Path, files: list[dict[str, Any]]) -> list[dict[str, Any]]:

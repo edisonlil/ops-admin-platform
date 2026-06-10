@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 import zipfile
 
+from ai_applications.application import agent_tools
 from ai_applications.application import skill_runtime
 
 
@@ -207,3 +208,16 @@ def test_materialize_toolbox_packages_extracts_sandbox_scripts(tmp_path) -> None
     script_path = tmp_path / "scripts" / "pypdf_cli.py"
     assert script_path.exists()
     assert "scripts/pypdf_cli.py" in materialized
+
+
+def test_agent_tool_workspace_snapshot_includes_binary_uploads(tmp_path) -> None:
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    pdf_bytes = b"%PDF-1.7\n\xff" + (b"x" * (1024 * 1024 + 1)) + b"\n%%EOF"
+    (upload_dir / "一线技术服务群风险预警&SLA告警方案.pdf").write_bytes(pdf_bytes)
+
+    files = agent_tools.workspace_snapshot(tmp_path)
+
+    assert files[0]["path"] == "uploads/一线技术服务群风险预警&SLA告警方案.pdf"
+    assert "base64" in files[0]
+    assert base64.b64decode(files[0]["base64"]) == pdf_bytes

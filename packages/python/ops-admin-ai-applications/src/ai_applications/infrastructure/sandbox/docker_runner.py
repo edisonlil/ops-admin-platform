@@ -20,8 +20,8 @@ DEFAULT_CPUS = "1"
 DEFAULT_PIDS_LIMIT = "64"
 DEFAULT_USER = "65534:65534"
 MAX_STDOUT_CHARS = 200_000
-MAX_WORKSPACE_FILES = 80
-MAX_WORKSPACE_FILE_BYTES = 1024 * 1024
+MAX_WORKSPACE_FILES = 120
+MAX_WORKSPACE_FILE_BYTES = 5 * 1024 * 1024
 INTERNAL_WORKSPACE_NAMES = {"input.json", "output.json", "runner.py"}
 
 
@@ -223,17 +223,24 @@ def materialize_workspace_files(workspace: Path, files: list[Any]) -> None:
             continue
         raw_path = str(item.get("path") or "").strip()
         content = item.get("content")
-        if not raw_path or not isinstance(content, str):
+        encoded_payload = item.get("base64")
+        if not raw_path or (not isinstance(content, str) and not isinstance(encoded_payload, str)):
             continue
         path = safe_archive_path(raw_path)
         if path.name in INTERNAL_WORKSPACE_NAMES or path.parts[0] == ".skill_deps":
             continue
-        encoded = content.encode("utf-8")
-        if len(encoded) > MAX_WORKSPACE_FILE_BYTES:
+        if isinstance(encoded_payload, str):
+            try:
+                data = base64.b64decode(encoded_payload)
+            except ValueError:
+                continue
+        else:
+            data = content.encode("utf-8")
+        if len(data) > MAX_WORKSPACE_FILE_BYTES:
             continue
         target = workspace / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(encoded)
+        target.write_bytes(data)
         chmod_best_effort(target, 0o644)
 
 

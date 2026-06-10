@@ -5,6 +5,7 @@ import json
 import subprocess
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 
@@ -92,6 +93,44 @@ def test_docker_skill_sandbox_runner_extracts_package_payload(monkeypatch) -> No
     assert result == {"status": "success", "output": {"answer": "ok"}}
     assert "input['name']" in captured["script"]
     assert captured["command"][captured["command"].index("--network") + 1] == "bridge"
+
+
+def test_docker_skill_sandbox_runner_materializes_base64_workspace_files(monkeypatch) -> None:
+    captured: dict = {}
+    filename = "uploads/一线技术服务群风险预警&SLA告警方案.pdf"
+    pdf_bytes = b"%PDF-1.7\n" + (b"x" * (1024 * 1024 + 1)) + b"\n%%EOF"
+
+    def fake_run(command, **kwargs):
+        volume = command[command.index("-v") + 1]
+        workspace = Path(volume.rsplit(":/workspace:rw", 1)[0])
+        uploaded = workspace / filename
+        captured["exists"] = uploaded.exists()
+        captured["content"] = uploaded.read_bytes() if uploaded.exists() else b""
+        with open(workspace / "output.json", "w", encoding="utf-8") as handle:
+            json.dump({"status": "success", "output": {"answer": "ok"}}, handle)
+        return Completed()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner = DockerSkillSandboxRunner(image="sandbox:local")
+
+    result = runner.run(
+        {
+            "runtime_kind": "sandbox_shell",
+            "entrypoint": "main.sh",
+            "content": "ls uploads",
+            "input": {},
+            "workspace_files": [
+                {
+                    "path": filename,
+                    "base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                }
+            ],
+        }
+    )
+
+    assert result == {"status": "success", "output": {"answer": "ok"}}
+    assert captured["exists"] is True
+    assert captured["content"] == pdf_bytes
 
 
 def test_docker_skill_sandbox_runner_rejects_unsafe_entrypoint() -> None:
