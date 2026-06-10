@@ -29,7 +29,6 @@ SUPPORTED_TOOL_NAMES = agent_file_tools.TOOL_NAMES | SHELL_TOOL_NAMES | PYTHON_T
 MAX_TOOL_CALLS = agent_file_tools.MAX_CALLS
 MAX_COMMAND_CHARS = 20_000
 MAX_INLINE_WORKSPACE_FILES = 120
-MAX_INLINE_WORKSPACE_FILE_BYTES = 32 * 1024 * 1024
 HIGH_RISK_PATTERNS = (
     r"\brm\s+(-[a-z]*[rf][a-z]*|-[a-z]*[fr][a-z]*)\s+(?:/|/\*|\*|\.|\./\*|\../\*|~)(?:\s|$|[;&|])",
     r"\b(del|erase)\s+(/s|/q|/f)",
@@ -364,8 +363,6 @@ def workspace_snapshot(workspace_path: Path) -> list[dict[str, Any]]:
         except ValueError:
             continue
         data = path.read_bytes()
-        if len(data) > MAX_INLINE_WORKSPACE_FILE_BYTES:
-            continue
         try:
             content = data.decode("utf-8")
         except UnicodeDecodeError:
