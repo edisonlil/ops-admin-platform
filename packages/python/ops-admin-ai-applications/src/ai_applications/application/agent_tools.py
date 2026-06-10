@@ -29,7 +29,7 @@ SUPPORTED_TOOL_NAMES = agent_file_tools.TOOL_NAMES | SHELL_TOOL_NAMES | PYTHON_T
 MAX_TOOL_CALLS = agent_file_tools.MAX_CALLS
 MAX_COMMAND_CHARS = 20_000
 MAX_INLINE_WORKSPACE_FILES = 120
-MAX_INLINE_WORKSPACE_FILE_BYTES = agent_file_tools.MAX_UPLOAD_BYTES
+MAX_INLINE_WORKSPACE_FILE_BYTES = 32 * 1024 * 1024
 HIGH_RISK_PATTERNS = (
     r"\brm\s+(-[a-z]*[rf][a-z]*|-[a-z]*[fr][a-z]*)\s+(?:/|/\*|\*|\.|\./\*|\../\*|~)(?:\s|$|[;&|])",
     r"\b(del|erase)\s+(/s|/q|/f)",
@@ -67,9 +67,10 @@ def build_prompt(workspace: dict[str, Any] | None) -> str:
                 "Return JSON only when a tool is required.",
                 "Use paths relative to the workspace.",
                 "Do not emit XML/HTML style tool tags.",
-                "After tool results are supplied, answer normally.",
+                "After tool results are supplied, either answer normally or issue another low-risk tool call if the previous result indicates a recoverable problem.",
                 "Do not ask the user to confirm a tool call in solo execution mode.",
                 "If an action is high-risk, do not call the tool; answer with a clear failure reason.",
+                "For recoverable shell failures such as missing commands, decide whether to install required packages, use an available alternative, or stop with a clear reason.",
             ],
         },
         "tools": {
@@ -453,7 +454,11 @@ def build_follow_up_messages(messages: list[dict[str, Any]], assistant_tool_requ
             "content": (
                 "Agent tool results:\n"
                 f"{json_dump(tool_results)}\n\n"
-                "Use these results to answer the user's latest request. Do not emit another tool_calls JSON object now."
+                "Use these results to continue the user's latest request. "
+                "If the tool result is sufficient, answer normally. "
+                "If a low-risk failure is recoverable, you may emit another tool_calls JSON object to retry with a safer command, "
+                "install a missing dependency, or use an available alternative. "
+                "If the failure is not recoverable or the next action would be high-risk, stop with a clear reason."
             ),
         },
     ]
