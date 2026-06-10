@@ -210,6 +210,37 @@ def test_materialize_toolbox_packages_extracts_sandbox_scripts(tmp_path) -> None
     assert "scripts/pypdf_cli.py" in materialized
 
 
+def test_materialize_toolbox_packages_extracts_agent_helper_scripts_for_llm_task(tmp_path) -> None:
+    package = BytesIO()
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("scripts/pypdf_cli.py", "def extract_text(path): return path")
+        archive.writestr("SKILL.md", "name: pdf-tool")
+    encoded = base64.b64encode(package.getvalue()).decode("ascii")
+    plan = skill_runtime.SkillRuntimePlan(
+        app_key="pdf-agent",
+        app_type="agent",
+        tenant_id=1,
+        toolbox=[
+            skill_runtime.SkillDescriptor(
+                binding=skill_runtime.SkillBinding(skill_key="pdf-tool", alias="pdf"),
+                resolved={"package_data_base64": encoded},
+                manifest={"runtime": {"kind": "llm_task"}},
+                runtime_config={},
+                runtime_constraints={},
+                runtime_kind="llm_task",
+                executor_key="",
+                content="",
+                version="1.0.0",
+            )
+        ],
+    )
+
+    materialized = skill_runtime.materialize_toolbox_packages(tmp_path, plan)
+
+    assert (tmp_path / "scripts" / "pypdf_cli.py").exists()
+    assert "scripts/pypdf_cli.py" in materialized
+
+
 def test_agent_tool_workspace_snapshot_includes_binary_uploads(tmp_path) -> None:
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()

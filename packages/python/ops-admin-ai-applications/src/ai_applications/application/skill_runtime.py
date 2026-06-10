@@ -600,8 +600,6 @@ def normalize_skill_calls(raw_calls: Any) -> list[SkillCall]:
 def materialize_toolbox_packages(workspace: Path, plan: SkillRuntimePlan) -> list[str]:
     materialized: list[str] = []
     for descriptor in plan.toolbox:
-        if descriptor.runtime_kind not in SANDBOX_RUNTIME_KINDS:
-            continue
         package_data = str(descriptor.resolved.get("package_data_base64") or "")
         if not package_data:
             continue
