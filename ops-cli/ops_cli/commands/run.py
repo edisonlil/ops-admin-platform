@@ -452,7 +452,7 @@ def run_run(args) -> None:
         os.environ.pop("FG_AGENT_DATABASE_CONFIG", None)
     else:
         os.environ["FG_AGENT_DATABASE_CONFIG"] = str(legacy_db_config.resolve())
-    os.environ["FG_AGENT_CORS_ORIGINS"] = f"http://localhost:{frontend_port},http://127.0.0.1:{frontend_port}"
+    os.environ["FG_AGENT_CORS_ORIGINS"] = "*"
 
     # Auto-discover all ops-admin-* packages for PYTHONPATH
     discovery_result = discover_modules(project_path)

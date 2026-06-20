@@ -15,6 +15,7 @@ from ops_cli.commands import deploy as deploy_command  # noqa: E402
 from ops_cli.commands.deploy import (  # noqa: E402
     copy_deploy_environment,
     update_deploy_environment,
+    _diagnose_ssh_banner_failure,
     _format_deploy_environment_preview,
     _has_database_connection_info,
     _load_db_config_for_target,
@@ -223,6 +224,49 @@ def test_deploy_environment_preview_masks_database_password() -> None:
     assert "secret" not in info
 
 
+def test_ssh_banner_diagnostic_reports_non_ssh_service(monkeypatch) -> None:
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            pass
+
+        def settimeout(self, _timeout: float) -> None:
+            pass
+
+        def recv(self, _size: int) -> bytes:
+            return b"HTTP/1.1 400 Bad Request\r\n"
+
+    monkeypatch.setattr(deploy_command.socket, "create_connection", lambda *_args, **_kwargs: FakeSocket())
+
+    message = _diagnose_ssh_banner_failure("10.217.19.163", 22)
+
+    assert "does not look like SSH" in message
+    assert "HTTP/1.1 400 Bad Request" in message
+
+
+def test_ssh_banner_diagnostic_reports_early_close(monkeypatch) -> None:
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            pass
+
+        def settimeout(self, _timeout: float) -> None:
+            pass
+
+        def recv(self, _size: int) -> bytes:
+            return b""
+
+    monkeypatch.setattr(deploy_command.socket, "create_connection", lambda *_args, **_kwargs: FakeSocket())
+
+    message = _diagnose_ssh_banner_failure("10.217.19.163", 22)
+
+    assert "closed it before sending an SSH banner" in message
+
+
 def test_interactive_first_deploy_target_reuses_application_env_database_config(
     tmp_path: Path,
     monkeypatch,
@@ -308,3 +352,9 @@ def test_deploy_add_uses_container_port_and_remote_path_options(tmp_path: Path, 
 
     assert saved["prod"]["remote_path"] == "/opt/ops-admin-prod"
     assert saved["prod"]["container_port"] == 9001
+
+
+def test_deploy_compose_template_disables_cors_restrictions() -> None:
+    deploy_source = (OPS_CLI_ROOT / "ops_cli" / "commands" / "deploy.py").read_text(encoding="utf-8")
+
+    assert "FG_AGENT_CORS_ORIGINS=*" in deploy_source

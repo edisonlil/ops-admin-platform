@@ -12,7 +12,8 @@ Required environment variables:
 
 - `FG_AGENT_DATABASE_URL`: Supabase/Postgres connection string.
 - `FG_AGENT_CORS_ORIGINS`: comma-separated frontend origins, for example
-  `https://your-site.netlify.app,http://localhost:8001`.
+  `https://your-site.netlify.app,http://localhost:8001`. Set to `*` to disable
+  cross-origin restrictions entirely.
 
 Render will run:
 

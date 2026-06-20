@@ -97,10 +97,11 @@ class OpenAIChatCompletionRequest(BaseModel):
 
     model: str = Field(min_length=1, max_length=200)
     messages: list[OpenAIChatMessageRequest] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    tool_choice: Any | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
     response_format: dict[str, Any] | None = None
     enable_think_output: bool | None = None
     max_tokens: int | None = Field(default=None, ge=1)
     top_p: float | None = Field(default=None, ge=0, le=1)
     stream: bool = False
-

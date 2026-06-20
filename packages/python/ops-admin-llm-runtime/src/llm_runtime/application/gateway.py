@@ -67,6 +67,8 @@ def chat_completions(
     *,
     model: str,
     messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: Any | None = None,
     temperature: float | None = None,
     response_format: dict[str, Any] | None = None,
     extra_body: dict[str, Any] | None = None,
@@ -86,6 +88,8 @@ def chat_completions(
                 conn=conn,
                 entry=entry,
                 messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
                 temperature=temperature,
                 response_format=response_format,
                 extra_body=extra_body,
@@ -100,6 +104,8 @@ def chat_completions(
             conn=conn,
             resolution=resolution,
             messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
             temperature=temperature,
             response_format=response_format,
             extra_body=extra_body,
@@ -113,6 +119,8 @@ def stream_chat_completions(
     *,
     model: str,
     messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: Any | None = None,
     temperature: float | None = None,
     response_format: dict[str, Any] | None = None,
     extra_body: dict[str, Any] | None = None,
@@ -137,6 +145,8 @@ def stream_chat_completions(
                 conn=conn,
                 resolution=resolution,
                 messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
                 temperature=temperature,
                 response_format=response_format,
                 extra_body=extra_body,
@@ -157,6 +167,8 @@ def stream_chat_completions(
                 conn=conn,
                 entry=entry,
                 messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
                 temperature=temperature,
                 response_format=response_format,
                 extra_body=extra_body,
@@ -170,14 +182,20 @@ def stream_chat_completions(
         started_at = time.perf_counter()
         content_parts: list[str] = []
         try:
-            for event in client.stream_chat_completions(  # type: ignore[attr-defined]
-                messages,
+            for event in invoke_stream_chat_completions(
+                client,
+                messages=messages,
                 extra_body=request_extra_body,
+                tools=tools,
+                tool_choice=tool_choice,
                 enable_think_output=entry.enable_think_output if enable_think_output is None else enable_think_output,
             ):
                 content_parts.append(stream_event_content(event))
                 yield event
-            response = LLMResponse(content="".join(content_parts), elapsed_seconds=time.perf_counter() - started_at)
+            response = LLMResponse(
+                content="".join(content_parts),
+                elapsed_seconds=time.perf_counter() - started_at,
+            )
             repo().record_call_log(
                 conn,
                 call_log_payload(
@@ -222,6 +240,8 @@ def chat_with_entry(
     conn: Any,
     entry: RoutingEntry,
     messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    tool_choice: Any | None,
     temperature: float | None,
     response_format: dict[str, Any] | None,
     extra_body: dict[str, Any] | None,
@@ -242,9 +262,12 @@ def chat_with_entry(
                 raise LLMRoutingError(f"model {entry.model_key} does not support multimodal chat messages")
             response = client.generate_response(prompt_from_messages(prompt=None, messages=messages_as_text_messages(messages)))  # type: ignore[attr-defined]
         else:
-            response = client.generate_chat_response(  # type: ignore[attr-defined]
-                messages,
+            response = invoke_chat_response(
+                client,
+                messages=messages,
                 extra_body=request_extra_body,
+                tools=tools,
+                tool_choice=tool_choice,
                 enable_think_output=entry.enable_think_output if enable_think_output is None else enable_think_output,
             )
         repo().record_call_log(
@@ -287,6 +310,8 @@ def chat_with_resolution(
     conn: Any,
     resolution: RouteResolution,
     messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    tool_choice: Any | None,
     temperature: float | None,
     response_format: dict[str, Any] | None,
     extra_body: dict[str, Any] | None,
@@ -300,6 +325,8 @@ def chat_with_resolution(
                 conn=conn,
                 entry=entry,
                 messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
                 temperature=temperature,
                 response_format=response_format,
                 extra_body=extra_body,
@@ -315,6 +342,60 @@ def chat_with_resolution(
                 break
             continue
     raise LLMRoutingError(f"LLM route failed for task {resolution.task_key}: {'; '.join(failures)}")
+
+
+def invoke_chat_response(
+    client: Any,
+    *,
+    messages: list[dict[str, Any]],
+    extra_body: dict[str, Any],
+    tools: list[dict[str, Any]] | None,
+    tool_choice: Any | None,
+    enable_think_output: bool,
+) -> LLMResponse:
+    try:
+        return client.generate_chat_response(  # type: ignore[attr-defined]
+            messages,
+            extra_body=extra_body,
+            tools=tools,
+            tool_choice=tool_choice,
+            enable_think_output=enable_think_output,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        return client.generate_chat_response(  # type: ignore[attr-defined]
+            messages,
+            extra_body=extra_body,
+            enable_think_output=enable_think_output,
+        )
+
+
+def invoke_stream_chat_completions(
+    client: Any,
+    *,
+    messages: list[dict[str, Any]],
+    extra_body: dict[str, Any],
+    tools: list[dict[str, Any]] | None,
+    tool_choice: Any | None,
+    enable_think_output: bool,
+) -> Iterator[str]:
+    try:
+        yield from client.stream_chat_completions(  # type: ignore[attr-defined]
+            messages,
+            extra_body=extra_body,
+            tools=tools,
+            tool_choice=tool_choice,
+            enable_think_output=enable_think_output,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        yield from client.stream_chat_completions(  # type: ignore[attr-defined]
+            messages,
+            extra_body=extra_body,
+            enable_think_output=enable_think_output,
+        )
 
 
 def prompt_from_messages(*, prompt: str | None, messages: list[dict[str, str]] | None) -> str:
@@ -528,8 +609,9 @@ def openai_chat_response(*, model: str, response: LLMResponse) -> dict[str, Any]
                 "message": {
                     "role": "assistant",
                     "content": response.content,
+                    **({"tool_calls": response.tool_calls} if response.tool_calls else {}),
                 },
-                "finish_reason": "stop",
+                "finish_reason": "tool_calls" if response.tool_calls else "stop",
             }
         ],
         "usage": response.usage or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
@@ -540,7 +622,9 @@ def openai_chat_completion_stream_events(response: dict[str, Any]) -> list[str]:
     completion_id = str(response.get("id", ""))
     created = int(response.get("created", 0) or 0)
     model = str(response.get("model", ""))
-    content = str((((response.get("choices") or [{}])[0].get("message") or {}).get("content") or ""))
+    message = (response.get("choices") or [{}])[0].get("message") or {}
+    content = str((message.get("content") or ""))
+    tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
     events = [
         sse_data(
             {
@@ -552,6 +636,26 @@ def openai_chat_completion_stream_events(response: dict[str, Any]) -> list[str]:
             }
         )
     ]
+    if isinstance(tool_calls, list) and tool_calls:
+        events.append(
+            sse_data(
+                {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": tool_calls,
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+        )
     events.extend(
         sse_data(
             {
@@ -571,7 +675,7 @@ def openai_chat_completion_stream_events(response: dict[str, Any]) -> list[str]:
                 "object": "chat.completion.chunk",
                 "created": created,
                 "model": model,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls" if tool_calls else "stop"}],
             }
         )
     )
@@ -667,4 +771,3 @@ class LLMGateway:
 
 
 llm_gateway = LLMGateway()
-

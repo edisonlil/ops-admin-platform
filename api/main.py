@@ -17,10 +17,11 @@ def create_app() -> FastAPI:
     app = FastAPI(title="ops-admin-platform API", version="0.1.0")
     add_audit_logging(app)
     app.add_middleware(RequestContextMiddleware)
+    allowed_origins = cors_origins()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins(),
-        allow_credentials=True,
+        allow_origins=allowed_origins,
+        allow_credentials=allowed_origins != ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )

@@ -21,6 +21,7 @@ class LLMResponse:
     elapsed_seconds: float
     usage: dict[str, Any] = field(default_factory=dict)
     think_content: str = ""
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,8 @@ class MiniMaxLLMClient:
         messages: list[dict[str, Any]],
         *,
         extra_body: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         enable_think_output: bool | None = None,
     ) -> LLMResponse:
         think_output_enabled = self.enable_think_output if enable_think_output is None else enable_think_output
@@ -83,6 +86,11 @@ class MiniMaxLLMClient:
         }
         merged_extra_body = provider_extra_body(self.extra_body)
         merged_extra_body.update(provider_extra_body(extra_body or {}))
+        if tools is not None:
+            merged_extra_body["tools"] = tools
+        normalized_tool_choice = normalize_tool_choice(tool_choice)
+        if normalized_tool_choice is not None:
+            merged_extra_body["tool_choice"] = normalized_tool_choice
         if think_output_enabled:
             merged_extra_body["reasoning_split"] = True
         else:
@@ -143,6 +151,8 @@ class MiniMaxLLMClient:
         messages: list[dict[str, Any]],
         *,
         extra_body: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         enable_think_output: bool | None = None,
     ) -> Iterator[str]:
         think_output_enabled = self.enable_think_output if enable_think_output is None else enable_think_output
@@ -154,6 +164,11 @@ class MiniMaxLLMClient:
         }
         merged_extra_body = provider_extra_body(self.extra_body)
         merged_extra_body.update(provider_extra_body(extra_body or {}))
+        if tools is not None:
+            merged_extra_body["tools"] = tools
+        normalized_tool_choice = normalize_tool_choice(tool_choice)
+        if normalized_tool_choice is not None:
+            merged_extra_body["tool_choice"] = normalized_tool_choice
         if think_output_enabled:
             merged_extra_body["reasoning_split"] = True
         else:
@@ -190,6 +205,8 @@ class OpenAICompatibleLLMClient:
         messages: list[dict[str, Any]],
         *,
         extra_body: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         enable_think_output: bool | None = None,
     ) -> LLMResponse:
         think_output_enabled = self.enable_think_output if enable_think_output is None else enable_think_output
@@ -201,6 +218,11 @@ class OpenAICompatibleLLMClient:
         }
         merged_extra_body = provider_extra_body(self.extra_body)
         merged_extra_body.update(provider_extra_body(extra_body or {}))
+        if tools is not None:
+            merged_extra_body["tools"] = tools
+        normalized_tool_choice = normalize_tool_choice(tool_choice)
+        if normalized_tool_choice is not None:
+            merged_extra_body["tool_choice"] = normalized_tool_choice
         payload.update(merged_extra_body)
 
         request = urllib.request.Request(
@@ -231,6 +253,7 @@ class OpenAICompatibleLLMClient:
         if not isinstance(message, dict):
             raise RuntimeError(f"{self.provider_name} response message must be an object")
         content = message_text(message.get("content"))
+        tool_calls = parse_tool_calls(message)
         think_content = first_text(
             message.get("reasoning_content"),
             message.get("reasoning"),
@@ -247,7 +270,13 @@ class OpenAICompatibleLLMClient:
             think_content=think_content,
             enable_think_output=think_output_enabled,
         )
-        return LLMResponse(content=content, elapsed_seconds=elapsed_seconds, usage=usage, think_content=think_content)
+        return LLMResponse(
+            content=content,
+            elapsed_seconds=elapsed_seconds,
+            usage=usage,
+            think_content=think_content,
+            tool_calls=tool_calls,
+        )
 
     def generate(self, prompt: str, *, enable_think_output: bool | None = None) -> str:
         return self.generate_response(prompt, enable_think_output=enable_think_output).content
@@ -257,6 +286,8 @@ class OpenAICompatibleLLMClient:
         messages: list[dict[str, Any]],
         *,
         extra_body: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any | None = None,
         enable_think_output: bool | None = None,
     ) -> Iterator[str]:
         payload: dict[str, Any] = {
@@ -267,6 +298,11 @@ class OpenAICompatibleLLMClient:
         }
         merged_extra_body = provider_extra_body(self.extra_body)
         merged_extra_body.update(provider_extra_body(extra_body or {}))
+        if tools is not None:
+            merged_extra_body["tools"] = tools
+        normalized_tool_choice = normalize_tool_choice(tool_choice)
+        if normalized_tool_choice is not None:
+            merged_extra_body["tool_choice"] = normalized_tool_choice
         payload.update(merged_extra_body)
         yield from stream_openai_compatible_request(
             provider_name=self.provider_name,
@@ -334,6 +370,59 @@ def first_text(*values: Any) -> str:
         if text.strip():
             return text.strip()
     return ""
+
+
+def normalize_tool_choice(tool_choice: Any) -> Any:
+    if tool_choice is None:
+        return None
+    if isinstance(tool_choice, str):
+        normalized = tool_choice.strip().lower()
+        return normalized if normalized in {"auto", "none"} else None
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function") if isinstance(tool_choice.get("function"), dict) else {}
+        name = str(function.get("name") or "").strip()
+        if name:
+            return {"type": "function", "function": {"name": name}}
+    return None
+
+
+def normalize_tool_call_arguments(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def parse_tool_calls(message: Any) -> list[dict[str, Any]]:
+    if not isinstance(message, dict):
+      return []
+    raw_calls = message.get("tool_calls") or message.get("skill_calls") or message.get("calls") or []
+    if not isinstance(raw_calls, list):
+        return []
+    parsed: list[dict[str, Any]] = []
+    for item in raw_calls:
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function") if isinstance(item.get("function"), dict) else {}
+        parsed.append(
+            {
+                "id": item.get("id"),
+                "type": item.get("type") or "function",
+                "index": item.get("index"),
+                "function": {
+                    "name": function.get("name") or item.get("tool_name") or item.get("skill_key") or "",
+                    "arguments": function.get("arguments")
+                    if isinstance(function.get("arguments"), str)
+                    else json.dumps(normalize_tool_call_arguments(item.get("arguments")), ensure_ascii=False),
+                },
+            }
+        )
+    return parsed
 
 
 def collapse_developer_role_to_system(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

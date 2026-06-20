@@ -290,6 +290,29 @@ class ApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(app_instance.router.on_startup), 1)
         self.assertGreaterEqual(len(app_instance.router.on_shutdown), 1)
 
+    def test_create_app_allows_any_origin_when_cors_env_is_wildcard(self) -> None:
+        from api.main import create_app
+
+        with mock.patch.dict("os.environ", {"FG_AGENT_CORS_ORIGINS": "*"}, clear=False):
+            app_instance = create_app()
+
+        transport = httpx.ASGITransport(app=app_instance)
+
+        async def run_request() -> httpx.Response:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                return await client.options(
+                    "/api/health",
+                    headers={
+                        "Origin": "http://example.com",
+                        "Access-Control-Request-Method": "GET",
+                    },
+                )
+
+        response = asyncio.run(run_request())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "*")
+
     def test_platform_admin_can_login_and_read_current_user(self) -> None:
         response = self.request(
             "POST",

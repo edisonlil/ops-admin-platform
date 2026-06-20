@@ -52,6 +52,9 @@ Stop existing processes on the selected backend/frontend ports before starting:
 ops-cli run --force-restart
 ```
 
+`ops-cli run` defaults `FG_AGENT_CORS_ORIGINS=*`, so local API access is not
+blocked by CORS.
+
 ### Deploy project
 
 ```bash

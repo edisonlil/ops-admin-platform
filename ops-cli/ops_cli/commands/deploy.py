@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import io
 import re
+import socket
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -245,6 +246,45 @@ def _format_deploy_environment_preview(
         f"Database: {_database_config_summary(db_config)}",
     ]
     return "\n".join(lines)
+
+
+def _diagnose_ssh_banner_failure(host: str, port: int, timeout: float = 5.0) -> str:
+    """Return a short actionable diagnosis for SSH banner failures."""
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            try:
+                banner = sock.recv(256)
+            except socket.timeout:
+                return (
+                    "TCP connection opened, but no SSH banner was received. "
+                    f"Verify {host}:{port} is the SSH service port and that sshd is accepting sessions."
+                )
+    except ConnectionRefusedError:
+        return f"Connection refused. No service is accepting TCP connections on {host}:{port}."
+    except socket.timeout:
+        return f"Connection timed out. Check firewall/security group/VPN routing for {host}:{port}."
+    except OSError as exc:
+        return f"TCP connectivity check failed for {host}:{port}: {exc}"
+
+    if not banner:
+        return (
+            "TCP connection opened, but the remote side closed it before sending an SSH banner. "
+            "Check sshd status, MaxStartups/rate limits, allowlists, or whether a gateway/proxy is closing the session."
+        )
+
+    first_line = banner.splitlines()[0].decode("utf-8", errors="replace").strip()
+    first_line = re.sub(r"[^\x20-\x7e]", "?", first_line)[:120]
+    if first_line.startswith("SSH-"):
+        return (
+            f"SSH banner was received during the diagnostic check ({first_line}). "
+            "The earlier failure may be transient or caused by SSH server rate limiting."
+        )
+
+    return (
+        f"Port {host}:{port} is reachable, but it does not look like SSH. "
+        f"First response bytes: {first_line!r}. Update the deploy target SSH port or server address."
+    )
 
 
 def _clone_json_value(value):
@@ -693,6 +733,8 @@ def do_deploy(package_path: Path, target: dict, db_config: dict, target_name: st
         print("  Connected.")
     except Exception as e:
         print(f"SSH connection failed: {e}")
+        if "Error reading SSH protocol banner" in str(e):
+            print(f"SSH diagnostic: {_diagnose_ssh_banner_failure(host, int(port))}")
         return False
     
     # SFTP upload - upload tar package first, then extract
@@ -745,7 +787,7 @@ services:
       - "{container_port}:8000"
     environment:
       - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
-      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
+      - FG_AGENT_CORS_ORIGINS=*
       - FG_AGENT_ADMIN_DIST_PATH=/app/dist
     volumes:
       - ./config:/app/config:ro
@@ -758,7 +800,7 @@ services:
     command: ["python", "scripts/run_cron_worker.py"]
     environment:
       - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
-      - FG_AGENT_CORS_ORIGINS=http://localhost:80,http://127.0.0.1:80
+      - FG_AGENT_CORS_ORIGINS=*
       - FG_AGENT_ADMIN_DIST_PATH=/app/dist
     volumes:
       - ./config:/app/config:ro

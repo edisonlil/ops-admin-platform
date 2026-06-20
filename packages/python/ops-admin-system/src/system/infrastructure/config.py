@@ -133,6 +133,8 @@ def default_admin_password() -> str:
 def cors_origins() -> list[str]:
     configured = os.environ.get("FG_AGENT_CORS_ORIGINS", "").strip()
     if configured:
+        if configured == "*":
+            return ["*"]
         return [origin.strip() for origin in configured.split(",") if origin.strip()]
     return [
         "http://localhost:8001",
