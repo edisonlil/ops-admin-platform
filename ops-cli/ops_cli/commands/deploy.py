@@ -1,6 +1,5 @@
 """
-Deploy command - deploy project to remote servers via SSH.
-Builds on remote server (no local Docker required).
+Deploy command - deploy project to remote servers via SSH or local Docker.
 """
 from __future__ import annotations
 
@@ -11,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import shutil
 import io
 import re
 import socket
@@ -45,6 +45,17 @@ def _safe_identifier(value: str, fallback: str = "default") -> str:
 
 def _make_container_name(target_name: str, fallback: str = "default") -> str:
     return f"ops-admin-backend-{_safe_identifier(target_name or fallback)}"
+
+
+def _normalize_deploy_host(host: str) -> str:
+    host = (host or "").strip().lower()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    return host
+
+
+def _is_local_deploy_host(host: str) -> bool:
+    return _normalize_deploy_host(host) in {"127.0.0.1", "localhost", "::1"}
 
 
 def get_deploy_targets(project_path: Optional[Path] = None) -> dict:
@@ -236,8 +247,6 @@ def _format_deploy_environment_preview(
     lines = [
         f"Target: {target_name}",
         f"Host: {ssh_host}",
-        f"SSH: {ssh_user}@{ssh_host}:{ssh_port}",
-        f"SSH key: {ssh_key or '(password/agent)'}",
         f"Remote path: {remote_path}",
         f"Container name: {container_name}",
         f"Container port: {container_port}",
@@ -245,6 +254,11 @@ def _format_deploy_environment_preview(
         f"Database config source: {db_config_source}",
         f"Database: {_database_config_summary(db_config)}",
     ]
+    if _is_local_deploy_host(ssh_host):
+        lines.insert(2, "Mode: local Docker")
+    else:
+        lines.insert(2, f"SSH: {ssh_user}@{ssh_host}:{ssh_port}")
+        lines.insert(3, f"SSH key: {ssh_key or '(password/agent)'}")
     return "\n".join(lines)
 
 
@@ -285,6 +299,168 @@ def _diagnose_ssh_banner_failure(host: str, port: int, timeout: float = 5.0) -> 
         f"Port {host}:{port} is reachable, but it does not look like SSH. "
         f"First response bytes: {first_line!r}. Update the deploy target SSH port or server address."
     )
+
+
+def _validate_local_deploy_path(remote_path: str) -> Path:
+    deploy_dir = Path(os.path.expanduser(remote_path)).resolve(strict=False)
+    dangerous_paths = {
+        Path("/"),
+        Path("/home"),
+    }
+    if deploy_dir in dangerous_paths:
+        raise ValueError(f"Refusing to deploy to unsafe local path: {deploy_dir}")
+    return deploy_dir
+
+
+def _run_local_compose_command(deploy_dir: Path, compose_args: list[str]) -> subprocess.CompletedProcess | None:
+    attempts = [
+        ["docker", "compose", *compose_args],
+        ["docker-compose", *compose_args],
+    ]
+    last_result: subprocess.CompletedProcess | None = None
+    for index, cmd in enumerate(attempts):
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=deploy_dir,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError as exc:
+            last_result = None
+            if index == len(attempts) - 1:
+                print(f"  Docker Compose command not found: {exc}")
+            continue
+
+        if result.returncode == 0:
+            return result
+
+        stderr = (result.stderr or "").lower()
+        if index == 0 and ("is not a docker command" in stderr or "unknown command" in stderr):
+            last_result = result
+            continue
+
+        last_result = result
+        break
+
+    return last_result
+
+
+def _render_deploy_compose_content(container_name: str, container_port: int) -> str:
+    return f"""version: '3.8'
+
+services:
+  backend:
+    image: ops-admin:latest
+    container_name: {container_name}
+    ports:
+      - "{container_port}:8000"
+    environment:
+      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
+      - FG_AGENT_CORS_ORIGINS=*
+      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
+    volumes:
+      - ./config:/app/config:ro
+      - ./dist:/app/dist:ro
+      - ./data:/app/data
+    restart: unless-stopped
+  cron-worker:
+    image: ops-admin:latest
+    container_name: {container_name}-cron-worker
+    command: ["python", "scripts/run_cron_worker.py"]
+    environment:
+      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
+      - FG_AGENT_CORS_ORIGINS=*
+      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
+    volumes:
+      - ./config:/app/config:ro
+      - ./dist:/app/dist:ro
+      - ./data:/app/data
+    depends_on:
+      - backend
+    restart: unless-stopped
+"""
+
+
+def _run_local_deploy(package_path: Path, target: dict, db_config: dict, target_name: str = "") -> bool:
+    """Deploy package to the local Docker environment."""
+    print("\nDeploying to local Docker environment...")
+
+    remote_path = target.get("remote_path", "/tmp/ops-admin")
+    container_port = target.get("container_port", 8000)
+    container_name = _make_container_name(target_name, fallback=target.get("name", target.get("host", "default")))
+
+    try:
+        deploy_dir = _validate_local_deploy_path(remote_path)
+    except ValueError as exc:
+        print(f"Local deployment failed: {exc}")
+        return False
+
+    try:
+        if deploy_dir.exists():
+            shutil.rmtree(deploy_dir)
+        deploy_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"  Extracting deployment package to {deploy_dir}...")
+        with tarfile.open(package_path, "r:gz") as tar:
+            tar.extractall(deploy_dir)
+
+        print("  Stopping existing container...")
+        _run_local_compose_command(deploy_dir, ["down"])
+
+        print("  Building Docker image...")
+        build_result = subprocess.run(
+            ["docker", "build", "-t", "ops-admin:latest", "."],
+            cwd=deploy_dir,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if build_result.returncode != 0:
+            print(f"  docker build failed: {build_result.stderr or build_result.stdout}")
+            return False
+
+        print("  Starting container...")
+        up_result = _run_local_compose_command(deploy_dir, ["up", "-d"])
+        if up_result is None or up_result.returncode != 0:
+            message = ""
+            if up_result is not None:
+                message = up_result.stderr or up_result.stdout or ""
+            print(f"  docker compose up failed: {message}")
+            return False
+
+        print("  Verifying container status...")
+        ps_result = subprocess.run(
+            ["docker", "ps", "--filter", f"name=^{container_name}$", "--format", "{{.Names}}"],
+            cwd=deploy_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if container_name not in (ps_result.stdout or ""):
+            print(f"  Container '{container_name}' did not start successfully.")
+            return False
+
+        print("\n" + "=" * 50)
+        print("Deployment Successful!")
+        print("=" * 50)
+        print(f"Target: {target_name}")
+        print(f"Host: {target.get('host')}")
+        print(f"URL: http://{target.get('host')}:{container_port}")
+        return True
+    except subprocess.TimeoutExpired:
+        print("Local deployment timed out.")
+        return False
+    except Exception as exc:
+        print(f"Local deployment failed: {exc}")
+        return False
 
 
 def _clone_json_value(value):
@@ -368,6 +544,11 @@ def _existing_database_config_for_new_target(project_path: Path, target_name: st
     return None
 
 
+def _resolve_deploy_config_env(target_name: str, target: dict) -> str:
+    """Resolve which application config environment a target should use."""
+    return str(target.get("database_env") or target_name or "local").strip() or "local"
+
+
 def run_build(project_path: Path) -> bool:
     """Build frontend."""
     frontend_path = project_path / "web" / "admin"
@@ -422,7 +603,8 @@ def create_deploy_package(
     output_path: Path,
     db_config: dict,
     target_name: str = "",
-    remote_path: str = "/opt/ops-admin"
+    remote_path: str = "/opt/ops-admin",
+    container_port: int = 8000,
 ) -> bool:
     """Create deployment package (source + config, no Docker image)."""
     print("\nCreating deployment package...")
@@ -489,6 +671,16 @@ def create_deploy_package(
             tarinfo.size = config_file.tell()
             config_file.seek(0)
             tar.addfile(tarinfo, config_file)
+
+            # Add deploy-specific docker-compose.yml to keep runtime defaults consistent.
+            compose_json = _render_deploy_compose_content(container_name, container_port)
+            compose_data = compose_json.encode("utf-8")
+            compose_file = io.BytesIO(compose_data)
+            compose_info = tarfile.TarInfo(name="docker-compose.yml")
+            compose_file.seek(0, 2)
+            compose_info.size = compose_file.tell()
+            compose_file.seek(0)
+            tar.addfile(compose_info, compose_file)
             
             # Add build script with dynamic remote_path
             build_script = f"""#!/bin/bash
@@ -777,39 +969,7 @@ def do_deploy(package_path: Path, target: dict, db_config: dict, target_name: st
     print(f"  Building on server...")
     
     # Generate docker-compose.yml content with configurable port
-    compose_content = f'''version: '3.8'
-
-services:
-  backend:
-    image: ops-admin:latest
-    container_name: {container_name}
-    ports:
-      - "{container_port}:8000"
-    environment:
-      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
-      - FG_AGENT_CORS_ORIGINS=*
-      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
-    volumes:
-      - ./config:/app/config:ro
-      - ./dist:/app/dist:ro
-      - ./data:/app/data
-    restart: unless-stopped
-  cron-worker:
-    image: ops-admin:latest
-    container_name: {container_name}-cron-worker
-    command: ["python", "scripts/run_cron_worker.py"]
-    environment:
-      - OPS_ADMIN_APPLICATION_CONFIG=/app/config/application.json
-      - FG_AGENT_CORS_ORIGINS=*
-      - FG_AGENT_ADMIN_DIST_PATH=/app/dist
-    volumes:
-      - ./config:/app/config:ro
-      - ./dist:/app/dist:ro
-      - ./data:/app/data
-    depends_on:
-      - backend
-    restart: unless-stopped
-'''
+    compose_content = _render_deploy_compose_content(container_name, container_port)
     
     # Build script content
     build_script = f'''#!/bin/bash
@@ -1039,6 +1199,7 @@ def run_deploy(args) -> None:
     # Get target
     target_name = args.target
     targets = get_deploy_targets(project_path)
+    local_mode = False
     
     if not targets:
         print("\nNo deploy targets configured.")
@@ -1056,40 +1217,57 @@ def run_deploy(args) -> None:
                 return
             
             host = input(f"Host/IP [192.168.1.100]: ").strip() or "192.168.1.100"
-            port = input(f"SSH Port [22]: ").strip() or "22"
-            user = input(f"SSH User [root]: ").strip() or "root"
-            
-            print("\nAuthentication method:")
-            print("  1. SSH Key")
-            print("  2. Password")
-            auth_choice = input("Choice [2]: ").strip() or "2"
-            
+            local_mode = _is_local_deploy_host(host)
+            port = 22
+            user = ""
             ssh_key = ""
             password = ""
-            
-            if auth_choice == "1":
-                ssh_key = input(f"SSH Key path [~/.ssh/id_rsa]: ").strip() or "~/.ssh/id_rsa"
+
+            if local_mode:
+                print("\nLocal Docker target detected; SSH settings will be skipped.")
             else:
-                password = args.password if args.password else getpass.getpass("Password: ").strip()
-                if not password:
-                    print("Password required.")
-                    return
-            
-            remote_path = getattr(args, "remote_path", None) or input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+                port = int(input(f"SSH Port [22]: ").strip() or "22")
+                user = input(f"SSH User [root]: ").strip() or "root"
+                
+                print("\nAuthentication method:")
+                print("  1. SSH Key")
+                print("  2. Password")
+                auth_choice = input("Choice [2]: ").strip() or "2"
+                
+                if auth_choice == "1":
+                    ssh_key = input(f"SSH Key path [~/.ssh/id_rsa]: ").strip() or "~/.ssh/id_rsa"
+                else:
+                    password = args.password if args.password else getpass.getpass("Password: ").strip()
+                    if not password:
+                        print("Password required.")
+                        return
+
+            remote_default = "/tmp/ops-admin" if local_mode else "/opt/ops-admin"
+            remote_path = getattr(args, "remote_path", None) or input(f"Remote path [{remote_default}]: ").strip() or remote_default
             container_port = getattr(args, "container_port", None) or input("Container port [8000]: ").strip() or "8000"
 
             target = {
                 "host": host,
                 "port": int(port),
-                "user": user,
                 "remote_path": remote_path,
                 "container_port": int(container_port),
             }
 
+            if user:
+                target["user"] = user
+
             existing_db = _existing_database_config_for_new_target(project_path, target_name)
             if existing_db:
-                _, db_config_source = existing_db
+                db_config, db_config_source = existing_db
                 print(f"\nUsing existing database config from: {db_config_source}")
+                target["database_url"] = db_config.get("database_url", "")
+            elif local_mode:
+                print("\nNo local database config found.")
+                print(f"Please create 'config/application.{target_name}.json' with a database section first.")
+                print("\nExample format:")
+                print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
+                print('  {"backend": "sqlite", "sqlite_path": "data/ops_admin.db"}')
+                return
             else:
                 print("\nDatabase configuration:")
                 db_host = input("  DB Host [127.0.0.1]: ").strip() or "127.0.0.1"
@@ -1156,12 +1334,15 @@ def run_deploy(args) -> None:
                     print("Invalid selection.")
                 except ValueError:
                     print("Please enter a number.")
-    
-    # Get database config based on target name (also used for dry-run output)
-    db_config, db_config_source = _load_db_config_for_target(project_path, target_name, target)
+
+    local_mode = _is_local_deploy_host(target.get("host", ""))
+    config_env = _resolve_deploy_config_env(target_name, target)
+
+    # Get database config based on config environment (also used for dry-run output)
+    db_config, db_config_source = _load_db_config_for_target(project_path, config_env, target)
     if not _has_database_connection_info(db_config):
         print(f"\nNo database config found for target '{target_name}'.")
-        print(f"Please create 'config/application.{target_name}.json' with a database section.")
+        print(f"Please create 'config/application.{config_env}.json' with a database section.")
         print("\nExample format:")
         print('  {"backend": "mysql", "database_url": "mysql://user:pass@host:3306/dbname"}')
         print('  {"backend": "sqlite", "sqlite_path": "data/ops_admin.db"}')
@@ -1207,10 +1388,26 @@ def run_deploy(args) -> None:
         # Create deploy package (source + dist, no Docker image)
         package_path = temp_path / f"ops-deploy-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
         remote_path = target.get("remote_path", "/opt/ops-admin")
-        if not create_deploy_package(project_path, package_path, db_config, target_name=target_name, remote_path=remote_path):
+        if not create_deploy_package(
+            project_path,
+            package_path,
+            db_config,
+            target_name=target_name,
+            remote_path=remote_path,
+            container_port=target.get("container_port", 8000),
+        ):
             print("\nFailed to create deployment package.")
             return
-        
+
+        if local_mode:
+            if _run_local_deploy(package_path, target, db_config, target_name):
+                print()
+                print(f"Use 'ops-cli deploy logs {target_name}' to view logs.")
+                print(f"Use 'ops-cli deploy history {target_name}' to see history.")
+            else:
+                print("\nDeployment failed.")
+            return
+
         # Deploy to target (builds Docker on server)
         if do_deploy(package_path, target, db_config, target_name):
             print("\n" + "=" * 50)
@@ -1256,50 +1453,67 @@ def run_deploy_add(args) -> None:
     print("-" * 40)
     
     host = input(f"Host/IP [{args.host or '192.168.1.100'}]: ").strip() or args.host or "192.168.1.100"
-    port = input(f"SSH Port [{args.port or '22'}]: ").strip() or args.port or "22"
-    user = input(f"SSH User [{args.user or 'root'}]: ").strip() or args.user or "root"
-    
-    # Auth method selection
-    print("\nAuthentication method:")
-    print("  1. SSH Key")
-    print("  2. Password")
-    auth_choice = input("Choice [2]: ").strip() or "2"
-    
+    local_mode = _is_local_deploy_host(host)
+    port = 22
+    user = ""
     ssh_key = ""
     password = ""
-    
-    if auth_choice == "1":
-        ssh_key = input(f"SSH Key path [~/.ssh/id_rsa]: ").strip() or "~/.ssh/id_rsa"
+
+    if local_mode:
+        print("\nLocal Docker target detected; SSH settings will be skipped.")
     else:
-        import getpass
-        # Use command line password if provided
-        if args.password:
-            password = args.password
+        port = int(input(f"SSH Port [{args.port or '22'}]: ").strip() or args.port or "22")
+        user = input(f"SSH User [{args.user or 'root'}]: ").strip() or args.user or "root"
+
+        # Auth method selection
+        print("\nAuthentication method:")
+        print("  1. SSH Key")
+        print("  2. Password")
+        auth_choice = input("Choice [2]: ").strip() or "2"
+
+        if auth_choice == "1":
+            ssh_key = input(f"SSH Key path [~/.ssh/id_rsa]: ").strip() or "~/.ssh/id_rsa"
         else:
-            password = getpass.getpass("Password: ").strip()
-        if not password:
-            print("Password required.")
-            return
-    
-    remote_path = getattr(args, "remote_path", None) or input(f"Remote path [/opt/ops-admin]: ").strip() or "/opt/ops-admin"
+            import getpass
+            # Use command line password if provided
+            if args.password:
+                password = args.password
+            else:
+                password = getpass.getpass("Password: ").strip()
+            if not password:
+                print("Password required.")
+                return
+
+    remote_default = "/tmp/ops-admin" if local_mode else "/opt/ops-admin"
+    remote_path = getattr(args, "remote_path", None) or input(f"Remote path [{remote_default}]: ").strip() or remote_default
     container_port = getattr(args, "container_port", None) or input(f"Container port [8000]: ").strip() or "8000"
-    
-    # Database URL
-    print("\nDatabase configuration:")
-    print("-" * 40)
-    db_url = input("Database URL (运维提供): ").strip()
-    if not db_url:
-        print("Database URL required.")
-        return
+
+    existing_db = _existing_database_config_for_new_target(
+        project_path,
+        _resolve_deploy_config_env(name, {"database_env": name}),
+    )
+    if existing_db:
+        db_config, db_config_source = existing_db
+        print(f"\nUsing existing database config from: {db_config_source}")
+        db_url = db_config.get("database_url", "")
+    else:
+        # Database URL
+        print("\nDatabase configuration:")
+        print("-" * 40)
+        db_url = input("Database URL (运维提供): ").strip()
+        if not db_url:
+            print("Database URL required.")
+            return
     
     target = {
         "host": host,
         "port": int(port),
-        "user": user,
         "remote_path": remote_path,
         "database_url": db_url,
         "container_port": int(container_port),
     }
+    if user:
+        target["user"] = user
     
     # Add auth method
     if ssh_key:

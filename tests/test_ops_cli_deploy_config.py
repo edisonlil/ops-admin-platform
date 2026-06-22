@@ -19,6 +19,8 @@ from ops_cli.commands.deploy import (  # noqa: E402
     _format_deploy_environment_preview,
     _has_database_connection_info,
     _load_db_config_for_target,
+    _is_local_deploy_host,
+    _render_deploy_compose_content,
 )
 
 
@@ -95,6 +97,13 @@ def test_deploy_copy_env_can_be_subcommand_with_source_and_destination() -> None
     assert args.subcommand == "copy-env"
     assert args.target == "dev"
     assert args.target_to == "prod"
+
+
+def test_local_deploy_host_detection() -> None:
+    assert _is_local_deploy_host("127.0.0.1")
+    assert _is_local_deploy_host("localhost")
+    assert _is_local_deploy_host("[::1]")
+    assert not _is_local_deploy_host("10.0.0.8")
 
 
 def test_copy_deploy_environment_creates_new_target_and_application_config(tmp_path: Path) -> None:
@@ -308,7 +317,153 @@ def test_interactive_first_deploy_target_reuses_application_env_database_config(
     assert saved["dev"]["host"] == "10.217.19.163"
     assert saved["dev"]["user"] == "wps-tool"
     assert saved["dev"]["remote_path"] == "/opt/chattodo/ops-chattodo-admin"
-    assert "database_url" not in saved["dev"]
+    assert saved["dev"]["database_url"] == "mysql://app"
+
+
+def test_deploy_add_skips_ssh_fields_for_local_host(tmp_path: Path, monkeypatch) -> None:
+    saved: dict = {}
+
+    class FakeConfig:
+        def get_current_project(self) -> dict:
+            return {"path": str(tmp_path)}
+
+    responses = iter(
+        [
+            "local",
+            "127.0.0.1",
+            "/tmp/ops-admin",
+            "8000",
+            "mysql://root:secret@127.0.0.1:3306/localdb",
+        ]
+    )
+
+    monkeypatch.setattr(deploy_command, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(deploy_command, "get_deploy_targets", lambda project_path: {})
+    monkeypatch.setattr(
+        deploy_command,
+        "save_deploy_targets",
+        lambda targets, project_path: saved.update(targets),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+
+    args = SimpleNamespace(
+        name=None,
+        host=None,
+        port=None,
+        user=None,
+        password=None,
+        remote_path=None,
+        container_port=None,
+    )
+
+    deploy_command.run_deploy_add(args)
+
+    assert saved["local"]["host"] == "127.0.0.1"
+    assert "user" not in saved["local"]
+    assert "ssh_key" not in saved["local"]
+    assert "password" not in saved["local"]
+    assert saved["local"]["remote_path"] == "/tmp/ops-admin"
+    assert saved["local"]["database_url"] == "mysql://root:secret@127.0.0.1:3306/localdb"
+
+
+def test_deploy_add_reuses_existing_local_database_config(tmp_path: Path, monkeypatch) -> None:
+    saved: dict = {}
+
+    class FakeConfig:
+        def get_current_project(self) -> dict:
+            return {"path": str(tmp_path)}
+
+    write_json(
+        tmp_path / "config" / "application.local-db.json",
+        {"database": {"backend": "mysql", "database_url": "mysql://root:pass@127.0.0.1:3306/devdb"}},
+    )
+
+    responses = iter([
+        "local-db",
+        "127.0.0.1",
+        "/tmp/ops-admin",
+        "8000",
+    ])
+
+    monkeypatch.setattr(deploy_command, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(deploy_command, "get_deploy_targets", lambda project_path: {})
+    monkeypatch.setattr(
+        deploy_command,
+        "save_deploy_targets",
+        lambda targets, project_path: saved.update(targets),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+
+    args = SimpleNamespace(
+        name=None,
+        host=None,
+        port=None,
+        user=None,
+        password=None,
+        remote_path=None,
+        container_port=None,
+    )
+
+    deploy_command.run_deploy_add(args)
+
+    assert saved["local-db"]["database_url"] == "mysql://root:pass@127.0.0.1:3306/devdb"
+
+
+def test_deploy_uses_local_docker_path_for_local_host(tmp_path: Path, monkeypatch) -> None:
+    class FakeConfig:
+        def get_current_project(self) -> dict:
+            return {"path": str(tmp_path)}
+
+    target = {
+        "host": "127.0.0.1",
+        "remote_path": str(tmp_path / "deploy"),
+        "container_port": 8000,
+    }
+
+    package_path = tmp_path / "package.tar.gz"
+    package_path.write_bytes(b"fake")
+    calls: list[str] = []
+
+    monkeypatch.setattr(deploy_command, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(deploy_command, "get_deploy_targets", lambda project_path: {"local": target})
+    monkeypatch.setattr(deploy_command, "run_build", lambda project_path: True)
+    monkeypatch.setattr(deploy_command, "create_deploy_package", lambda *args, **kwargs: True)
+    monkeypatch.setattr(deploy_command, "_run_local_deploy", lambda *args, **kwargs: calls.append("local") or True)
+    monkeypatch.setattr(deploy_command, "do_deploy", lambda *args, **kwargs: calls.append("ssh") or True)
+    monkeypatch.setattr(deploy_command, "ask_confirmation", lambda *args, **kwargs: True)
+    monkeypatch.setattr(deploy_command, "_load_db_config_for_target", lambda *args, **kwargs: ({"backend": "sqlite", "sqlite_path": "data/ops_admin.db"}, "config/application.local.json"))
+
+    deploy_command.run_deploy(SimpleNamespace(target="local", yes=True, dry_run=False, password=None))
+
+    assert calls == ["local"]
+
+
+def test_deploy_existing_local_target_uses_local_path(tmp_path: Path, monkeypatch) -> None:
+    class FakeConfig:
+        def get_current_project(self) -> dict:
+            return {"path": str(tmp_path)}
+
+    target = {
+        "host": "127.0.0.1",
+        "remote_path": str(tmp_path / "deploy"),
+        "container_port": 8000,
+        "database_url": "mysql://root:pass@127.0.0.1:3306/localdb",
+    }
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(deploy_command, "get_config", lambda: FakeConfig())
+    monkeypatch.setattr(deploy_command, "get_deploy_targets", lambda project_path: {"local": target})
+    monkeypatch.setattr(deploy_command, "run_build", lambda project_path: True)
+    monkeypatch.setattr(deploy_command, "create_deploy_package", lambda *args, **kwargs: True)
+    monkeypatch.setattr(deploy_command, "_run_local_deploy", lambda *args, **kwargs: calls.append("local") or True)
+    monkeypatch.setattr(deploy_command, "do_deploy", lambda *args, **kwargs: calls.append("ssh") or True)
+    monkeypatch.setattr(deploy_command, "ask_confirmation", lambda *args, **kwargs: True)
+    monkeypatch.setattr(deploy_command, "_load_db_config_for_target", lambda *args, **kwargs: ({"backend": "mysql", "database_url": "mysql://root:pass@127.0.0.1:3306/localdb"}, "config/application.local.json"))
+
+    deploy_command.run_deploy(SimpleNamespace(target="local", yes=True, dry_run=False, password=None))
+
+    assert calls == ["local"]
 
 
 def test_deploy_add_uses_container_port_and_remote_path_options(tmp_path: Path, monkeypatch) -> None:
@@ -355,6 +510,8 @@ def test_deploy_add_uses_container_port_and_remote_path_options(tmp_path: Path, 
 
 
 def test_deploy_compose_template_disables_cors_restrictions() -> None:
-    deploy_source = (OPS_CLI_ROOT / "ops_cli" / "commands" / "deploy.py").read_text(encoding="utf-8")
+    compose = _render_deploy_compose_content("ops-admin-backend-local", 8000)
 
-    assert "FG_AGENT_CORS_ORIGINS=*" in deploy_source
+    assert "FG_AGENT_CORS_ORIGINS=*" in compose
+    assert 'container_name: ops-admin-backend-local' in compose
+    assert '- "8000:8000"' in compose
