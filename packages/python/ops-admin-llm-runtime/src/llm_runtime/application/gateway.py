@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import time
 import uuid
 from typing import Any, Iterable, Iterator
@@ -181,6 +182,7 @@ def stream_chat_completions(
             return
         started_at = time.perf_counter()
         content_parts: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
         try:
             for event in invoke_stream_chat_completions(
                 client,
@@ -190,11 +192,23 @@ def stream_chat_completions(
                 tool_choice=tool_choice,
                 enable_think_output=entry.enable_think_output if enable_think_output is None else enable_think_output,
             ):
-                content_parts.append(stream_event_content(event))
-                yield event
+                event_tool_calls = stream_event_tool_calls(event)
+                if event_tool_calls:
+                    tool_calls.extend(event_tool_calls)
+                visible_content = filter_stream_chunk(stream_event_content(event))
+                if visible_content:
+                    content_parts.append(visible_content)
+                event = rewrite_stream_event(
+                    event,
+                    visible_content=visible_content,
+                    fallback_tool_calls=event_tool_calls,
+                )
+                if event:
+                    yield event
             response = LLMResponse(
                 content="".join(content_parts),
                 elapsed_seconds=time.perf_counter() - started_at,
+                tool_calls=tool_calls,
             )
             repo().record_call_log(
                 conn,
@@ -708,6 +722,70 @@ def stream_event_content(event: str) -> str:
     except Exception:
         return ""
     return str((((payload.get("choices") or [{}])[0].get("delta") or {}).get("content") or ""))
+
+
+def stream_event_tool_calls(event: str) -> list[dict[str, Any]]:
+    if not event.startswith("data: "):
+        return []
+    data = event.removeprefix("data: ").strip()
+    if not data or data == "[DONE]":
+        return []
+    try:
+        payload = json.loads(data)
+    except Exception:
+        return []
+    choices = payload.get("choices") if isinstance(payload.get("choices"), list) else []
+    first_choice = choices[0] if choices else {}
+    delta = first_choice.get("delta") if isinstance(first_choice, dict) else {}
+    if not isinstance(delta, dict):
+        return []
+    raw_calls = delta.get("tool_calls") or delta.get("skill_calls") or delta.get("calls") or []
+    return raw_calls if isinstance(raw_calls, list) else []
+
+
+MINIMAX_TOOL_CALL_PATTERN = re.compile(r"minimax:tool_call\s*(<invoke\b.*?</invoke>)", flags=re.IGNORECASE | re.DOTALL)
+XML_TOOL_CALL_PATTERN = re.compile(r"<tool_call>\s*.*?\s*</tool_call>", flags=re.IGNORECASE | re.DOTALL)
+
+
+def filter_stream_chunk(text: str) -> str:
+    sanitized = MINIMAX_TOOL_CALL_PATTERN.sub("", str(text or ""))
+    sanitized = XML_TOOL_CALL_PATTERN.sub("", sanitized)
+    return sanitized.strip()
+
+
+def rewrite_stream_event(
+    event: str,
+    *,
+    visible_content: str,
+    fallback_tool_calls: list[dict[str, Any]],
+) -> str:
+    if not event.startswith("data: "):
+        return event
+    data = event.removeprefix("data: ").strip()
+    if not data or data == "[DONE]":
+        return event
+    try:
+        payload = json.loads(data)
+    except Exception:
+        return event
+    choices = payload.get("choices") if isinstance(payload.get("choices"), list) else []
+    first_choice = choices[0] if choices else None
+    if not isinstance(first_choice, dict):
+        return event
+    delta = first_choice.get("delta") if isinstance(first_choice.get("delta"), dict) else None
+    if not isinstance(delta, dict):
+        return event
+    updated = False
+    original_content = delta.get("content")
+    if isinstance(original_content, str) and original_content != visible_content:
+        delta["content"] = visible_content
+        updated = True
+    if fallback_tool_calls and not isinstance(delta.get("tool_calls"), list):
+        delta["tool_calls"] = fallback_tool_calls
+        updated = True
+    if not updated:
+        return event
+    return sse_data(payload)
 
 
 def is_recoverable_error(exc: Exception) -> bool:

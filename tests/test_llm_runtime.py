@@ -12,7 +12,7 @@ import base64
 
 from PIL import Image
 
-from framework.llm_core import LLMResponse, OpenAICompatibleLLMClient
+from framework.llm_core import LLMResponse, MiniMaxLLMClient, OpenAICompatibleLLMClient
 from ai_runtime_core.prompt_runtime import media_content_part
 from ai_runtime_core.prompt_runtime import media_content_parts
 from ai_capabilities.application import services as ai_capabilities
@@ -411,6 +411,48 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("you are an assistant", system_content)
         self.assertIn("## Developer Notes", system_content)
         self.assertIn("respond in chinese", system_content)
+
+    def test_minimax_function_calls_text_is_normalized_to_tool_calls(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": (
+                                        "文档已提取，继续处理格式转换。\n"
+                                        "<function_calls>\n"
+                                        '<invoke name="pdf-fast-handler">\n'
+                                        '<input>{"cli_args":["extract","-p","80-120","/tmp/demo.pdf"]}</input>\n'
+                                        "</invoke>\n"
+                                        "</function_calls>"
+                                    )
+                                }
+                            }
+                        ],
+                        "usage": {},
+                    }
+                ).encode("utf-8")
+
+        client = MiniMaxLLMClient(
+            api_key="sk-test",
+            base_url="https://api.minimaxi.com/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()):
+            response = client.generate_chat_response([{"role": "user", "content": "hi"}])
+
+        self.assertEqual(response.content, "文档已提取，继续处理格式转换。")
+        self.assertEqual(len(response.tool_calls), 1)
+        self.assertEqual(response.tool_calls[0]["function"]["name"], "pdf-fast-handler")
+        self.assertIn("cli_args", response.tool_calls[0]["function"]["arguments"])
 
     def test_siliconflow_developer_without_system_promotes_to_system(self) -> None:
         """没有 system 时，第一段 developer 应被提升为 system。"""
@@ -3714,6 +3756,4 @@ class LLMRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
 

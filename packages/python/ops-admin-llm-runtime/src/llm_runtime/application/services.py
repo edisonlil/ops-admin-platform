@@ -375,6 +375,8 @@ def create_openai_chat_completion(payload: dict[str, Any]) -> dict[str, Any]:
         return gateway.chat_completions(
             model=str(payload.get("model", "")).strip(),
             messages=payload.get("messages") or [],
+            tools=payload.get("tools") if isinstance(payload.get("tools"), list) else None,
+            tool_choice=payload.get("tool_choice"),
             temperature=payload.get("temperature"),
             response_format=payload.get("response_format") if isinstance(payload.get("response_format"), dict) else None,
             extra_body={
@@ -396,6 +398,8 @@ def create_openai_chat_completion_stream(payload: dict[str, Any]) -> list[str]:
         return gateway.stream_chat_completions(
             model=str(payload.get("model", "")).strip(),
             messages=payload.get("messages") or [],
+            tools=payload.get("tools") if isinstance(payload.get("tools"), list) else None,
+            tool_choice=payload.get("tool_choice"),
             temperature=payload.get("temperature"),
             response_format=payload.get("response_format") if isinstance(payload.get("response_format"), dict) else None,
             extra_body={
@@ -881,5 +885,4 @@ def _config_bool(*configs: dict[str, Any], key: str) -> bool:
         if isinstance(extra_body, dict) and key in extra_body:
             return bool(extra_body.get(key))
     return False
-
 

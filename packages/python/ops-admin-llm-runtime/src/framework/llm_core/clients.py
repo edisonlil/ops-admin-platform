@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Protocol
+from xml.etree import ElementTree as ET
 
 
 class LLMClient(Protocol):
@@ -136,12 +137,26 @@ class MiniMaxLLMClient:
         usage = data.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
+        content, embedded_tool_calls = normalize_minimax_function_calls(content)
+        parsed_tool_calls = parse_tool_calls(message)
+        if not parsed_tool_calls:
+            parsed_tool_calls = embedded_tool_calls
+        if not parsed_tool_calls:
+            parsed_tool_calls = parse_xml_tool_calls(content)
+        if not parsed_tool_calls:
+            parsed_tool_calls = parse_minimax_tool_calls(content)
         content, think_content = normalize_think_output(
             content,
             think_content=think_content,
             enable_think_output=think_output_enabled,
         )
-        return LLMResponse(content=content, elapsed_seconds=elapsed_seconds, usage=usage, think_content=think_content)
+        return LLMResponse(
+            content=content,
+            elapsed_seconds=elapsed_seconds,
+            usage=usage,
+            think_content=think_content,
+            tool_calls=parsed_tool_calls,
+        )
 
     def generate(self, prompt: str, *, enable_think_output: bool | None = None) -> str:
         return self.generate_response(prompt, enable_think_output=enable_think_output).content
@@ -265,6 +280,10 @@ class OpenAICompatibleLLMClient:
         usage = data.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
+        if not tool_calls:
+            tool_calls = parse_xml_tool_calls(content)
+        if not tool_calls:
+            tool_calls = parse_minimax_tool_calls(content)
         content, think_content = normalize_think_output(
             content,
             think_content=think_content,
@@ -314,6 +333,7 @@ class OpenAICompatibleLLMClient:
 
 
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
+MINIMAX_TOOL_CALL_PATTERN = re.compile(r"minimax:tool_call\s*(<invoke\b.*?</invoke>)", flags=re.IGNORECASE | re.DOTALL)
 
 # `role: "developer"` 是 OpenAI 在 o 系列推理模型上引入的指令分层角色。
 # 截至目前，全行业只有 OpenAI 原生（含 Azure OpenAI 的 o 系列）支持该 role；
@@ -400,7 +420,7 @@ def normalize_tool_call_arguments(value: Any) -> dict[str, Any]:
 
 def parse_tool_calls(message: Any) -> list[dict[str, Any]]:
     if not isinstance(message, dict):
-      return []
+        return []
     raw_calls = message.get("tool_calls") or message.get("skill_calls") or message.get("calls") or []
     if not isinstance(raw_calls, list):
         return []
@@ -423,6 +443,119 @@ def parse_tool_calls(message: Any) -> list[dict[str, Any]]:
             }
         )
     return parsed
+
+
+MINIMAX_FUNCTION_CALLS_PATTERN = re.compile(r"<function_calls\b[^>]*>.*?</function_calls>", flags=re.IGNORECASE | re.DOTALL)
+
+
+def normalize_minimax_function_calls(content: str) -> tuple[str, list[dict[str, Any]]]:
+    if "<function_calls" not in content.lower():
+        return content, []
+
+    tool_calls: list[dict[str, Any]] = []
+
+    def replace_block(match: re.Match[str]) -> str:
+        block = match.group(0)
+        tool_calls.extend(parse_minimax_function_calls_block(block))
+        return ""
+
+    cleaned_content = MINIMAX_FUNCTION_CALLS_PATTERN.sub(replace_block, content).strip()
+    return cleaned_content, tool_calls
+
+
+def parse_minimax_function_calls_block(block: str) -> list[dict[str, Any]]:
+    try:
+        root = ET.fromstring(block)
+    except Exception:
+        return []
+
+    parsed: list[dict[str, Any]] = []
+    for index, invoke in enumerate(root.findall(".//invoke"), start=1):
+        name = str(invoke.get("name") or "").strip()
+        input_node = invoke.find("input")
+        input_text = "".join(input_node.itertext()).strip() if input_node is not None else ""
+        parsed.append(
+            {
+                "id": f"minimax-call-{index}",
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(normalize_tool_call_arguments(input_text), ensure_ascii=False),
+                },
+            }
+        )
+    return parsed
+
+
+def parse_xml_tool_calls(text: Any) -> list[dict[str, Any]]:
+    raw = message_text(text).strip()
+    if not raw:
+        return []
+    calls: list[dict[str, Any]] = []
+    for match in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", raw, flags=re.IGNORECASE | re.DOTALL):
+        payload_text = match.group(1).strip()
+        if not payload_text:
+            continue
+        try:
+            payload = json.loads(payload_text)
+        except Exception:
+            continue
+        raw_calls = payload if isinstance(payload, list) else [payload]
+        for item in raw_calls:
+            if not isinstance(item, dict):
+                continue
+            tool_name = str(item.get("name") or item.get("tool") or "").strip()
+            if not tool_name:
+                continue
+            arguments = item.get("parameters") if isinstance(item.get("parameters"), dict) else item.get("arguments")
+            normalized_arguments = arguments if isinstance(arguments, dict) else normalize_tool_call_arguments(arguments)
+            calls.append(
+                {
+                    "id": f"xml_{len(calls) + 1}",
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": json.dumps(normalized_arguments, ensure_ascii=False),
+                    },
+                }
+            )
+    return calls
+
+
+def parse_minimax_tool_calls(text: Any) -> list[dict[str, Any]]:
+    raw = message_text(text).strip()
+    if not raw:
+        return []
+    calls: list[dict[str, Any]] = []
+    for match in MINIMAX_TOOL_CALL_PATTERN.finditer(raw):
+        block = match.group(1).strip()
+        name_match = re.search(r"<invoke\b[^>]*name\s*=\s*[\"']?([^\"'>\s]+)", block, flags=re.IGNORECASE)
+        if not name_match:
+            name_match = re.search(r"<invoke>\s*<name>\s*([^<\s]+)\s*</name>", block, flags=re.IGNORECASE)
+        if not name_match:
+            continue
+        tool_name = name_match.group(1).strip()
+        args: dict[str, Any] = {}
+        for arg_match in re.finditer(
+            r"<parameter\b[^>]*name\s*=\s*[\"']?([^\"'>\s]+)[\"']?\s*>(.*?)</parameter>",
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        ):
+            param_name = arg_match.group(1).strip()
+            param_value = arg_match.group(2).strip()
+            if param_name:
+                args[param_name] = param_value
+        calls.append(
+            {
+                "id": f"minimax_{len(calls) + 1}",
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps(args, ensure_ascii=False),
+                },
+            }
+        )
+    return calls
 
 
 def collapse_developer_role_to_system(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
