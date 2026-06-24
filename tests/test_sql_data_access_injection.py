@@ -38,15 +38,18 @@ class SQLDataAccessInjectionTests(unittest.TestCase):
         self.assertEqual(params, (7, 10))
 
     def test_join_requires_source_alias(self) -> None:
-        request = SQLDataAccessInjectionRequest(
-            sql="SELECT d.name, m.id FROM demo_documents d JOIN demo_document_members m ON m.document_id = d.id",
-            params=(),
-            resource=ResourceDescriptor(resource_key="demo.document"),
-            predicate=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+        sql, params = inject_data_access_into_select(
+            SQLDataAccessInjectionRequest(
+                sql="SELECT d.name, m.id FROM demo_documents d JOIN demo_document_members m ON m.document_id = d.id",
+                params=(),
+                resource=ResourceDescriptor(resource_key="demo.document"),
+                predicate=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+            )
         )
 
-        with self.assertRaises(SQLDataAccessInjectionError):
-            inject_data_access_into_select(request)
+        self.assertIn("d.tenant_id = ?", sql)
+        self.assertIn("d.owner_user_id = ?", sql)
+        self.assertEqual(params, (7, 10))
 
     def test_join_can_target_configured_source_alias(self) -> None:
         sql, params = inject_data_access_into_select(
@@ -62,6 +65,17 @@ class SQLDataAccessInjectionTests(unittest.TestCase):
         self.assertIn("d.tenant_id = ?", sql)
         self.assertIn("d.owner_user_id = ?", sql)
         self.assertEqual(params, (7, 10))
+
+    def test_subquery_from_requires_explicit_source_table_or_alias(self) -> None:
+        request = SQLDataAccessInjectionRequest(
+            sql="SELECT * FROM (SELECT * FROM demo_documents) x JOIN demo_document_members m ON m.document_id = x.id",
+            params=(),
+            resource=ResourceDescriptor(resource_key="demo.document"),
+            predicate=DataAccessPredicate(tenant_id=7, scope=SCOPE_SELF, user_id=10),
+        )
+
+        with self.assertRaises(SQLDataAccessInjectionError):
+            inject_data_access_into_select(request)
 
     def test_relation_table_injects_exists_against_target_alias(self) -> None:
         sql, params = inject_data_access_into_select(

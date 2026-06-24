@@ -97,10 +97,10 @@ def resolve_target_table(expression: exp.Expression, *, source_table: str = "", 
         if len(matches) != 1:
             raise SQLDataAccessInjectionError("data_access.source_table 未匹配到唯一数据表")
         table = matches[0]
-    elif len(tables) == 1:
-        table = tables[0]
     else:
-        raise SQLDataAccessInjectionError("多表 SQL 需要配置 data_access.source_table 或 source_alias")
+        table = default_target_table(expression)
+        if table is None:
+            raise SQLDataAccessInjectionError("多表 SQL 无法唯一识别主表")
     select = ancestor_select(table)
     if select is None:
         raise SQLDataAccessInjectionError("无法定位数据表所属 SELECT")
@@ -110,6 +110,14 @@ def resolve_target_table(expression: exp.Expression, *, source_table: str = "", 
     if not normalized_identifier(alias):
         raise SQLDataAccessInjectionError("数据表别名不是合法 SQL 标识符")
     return TargetTable(table=table, select=select, alias=alias)
+
+
+def default_target_table(expression: exp.Expression) -> exp.Table | None:
+    from_clause = expression.args.get("from_")
+    if isinstance(from_clause, exp.From):
+        if isinstance(from_clause.this, exp.Table):
+            return from_clause.this
+    return None
 
 
 def optional_identifier(value: str, label: str) -> str:
