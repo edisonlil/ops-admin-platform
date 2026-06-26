@@ -984,6 +984,18 @@
     handleRefresh();
   }
 
+  function refreshSplitFromFirstPage(name: 'master' | 'detail') {
+    splitPaginationState.value = {
+      ...splitPaginationState.value,
+      [name]: {
+        ...getSplitPaginationState(name),
+        page: DEFAULT_PAGE,
+      },
+    };
+    emitRuntimeChange();
+    void handleSplitRefresh(name);
+  }
+
   function handleFilterSubmit() {
     refreshFromFirstPage();
   }
@@ -994,12 +1006,12 @@
   }
 
   async function handleDetailFilterSubmit() {
-    await handleSplitRefresh('detail');
+    refreshSplitFromFirstPage('detail');
   }
 
   function handleDetailFilterReset() {
     emit('detailFilterReset');
-    void handleSplitRefresh('detail');
+    refreshSplitFromFirstPage('detail');
   }
 
   function getRuntimeColumns(view: CollectionViewSchema<Row>): TableColumnPreferenceSchema<Row>[] {

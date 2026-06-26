@@ -40,6 +40,7 @@
           clearable
           placeholder="状态"
           :options="statusOptions"
+          @update:value="reloadItems"
         />
       </template>
     </ListPageRuntime>
@@ -638,6 +639,7 @@
     itemCode.value = '';
     itemValue.value = '';
     itemStatus.value = null;
+    itemRuntimeState.value = {};
   }
 
   async function reloadTypes(preferredTypeId?: number) {
