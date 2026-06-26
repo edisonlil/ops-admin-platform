@@ -268,7 +268,6 @@ class OpenAICompatibleLLMClient:
         if not isinstance(message, dict):
             raise RuntimeError(f"{self.provider_name} response message must be an object")
         content = message_text(message.get("content"))
-        tool_calls = parse_tool_calls(message)
         think_content = first_text(
             message.get("reasoning_content"),
             message.get("reasoning"),
@@ -280,6 +279,7 @@ class OpenAICompatibleLLMClient:
         usage = data.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
+        tool_calls: list[dict[str, Any]] = parse_tool_calls(message)
         if not tool_calls:
             tool_calls = parse_xml_tool_calls(content)
         if not tool_calls:

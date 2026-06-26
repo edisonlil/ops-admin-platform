@@ -527,6 +527,30 @@ class LLMRuntimeTests(unittest.TestCase):
         # 两段 developer 都标注来源
         self.assertEqual(system_content.count("## Developer Notes"), 2)
 
+    def test_openai_compatible_client_handles_plain_text_without_tools(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({"choices": [{"message": {"content": "ok"}}], "usage": {}}).encode("utf-8")
+
+        client = OpenAICompatibleLLMClient(
+            provider_name="deepseek",
+            api_key="sk-test",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com/v1",
+            timeout_seconds=3,
+        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()):
+            response = client.generate_chat_response([{"role": "user", "content": "hi"}])
+
+        self.assertEqual(response.content, "ok")
+        self.assertEqual(response.tool_calls, [])
+
     def test_openai_provider_preserves_developer_role(self) -> None:
         """OpenAI 原生 o 系列支持 role=developer，必须原样保留分层语义。"""
 
@@ -3756,4 +3780,3 @@ class LLMRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
