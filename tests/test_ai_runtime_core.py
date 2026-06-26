@@ -53,6 +53,36 @@ class AIRuntimeCoreTests(unittest.TestCase):
         self.assertEqual([item["node_id"] for item in result.trace["workflow"]["nodes"]], ["start", "llm_1", "end"])
         self.assertNotIn("summary", result.trace["workflow"]["nodes"][0]["output"]["variables"])
 
+    def test_workflow_end_node_keeps_empty_output_empty(self) -> None:
+        definition = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {
+                    "id": "llm_1",
+                    "type": "llm",
+                    "data": {
+                        "model": "dashscope.qwen-plus",
+                        "user_prompt_template": "{{content}}",
+                        "output_key": "answer",
+                    },
+                },
+                {"id": "end", "type": "end", "data": {"output": "{{records.rows}}"}},
+            ],
+            "edges": [
+                {"source": "start", "target": "llm_1"},
+                {"source": "llm_1", "target": "end"},
+            ],
+        }
+
+        result = execute_workflow(
+            definition,
+            {"content": "hello"},
+            llm_executor=lambda request: WorkflowLLMResult(answer='{"errcode":"20050"}', model=request.model),
+        )
+
+        self.assertEqual(result.answer, "")
+        self.assertEqual(result.trace["workflow"]["nodes"][-1]["output"]["answer"], "")
+
     def test_workflow_condition_routes_false_branch(self) -> None:
         definition = {
             "nodes": [

@@ -262,7 +262,8 @@ def iter_workflow_events(
                 trace_node["branch"] = "true" if matched else "false"
             elif node_type == "end":
                 output = execute_end_node(node, context, answer)
-                answer = str(output.get("answer") or answer)
+                output_answer = output.get("answer")
+                answer = "" if output_answer is None else str(output_answer)
                 trace_node["status"] = "success"
                 trace_node["output"] = snapshot_value(output)
                 trace_node["elapsed_ms"] = elapsed_ms(started_at)
