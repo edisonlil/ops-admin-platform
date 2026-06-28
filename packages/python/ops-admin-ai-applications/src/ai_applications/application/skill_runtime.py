@@ -13,6 +13,7 @@ from typing import Any, Protocol
 
 from fastapi import HTTPException
 
+from ai_applications.application import runtime_files
 from ai_assets.application import services as skill_asset_services
 
 
@@ -24,6 +25,8 @@ BUILTIN_EXECUTOR_KEYS = {"log_zip_error_inspector", "log_zip_analysis", "log_ana
 DEFAULT_SKILL_RESULT_VARIABLE = "_skills"
 DEFAULT_SKILL_CALL_BUDGET = 3
 MAX_SKILL_CALL_BUDGET = 10
+MAX_SANDBOX_WORKSPACE_FILES = 120
+MAX_SANDBOX_WORKSPACE_FILE_BYTES = 5 * 1024 * 1024
 LOG_ZIP_TEXT_EXTENSIONS = {
     ".err",
     ".json",
@@ -184,6 +187,7 @@ class SkillRuntimePlan:
     app_key: str
     app_type: str
     tenant_id: int
+    current_user: dict[str, Any] | None = None
     app_runtime_config: dict[str, Any] = field(default_factory=dict)
     toolbox: list[SkillDescriptor] = field(default_factory=list)
     required_calls: list[SkillCall] = field(default_factory=list)
@@ -205,10 +209,11 @@ def prepare_skill_runtime(
     variables: dict[str, Any],
     *,
     app_type: str,
+    current_user: dict[str, Any] | None = None,
 ) -> SkillRuntimePlan:
     tenant_id = int(app.get("tenant_id") or 0)
     toolbox = resolve_toolbox(app, tenant_id=tenant_id, app_type=app_type)
-    files = collect_files(payload, variables)
+    files = resolve_runtime_file_inputs(collect_files(payload, variables), current_user=current_user)
     required_calls = [
         SkillCall(skill_key=descriptor.binding.skill_key, input={"files": files, "variables": variables}, alias=descriptor.binding.alias)
         for descriptor in toolbox
@@ -220,6 +225,7 @@ def prepare_skill_runtime(
         app_key=str(app.get("app_key") or ""),
         app_type=app_type,
         tenant_id=tenant_id,
+        current_user=current_user,
         app_runtime_config=runtime_config,
         toolbox=toolbox,
         required_calls=required_calls,
@@ -646,6 +652,30 @@ def collect_files(payload: dict[str, Any], variables: dict[str, Any]) -> list[di
     return normalized
 
 
+def resolve_runtime_file_inputs(
+    files: list[dict[str, Any]],
+    *,
+    current_user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    normalized = [dict(item) for item in files if isinstance(item, dict)]
+    if not current_user:
+        return normalized
+    resolved: list[dict[str, Any]] = []
+    for item in normalized:
+        if not runtime_files.runtime_value_needs_file_lookup(item):
+            resolved.append(item)
+            continue
+        try:
+            hydrated = runtime_files.hydrate_runtime_file_item(item, current_user=current_user)
+        except HTTPException as exc:
+            message = exc.detail if isinstance(exc.detail, str) else "failed to read uploaded runtime file"
+            raise SkillRuntimeError(str(message)) from exc
+        except RuntimeError as exc:
+            raise SkillRuntimeError(str(exc)) from exc
+        resolved.append(dict(hydrated) if isinstance(hydrated, dict) else item)
+    return resolved
+
+
 def safe_planning_value(value: Any, *, max_text: int = 2000) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
@@ -682,7 +712,8 @@ def execute_skill_call(
     run_id = f"skill_{int(started_at * 1000)}_{descriptor.binding.skill_key}"
     try:
         input_payload = build_skill_input(plan, call)
-        output = execute_skill_by_runtime(plan, descriptor, input_payload)
+        prepared_input, workspace_files = prepare_skill_execution_input(plan, input_payload)
+        output = execute_skill_by_runtime(plan, descriptor, prepared_input, workspace_files=workspace_files)
         elapsed = int((time.perf_counter() - started_at) * 1000)
         return SkillExecutionResult(
             skill_key=descriptor.binding.skill_key,
@@ -708,14 +739,70 @@ def build_skill_input(plan: SkillRuntimePlan, call: SkillCall) -> dict[str, Any]
     return payload
 
 
+def prepare_skill_execution_input(
+    plan: SkillRuntimePlan,
+    input_payload: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    prepared = dict(input_payload)
+    raw_files = prepared.get("files") if isinstance(prepared.get("files"), list) else []
+    resolved_files = resolve_runtime_file_inputs(raw_files, current_user=plan.current_user)
+    files_with_paths, workspace_files = build_workspace_file_inputs(resolved_files)
+    prepared["files"] = files_with_paths
+    return prepared, workspace_files
+
+
+def build_workspace_file_inputs(files: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from ai_applications.application import agent_file_tools
+
+    normalized_files: list[dict[str, Any]] = []
+    workspace_files: list[dict[str, Any]] = []
+    used_paths: set[str] = set()
+    for index, item in enumerate(files[:MAX_SANDBOX_WORKSPACE_FILES], start=1):
+        normalized = dict(item)
+        normalized_files.append(normalized)
+        data = agent_file_tools.upload_bytes(normalized)
+        if data is None or len(data) > MAX_SANDBOX_WORKSPACE_FILE_BYTES:
+            continue
+        path = unique_workspace_upload_path(
+            agent_file_tools.safe_filename(normalized.get("name") or normalized.get("filename") or f"upload-{index}.bin"),
+            used_paths,
+        )
+        workspace_files.append(
+            {
+                "path": path,
+                "base64": base64.b64encode(data).decode("ascii"),
+            }
+        )
+        normalized["path"] = path
+    return normalized_files, workspace_files
+
+
+def unique_workspace_upload_path(filename: str, used_paths: set[str]) -> str:
+    candidate = f"uploads/{filename}"
+    if candidate not in used_paths:
+        used_paths.add(candidate)
+        return candidate
+    path = Path(filename)
+    stem = path.stem or "upload"
+    suffix = path.suffix
+    for index in range(2, 1000):
+        candidate = f"uploads/{stem}-{index}{suffix}"
+        if candidate not in used_paths:
+            used_paths.add(candidate)
+            return candidate
+    raise SkillRuntimeError("too many uploaded files with the same file name")
+
+
 def execute_skill_by_runtime(
     plan: SkillRuntimePlan,
     descriptor: SkillDescriptor,
     input_payload: dict[str, Any],
+    *,
+    workspace_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
     runtime_kind = descriptor.runtime_kind
     if runtime_kind in SANDBOX_RUNTIME_KINDS:
-        return execute_sandbox_skill(plan, descriptor, input_payload)
+        return execute_sandbox_skill(plan, descriptor, input_payload, workspace_files=workspace_files)
     if runtime_kind in LLM_TASK_RUNTIME_KINDS:
         return execute_llm_task_skill(plan, descriptor, input_payload)
     if runtime_kind in BUILTIN_RUNTIME_KINDS or descriptor.executor_key in BUILTIN_EXECUTOR_KEYS:
@@ -745,6 +832,8 @@ def execute_sandbox_skill(
     plan: SkillRuntimePlan,
     descriptor: SkillDescriptor,
     input_payload: dict[str, Any],
+    *,
+    workspace_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
     request = {
         "tenant_id": plan.tenant_id,
@@ -758,6 +847,7 @@ def execute_sandbox_skill(
         "package_sha256": descriptor.resolved.get("package_sha256") or "",
         "package_files": descriptor.resolved.get("package_files") if isinstance(descriptor.resolved.get("package_files"), list) else [],
         "input": input_payload,
+        "workspace_files": workspace_files,
         "runtime_config": descriptor.runtime_config,
         "app_runtime_config": plan.app_runtime_config,
         "runtime_constraints": descriptor.runtime_constraints,

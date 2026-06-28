@@ -5,6 +5,7 @@ from io import BytesIO
 import zipfile
 
 from ai_applications.application import agent_tools
+from ai_applications.application import runtime_files
 from ai_applications.application import skill_runtime
 
 
@@ -96,6 +97,66 @@ def test_sandbox_skill_uses_configured_runner(monkeypatch) -> None:
     assert captured["skill_key"] == "python-tool"
     assert captured["runtime_kind"] == "sandbox_python"
     assert captured["runtime_constraints"]["network"] == "none"
+
+
+def test_sandbox_skill_materializes_uploaded_runtime_file_refs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        skill_runtime,
+        "resolve_published_skill",
+        lambda skill_key, *, tenant_id: {
+            "skill_key": skill_key,
+            "name": skill_key,
+            "resolved_version": "1.0.0",
+            "manifest": {"runtime": {"kind": "sandbox_python"}, "entrypoint": "main.py"},
+            "runtime_constraints": {},
+            "content": "print('ok')",
+            "content_sha256": "abc",
+        },
+    )
+    captured: dict = {}
+
+    class FakeRuntimeFileReadPort:
+        def read_runtime_file(self, **kwargs):
+            return {
+                "file_id": kwargs["file_id"] or 9,
+                "file_ref": kwargs["file_ref"] or "file_9",
+                "name": "需求说明.pdf",
+                "mime_type": "application/pdf",
+                "size": 8,
+                "data_url": "data:application/pdf;base64,JVBERi0xLjc=",
+            }
+
+    class FakeRunner:
+        def run(self, request: dict) -> dict:
+            captured.update(request)
+            return {"status": "success", "output": {"answer": "ok"}}
+
+    runtime_files.configure_runtime_file_read_port(FakeRuntimeFileReadPort())
+    skill_runtime.configure_sandbox_runner(FakeRunner())
+    try:
+        app = {
+            "app_key": "single-turn",
+            "app_type": "single_turn_generation",
+            "tenant_id": 1,
+            "runtime_config": {"skills": [{"skill_key": "pdf-tool", "mode": "required"}]},
+        }
+        payload = {"files": [{"type": "file", "name": "需求说明.pdf", "file_ref": "file_9"}]}
+        plan = skill_runtime.prepare_skill_runtime(
+            app,
+            payload,
+            {},
+            app_type="single_turn_generation",
+            current_user={"tenant_id": 1, "user_id": 1},
+        )
+        results = skill_runtime.execute_pre_model_skills(plan)
+    finally:
+        runtime_files.configure_runtime_file_read_port(None)
+        skill_runtime.configure_sandbox_runner(None)
+
+    assert results[0].output == {"answer": "ok"}
+    assert captured["input"]["files"][0]["file_ref"] == "file_9"
+    assert captured["input"]["files"][0]["path"] == "uploads/需求说明.pdf"
+    assert captured["workspace_files"] == [{"path": "uploads/需求说明.pdf", "base64": "JVBERi0xLjc="}]
 
 
 def test_llm_task_skill_uses_configured_runner(monkeypatch) -> None:

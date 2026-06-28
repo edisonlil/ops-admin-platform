@@ -355,7 +355,7 @@ def stream_draft_application(app_key: str, payload: dict[str, Any], current_user
     if app.get("app_type") == "agent":
         raise HTTPException(status_code=422, detail="Agent applications must run through agent conversation APIs")
     try:
-        prepared = prepare_single_turn_run(app, payload, require_published=False)
+        prepared = prepare_single_turn_run(app, payload, require_published=False, current_user=current_user)
     except skill_runtime.SkillRuntimeError as exc:
         raise skill_http_error(exc) from exc
     return stream_single_turn_application(prepared, caller_type="studio_draft")
@@ -1035,6 +1035,7 @@ def execute_single_turn_application(
     caller_type: str,
     require_published: bool,
     caller_key: str | None = None,
+    current_user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if app.get("app_type") != "single_turn_generation":
         raise HTTPException(status_code=422, detail="Only single_turn_generation is supported in milestone 1")
@@ -1042,7 +1043,7 @@ def execute_single_turn_application(
         raise HTTPException(status_code=409, detail="AI application is not published")
 
     try:
-        prepared = prepare_single_turn_run(app, payload, require_published=require_published)
+        prepared = prepare_single_turn_run(app, payload, require_published=require_published, current_user=current_user)
     except skill_runtime.SkillRuntimeError as exc:
         raise skill_http_error(exc) from exc
     app_for_run = prepared["app"]
@@ -1154,6 +1155,7 @@ def execute_application(
         caller_type=caller_type,
         caller_key=caller_key,
         require_published=require_published,
+        current_user=current_user,
     )
 
 
@@ -1498,7 +1500,13 @@ def sql_cursor_columns(cursor: Any) -> list[str]:
     return [str(item[0]) for item in description if item]
 
 
-def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, require_published: bool) -> dict[str, Any]:
+def prepare_single_turn_run(
+    app: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    require_published: bool,
+    current_user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if app.get("app_type") != "single_turn_generation":
         raise HTTPException(status_code=422, detail="Only single_turn_generation is supported in milestone 1")
     if require_published and app.get("status") != "published":
@@ -1514,6 +1522,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
         payload,
         variables,
         app_type="single_turn_generation",
+        current_user=current_user,
     )
     planning_content = render_template(str(app_for_run.get("user_prompt_template") or ""), variables)
     plan_agent_skills_if_enabled(
@@ -1529,7 +1538,7 @@ def prepare_single_turn_run(app: dict[str, Any], payload: dict[str, Any], *, req
     skill_results = skill_runtime.execute_pre_model_skills(skill_plan)
     variables = skill_runtime.merge_skill_results_into_variables(variables, skill_plan, skill_results)
     validate_variables(app_for_run, variables)
-    collected_files = skill_runtime.collect_files(payload, variables)
+    collected_files = list(skill_plan.files)
     if single_turn_tools_requested(app_for_run, payload, collected_files):
         try:
             file_workspace = agent_file_tools.prepare_workspace(
@@ -2136,7 +2145,13 @@ def prepare_agent_run(
     model = resolve_model(app_for_run, payload)
     temperature = resolve_temperature(app_for_run, payload)
     configure_skill_llm_task_runner(app_for_run, payload, model=model, temperature=temperature)
-    skill_plan = skill_runtime.prepare_skill_runtime(app_for_run, payload, variables, app_type="agent")
+    skill_plan = skill_runtime.prepare_skill_runtime(
+        app_for_run,
+        payload,
+        variables,
+        app_type="agent",
+        current_user=current_user,
+    )
     plan_agent_skills_if_enabled(
         app_for_run,
         payload,
@@ -2154,7 +2169,7 @@ def prepare_agent_run(
             app_for_run,
             conversation,
             payload,
-            skill_runtime.collect_files(payload, variables),
+            list(skill_plan.files),
             skill_plan=skill_plan,
         )
     except agent_file_tools.AgentFileToolError as exc:
@@ -3311,5 +3326,3 @@ def read_trace_one(loader: Any) -> dict[str, Any] | None:
             return loader(conn)
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=f"database error: {exc}") from exc
-
-

@@ -33,6 +33,18 @@ class FakeRuntimeFileReadPort:
         }
 
 
+class FakeRuntimeBinaryFileReadPort:
+    def read_runtime_file(self, **kwargs):
+        return {
+            "file_id": kwargs["file_id"] or 7,
+            "file_ref": kwargs["file_ref"] or "file_7",
+            "name": "spec.pdf",
+            "mime_type": "application/pdf",
+            "size": 7,
+            "data_url": "data:application/pdf;base64,JVBERi0xLjc=",
+        }
+
+
 def test_upload_runtime_variable_file_uses_configured_port() -> None:
     runtime_files.configure_runtime_file_upload_port(FakeRuntimeFileUploadPort())
     result = runtime_files.upload_runtime_variable_file(
@@ -71,3 +83,13 @@ def test_workflow_file_extractor_hydrates_file_ref_content() -> None:
     assert result.text == "已解析内容"
     assert result.files[0]["file_ref"] == "file_42"
     assert result.files[0]["text"] == "已解析内容"
+
+
+def test_hydrate_runtime_file_item_populates_binary_data_url() -> None:
+    runtime_files.configure_runtime_file_read_port(FakeRuntimeBinaryFileReadPort())
+    result = runtime_files.hydrate_runtime_file_item(
+        {"type": "file", "name": "spec.pdf", "file_ref": "file_7"},
+        current_user={"tenant_id": 1, "user_id": 1},
+    )
+    assert result["file_ref"] == "file_7"
+    assert result["data_url"] == "data:application/pdf;base64,JVBERi0xLjc="
