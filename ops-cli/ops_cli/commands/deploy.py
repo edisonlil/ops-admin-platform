@@ -549,6 +549,20 @@ def _resolve_deploy_config_env(target_name: str, target: dict) -> str:
     return str(target.get("database_env") or target_name or "local").strip() or "local"
 
 
+def _frontend_dependencies_ready(frontend_path: Path) -> bool:
+    """Return whether the frontend has a usable local Vite install."""
+    node_modules = frontend_path / "node_modules"
+    if not node_modules.exists():
+        return False
+
+    bin_dir = node_modules / ".bin"
+    vite_bin_names = ("vite.cmd", "vite") if sys.platform == "win32" else ("vite", "vite.cmd")
+    if any((bin_dir / name).exists() for name in vite_bin_names):
+        return True
+
+    return (node_modules / "vite" / "package.json").exists()
+
+
 def run_build(project_path: Path) -> bool:
     """Build frontend."""
     frontend_path = project_path / "web" / "admin"
@@ -559,10 +573,12 @@ def run_build(project_path: Path) -> bool:
     print("\nBuilding frontend...")
     try:
         pm = "pnpm.cmd" if sys.platform == "win32" else "pnpm"
+        if shutil.which(pm) is None:
+            print(f"Frontend build error: {pm} not found in PATH")
+            return False
         
-        # Install dependencies if needed
-        node_modules = frontend_path / "node_modules"
-        if not node_modules.exists():
+        # Install dependencies when node_modules is missing or incomplete.
+        if not _frontend_dependencies_ready(frontend_path):
             print("Installing frontend dependencies...")
             subprocess.run(
                 [pm, "install"],
@@ -588,7 +604,8 @@ def run_build(project_path: Path) -> bool:
             print("Frontend built successfully.")
             return True
         else:
-            print(f"Frontend build failed: {result.stderr}")
+            details = (result.stderr or result.stdout or "unknown error").strip()
+            print(f"Frontend build failed: {details}")
             return False
     except subprocess.TimeoutExpired:
         print("Frontend build timed out.")
