@@ -590,6 +590,10 @@
     min-width: 0;
   }
 
+  .prompt-library-page :deep(.app-collection-view__card-grid) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .prompt-form {
     display: grid;
     gap: 18px;
@@ -797,6 +801,24 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  @media (max-width: 1500px) {
+    .prompt-library-page :deep(.app-collection-view__card-grid) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .prompt-library-page :deep(.app-collection-view__card-grid) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 720px) {
+    .prompt-library-page :deep(.app-collection-view__card-grid) {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   @media (max-width: 900px) {
